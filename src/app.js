@@ -847,6 +847,9 @@ const restoreHistoryVersion = (reportId, lastModified) => {
         report.location     = snapshot.location;
         report.time         = snapshot.time;
         report.yourAnalysis = snapshot.yourAnalysis;
+        // Snapshots taken before custom fields existed have no `custom`; keep
+        // the current values rather than wiping them.
+        if ('custom' in snapshot) report.custom = { ...snapshot.custom };
         report.updated      = report.history.length > 0;
         report.lastModified = now;
         // Attribute the restore to the operator who performed it.
