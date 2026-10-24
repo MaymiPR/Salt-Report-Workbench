@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-24
+
+First tagged release. SALT logging with real-time LAN sync over Server-Sent
+Events, offline mode, edit history with restore, workspaces, a read-only viewer
+port, a per-launch access code, the report builder (SALT and SALT-U presets,
+custom fields with their own table columns), BDA tracking with a pre-paired
+checklist, and backup, CSV, and MTI exports.
+
+Changes below are relative to the untracked build this release grew out of.
+
 ### Fixed
 
 - Backup writes no longer block requests. The whole save used to run while
@@ -45,14 +55,6 @@ All notable changes to this project are documented here. The format follows
 - CI: lint, tests on Python 3.10–3.13 and on Windows, and a build smoke test. ([#1])
 - Ruff, pre-commit, EditorConfig, and a Makefile. ([#1])
 - README, architecture notes, and contributing, security, and conduct guides. ([#1])
-
-## [2.0.0] - 2026-10-24
-
-First version under version control: SALT logging with real-time LAN sync over
-Server-Sent Events, offline mode, edit history with restore, workspaces, a
-read-only viewer port, a per-launch access code, the report builder (SALT and
-SALT-U presets, custom fields with their own table columns), BDA tracking with a
-pre-paired checklist, and backup, CSV, and MTI exports.
 
 [Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.0.0...HEAD
 [2.0.0]: https://github.com/MaymiPR/SaltReportWorkbench/releases/tag/v2.0.0
