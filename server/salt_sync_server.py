@@ -21,14 +21,19 @@ PORT: int     = 8080
 HOST: str     = '0.0.0.0'
 # Viewer port — second listener, POSTs return 405. `--viewer-port 0` disables. Bind failure is non-fatal for editor.
 VIEWER_PORT: int | None = 8081
-BACKUP_DIR    = 'Auto Backups'
+_HERE = os.path.dirname(os.path.abspath(__file__))
+# Next to the server (as documented), not the launch directory.
+BACKUP_DIR    = os.path.join(_HERE, 'Auto Backups')
 MAX_BODY_BYTES: int          = 1024 * 1024  # 1 MB cap on incoming POST bodies
 SAVE_DEBOUNCE_SECONDS: float = 0.5          # coalesce rapid mutations into one disk write
 
-WORKBENCH_HTML = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    'Salt Report Workbench.html'
+# The bundled page sits beside the server in a built `dist/` folder; when run
+# straight from `server/` during development, fall back to `../dist/`.
+WORKBENCH_CANDIDATES = (
+    os.path.join(_HERE, 'index.html'),
+    os.path.join(_HERE, os.pardir, 'dist', 'index.html'),
 )
+WORKBENCH_HTML = next((p for p in WORKBENCH_CANDIDATES if os.path.isfile(p)), WORKBENCH_CANDIDATES[0])
 BACKUP_START = '##SALT_BACKUP##'
 BACKUP_END   = '##SALT_BACKUP_END##'
 
@@ -775,7 +780,7 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
         elif path == '/api/events':
             if not self._authorized(): return
             self._handle_sse()
-        elif path in ('/', '/Salt%20Report%20Workbench.html', '/Salt Report Workbench.html'):
+        elif path in ('/', '/index.html', '/Salt%20Report%20Workbench.html'):   # last: legacy bookmark
             # HTML serve is unauthenticated; startup modal gates data endpoints.
             self._serve_workbench()
         else:
@@ -881,7 +886,7 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
     def _serve_workbench(self) -> None:
         content = _get_workbench_html()
         if content is None:
-            self.send_error(404, 'Salt Report Workbench.html not found in server directory')
+            self.send_error(404, 'index.html not found - run `python scripts/build.py` first')
             return
         # Viewer port: pre-set body class so edit UI is hidden before JS runs (avoids flash).
         view_only = getattr(self.server, 'view_only', False)
@@ -1164,8 +1169,8 @@ def run_boot_dashboard(viewer_port: int | None = None) -> None:
 def parse_cli_args() -> argparse.Namespace:
     """CLI knobs for port, bind, backup dir, auto-launch, access code."""
     p = argparse.ArgumentParser(
-        prog='salt_sync_server_py3',
-        description='S.A.L.T. Report Workbench sync server (Python 3.11).',
+        prog='salt_sync_server',
+        description='S.A.L.T. Report Workbench sync server.',
     )
     p.add_argument('--port', type=int, default=PORT,
                    help=f'HTTP port to listen on (default: {PORT}).')
