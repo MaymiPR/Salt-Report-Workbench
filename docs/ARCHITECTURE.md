@@ -147,7 +147,9 @@ means it's time to send a heartbeat. Broadcasts copy the client list under
 
 `scripts/build.py` replaces the page's single `<link rel="stylesheet">` and
 `<script src>` with inline copies of `styles.css` and `app.js`, writes
-`dist/index.html`, and copies the server beside it. It fails if either
-placeholder is missing rather than shipping a broken page. The page's favicon is
-an inline data URI for the same reason everything else is inline: the file has
-to work with no network at all.
+`dist/index.html`, and copies the server and the Windows launcher beside it.
+The launcher is written with CRLF line endings whatever the checkout used,
+because cmd.exe misparses batch files with bare LF endings. The build fails if
+either placeholder is missing rather than shipping a broken page. The page's
+favicon is an inline data URI for the same reason everything else is inline:
+the file has to work with no network at all.
