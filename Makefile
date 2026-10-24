@@ -17,12 +17,14 @@ build:  ## Bundle src/ into a runnable dist/
 run: build  ## Build, then start the server
 	$(PY) dist/salt_sync_server.py
 
-test:  ## Run the test suite
+test:  ## Run the test suites (Python, then JavaScript)
 	$(PY) -m unittest discover -s tests
+	node --test tests/js/core.test.js
 
 lint:  ## Lint Python and syntax-check the JavaScript
 	ruff check .
 	ruff format --check .
+	node --check src/core.js
 	node --check src/app.js
 
 format:  ## Auto-format Python

@@ -2,14 +2,14 @@
 
 r"""Build a self-contained, ready-to-run distribution of the workbench.
 
-Reads the frontend sources in ``src/`` and inlines the stylesheet and script
+Reads the frontend sources in ``src/`` and inlines the stylesheet and scripts
 into a single ``index.html``, then copies the sync server next to it::
 
-    src/index.html  src/styles.css  src/app.js   server/salt_sync_server.py
-                \         |           /                    |
-                 inline CSS + JS into one HTML              copy
-                              \                             /
-                               dist/index.html   dist/salt_sync_server.py
+    src/index.html  styles.css  core.js  app.js    server/salt_sync_server.py
+                \         |        |       /                  |
+                  inline CSS + JS into one HTML               copy
+                               \                              /
+                                dist/index.html   dist/salt_sync_server.py
 
 The Windows launcher, ``server/Start SALT Workbench.bat``, is copied too. The
 resulting ``dist/`` folder is the deliverable: hand it to an operator and
@@ -35,12 +35,11 @@ DIST = ROOT / "dist"
 
 SRC_HTML = SRC / "index.html"
 SRC_CSS = SRC / "styles.css"
-SRC_JS = SRC / "app.js"
 
 # <link rel="stylesheet" ...>  and  <script src="..."></script>
 _LINK_RE = re.compile(r'[ \t]*<link[^>]+rel=["\']stylesheet["\'][^>]*/?>', re.IGNORECASE)
 _SCRIPT_RE = re.compile(
-    r'[ \t]*<script[^>]+src=["\'][^"\']*["\'][^>]*>\s*</script>', re.IGNORECASE | re.DOTALL
+    r'[ \t]*<script[^>]+src=["\']([^"\']*)["\'][^>]*>\s*</script>', re.IGNORECASE | re.DOTALL
 )
 
 
@@ -57,22 +56,34 @@ def _show(path: Path) -> str:
         return str(path)
 
 
-def bundle(html: str, css: str, js: str) -> str:
-    """Return ``html`` with its stylesheet link and script tag replaced inline.
+def script_sources(html: str) -> list[str]:
+    """The ``src`` of every external script in ``html``, in page order."""
+    return _SCRIPT_RE.findall(html)
 
-    Raises ``ValueError`` if either placeholder is missing: silently shipping an
+
+def bundle(html: str, css: str, scripts: dict[str, str]) -> str:
+    """Return ``html`` with its stylesheet link and script tags replaced inline.
+
+    ``scripts`` maps each ``<script src>`` value to that file's code. Each tag
+    is replaced where it stands, so load order is kept. Raises ``ValueError``
+    if a placeholder is missing or a script has no code: silently shipping an
     unstyled or script-less page is worse than failing the build.
     """
     css_block = f"    <style>\n{_indent(css)}\n    </style>"
-    js_block = f"    <script>\n{_indent(js)}\n    </script>"
-    # Lambdas, not plain strings: the payloads contain backslashes and "\1"
+
+    def inline_script(m: re.Match) -> str:
+        if m.group(1) not in scripts:
+            raise ValueError(f'no code for <script src="{m.group(1)}">')
+        return f"    <script>\n{_indent(scripts[m.group(1)])}\n    </script>"
+
+    # Functions, not plain strings: the payloads contain backslashes and "\1"
     # sequences that re.sub would otherwise interpret as group references.
     html, n_css = _LINK_RE.subn(lambda _m: css_block, html)
-    html, n_js = _SCRIPT_RE.subn(lambda _m: js_block, html)
+    html, n_js = _SCRIPT_RE.subn(inline_script, html)
     if n_css != 1:
         raise ValueError(f"expected 1 stylesheet <link> in {SRC_HTML.name}, found {n_css}")
-    if n_js != 1:
-        raise ValueError(f"expected 1 <script src> in {SRC_HTML.name}, found {n_js}")
+    if n_js == 0:
+        raise ValueError(f"expected a <script src> in {SRC_HTML.name}, found none")
     return html
 
 
@@ -80,7 +91,10 @@ def main() -> int:
     print("\n S.A.L.T. Report Workbench -- build")
     print(" " + "-" * 40)
 
-    missing = [p for p in (SRC_HTML, SRC_CSS, SRC_JS, SERVER, LAUNCHER) if not p.is_file()]
+    missing = [p for p in (SRC_HTML, SRC_CSS, SERVER, LAUNCHER) if not p.is_file()]
+    page = SRC_HTML.read_text(encoding="utf-8") if SRC_HTML.is_file() else ""
+    script_files = {name: SRC_HTML.parent / name for name in script_sources(page)}
+    missing += [p for p in script_files.values() if not p.is_file()]
     if missing:
         for p in missing:
             print(f" [!] missing: {_show(p)}")
@@ -88,9 +102,9 @@ def main() -> int:
 
     try:
         html = bundle(
-            SRC_HTML.read_text(encoding="utf-8"),
+            page,
             SRC_CSS.read_text(encoding="utf-8"),
-            SRC_JS.read_text(encoding="utf-8"),
+            {name: path.read_text(encoding="utf-8") for name, path in script_files.items()},
         )
     except ValueError as exc:
         print(f" [!] {exc}")

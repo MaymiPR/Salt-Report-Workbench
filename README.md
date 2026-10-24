@@ -189,13 +189,14 @@ never leaves a half-written file.
 ├── src/                      Frontend sources (edited by hand)
 │   ├── index.html            Markup and the built-in user manual
 │   ├── styles.css
-│   └── app.js
+│   ├── core.js               Pure logic (formatting, parsing, exports); unit-tested
+│   └── app.js                DOM, state, and sync
 ├── server/
 │   ├── salt_sync_server.py   Standard-library HTTP + SSE sync server
 │   └── Start SALT Workbench.bat  Windows double-click launcher
 ├── scripts/
 │   └── build.py              Bundles src/ into dist/index.html, copies the server and launcher
-├── tests/                    unittest suite: server logic, HTTP API, build
+├── tests/                    Python tests (server, HTTP API, build, launcher); js/ for core.js
 ├── assets/                   Logo, icon, banners, social preview (see BRAND.md)
 ├── docs/                     Architecture notes and screenshots
 └── dist/                     Build output (git-ignored)
@@ -211,7 +212,8 @@ The app has no dependencies, and the dev tools are optional.
 ```bash
 python scripts/build.py                  # bundle src/ into dist/
 python server/salt_sync_server.py        # run against the dev build
-python -m unittest discover -s tests     # 66 tests, standard library only
+python -m unittest discover -s tests     # server, build, launcher: standard library only
+node --test tests/js/core.test.js        # the page's logic: Node's built-in runner
 
 pip install ruff==0.17.2 pre-commit      # optional tooling
 ruff check . && ruff format --check .
@@ -238,7 +240,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and conventions.
 - **Undo** for delete and restore.
 - **Sortable Size, Activity, and Location columns.**
 - **An audit log** of edits and deletions, kept by the server.
-- **Frontend tests**, once the pure functions in `app.js` are split from DOM code.
+- **Browser tests** for the DOM layer in `app.js`; its pure logic is already
+  covered through `core.js`.
 
 ## Security
 

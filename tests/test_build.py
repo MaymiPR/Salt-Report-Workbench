@@ -26,7 +26,7 @@ PAGE = """<!DOCTYPE html>
 
 class BundleTests(unittest.TestCase):
     def test_inlines_stylesheet_and_script(self):
-        out = build.bundle(PAGE, "body { color: red; }", "console.info(1);")
+        out = build.bundle(PAGE, "body { color: red; }", {"app.js": "console.info(1);"})
         self.assertIn("<style>", out)
         self.assertIn("body { color: red; }", out)
         self.assertIn("console.info(1);", out)
@@ -37,19 +37,31 @@ class BundleTests(unittest.TestCase):
         # The payload is passed through a lambda precisely so re.sub does not
         # treat "\1" or "\n" in the source as replacement-template syntax.
         js = r'const rx = /(\d+)$/; s.replace(/a(b)/, "\1"); const nl = "\n";'
-        out = build.bundle(PAGE, "", js)
+        out = build.bundle(PAGE, "", {"app.js": js})
         self.assertIn(js, out)
 
     def test_other_link_tags_are_left_alone(self):
         page = PAGE.replace("<head>", '<head>\n    <link rel="icon" href="data:image/svg+xml,x">')
-        out = build.bundle(page, "", "")
+        out = build.bundle(page, "", {"app.js": ""})
         self.assertIn('rel="icon"', out)
+
+    def test_every_script_is_inlined_in_page_order(self):
+        page = PAGE.replace(
+            '<script src="app.js"></script>',
+            '<script src="core.js"></script>\n    <script src="app.js"></script>',
+        )
+        self.assertEqual(build.script_sources(page), ["core.js", "app.js"])
+        out = build.bundle(page, "", {"core.js": "var CORE = 1;", "app.js": "use(CORE);"})
+        self.assertLess(out.index("var CORE = 1;"), out.index("use(CORE);"))
+        self.assertNotIn("<script src", out)
 
     def test_missing_placeholders_fail_the_build(self):
         with self.assertRaisesRegex(ValueError, "stylesheet"):
-            build.bundle("<html><script src='a.js'></script></html>", "", "")
+            build.bundle("<html><script src='a.js'></script></html>", "", {"a.js": ""})
         with self.assertRaisesRegex(ValueError, "script"):
-            build.bundle('<html><link rel="stylesheet" href="s.css"></html>', "", "")
+            build.bundle('<html><link rel="stylesheet" href="s.css"></html>', "", {})
+        with self.assertRaisesRegex(ValueError, "b.js"):
+            build.bundle(PAGE.replace("app.js", "b.js"), "", {"app.js": ""})
 
 
 class MainTests(unittest.TestCase):
@@ -62,7 +74,8 @@ class MainTests(unittest.TestCase):
             self.assertEqual(build.main(), 0)
         html = (self.tmp / "dist" / "index.html").read_text(encoding="utf-8")
         self.assertIn("<style>", html)
-        self.assertNotIn('<script src="app.js">', html)
+        self.assertNotIn("<script src=", html)
+        self.assertIn("SaltCore", html)
         self.assertTrue((self.tmp / "dist" / "salt_sync_server.py").is_file())
         launcher = (self.tmp / "dist" / build.LAUNCHER.name).read_bytes()
         self.assertIn(b"salt_sync_server.py", launcher)
@@ -70,7 +83,20 @@ class MainTests(unittest.TestCase):
         self.assertEqual(launcher.count(b"\n"), launcher.count(b"\r\n"))
 
     def test_missing_source_returns_nonzero(self):
-        with mock.patch.object(build, "SRC_JS", self.tmp / "nope.js"), mock.patch("builtins.print"):
+        with (
+            mock.patch.object(build, "SRC_CSS", self.tmp / "nope.css"),
+            mock.patch("builtins.print"),
+        ):
+            self.assertEqual(build.main(), 1)
+
+    def test_missing_script_returns_nonzero(self):
+        page = self.tmp / "index.html"
+        page.write_text(PAGE.replace("app.js", "gone.js"), encoding="utf-8")
+        with (
+            mock.patch.object(build, "SRC_HTML", page),
+            mock.patch.object(build, "DIST", self.tmp / "dist"),
+            mock.patch("builtins.print"),
+        ):
             self.assertEqual(build.main(), 1)
 
 
