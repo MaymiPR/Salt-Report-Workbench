@@ -6,6 +6,49 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Confirming a prompt no longer also runs an earlier prompt that was left
+  unanswered. One click on Confirm could unload, delete, or restore something
+  the dialog wasn't showing.
+- Importing a backup that holds several workspaces (such as an "Export All
+  ATOs" file) restores all of them. Only the active one used to reach the
+  server, and the sync that followed erased the rest.
+- A report the server refuses (a field over its length limit, an upload over
+  the size cap) is reported with the server's reason. It used to show
+  "logged & copied" and "Online & Synced", then vanish on the next sync.
+  Changes that can't reach the server stay queued, and a sync no longer
+  pulls over them. Form fields now carry the server's length limits.
+- Importing someone else's reports no longer makes the server attribute your
+  later edits to them.
+- Restoring an earlier version restores its custom field values too.
+- Updating a report that another operator deleted now says so, instead of
+  silently copying an empty report over the clipboard.
+- Esc on a new report clears custom fields along with the rest.
+- A corrupt value in browser storage no longer stops the app from starting.
+- Server: an oversized or refused upload gets its error reply instead of a
+  connection reset, a negative `Content-Length` is refused at once, and a
+  cookie with non-ASCII characters is denied instead of getting no response.
+- Server: `HEAD` requests no longer report the size and date of files beside
+  the server.
+- Server: `--access-code` refuses a blank value, which used to open the editor
+  port to anyone, and characters a browser cookie can't carry.
+- The access-code box accepts codes longer than 10 characters, so a custom
+  `--access-code` can be typed in.
+
+### Changed
+
+- The upload cap is 16 MB instead of 1 MB. Every push carries the whole
+  workspace, and a long operation outgrows 1 MB.
+- The ⋯ menu's "Clear All Data" is now "Clear Workspace", which is what it
+  does. It shares Unload's behavior, so it also clears the title and form.
+- The server reports unexpected errors on its console instead of swallowing
+  them, and lines up its startup banner.
+
+### Removed
+
+- `archive/`, two old snapshots that nothing used. They remain in git history.
+
 ## [2.1.1] - 2026-10-24
 
 ### Changed

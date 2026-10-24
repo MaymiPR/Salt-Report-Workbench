@@ -9,6 +9,9 @@ personal attacks, and publishing others' private information are not tolerated.
 ## Reporting
 
 Report unacceptable behavior to the maintainer, [@MaymiPR](https://github.com/MaymiPR),
-by direct message on GitHub. Reports are handled privately, and the maintainer
-will take whatever action is fair and appropriate, up to removing someone from
-the project.
+through the repository's
+[private reporting form](https://github.com/MaymiPR/SaltReportWorkbench/security/advisories/new).
+It is meant for security issues, but only the maintainer can see what you send,
+so it works for conduct reports too. Reports are handled privately, and the
+maintainer will take whatever action is fair and appropriate, up to removing
+someone from the project.
