@@ -11,6 +11,7 @@ import secrets
 import select
 import socket
 import socketserver
+import sys
 import tempfile
 import threading
 import time
@@ -25,7 +26,12 @@ VIEWER_PORT: int | None = 8081
 _HERE = os.path.dirname(os.path.abspath(__file__))
 # Next to the server (as documented), not the launch directory.
 BACKUP_DIR = os.path.join(_HERE, 'Auto Backups')
-MAX_BODY_BYTES: int = 1024 * 1024  # 1 MB cap on incoming POST bodies
+# Cap on incoming POST bodies. Every push carries a whole workspace, so this has
+# to fit a long operation's worth of reports with their history.
+MAX_BODY_BYTES: int = 16 * 1024 * 1024
+# Refused bodies up to this size are read and dropped so the client gets the
+# error reply (see SaltSyncHandler._discard_body); larger ones just close.
+MAX_DRAIN_BYTES: int = 2 * MAX_BODY_BYTES
 SAVE_DEBOUNCE_SECONDS: float = 0.5  # coalesce rapid mutations into one disk write
 
 # The bundled page sits beside the server in a built `dist/` folder; when run
@@ -73,6 +79,8 @@ _save_timer_lock = threading.Lock()
 # Alphabet excludes confusables (0/O, 1/l/I, 5/S) for radio-readability.
 ACCESS_CODE_ALPHABET = '2346789ABCDEFGHJKLMNPQRTUVWXYZ'  # no 0/O, 1/I/l, 5/S
 ACCESS_CODE_LENGTH = 10
+# --access-code overrides: characters a browser cookie carries unchanged.
+ACCESS_CODE_OVERRIDE_RE = re.compile(r'[A-Za-z0-9_-]{1,64}')
 # Set at boot (parse_cli_args). None means access-code auth is disabled.
 _access_code: str | None = None
 
@@ -232,8 +240,9 @@ def _check_access_code(headers, view_only: bool, client_ip: str) -> bool:
     if _is_localhost(client_ip):
         return True
     submitted = (_get_cookie(headers, 'salt_access') or '').upper()
-    # Constant-time compare to avoid timing-leak guesses.
-    return secrets.compare_digest(submitted, _access_code)
+    # Constant-time compare to avoid timing-leak guesses. Bytes, because
+    # compare_digest raises on str with non-ASCII characters.
+    return secrets.compare_digest(submitted.encode(), _access_code.encode())
 
 
 def _get_workbench_html() -> bytes | None:
@@ -509,7 +518,7 @@ _rate_lock = threading.Lock()
 
 def rate_limit_check(ip: str) -> bool:
     """Token-bucket consume; True allowed, False rate-limited. Lazy refill on access."""
-    now = time.time()
+    now = time.monotonic()  # immune to wall-clock changes
     with _rate_lock:
         # Lazy prune fires only on first contact for a new IP — keeps dict bounded without a thread.
         if ip not in _rate_buckets:
@@ -804,7 +813,7 @@ def save_data_to_disk() -> None:
 # =============================================================================
 
 
-class SaltSyncHandler(server.SimpleHTTPRequestHandler):
+class SaltSyncHandler(server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return  # suppress per-request console noise
 
@@ -840,19 +849,36 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
         else:
             self.send_error(404)
 
-    def _authorized(self) -> bool:
+    def _authorized(self, body_length: int = 0) -> bool:
         """Editor-port code check; sends 401 + False if denied. Viewer/localhost always pass."""
         view_only = getattr(self.server, 'view_only', False)
         if _check_access_code(self.headers, view_only, self.client_address[0]):
             return True
-        self._send_json(
-            {
-                'status': 'error',
-                'message': 'Access denied. Enter the access code from the server console.',
-            },
-            401,
+        self._refuse(
+            401, 'Access denied. Enter the access code from the server console.', body_length
         )
         return False
+
+    def _discard_body(self, length: int) -> None:
+        """Read and drop the body of a request that is being refused.
+
+        Closing a socket with unread data in it makes the OS reset the
+        connection, and the client can lose the error reply in the reset
+        (reliably so on Windows). Bodies too large to be worth reading just get
+        the connection closed after the reply.
+        """
+        self.close_connection = True
+        if length > MAX_DRAIN_BYTES:
+            return
+        self.connection.settimeout(5)  # a client that stops sending must not hold the thread
+        with contextlib.suppress(OSError):
+            while length > 0 and (chunk := self.rfile.read(min(length, 65536))):
+                length -= len(chunk)
+
+    def _refuse(self, status: int, message: str, body_length: int) -> None:
+        """Send an error reply to a POST without processing its body."""
+        self._discard_body(body_length)
+        self._send_json({'status': 'error', 'message': message}, status)
 
     def _handle_sync(self) -> None:
         """Full sync payload. Cached prefix + dynamic tail (connected counts).
@@ -976,30 +1002,31 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split('?', 1)[0]
+        # Content-Length first: the refusals below need it to drop the body,
+        # and a bad header should report as 400, not "Invalid JSON".
+        try:
+            length = int(self.headers.get('Content-Length', '0'))
+        except (TypeError, ValueError):
+            length = -1
+        if length < 0:
+            # Unknowable body: answer and close rather than read.
+            self.close_connection = True
+            self._send_json({'status': 'error', 'message': 'Invalid Content-Length header.'}, 400)
+            return
         # Viewer port rejects every mutation up front.
         if getattr(self.server, 'view_only', False):
-            self._send_json({'status': 'error', 'message': 'This server is read-only.'}, 405)
+            self._refuse(405, 'This server is read-only.', length)
             return
         # Rate-limit before auth/body so wrong-code floods are throttled too.
         if not rate_limit_check(self.client_address[0]):
-            self._send_json(
-                {'status': 'error', 'message': 'Rate limit exceeded. Retry shortly.'}, 429
-            )
+            self._refuse(429, 'Rate limit exceeded. Retry shortly.', length)
             return
-        if not self._authorized():
-            return
-        # Parse Content-Length first so a bad header reports as 400, not "Invalid JSON".
-        raw_len = self.headers.get('Content-Length', '0')
-        try:
-            length = int(raw_len)
-        except (TypeError, ValueError):
-            self._send_json({'status': 'error', 'message': 'Invalid Content-Length header.'}, 400)
+        if not self._authorized(length):
             return
         if length > MAX_BODY_BYTES:
-            self._send_json({'status': 'error', 'message': 'Payload too large.'}, 413)
+            self._refuse(413, 'Payload too large.', length)
             return
         try:
-            # json.loads accepts bytes directly (Py3.6+).
             data = json.loads(self.rfile.read(length))
         except (ValueError, KeyError):
             self._send_json({'status': 'error', 'message': 'Invalid JSON.'}, 400)
@@ -1227,8 +1254,12 @@ class SaltSyncServer(socketserver.ThreadingTCPServer):
         super().__init__(*args, **kwargs)
 
     def handle_error(self, request, client_address):
-        """Suppress SSE socket-teardown tracebacks (normal, not actionable)."""
-        return
+        """Stay quiet when a client just goes away (closed tabs, dropped SSE
+        streams); report anything else, which is a bug worth seeing."""
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionError, TimeoutError)):
+            return
+        safe_print(f' [!] Error handling a request from {client_address[0]}: {exc!r}')
 
 
 # =============================================================================
@@ -1305,7 +1336,14 @@ def parse_cli_args() -> argparse.Namespace:
         'Everyone on the LAN can edit. Use only on a fully '
         'trusted network.',
     )
-    return p.parse_args()
+    args = p.parse_args()
+    # A blank override would match a missing cookie and silently open the
+    # editor port; other characters would not survive the browser's cookie.
+    if args.access_code is not None and not ACCESS_CODE_OVERRIDE_RE.fullmatch(
+        args.access_code.strip()
+    ):
+        p.error('--access-code must be 1-64 letters, digits, "-" or "_"')
+    return args
 
 
 def graceful_drain() -> None:
