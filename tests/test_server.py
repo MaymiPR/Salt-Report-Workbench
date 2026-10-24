@@ -96,7 +96,9 @@ class BackupFormatTests(unittest.TestCase):
         self.assertIsNone(srv.render_backup({}, {"ato": "ALPHA", "title": "T"}, {}, {}))
 
     def test_filename_comes_from_config_and_is_sanitized(self):
-        name, _ = srv.render_backup({"A/B 1": [report()]}, {"ato": "A/B 1", "title": "Recon: Day"}, {}, {})
+        name, _ = srv.render_backup(
+            {"A/B 1": [report()]}, {"ato": "A/B 1", "title": "Recon: Day"}, {}, {}
+        )
         self.assertEqual(name, "A_B_1_Recon__Day.txt")
 
     def test_filename_falls_back_to_a_real_workspace_when_config_is_empty(self):
@@ -107,7 +109,11 @@ class BackupFormatTests(unittest.TestCase):
         self.assertEqual(name, "ALPHA_Patrol.txt")
 
     def test_round_trip_preserves_all_sections(self):
-        ws = {"ALPHA": [report(custom={"W": "Overcast"}, bda=[{"target": "2x T-72", "effect": "Destroyed"}])]}
+        ws = {
+            "ALPHA": [
+                report(custom={"W": "Overcast"}, bda=[{"target": "2x T-72", "effect": "Destroyed"}])
+            ]
+        }
         cfg = {"ato": "ALPHA", "title": "Patrol"}
         profiles = {"AB": {"initials": "AB", "color": "#0a84ff"}}
         formats = {"ALPHA": {"preset": "salt", "lines": [{"type": "id"}]}}
@@ -120,8 +126,14 @@ class BackupFormatTests(unittest.TestCase):
         self.assertEqual(parsed["formats"], formats)
 
     def test_human_readable_section_lists_custom_fields_and_bda(self):
-        ws = {"ALPHA": [report(custom={"W": "Overcast"},
-                               bda=[{"target": "2x T-72", "coords": "18SUJ1", "effect": "Destroyed"}])]}
+        ws = {
+            "ALPHA": [
+                report(
+                    custom={"W": "Overcast"},
+                    bda=[{"target": "2x T-72", "coords": "18SUJ1", "effect": "Destroyed"}],
+                )
+            ]
+        }
         _, text = srv.render_backup(ws, {"ato": "ALPHA", "title": "Patrol"}, {}, {})
         self.assertIn("REPORT ALPHA001", text)
         self.assertIn("W : Overcast", text)
@@ -136,7 +148,9 @@ class BackupFormatTests(unittest.TestCase):
 
     def test_files_without_markers_or_with_corrupt_json_are_rejected(self):
         self.assertIsNone(srv._extract_json_from_file("just some notes"))
-        self.assertIsNone(srv._extract_json_from_file(f"{srv.BACKUP_START}{{not json{srv.BACKUP_END}"))
+        self.assertIsNone(
+            srv._extract_json_from_file(f"{srv.BACKUP_START}{{not json{srv.BACKUP_END}")
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -158,29 +172,43 @@ class ValidatorTests(unittest.TestCase):
         self.assertRejects(v, {"ato": "ALPHA", "reports": [{"size": "x"}]}, "missing id")
         self.assertRejects(v, {"ato": "ALPHA", "reports": [report(time="yesterday")]}, "ISO 8601")
         self.assertRejects(v, {"ato": "ALPHA", "reports": [report(size="x" * 501)]}, "size")
-        self.assertRejects(v, {"ato": "ALPHA", "reports": [report(history={})]}, "history must be a list")
+        self.assertRejects(
+            v, {"ato": "ALPHA", "reports": [report(history={})]}, "history must be a list"
+        )
 
     def test_booleans_are_not_accepted_as_timestamps(self):
         # isinstance(True, int) is True in Python; the validator must not be fooled.
-        self.assertRejects(srv._v_save_reports, {"ato": "A", "reports": [report(lm=True)]}, "lastModified")
+        self.assertRejects(
+            srv._v_save_reports, {"ato": "A", "reports": [report(lm=True)]}, "lastModified"
+        )
 
     def test_user_color_must_be_hex(self):
         bad = report(user={"initials": "AB", "color": "red"})
         self.assertRejects(srv._v_save_reports, {"ato": "A", "reports": [bad]}, "hex color")
 
     def test_custom_fields_must_be_short_strings(self):
-        self.assertRejects(srv._v_save_reports, {"ato": "A", "reports": [report(custom={"W": 5})]}, "custom")
-        self.assertRejects(srv._v_save_reports, {"ato": "A", "reports": [report(custom=[])]}, "custom")
+        self.assertRejects(
+            srv._v_save_reports, {"ato": "A", "reports": [report(custom={"W": 5})]}, "custom"
+        )
+        self.assertRejects(
+            srv._v_save_reports, {"ato": "A", "reports": [report(custom=[])]}, "custom"
+        )
 
     def test_bda_entries_are_validated(self):
-        ok = report(bda=[{"target": "2x T-72", "coords": "18SUJ1", "effect": "Destroyed", "lastModified": 1}])
+        ok = report(
+            bda=[
+                {"target": "2x T-72", "coords": "18SUJ1", "effect": "Destroyed", "lastModified": 1}
+            ]
+        )
         self.assertIsNone(srv._v_save_reports({"ato": "A", "reports": [ok]}))
         bad = report(bda=[{"target": "x", "effect": "E" * 31}])
         self.assertRejects(srv._v_save_reports, {"ato": "A", "reports": [bad]}, "effect")
 
     def test_report_format_validation(self):
         v = srv._v_save_format
-        self.assertIsNone(v({"ato": "A", "format": {"lines": [{"type": "id"}, {"type": "custom", "label": "W"}]}}))
+        self.assertIsNone(
+            v({"ato": "A", "format": {"lines": [{"type": "id"}, {"type": "custom", "label": "W"}]}})
+        )
         self.assertRejects(v, {"ato": "A", "format": {"lines": []}}, "non-empty")
         self.assertRejects(v, {"ato": "A", "format": {"lines": [{"type": "nope"}]}}, "type")
         self.assertRejects(v, {"ato": "A", "format": {"lines": [{"type": "custom"}]}}, "label")
@@ -200,18 +228,23 @@ class RateLimitTests(unittest.TestCase):
 
     def test_burst_then_reject_then_refill(self):
         clock = [1000.0]
-        with mock.patch.object(srv.time, "time", lambda: clock[0]), \
-             mock.patch.object(srv, "RATE_BUCKET_CAPACITY", 3), \
-             mock.patch.object(srv, "RATE_REFILL_PER_SECOND", 1.0):
-            self.assertEqual([srv.rate_limit_check("10.0.0.5") for _ in range(4)],
-                             [True, True, True, False])
-            clock[0] += 1.0                       # one token back
+        with (
+            mock.patch.object(srv.time, "time", lambda: clock[0]),
+            mock.patch.object(srv, "RATE_BUCKET_CAPACITY", 3),
+            mock.patch.object(srv, "RATE_REFILL_PER_SECOND", 1.0),
+        ):
+            self.assertEqual(
+                [srv.rate_limit_check("10.0.0.5") for _ in range(4)], [True, True, True, False]
+            )
+            clock[0] += 1.0  # one token back
             self.assertTrue(srv.rate_limit_check("10.0.0.5"))
             self.assertFalse(srv.rate_limit_check("10.0.0.5"))
 
     def test_buckets_are_per_ip(self):
-        with mock.patch.object(srv, "RATE_BUCKET_CAPACITY", 1), \
-             mock.patch.object(srv, "RATE_REFILL_PER_SECOND", 0.0):
+        with (
+            mock.patch.object(srv, "RATE_BUCKET_CAPACITY", 1),
+            mock.patch.object(srv, "RATE_REFILL_PER_SECOND", 0.0),
+        ):
             self.assertTrue(srv.rate_limit_check("10.0.0.1"))
             self.assertFalse(srv.rate_limit_check("10.0.0.1"))
             self.assertTrue(srv.rate_limit_check("10.0.0.2"))
@@ -232,8 +265,8 @@ class AccessCodeTests(unittest.TestCase):
         self.assertIsNone(srv._get_cookie({}, "salt_access"))
 
     def test_gate_rules(self):
-        remote = "203.0.113.9"   # TEST-NET-3: never a local address
-        good = {"Cookie": "salt_access=k7m2x9pqr3"}   # case-insensitive
+        remote = "203.0.113.9"  # TEST-NET-3: never a local address
+        good = {"Cookie": "salt_access=k7m2x9pqr3"}  # case-insensitive
         bad = {"Cookie": "salt_access=WRONGCODE2"}
         with mock.patch.object(srv, "_access_code", "K7M2X9PQR3"):
             self.assertTrue(srv._check_access_code({}, True, remote), "viewer port is never gated")
@@ -242,7 +275,9 @@ class AccessCodeTests(unittest.TestCase):
             self.assertFalse(srv._check_access_code(bad, False, remote))
             self.assertFalse(srv._check_access_code({}, False, remote))
         with mock.patch.object(srv, "_access_code", None):
-            self.assertTrue(srv._check_access_code({}, False, remote), "--no-access-code disables the gate")
+            self.assertTrue(
+                srv._check_access_code({}, False, remote), "--no-access-code disables the gate"
+            )
 
 
 # --------------------------------------------------------------------------- #
@@ -256,8 +291,11 @@ class HttpApiTests(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = Path(tempfile.mkdtemp(prefix="salt-test-"))
         page = cls.tmp / "index.html"
-        page.write_text('<html><head><meta name="salt-access-code" content=""></head>'
-                        "<body><p>workbench</p></body></html>", encoding="utf-8")
+        page.write_text(
+            '<html><head><meta name="salt-access-code" content=""></head>'
+            "<body><p>workbench</p></body></html>",
+            encoding="utf-8",
+        )
         cls.patches = [
             mock.patch.object(srv, "BACKUP_DIR", str(cls.tmp / "backups")),
             mock.patch.object(srv, "WORKBENCH_HTML", str(page)),
@@ -299,8 +337,12 @@ class HttpApiTests(unittest.TestCase):
             hdrs["Cookie"] = f"salt_access={code}"
         hdrs.update(headers or {})
         data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
-        req = urllib.request.Request((base or self.base) + path, data=data, headers=hdrs,
-                                     method="POST" if data is not None else "GET")
+        req = urllib.request.Request(
+            (base or self.base) + path,
+            data=data,
+            headers=hdrs,
+            method="POST" if data is not None else "GET",
+        )
         try:
             with urllib.request.urlopen(req, timeout=5) as resp:
                 return resp.status, resp.read()
@@ -344,7 +386,9 @@ class HttpApiTests(unittest.TestCase):
 
     def test_viewer_reads_freely_but_cannot_write(self):
         self.assertEqual(self.request("/api/sync", base=self.viewer_base, code=None)[0], 200)
-        status, _ = self.post("/api/save_reports", {"ato": "A", "reports": []}, base=self.viewer_base)
+        status, _ = self.post(
+            "/api/save_reports", {"ato": "A", "reports": []}, base=self.viewer_base
+        )
         self.assertEqual(status, 405)
 
     def test_sync_reports_mode_per_listener(self):
@@ -357,7 +401,9 @@ class HttpApiTests(unittest.TestCase):
         status, body = self.post("/api/save_reports", {"ato": "alpha", "reports": [report()]})
         self.assertEqual((status, body["status"]), (200, "success"))
         state = self.sync()
-        self.assertEqual(list(state["workspaces"]), ["ALPHA"], "ATO keys are normalized to upper case")
+        self.assertEqual(
+            list(state["workspaces"]), ["ALPHA"], "ATO keys are normalized to upper case"
+        )
         self.assertEqual(state["workspaces"]["ALPHA"][0]["size"], "2x T-72")
         self.assertEqual(state["sources"]["ALPHA"], "In-session")
 
@@ -370,7 +416,9 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(self.post("/api/nope", {})[0], 404)
 
     def test_bad_content_length_is_its_own_error(self):
-        status, raw = self.request("/api/save_reports", raw=b"{}", headers={"Content-Length": "abc"})
+        status, raw = self.request(
+            "/api/save_reports", raw=b"{}", headers={"Content-Length": "abc"}
+        )
         self.assertEqual(status, 400)
         self.assertIn(b"Content-Length", raw)
 
@@ -380,15 +428,23 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(status, 413)
 
     def test_posts_are_rate_limited(self):
-        with mock.patch.object(srv, "RATE_BUCKET_CAPACITY", 2), \
-             mock.patch.object(srv, "RATE_REFILL_PER_SECOND", 0.0):
-            codes = [self.post("/api/save_config", {"config": {"ato": "A", "title": "T"}})[0]
-                     for _ in range(3)]
+        with (
+            mock.patch.object(srv, "RATE_BUCKET_CAPACITY", 2),
+            mock.patch.object(srv, "RATE_REFILL_PER_SECOND", 0.0),
+        ):
+            codes = [
+                self.post("/api/save_config", {"config": {"ato": "A", "title": "T"}})[0]
+                for _ in range(3)
+            ]
         self.assertEqual(codes, [200, 200, 429])
 
     def test_config_and_profiles_store_known_fields_only(self):
-        self.post("/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol", "junk": "x" * 900}})
-        self.post("/api/save_profile", {"profile": {"initials": " AB", "color": "#32d74b", "junk": 1}})
+        self.post(
+            "/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol", "junk": "x" * 900}}
+        )
+        self.post(
+            "/api/save_profile", {"profile": {"initials": " AB", "color": "#32d74b", "junk": 1}}
+        )
         state = self.sync()
         self.assertEqual(state["config"], {"ato": "ALPHA", "title": "Patrol"})
         self.assertEqual(state["profiles"], {"AB": {"initials": "AB", "color": "#32d74b"}})
@@ -397,8 +453,10 @@ class HttpApiTests(unittest.TestCase):
         self.post("/api/save_profile", {"profile": {"initials": "AB", "color": "#32d74b"}})
         self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
         forged = {"initials": "ZZ", "color": "#ff453a"}
-        status, _ = self.post("/api/edit_report",
-                              {"ato": "ALPHA", "reportId": "r1", "fields": {"size": "3x T-72", "user": forged}})
+        status, _ = self.post(
+            "/api/edit_report",
+            {"ato": "ALPHA", "reportId": "r1", "fields": {"size": "3x T-72", "user": forged}},
+        )
         self.assertEqual(status, 200)
         edited = self.sync()["workspaces"]["ALPHA"][0]
         self.assertEqual(edited["size"], "3x T-72")
@@ -407,10 +465,14 @@ class HttpApiTests(unittest.TestCase):
     def test_history_entries_can_be_deleted_individually(self):
         r = report(history=[{"size": "v1", "lastModified": 10}, {"size": "v2", "lastModified": 20}])
         self.post("/api/save_reports", {"ato": "ALPHA", "reports": [r]})
-        status, body = self.post("/api/delete_history",
-                                 {"ato": "ALPHA", "deletions": [{"reportId": "r1", "lastModified": 10}]})
+        status, body = self.post(
+            "/api/delete_history",
+            {"ato": "ALPHA", "deletions": [{"reportId": "r1", "lastModified": 10}]},
+        )
         self.assertEqual((status, body["removed"]), (200, 1))
-        self.assertEqual([h["size"] for h in self.sync()["workspaces"]["ALPHA"][0]["history"]], ["v2"])
+        self.assertEqual(
+            [h["size"] for h in self.sync()["workspaces"]["ALPHA"][0]["history"]], ["v2"]
+        )
 
     def test_formats_round_trip_through_sync(self):
         fmt = {"preset": "salt-u", "lines": [{"type": "size"}, {"type": "id"}]}
@@ -427,7 +489,9 @@ class HttpApiTests(unittest.TestCase):
         srv.flush_pending_save()
         files = self.backup_files()
         self.assertIn("ALPHA_Patrol.txt", [f.name for f in files])
-        parsed = srv._extract_json_from_file((Path(srv.BACKUP_DIR) / "ALPHA_Patrol.txt").read_text("utf-8"))
+        parsed = srv._extract_json_from_file(
+            (Path(srv.BACKUP_DIR) / "ALPHA_Patrol.txt").read_text("utf-8")
+        )
         self.assertEqual(parsed["workspaces"]["ALPHA"][0]["id"], "r1")
 
     def test_unload_is_persisted_immediately(self):
@@ -461,18 +525,25 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(lock_held_during_write, [False])
 
     def test_boot_merges_every_backup_file(self):
-        for name, ws in (("ALPHA_Patrol.txt", {"ALPHA": [report()]}),
-                         ("BRAVO_Screen.txt", {"bravo": [report("b1", "BRAVO001")]})):
+        for name, ws in (
+            ("ALPHA_Patrol.txt", {"ALPHA": [report()]}),
+            ("BRAVO_Screen.txt", {"bravo": [report("b1", "BRAVO001")]}),
+        ):
             _, text = srv.render_backup(ws, {"ato": next(iter(ws)), "title": "x"}, {}, {})
             Path(srv.BACKUP_DIR).mkdir(parents=True, exist_ok=True)
             (Path(srv.BACKUP_DIR) / name).write_text(text, encoding="utf-8")
         srv.load_data_from_disk()
-        self.assertEqual(sorted(srv.DATA_STORE["workspaces"]), ["ALPHA", "BRAVO"],
-                         "keys from disk are normalized like request keys")
+        self.assertEqual(
+            sorted(srv.DATA_STORE["workspaces"]),
+            ["ALPHA", "BRAVO"],
+            "keys from disk are normalized like request keys",
+        )
 
     # -- live updates -------------------------------------------------------- #
     def test_event_stream_opens_with_an_update(self):
-        req = urllib.request.Request(self.base + "/api/events", headers={"Cookie": f"salt_access={CODE}"})
+        req = urllib.request.Request(
+            self.base + "/api/events", headers={"Cookie": f"salt_access={CODE}"}
+        )
         with contextlib.closing(urllib.request.urlopen(req, timeout=5)) as resp:
             self.assertEqual(resp.headers["Content-Type"], "text/event-stream")
             self.assertEqual(resp.readline(), b"data: update\n")

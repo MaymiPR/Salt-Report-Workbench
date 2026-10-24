@@ -34,7 +34,9 @@ SRC_JS = SRC / "app.js"
 
 # <link rel="stylesheet" ...>  and  <script src="..."></script>
 _LINK_RE = re.compile(r'[ \t]*<link[^>]+rel=["\']stylesheet["\'][^>]*/?>', re.IGNORECASE)
-_SCRIPT_RE = re.compile(r'[ \t]*<script[^>]+src=["\'][^"\']*["\'][^>]*>\s*</script>', re.IGNORECASE | re.DOTALL)
+_SCRIPT_RE = re.compile(
+    r'[ \t]*<script[^>]+src=["\'][^"\']*["\'][^>]*>\s*</script>', re.IGNORECASE | re.DOTALL
+)
 
 
 def _indent(text: str, spaces: int = 8) -> str:

@@ -56,8 +56,7 @@ class MainTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
     def test_produces_a_runnable_dist_folder(self):
-        with mock.patch.object(build, "DIST", self.tmp / "dist"), \
-             mock.patch("builtins.print"):
+        with mock.patch.object(build, "DIST", self.tmp / "dist"), mock.patch("builtins.print"):
             self.assertEqual(build.main(), 0)
         html = (self.tmp / "dist" / "index.html").read_text(encoding="utf-8")
         self.assertIn("<style>", html)
@@ -65,8 +64,7 @@ class MainTests(unittest.TestCase):
         self.assertTrue((self.tmp / "dist" / "salt_sync_server.py").is_file())
 
     def test_missing_source_returns_nonzero(self):
-        with mock.patch.object(build, "SRC_JS", self.tmp / "nope.js"), \
-             mock.patch("builtins.print"):
+        with mock.patch.object(build, "SRC_JS", self.tmp / "nope.js"), mock.patch("builtins.print"):
             self.assertEqual(build.main(), 1)
 
 
