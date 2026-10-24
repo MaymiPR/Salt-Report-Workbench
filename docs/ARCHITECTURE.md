@@ -21,7 +21,7 @@ Three constraints drive almost every decision:
 ## Components
 
 ```text
-            src/index.html + styles.css + app.js
+        src/index.html + styles.css + core.js + app.js
                           │  scripts/build.py (inline CSS + JS)
                           ▼
    dist/index.html ◄──── served by ────► dist/salt_sync_server.py
@@ -35,7 +35,10 @@ Three constraints drive almost every decision:
 
 ### Client (`src/`)
 
-`app.js` holds the whole application state in a handful of module-level
+`core.js` holds the pure logic: date and time formatting, identifiers, copy
+text, MGRS clean-up, BDA pairing, backup and CSV generation, and parsing. It
+touches no DOM, storage, or network, so it loads in the page as
+`window.SaltCore` and in Node for `tests/js/`. `app.js` holds the whole application state in a handful of module-level
 variables, with `reportsByAto` (every workspace's reports) as the core. Every
 change is applied locally first and mirrored to `localStorage`, so the UI never
 waits on the network. Rendering is one function per surface, such as `renderLog`

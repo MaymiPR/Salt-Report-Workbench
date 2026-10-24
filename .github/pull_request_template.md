@@ -8,7 +8,7 @@
 
 ## Checklist
 
-- [ ] `python -m unittest discover -s tests` passes
+- [ ] `python -m unittest discover -s tests` and `node --test tests/js/core.test.js` pass
 - [ ] `ruff check .` and `ruff format --check .` pass
 - [ ] Built with `python scripts/build.py` and tried it in a browser
 - [ ] Updated the in-app user manual if user-visible behavior changed

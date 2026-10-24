@@ -299,39 +299,17 @@ const generateUUID = () => {
         return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
     });
 };
-const escapeHtml  = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-const safeColor   = (c) => /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(String(c)) ? c : 'var(--system-gray)';
+// Pure helpers live in core.js (window.SaltCore) so the tests can reach them.
+const { dateFields, clockValue, fileStamp, escapeHtml, safeColor,
+        reportNum, normalizeLocation, BDA_EFFECTS, bdaElements, bdaSummary } = SaltCore;
 const debounce    = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
-const pad2 = n => String(n).padStart(2, '0');
-// Calendar and clock fields of a Date, zero-padded, in local time or UTC (Zulu).
-const dateFields = (d, local) => local
-    ? { y: d.getFullYear(),    mo: pad2(d.getMonth() + 1),    day: pad2(d.getDate()),    h: pad2(d.getHours()),    mi: pad2(d.getMinutes()) }
-    : { y: d.getUTCFullYear(), mo: pad2(d.getUTCMonth() + 1), day: pad2(d.getUTCDate()), h: pad2(d.getUTCHours()), mi: pad2(d.getUTCMinutes()) };
-// "HH:MM", the format of the time inputs.
-const clockValue = (d, local) => { const f = dateFields(d, local); return `${f.h}:${f.mi}`; };
-// "YYYYMMDD_HHMMZ" (or "...L"), for export filenames.
-const fileStamp  = (d, local) => { const f = dateFields(d, local); return `${f.y}${f.mo}${f.day}_${f.h}${f.mi}${local ? 'L' : 'Z'}`; };
-// Report times as shown in the table and copy text: "1430Z" or "0830L".
-// Unparseable input is returned as-is rather than rendered as NaN.
-const toTimeString = (d, local) => {
-    const x = (d instanceof Date) ? d : new Date(d);
-    if (!x || isNaN(x.getTime())) return String(d);
-    const f = dateFields(x, local);
-    return `${f.h}${f.mi}${local ? 'L' : 'Z'}`;
-};
-const toZuluTimeString  = (d) => toTimeString(d, false);
-const toLocalTimeString = (d) => toTimeString(d, true);
-// "1430" (or "930") typed into a time box becomes "14:30"; anything else is
-// left alone for the user to see and fix. Returns whether it changed.
+const toZuluTimeString  = (d) => SaltCore.toTimeString(d, false);
+const toLocalTimeString = (d) => SaltCore.toTimeString(d, true);
+// Format a typed "1430" in a time box as "14:30". Returns whether it changed.
 const autoColonTime = (input) => {
-    const v = input.value.trim();
-    if (!v || v.includes(':')) return false;
-    const digits = v.replace(/\D/g, '');
-    const padded = digits.length === 3 ? '0' + digits : digits;
-    if (padded.length !== 4) return false;
-    const h = padded.slice(0, 2), m = padded.slice(2, 4);
-    if (parseInt(h, 10) > 23 || parseInt(m, 10) > 59) return false;
-    input.value = `${h}:${m}`;
+    const v = SaltCore.autoColon(input.value);
+    if (v === null) return false;
+    input.value = v;
     return true;
 };
 const copyToClipboard = (text) => {
@@ -393,46 +371,6 @@ const syncCustomColumns = () => {
 // Sub-row under a report (same pattern as history) listing assessments and
 // an inline add-form. Target quick-picks are parsed from the report's own
 // Size elements and Location grids.
-
-// Effects, worst-first. `key` is the compact checklist label, `cls` drives
-// the color, and index order defines severity for the pill roll-up.
-const BDA_EFFECTS = [
-    { name: 'Destroyed',     key: 'DEST', cls: 'destroyed' },
-    { name: 'Damaged',       key: 'DMG',  cls: 'damaged' },
-    { name: 'Mobility Kill', key: 'MOB',  cls: 'mobilitykill' },
-    { name: 'Suppressed',    key: 'SUPP', cls: 'suppressed' },
-    { name: 'No Effect',     key: 'NONE', cls: 'noeffect' },
-    { name: 'Unknown',       key: '?',    cls: 'unknown' },
-];
-
-// Split a report's Size into elements and Location into grids, then pair
-// them: equal counts pair positionally; a single grid is shared by every
-// element; anything else leaves the grid blank for the user to fill.
-const bdaElements = (report) => {
-    const els   = String(report.size || '').split(/[,;+]/).map(s => s.trim()).filter(t => t.length >= 2);
-    const raw   = String(report.location || '');
-    const grids = (raw.includes(',') ? raw.split(/[,;]/) : raw.split(/\s+/))
-                    .map(s => s.trim()).filter(t => t.length >= 4);
-    return els.slice(0, 20).map((element, i) => ({
-        target: element,
-        coords: (grids.length === els.length) ? grids[i]
-              : (grids.length === 1)          ? grids[0]
-              : '',
-    }));
-};
-
-// Roll-up used by the pill: how many elements are assessed and the worst
-// outcome recorded so far.
-const bdaSummary = (report) => {
-    const done  = (report.bda || []).length;
-    const total = Math.max(bdaElements(report).length, done);
-    let worst = -1;
-    (report.bda || []).forEach(b => {
-        const i = BDA_EFFECTS.findIndex(e => e.name === b.effect);
-        if (i > -1 && (worst === -1 || i < worst)) worst = i;
-    });
-    return { done, total, worstCls: worst > -1 ? BDA_EFFECTS[worst].cls : '' };
-};
 
 const buildBdaRow = (report) => {
     const tr = document.createElement('tr');
@@ -911,126 +849,20 @@ const selectSwatch = (color) => document.querySelectorAll('.color-swatch').forEa
 
 // --- 7. Export / Import (file generation, downloads, CSV parsing) ---
 
-// Display form of a report's identifier: Title <separator> ATO### — follows
-// the Title Separator toggle everywhere (table, copy text, toasts). Stored
-// data is untouched; legacy reports without title/displayId fall back to the
-// concatenated fullId.
-const formatFullId = (r) => {
-    if (!r) return '';
-    if (r.title && r.displayId) return `${r.title}${atoTitleSep === 'dash' ? ' - ' : ' '}${r.displayId}`;
-    return r.fullId || '';
-};
+// Identifier as displayed everywhere (table, copy text, toasts); follows the
+// Title Separator toggle. Stored data is untouched.
+const formatFullId = (r) => SaltCore.formatFullId(r, atoTitleSep);
 
-// Sequence number of a report. `displayId` is `${ato}${paddedNumber}`, so a
-// naive trailing-digit match swallows the ATO's own digits when it ends in
-// one (TEST01001 -> 1001 instead of 1, making the next report TEST011002).
-// Strip the known ATO prefix first; legacy rows without `ato` fall back.
-const reportNum = (r) => {
-    if (!r) return 0;
-    const did  = String(r.displayId || r.id || '');
-    const ato  = String(r.ato || '');
-    const tail = (ato && did.startsWith(ato)) ? did.slice(ato.length) : did;
-    const m    = tail.match(/(\d+)$/);
-    return m ? parseInt(m[1], 10) : 0;
-};
+// Copy text in the active workspace's format.
+const generateReportText = (report) => SaltCore.reportText(report, currentFormat(), atoTitleSep);
 
-// Copy text follows the workspace's configured format. The identifier line
-// is the header when first, or a `U:` line when placed lower (SALT-U).
-// Optional lines (analysis, custom fields, BDA) are skipped when empty.
-const generateReportText = (report) => {
-    if (!report) return '';
-    const fmt    = currentFormat();
-    const idText = report.updated ? `${formatFullId(report)} (Updated)` : formatFullId(report);
-    const lines  = [];
-    fmt.lines.forEach((line, i) => {
-        switch (line.type) {
-            case 'id':       lines.push(i === 0 ? idText : `U: ${idText}`); break;
-            case 'size':     lines.push(`S: ${report.size}`); break;
-            case 'activity': lines.push(`A: ${report.activity}`); break;
-            case 'location': lines.push(`L: ${report.location}`); break;
-            case 'time':     lines.push(`T: ${toZuluTimeString(report.time)}`); break;
-            case 'analysis': if (report.yourAnalysis) lines.push(`Y: ${report.yourAnalysis}`); break;
-            case 'custom': { const v = (report.custom || {})[line.label]; if (v) lines.push(`${line.label}: ${v}`); break; }
-        }
-    });
-    (report.bda || []).forEach((b, i) => {
-        lines.push(`BDA ${i + 1}: ${b.effect || 'Unknown'} - ${b.target || 'unspecified'}${b.coords ? ' @ ' + b.coords : ''}${b.note ? ' - ' + b.note : ''}`);
-    });
-    return lines.join('\n');
-};
+// CSV filename: ATO_Title_YYYYMMDD_HHMM{Z|L}; the suffix matches the time mode.
+const getCsvFilename = (ato, title) => `${SaltCore.backupFilename(ato, title)}_${fileStamp(new Date(), timeDisplayMode === 'local')}`;
 
-// Insert commas between multiple MGRS coordinates typed without them:
-// "12ABC123456 21CBA321654" and "12 ABC 123 456 21CBA321654" both become
-// "12ABC123456, 21CBA321654"-style lists. Strings that already contain a
-// comma, or any free text mixed in, pass through untouched.
-// Digit chunks must (a) end cleanly (not run into letters) and (b) not be
-// the 1-2 digit zone number of the NEXT coordinate ("...456 12 ABD..." must
-// break before the 12, not absorb it).
-const MGRS_RE = /\d{1,2}\s*[A-Za-z]{3}(?:\s*\d+(?![0-9A-Za-z])(?!\s+[A-Za-z]{3}))+/g;
-const normalizeLocation = (loc) => {
-    const s = String(loc || '').trim();
-    if (!s || s.includes(',')) return s;
-    const matches = s.match(MGRS_RE) || [];
-    if (matches.length < 2) return s;
-    // Only rewrite when the string is nothing but coordinates — free text
-    // like "vic hill 205" must never be mangled.
-    if (matches.join('').replace(/\s+/g, '') !== s.replace(/\s+/g, '')) return s;
-    return matches.map(m => m.trim()).join(', ');
-};
-
-// Mirrors the server's _safe() helper — interchangeable filenames.
-const safeFilename = (s) => String(s||'').split('').map(c => /[A-Za-z0-9_-]/.test(c) ? c : '_').join('').replace(/^_+|_+$/g, '') || 'X';
-
-// Backup filename: ATO_Title (matches server output).
-const getBackupFilename = (ato, title) => `${safeFilename(ato)}_${safeFilename(title)}`;
-
-// CSV filename: ATO_Title_YYYYMMDD_HHMM{Z|L} — suffix matches active time mode.
-const getCsvFilename = (ato, title) => `${safeFilename(ato)}_${safeFilename(title)}_${fileStamp(new Date(), timeDisplayMode === 'local')}`;
-
-// Plain-text backup pieces shared by the one-workspace and all-workspace
-// exports. Literal em-dashes (not the HTML entity): this is a .txt file.
-const BACKUP_DIV = '='.repeat(72), BACKUP_SUB = '─'.repeat(72);
-const backupTime  = iso => { if (!iso) return '—'; const f = dateFields(new Date(iso), false); return `${f.y}-${f.mo}-${f.day} ${f.h}${f.mi}Z`; };
-const backupStamp = () => { const f = dateFields(new Date(), false); return `${f.y}-${f.mo}-${f.day} · ${f.h}${f.mi}Z`; };
-// Readable entries for the given live reports, in report-number order.
-const backupReportBlocks = (reps) => [...reps].sort((a,b) => reportNum(a) - reportNum(b)).map(r => {
-    let out = `${BACKUP_SUB}\n REPORT ${r.displayId}${r.updated ? '  [UPDATED]' : ''}\n${BACKUP_SUB}\n`;
-    out += ` Size     : ${r.size||'—'}\n Activity : ${r.activity||'—'}\n Location : ${r.location||'—'}\n Time     : ${backupTime(r.time)}\n`;
-    if (r.yourAnalysis) out += ` Analysis : ${r.yourAnalysis}\n`;
-    Object.entries(r.custom || {}).forEach(([ck, cv]) => { out += ` ${ck} : ${cv}\n`; });
-    if (r.user?.initials) out += ` By       : ${r.user.initials}\n`;
-    (r.bda || []).forEach((b, bi) => { out += `   BDA ${bi+1}  : ${b.effect || 'Unknown'} - ${b.target || ''}${b.coords ? ' @ ' + b.coords : ''}${b.note ? ' - ' + b.note : ''}\n`; });
-    if (r.history?.length) {
-        [...r.history].sort((a,b) => a.lastModified - b.lastModified).forEach((h, i) => {
-            out += `\n   ↳ Previous Entry ${i+1}\n      Size     : ${h.size||'—'}\n      Activity : ${h.activity||'—'}\n      Location : ${h.location||'—'}\n      Time     : ${backupTime(h.time)}\n`;
-            if (h.yourAnalysis) out += `      Analysis : ${h.yourAnalysis}\n`;
-        });
-    }
-    return out + '\n';
-}).join('');
-// The block the server and the importer read back.
-const backupMachineData = (payload) =>
-    `\n${BACKUP_DIV}\n MACHINE DATA — DO NOT EDIT BELOW THIS LINE\n${BACKUP_DIV}\n##SALT_BACKUP##\n${JSON.stringify(payload)}\n##SALT_BACKUP_END##\n`;
-
-const generateBackupText = (ato, reps, title, profiles) => {
-    const active = reps.filter(r => !r.deleted);
-    return `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH — ATO BACKUP\n ATO Designator : ${ato}\n Report Title   : ${title}\n Total Reports  : ${active.length}\n Exported       : ${backupStamp()}\n${BACKUP_DIV}\n\n`
-        + backupReportBlocks(active)
-        + backupMachineData({ workspaces: { [ato]: reps }, config: { ato, title }, profiles: profiles||{}, formats: workspaceFormats[ato] ? { [ato]: workspaceFormats[ato] } : {} });
-};
-
-const generateAllAtosBackupText = (workspaces, activeAto, title, profiles) => {
-    const atoKeys   = Object.keys(workspaces);
-    const totalReps = atoKeys.reduce((n, k) => n + (workspaces[k]||[]).filter(r => !r.deleted).length, 0);
-    let out = `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH — FULL BACKUP (ALL ATOs)\n ATOs Included  : ${atoKeys.join(', ')}\n Total Reports  : ${totalReps}\n Exported       : ${backupStamp()}\n${BACKUP_DIV}\n\n`;
-    atoKeys.forEach(ato => {
-        const active   = (workspaces[ato]||[]).filter(r => !r.deleted);
-        const atoTitle = (active.find(r => r.title)||{}).title || ato;
-        out += `${BACKUP_DIV}\n ATO: ${ato}  —  ${atoTitle}  (${active.length} report${active.length !== 1 ? 's' : ''})\n${BACKUP_DIV}\n\n`;
-        out += backupReportBlocks(active);
-    });
-    return out + backupMachineData({ workspaces, config: { ato: activeAto, title }, profiles: profiles||{}, formats: workspaceFormats });
-};
+const generateBackupText = (ato, reps, title, profiles) =>
+    SaltCore.backupText(ato, reps, title, profiles, workspaceFormats);
+const generateAllAtosBackupText = (workspaces, activeAto, title, profiles) =>
+    SaltCore.allWorkspacesBackupText(workspaces, activeAto, title, profiles, workspaceFormats);
 
 const triggerDownload = (filename, content, type = 'text/plain;charset=utf-8') => {
     const blob = new Blob([content], { type }), a = document.createElement('a');
@@ -1038,26 +870,9 @@ const triggerDownload = (filename, content, type = 'text/plain;charset=utf-8') =
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(a.href);
 };
 
-// Combine "YYYY-MM-DD" + "HH:MM" into ms epoch, interpreted in the active
-// time mode. Missing time → 00:00 (start) or 23:59 (end).
-const parseFilterTime = (dateStr, timeStr, isEnd) => {
-    if (!dateStr) return null;
-    const t   = (timeStr || '').trim();
-    const tOk = /^\d{1,2}:\d{2}$/.test(t);
-    let safe;
-    if (tOk) {
-        const [h, m] = t.split(':').map(Number);
-        if (h > 23 || m > 59) safe = isEnd ? '23:59' : '00:00';
-        else safe = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-    } else {
-        safe = isEnd ? '23:59' : '00:00';
-    }
-    const iso  = timeDisplayMode === 'local'
-        ? `${dateStr}T${safe}:${isEnd ? '59' : '00'}`
-        : `${dateStr}T${safe}:${isEnd ? '59' : '00'}Z`;
-    const ms   = new Date(iso).getTime();
-    return isNaN(ms) ? null : ms;
-};
+// Filter bounds in the active time mode.
+const parseFilterTime = (dateStr, timeStr, isEnd) =>
+    SaltCore.parseFilterTime(dateStr, timeStr, isEnd, timeDisplayMode === 'local');
 
 const getExportFilteredReports = () => {
     const fromMs = parseFilterTime(el.exp.fromDate.value, el.exp.fromTime.value, false);
@@ -1368,37 +1183,10 @@ const closeExportView = () => {
 };
 
 function processJsonImport(rawText) {
-    // Strip UTF-8 BOM if present (Notepad and some editors add it).
-    if (rawText && rawText.charCodeAt(0) === 0xFEFF) rawText = rawText.slice(1);
-
-    // Locate the machine-data block. The filename doesn't matter — only the markers do.
-    const s = rawText.indexOf('##SALT_BACKUP##');
-    const e = rawText.indexOf('##SALT_BACKUP_END##');
-    let jsonText;
-    if (s !== -1 && e !== -1 && e > s) {
-        jsonText = rawText.slice(s + '##SALT_BACKUP##'.length, e).trim();
-    } else {
-        // No markers — try the whole file as raw JSON (older backups / hand-edited files).
-        jsonText = rawText.trim();
-    }
-    if (!jsonText) { showToast('Import failed: file is empty.', true); return; }
-
-    // Validate JSON up-front so the user sees a precise error before the confirm prompt.
-    let imp;
-    try { imp = JSON.parse(jsonText); }
-    catch (err) {
-        showToast(
-            (s === -1 || e === -1)
-                ? 'Import failed: no ##SALT_BACKUP## block found and the file is not raw JSON.'
-                : 'Import failed: machine-data block is corrupt (' + (err.message || 'parse error') + ').',
-            true
-        );
-        return;
-    }
-    if (!imp || typeof imp !== 'object' || (!imp.workspaces && !imp.reports)) {
-        showToast('Import failed: file does not contain a recognisable backup payload.', true);
-        return;
-    }
+    // Validate up-front so the user sees a precise error before the confirm prompt.
+    const parsed = SaltCore.parseBackup(rawText);
+    if (parsed.error) { showToast(parsed.error, true); return; }
+    const imp = parsed.data;
 
     showConfirmation('Merge central log with data from backup file?', async () => {
         try {
@@ -1448,18 +1236,7 @@ function processJsonImport(rawText) {
 }
 
 function processExternalCsv(csvText, filename) {
-    // Parse the CSV into a 2D array (RFC 4180-ish, quote-aware)
-    const arr = []; let q = false, row = 0, col = 0;
-    for (let i = 0; i < csvText.length; i++) {
-        const c = csvText[i], n = csvText[i+1];
-        arr[row] = arr[row]||[]; arr[row][col] = arr[row][col]||'';
-        if (c==='"' && q && n==='"') { arr[row][col]+=c; i++; continue; }
-        if (c==='"') { q=!q; continue; }
-        if (c===',' && !q) { col++; continue; }
-        if (c==='\r' && n==='\n' && !q) { row++; col=0; i++; continue; }
-        if ((c==='\n'||c==='\r') && !q) { row++; col=0; continue; }
-        arr[row][col]+=c;
-    }
+    const arr = SaltCore.parseCsv(csvText);
     if (arr.length < 2) { showToast('CSV is empty or invalid.', true); return; }
     const headers = (arr[0]||[]).map(h => (h||'').trim());
     if (!headers.some(h => h)) { showToast('CSV has no header row.', true); return; }
@@ -2503,7 +2280,7 @@ document.getElementById('exportPanelBackupBtn').addEventListener('click', () => 
             const reps = getExportFilteredReports();
             if (!reps.length) { showToast('No reports to export.', true); return; }
             const title = localConfig.title || 'SALT';
-            triggerDownload(`${getBackupFilename(activeAto||'ATO', title)}.txt`, generateBackupText(activeAto||'ATO', reps, title, localProfiles));
+            triggerDownload(`${SaltCore.backupFilename(activeAto||'ATO', title)}.txt`, generateBackupText(activeAto||'ATO', reps, title, localProfiles));
             showToast('Backup exported!');
             clearExportFilter();
         }
@@ -2513,51 +2290,25 @@ document.getElementById('exportPanelCsvBtn').addEventListener('click', () => {
     try {
         const reps = getExportFilteredReports();
         if (!reps.length) { showToast('No reports to export.', true); return; }
-        const isMti = el.exp.mtiToggle.checked;
-        const timeFmt = timeDisplayMode==='local' ? toLocalTimeString : toZuluTimeString;
-        const tLabel  = `Time (${timeDisplayMode==='local'?'Local':'Z'})`;
-        const f = v => `"${String(v||'').replace(/"/g,'""')}"`;
-        const hdr = `Identifier,UpdateStatus,Size,Activity,MGRS,${tLabel},Analysis\r\n`;
-        const title = localConfig.title||'SALT';
-        const base  = getCsvFilename(activeAto||'ATO', title);
-        if (isMti) {
-            let tCsv=hdr, wCsv=hdr, tc=0, wc=0;
-            const processMtiRow = (id, upd, size, activity, location, time, analysis) => {
-                const sl = (size||'').toLowerCase();
-                const tm = sl.match(/(\d+\s*tracked)/); if(tm){tCsv+=[f(id),f(upd),f(tm[1].trim()),f(activity),f(location),f(timeFmt(time)),f(analysis)].join(',')+'\r\n';tc++;}
-                const wm = sl.match(/(\d+\s*wheeled)/); if(wm){wCsv+=[f(id),f(upd),f(wm[1].trim()),f(activity),f(location),f(timeFmt(time)),f(analysis)].join(',')+'\r\n';wc++;}
-            };
-            for (const r of reps) {
-                // Current record
-                processMtiRow(r.fullId, r.updated?'Current Update':'Original', r.size, r.activity, r.location, r.time, r.yourAnalysis);
-                // History entries (mirrors standard CSV export — previously missing from MTI)
-                if (r.history?.length) {
-                    const h = [...r.history].sort((a,b) => b.lastModified - a.lastModified);
-                    h.forEach((hh,i) => processMtiRow(r.fullId, `Update #${h.length-i} (Old)`, hh.size, hh.activity, hh.location, hh.time, hh.yourAnalysis));
-                }
-            }
-            if(tc>0) triggerDownload(`${base}_tracked.csv`,tCsv,'text/csv;charset=utf-8;');
-            if(wc>0) setTimeout(()=>triggerDownload(`${base}_wheeled.csv`,wCsv,'text/csv;charset=utf-8;'),400);
-            if(!tc&&!wc) showToast('No tracked/wheeled reports found.',true); else { showToast('MTI CSV exported!'); clearExportFilter(); }
+        const local = timeDisplayMode === 'local';
+        const idOf  = r => r.fullId;
+        const base  = getCsvFilename(activeAto||'ATO', localConfig.title||'SALT');
+        if (el.exp.mtiToggle.checked) {
+            const mti = SaltCore.mtiCsvs(reps, { local, idOf });
+            if (mti.trackedRows) triggerDownload(`${base}_tracked.csv`, mti.tracked, 'text/csv;charset=utf-8;');
+            if (mti.wheeledRows) setTimeout(() => triggerDownload(`${base}_wheeled.csv`, mti.wheeled, 'text/csv;charset=utf-8;'), 400);
+            if (!mti.trackedRows && !mti.wheeledRows) showToast('No tracked/wheeled reports found.', true);
+            else { showToast('MTI CSV exported!'); clearExportFilter(); }
         } else {
-            // Custom builder fields become extra columns, appended after
-            // Analysis so the first seven stay index-stable for existing
-            // consumers. Union of the format's custom lines and any keys
-            // present on the data (in case the format changed since logging).
-            const cusCols = [...new Set([
+            // Custom columns: the format's custom lines plus any keys on the
+            // data, in case the format changed since those reports were logged.
+            const customLabels = [...new Set([
                 ...currentFormat().lines.filter(l => l.type === 'custom').map(l => l.label),
                 ...reps.flatMap(r => Object.keys(r.custom || {})),
             ])];
-            const cusCells = (o) => cusCols.map(c => f((o || {})[c] || ''));
-            let csv = `Identifier,UpdateStatus,Size,Activity,MGRS,${tLabel},Analysis${cusCols.map(c => ',' + c).join('')}\r\n`;
-            for (const r of reps) {
-                csv+=[f(r.fullId),f(r.updated?'Current Update':'Original'),f(r.size),f(r.activity),f(r.location),f(timeFmt(r.time)),f(r.yourAnalysis),...cusCells(r.custom)].join(',')+'\r\n';
-                if(r.history?.length) { const h=[...r.history].sort((a,b)=>b.lastModified-a.lastModified); h.forEach((hh,i)=>{csv+=[f(r.fullId),f(`Update #${h.length-i} (Old)`),f(hh.size),f(hh.activity),f(hh.location),f(timeFmt(hh.time)),f(hh.yourAnalysis),...cusCells(hh.custom)].join(',')+'\r\n';}); }
-                // BDA assessments ride the existing columns: target in Size,
-                // effect in Activity, coords in MGRS, note in Analysis.
-                (r.bda||[]).forEach((b,i)=>{csv+=[f(r.fullId),f(`BDA #${i+1}`),f(b.target),f(b.effect),f(b.coords),f(timeFmt(b.time)),f(b.note),...cusCols.map(()=>f(''))].join(',')+'\r\n';});
-            }
-            triggerDownload(`${base}.csv`,csv,'text/csv;charset=utf-8;'); showToast('CSV exported!'); clearExportFilter();
+            triggerDownload(`${base}.csv`, SaltCore.reportsCsv(reps, { local, customLabels, idOf }), 'text/csv;charset=utf-8;');
+            showToast('CSV exported!');
+            clearExportFilter();
         }
     } catch(e) { showToast('Export error: '+e.message,true); }
 });
