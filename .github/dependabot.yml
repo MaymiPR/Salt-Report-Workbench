@@ -1,0 +1,13 @@
+# The app has no runtime dependencies; the only third-party code is the
+# GitHub Actions used by CI. Keep those current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]
