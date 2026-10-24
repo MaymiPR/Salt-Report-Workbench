@@ -1,44 +1,50 @@
-# -*- coding: utf-8 -*-
 import argparse
+import contextlib
+import ctypes
 import http.server as server
-import secrets
-import socket
-import socketserver
 import json
 import os
 import re
-import threading
-import tempfile
+import secrets
 import select
+import socket
+import socketserver
+import tempfile
+import threading
 import time
 import webbrowser
-import ctypes
 from datetime import datetime, timezone
 
-
 # --- Configuration ---
-PORT: int     = 8080
-HOST: str     = '0.0.0.0'
+PORT: int = 8080
+HOST: str = '0.0.0.0'
 # Viewer port — second listener, POSTs return 405. `--viewer-port 0` disables. Bind failure is non-fatal for editor.
 VIEWER_PORT: int | None = 8081
-BACKUP_DIR    = 'Auto Backups'
-MAX_BODY_BYTES: int          = 1024 * 1024  # 1 MB cap on incoming POST bodies
-SAVE_DEBOUNCE_SECONDS: float = 0.5          # coalesce rapid mutations into one disk write
+_HERE = os.path.dirname(os.path.abspath(__file__))
+# Next to the server (as documented), not the launch directory.
+BACKUP_DIR = os.path.join(_HERE, 'Auto Backups')
+MAX_BODY_BYTES: int = 1024 * 1024  # 1 MB cap on incoming POST bodies
+SAVE_DEBOUNCE_SECONDS: float = 0.5  # coalesce rapid mutations into one disk write
 
-WORKBENCH_HTML = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    'Salt Report Workbench.html'
+# The bundled page sits beside the server in a built `dist/` folder; when run
+# straight from `server/` during development, fall back to `../dist/`.
+WORKBENCH_CANDIDATES = (
+    os.path.join(_HERE, 'index.html'),
+    os.path.join(_HERE, os.pardir, 'dist', 'index.html'),
+)
+WORKBENCH_HTML = next(
+    (p for p in WORKBENCH_CANDIDATES if os.path.isfile(p)), WORKBENCH_CANDIDATES[0]
 )
 BACKUP_START = '##SALT_BACKUP##'
-BACKUP_END   = '##SALT_BACKUP_END##'
+BACKUP_END = '##SALT_BACKUP_END##'
 
 # --- Thread-safe data store ---
-data_lock  = threading.Lock()
+data_lock = threading.Lock()
 DATA_STORE: dict = {
     'workspaces': {},
-    'config':     {'ato': '', 'title': ''},
-    'profiles':   {},
-    'formats':    {},   # ato -> report-format dict (builder); synced to all clients
+    'config': {'ato': '', 'title': ''},
+    'profiles': {},
+    'formats': {},  # ato -> report-format dict (builder); synced to all clients
 }
 
 # Cached /api/sync prefix — all but the closing brace and connected_users count. Invalidated on every mutation.
@@ -63,8 +69,8 @@ _save_timer_lock = threading.Lock()
 # Random per-launch code; host shares it verbally with editors. Viewer port is NOT
 # gated. Host's browser auto-fills via meta injection on 127.0.0.1 requests.
 # Alphabet excludes confusables (0/O, 1/l/I, 5/S) for radio-readability.
-ACCESS_CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRTUVWXYZ'
-ACCESS_CODE_LENGTH   = 10
+ACCESS_CODE_ALPHABET = '2346789ABCDEFGHJKLMNPQRTUVWXYZ'  # no 0/O, 1/I/l, 5/S
+ACCESS_CODE_LENGTH = 10
 # Set at boot (parse_cli_args). None means access-code auth is disabled.
 _access_code: str | None = None
 
@@ -72,6 +78,7 @@ _access_code: str | None = None
 def _generate_access_code() -> str:
     """10-char code from a confusable-free alphabet, cryptographically random."""
     return ''.join(secrets.choice(ACCESS_CODE_ALPHABET) for _ in range(ACCESS_CODE_LENGTH))
+
 
 # --- Workbench HTML cache: (mtime, bytes) auto-invalidates if HTML is rebuilt while running. ---
 _workbench_html_cache: tuple[float, bytes] | None = None
@@ -82,15 +89,16 @@ _workbench_html_lock = threading.Lock()
 # SSE
 # =============================================================================
 
+
 class SSEClient:
     """Thread-safe SSE writer; carries client IP for attribution lookups."""
 
-    __slots__ = ('wfile', '_lock', 'ip')
+    __slots__ = ('_lock', 'ip', 'wfile')
 
     def __init__(self, wfile, ip: str = ''):
         self.wfile = wfile
         self._lock = threading.Lock()
-        self.ip    = ip
+        self.ip = ip
 
     def send(self, payload: bytes) -> bool:
         """Write to SSE stream; False on disconnect."""
@@ -120,13 +128,19 @@ def broadcast_update() -> None:
 # Utilities
 # =============================================================================
 
+
 def safe_print(msg: str) -> None:
-    """Print with fallback for legacy Windows codepages that can't render non-ASCII."""
+    """Print with fallback for legacy Windows codepages that can't render non-ASCII.
+
+    Flushes every line: when stdout is redirected (a log file, a service
+    wrapper) Python block-buffers it, and the boot banner, including the
+    access code, would otherwise not appear until the buffer happened to fill.
+    """
     try:
-        print(msg)
+        print(msg, flush=True)
     except UnicodeEncodeError:
         fallback = msg.replace('™', '(TM)').replace('©', '(C)')
-        print(fallback.encode('ascii', 'ignore').decode('ascii'))
+        print(fallback.encode('ascii', 'ignore').decode('ascii'), flush=True)
 
 
 def invalidate_sync_cache() -> None:
@@ -176,11 +190,12 @@ def _get_cookie(headers, name: str) -> str | None:
     for piece in raw.split(';'):
         piece = piece.strip()
         if piece.startswith(name + '='):
-            return piece[len(name) + 1:]
+            return piece[len(name) + 1 :]
     return None
 
 
 _local_ips_cache: set | None = None
+
 
 def _local_ips() -> set:
     """All IPs bound to this machine — loopback + hostname-resolved + LAN. Cached."""
@@ -192,10 +207,8 @@ def _local_ips() -> set:
                 ips.add(info[4][0])
         except Exception:
             pass
-        try:
+        with contextlib.suppress(Exception):
             ips.add(get_local_ip())
-        except Exception:
-            pass
         _local_ips_cache = ips
     return _local_ips_cache
 
@@ -209,10 +222,10 @@ def _is_localhost(ip: str) -> bool:
 
 def _check_access_code(headers, view_only: bool, client_ip: str) -> bool:
     """Return True if the request is authorized to hit gated endpoints.
-       * Viewer-port requests always pass (the port itself is the gate).
-       * If access-code auth is disabled (_access_code is None), pass.
-       * Localhost passes (the host running the server gets a free ride).
-       * Otherwise require a matching `salt_access` cookie."""
+    * Viewer-port requests always pass (the port itself is the gate).
+    * If access-code auth is disabled (_access_code is None), pass.
+    * Localhost passes (the host running the server gets a free ride).
+    * Otherwise require a matching `salt_access` cookie."""
     if view_only or _access_code is None:
         return True
     if _is_localhost(client_ip):
@@ -240,30 +253,30 @@ def _get_workbench_html() -> bytes | None:
 
 # --- Schema validation: per-endpoint validators run before handlers. ---
 # Limits sized for real reports while rejecting obvious abuse.
-MAX_ATO_LEN        = 50
-MAX_TITLE_LEN      = 100
-MAX_INITIALS_LEN   = 3
-MAX_FIELD_LEN      = 500     # size / activity / location
-MAX_ANALYSIS_LEN   = 5_000   # yourAnalysis can be longer prose
-MAX_ID_LEN         = 100     # UUID or displayId
-MAX_HISTORY_LEN    = 1_000   # per-report history cap
-MAX_REPORTS_BATCH  = 10_000  # per-request reports[] cap
+MAX_ATO_LEN = 50
+MAX_TITLE_LEN = 100
+MAX_INITIALS_LEN = 3
+MAX_FIELD_LEN = 500  # size / activity / location
+MAX_ANALYSIS_LEN = 5_000  # yourAnalysis can be longer prose
+MAX_ID_LEN = 100  # UUID or displayId
+MAX_HISTORY_LEN = 1_000  # per-report history cap
+MAX_REPORTS_BATCH = 10_000  # per-request reports[] cap
 MAX_DELETIONS_BATCH = 1_000  # per-request delete_history cap
-MAX_SOURCE_LEN     = 20
-MAX_FORMAT_LINES   = 20      # builder: lines per report format
-MAX_CUSTOM_LABEL   = 30      # builder: custom field name
-MAX_CUSTOM_VALUE   = 500     # builder: custom field value
-MAX_CUSTOM_FIELDS  = 15      # builder: custom fields per report
-MAX_BDA_ENTRIES    = 200     # BDA assessments per report
-MAX_BDA_TARGET     = 200
-MAX_BDA_EFFECT     = 30
-MAX_BDA_NOTE       = 500
+MAX_SOURCE_LEN = 20
+MAX_FORMAT_LINES = 20  # builder: lines per report format
+MAX_CUSTOM_LABEL = 30  # builder: custom field name
+MAX_CUSTOM_VALUE = 500  # builder: custom field value
+MAX_CUSTOM_FIELDS = 15  # builder: custom fields per report
+MAX_BDA_ENTRIES = 200  # BDA assessments per report
+MAX_BDA_TARGET = 200
+MAX_BDA_EFFECT = 30
+MAX_BDA_NOTE = 500
 _FORMAT_LINE_TYPES = {'id', 'size', 'activity', 'location', 'time', 'analysis', 'custom'}
 
 # ISO 8601 with optional fractional seconds, optional Z (tolerates hand-edited legacy backups).
 _ISO_TIME_RE = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$')
 # Three- or six-digit hex colors — matches the swatch values the UI emits.
-_COLOR_RE    = re.compile(r'^#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3})?$')
+_COLOR_RE = re.compile(r'^#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3})?$')
 
 
 def _is_str(v, max_len: int | None = None) -> bool:
@@ -320,11 +333,11 @@ def _validate_report(r, idx: int) -> str | None:
     if not isinstance(r, dict):
         return f'reports[{idx}] must be an object'
     # At least one identity field; merge path uses either.
-    has_id  = _is_str(r.get('id'),         MAX_ID_LEN) and r.get('id')
-    has_did = _is_str(r.get('displayId'),  MAX_ID_LEN) and r.get('displayId')
+    has_id = _is_str(r.get('id'), MAX_ID_LEN) and r.get('id')
+    has_did = _is_str(r.get('displayId'), MAX_ID_LEN) and r.get('displayId')
     if not has_id and not has_did:
         return f'reports[{idx}] missing id or displayId'
-    if (err := _validate_report_fields(r, f'reports[{idx}]')):
+    if err := _validate_report_fields(r, f'reports[{idx}]'):
         return err
     h = r.get('history')
     if h is not None:
@@ -335,7 +348,7 @@ def _validate_report(r, idx: int) -> str | None:
         for j, entry in enumerate(h):
             if not isinstance(entry, dict):
                 return f'reports[{idx}].history[{j}] must be an object'
-            if (err := _validate_report_fields(entry, f'reports[{idx}].history[{j}]')):
+            if err := _validate_report_fields(entry, f'reports[{idx}].history[{j}]'):
                 return err
     b = r.get('bda')
     if b is not None:
@@ -356,7 +369,7 @@ def _validate_report(r, idx: int) -> str | None:
                 return f'reports[{idx}].bda[{j}].note must be a string ≤{MAX_BDA_NOTE} chars'
             if 'lastModified' in entry and not _is_int(entry['lastModified']):
                 return f'reports[{idx}].bda[{j}].lastModified must be an integer'
-            if (err := _validate_user(entry.get('user'), f'reports[{idx}].bda[{j}].user')):
+            if err := _validate_user(entry.get('user'), f'reports[{idx}].bda[{j}].user'):
                 return err
     return None
 
@@ -371,9 +384,13 @@ def _v_save_reports(data: dict) -> str | None:
     if len(reps) > MAX_REPORTS_BATCH:
         return f'reports list has too many entries (max {MAX_REPORTS_BATCH})'
     for i, r in enumerate(reps):
-        if (err := _validate_report(r, i)):
+        if err := _validate_report(r, i):
             return err
-    if 'source' in data and data['source'] is not None and not _is_str(data['source'], MAX_SOURCE_LEN):
+    if (
+        'source' in data
+        and data['source'] is not None
+        and not _is_str(data['source'], MAX_SOURCE_LEN)
+    ):
         return f'source must be a string ≤{MAX_SOURCE_LEN} chars'
     return None
 
@@ -461,29 +478,31 @@ def _v_save_format(data: dict) -> str | None:
             return f'format.lines[{i}] must be an object'
         if line.get('type') not in _FORMAT_LINE_TYPES:
             return f'format.lines[{i}].type is not a recognized line type'
-        if line.get('type') == 'custom' and (not _is_str(line.get('label'), MAX_CUSTOM_LABEL) or not line.get('label')):
+        if line.get('type') == 'custom' and (
+            not _is_str(line.get('label'), MAX_CUSTOM_LABEL) or not line.get('label')
+        ):
             return f'format.lines[{i}].label must be a non-empty string ≤{MAX_CUSTOM_LABEL} chars'
     return None
 
 
 # Path -> validator. Add an entry when adding a new POST route.
 _VALIDATORS = {
-    '/api/save_reports':   _v_save_reports,
-    '/api/unload_ato':     _v_unload_ato,
-    '/api/edit_report':    _v_edit_report,
+    '/api/save_reports': _v_save_reports,
+    '/api/unload_ato': _v_unload_ato,
+    '/api/edit_report': _v_edit_report,
     '/api/delete_history': _v_delete_history,
-    '/api/save_config':    _v_save_config,
-    '/api/save_profile':   _v_save_profile,
-    '/api/save_format':    _v_save_format,
+    '/api/save_config': _v_save_config,
+    '/api/save_profile': _v_save_profile,
+    '/api/save_format': _v_save_format,
 }
 
 
 # --- Rate limiting (token bucket per IP): 1 token/POST; GETs unlimited; 429 when empty. ---
-RATE_BUCKET_CAPACITY     = 60
-RATE_REFILL_PER_SECOND   = 5.0
-RATE_BUCKET_PRUNE_AFTER  = 600.0  # drop buckets inactive longer than this
+RATE_BUCKET_CAPACITY = 60
+RATE_REFILL_PER_SECOND = 5.0
+RATE_BUCKET_PRUNE_AFTER = 600.0  # drop buckets inactive longer than this
 
-_rate_buckets: dict = {}    # ip -> (tokens: float, last_seen: float)
+_rate_buckets: dict = {}  # ip -> (tokens: float, last_seen: float)
 _rate_lock = threading.Lock()
 
 
@@ -500,8 +519,7 @@ def rate_limit_check(ip: str) -> bool:
         tokens, last = _rate_buckets.get(ip, (float(RATE_BUCKET_CAPACITY), now))
         # Refill based on elapsed; cap at capacity.
         elapsed = max(0.0, now - last)
-        tokens  = min(float(RATE_BUCKET_CAPACITY),
-                      tokens + elapsed * RATE_REFILL_PER_SECOND)
+        tokens = min(float(RATE_BUCKET_CAPACITY), tokens + elapsed * RATE_REFILL_PER_SECOND)
         if tokens < 1.0:
             _rate_buckets[ip] = (tokens, now)
             return False
@@ -513,30 +531,31 @@ def rate_limit_check(ip: str) -> bool:
 # Backup parsing & merging
 # =============================================================================
 
+
 def _extract_json_from_file(raw_text: str) -> dict | None:
     """DATA_STORE dict from a backup file; handles legacy single-ATO format. None on failure."""
     s = raw_text.find(BACKUP_START)
     e = raw_text.find(BACKUP_END)
 
     if s != -1 and e != -1:
-        json_text = raw_text[s + len(BACKUP_START):e].strip()
+        json_text = raw_text[s + len(BACKUP_START) : e].strip()
         try:
             d = json.loads(json_text)
             if 'workspaces' in d:
                 return {
                     'workspaces': d.get('workspaces', {}),
-                    'config':     d.get('config', {'ato': '', 'title': ''}),
-                    'profiles':   d.get('profiles', {}),
-                    'formats':    d.get('formats', {}),
+                    'config': d.get('config', {'ato': '', 'title': ''}),
+                    'profiles': d.get('profiles', {}),
+                    'formats': d.get('formats', {}),
                 }
             # Legacy marker format: single ATO inferred from config
-            ato  = d.get('config', {}).get('ato', '')
+            ato = d.get('config', {}).get('ato', '')
             reps = d.get('reports', [])
             return {
                 'workspaces': {ato: reps} if ato and reps else {},
-                'config':     d.get('config', {'ato': '', 'title': ''}),
-                'profiles':   d.get('profiles', {}),
-                'formats':    {},
+                'config': d.get('config', {'ato': '', 'title': ''}),
+                'profiles': d.get('profiles', {}),
+                'formats': {},
             }
         except (ValueError, KeyError):
             return None
@@ -549,7 +568,7 @@ def _merge_reports(existing_list: list, incoming_list: list) -> list:
     """Merge by id (or legacy displayId); higher lastModified wins."""
     by_id: dict = {}
     for r in existing_list:
-        if (key := r.get('id') or r.get('displayId')):
+        if key := r.get('id') or r.get('displayId'):
             by_id[key] = r
     for r in incoming_list:
         if not (key := r.get('id') or r.get('displayId')):
@@ -564,6 +583,7 @@ def _merge_reports(existing_list: list, incoming_list: list) -> list:
 # Disk I/O
 # =============================================================================
 
+
 def load_data_from_disk() -> None:
     """Read mtime-sorted .txt backups from BACKUP_DIR into DATA_STORE + workspace_sources."""
     global DATA_STORE
@@ -573,22 +593,22 @@ def load_data_from_disk() -> None:
 
         candidates = sorted(
             [os.path.join(BACKUP_DIR, f) for f in os.listdir(BACKUP_DIR) if f.endswith('.txt')],
-            key=os.path.getmtime
+            key=os.path.getmtime,
         )
 
         if not candidates:
             return
 
-        all_workspaces:  dict = {}
+        all_workspaces: dict = {}
         merged_profiles: dict = {}
         # Newest mtime wins — matches the runtime invariant that the most recent ATO/Title is active.
-        latest_config         = {'ato': '', 'title': ''}
-        source_by_ato:   dict = {}
-        merged_formats:  dict = {}
+        latest_config = {'ato': '', 'title': ''}
+        source_by_ato: dict = {}
+        merged_formats: dict = {}
 
         for filepath in candidates:
             try:
-                with open(filepath, 'r', encoding='utf-8') as f:
+                with open(filepath, encoding='utf-8') as f:
                     raw = f.read()
                 if (result := _extract_json_from_file(raw)) is not None:
                     fname = os.path.basename(filepath)
@@ -604,7 +624,12 @@ def load_data_from_disk() -> None:
                         # most recent backup file holding it.
                         source_by_ato[key] = fname
                     merged_profiles.update(result.get('profiles', {}))
-                    merged_formats.update({(k or '').strip().upper(): v for k, v in (result.get('formats') or {}).items()})
+                    merged_formats.update(
+                        {
+                            (k or '').strip().upper(): v
+                            for k, v in (result.get('formats') or {}).items()
+                        }
+                    )
                     latest_config = result.get('config', latest_config)
             except Exception:
                 # Skip unreadable / malformed files silently.
@@ -612,135 +637,164 @@ def load_data_from_disk() -> None:
 
         if all_workspaces:
             DATA_STORE['workspaces'] = all_workspaces
-            DATA_STORE['profiles']   = merged_profiles
-            DATA_STORE['config']     = latest_config
-            DATA_STORE['formats']    = merged_formats
+            DATA_STORE['profiles'] = merged_profiles
+            DATA_STORE['config'] = latest_config
+            DATA_STORE['formats'] = merged_formats
             workspace_sources.clear()
             workspace_sources.update(source_by_ato)
             invalidate_sync_cache()
 
 
-def save_data_to_disk() -> None:
-    """Persist DATA_STORE atomically to {ATO}_{Title}.txt via os.replace."""
-    with data_lock:
-        os.makedirs(BACKUP_DIR, exist_ok=True)
+def render_backup(
+    workspaces: dict, config: dict, profiles: dict, formats: dict
+) -> tuple[str, str] | None:
+    """Return ``(filename, text)`` for a backup of the given state, or None if empty.
 
-        workspaces = DATA_STORE.get('workspaces', {})
-        config     = DATA_STORE.get('config', {})
-        profiles   = DATA_STORE.get('profiles', {})
+    Pure: no I/O, no globals. The text is a human-readable report summary
+    followed by a machine-readable JSON block that ``_extract_json_from_file``
+    reads back on the next boot.
+    """
+    # Nothing loaded — don't emit an empty placeholder file.
+    if not workspaces:
+        return None
 
-        # Nothing loaded — don't emit an empty placeholder file.
-        if not workspaces:
-            return
+    # Unloading the active workspace clears config; fall back to a real
+    # workspace name so we never create a stray "ATO_SALT.txt".
+    ato = config.get('ato', '').strip()
+    title = config.get('title', '').strip()
+    if not ato:
+        ato = sorted(workspaces)[0]
+        if not title:
+            first = next((r for r in workspaces.get(ato, []) if r.get('title')), None)
+            title = first.get('title') if first else 'SALT'
+    title = title or 'SALT'
 
-        # Unloading the active workspace clears config; fall back to a real
-        # workspace name so we never create a stray "ATO_SALT.txt".
-        ato   = config.get('ato', '').strip()
-        title = config.get('title', '').strip()
-        if not ato:
-            ato = sorted(workspaces)[0]
-            if not title:
-                first = next((r for r in workspaces.get(ato, []) if r.get('title')), None)
-                title = first.get('title') if first else 'SALT'
-        title = title or 'SALT'
+    def _safe(s: str) -> str:
+        return ''.join(c if c.isalnum() or c in '-_' else '_' for c in s).strip('_')
 
-        def _safe(s: str) -> str:
-            return ''.join(c if c.isalnum() or c in '-_' else '_' for c in s).strip('_')
-        filename = f'{_safe(ato)}_{_safe(title)}.txt'
+    filename = f'{_safe(ato)}_{_safe(title)}.txt'
 
-        div = '=' * 72
-        sub = '-' * 72
-        # Timezone-aware UTC (utcnow() deprecated in Py3.12).
-        now = datetime.now(timezone.utc)
-        ts  = f'{now:%Y-%m-%d} · {now:%H%MZ}'
+    div = '=' * 72
+    sub = '-' * 72
+    # Timezone-aware UTC (utcnow() deprecated in Py3.12).
+    now = datetime.now(timezone.utc)
+    ts = f'{now:%Y-%m-%d} · {now:%H%MZ}'
 
-        def fmt_time(iso) -> str:
-            if not iso:
-                return '—'
-            try:
-                # Strip fractional seconds; ISO stored with literal Z suffix.
-                dt = datetime.strptime(iso.split('.')[0], '%Y-%m-%dT%H:%M:%S')
-                return f'{dt:%Y-%m-%d %H%MZ}'
-            except (ValueError, AttributeError):
-                return iso
+    def fmt_time(iso) -> str:
+        if not iso:
+            return '—'
+        try:
+            # Strip fractional seconds; ISO stored with literal Z suffix.
+            dt = datetime.strptime(iso.split('.')[0], '%Y-%m-%dT%H:%M:%S')
+            return f'{dt:%Y-%m-%d %H%MZ}'
+        except (ValueError, AttributeError):
+            return iso
 
-        lines = [
-            div,
-            ' S.A.L.T. REPORT WORKBENCH — AUTO BACKUP (SESSION)',
-            f' ATO Designator : {ato}',
-            f' Report Title   : {title}',
-            f' Total Reports  : {sum(len(v) for v in workspaces.values())}',
-            f' Exported       : {ts}',
-            div,
-            '',
-        ]
+    lines = [
+        div,
+        ' S.A.L.T. REPORT WORKBENCH — AUTO BACKUP (SESSION)',
+        f' ATO Designator : {ato}',
+        f' Report Title   : {title}',
+        f' Total Reports  : {sum(len(v) for v in workspaces.values())}',
+        f' Exported       : {ts}',
+        div,
+        '',
+    ]
 
-        for ws_ato, reports in workspaces.items():
-            for report in sorted(reports, key=lambda r: r.get('displayId', '')):
-                flag = ' [UPDATED]' if report.get('updated') else ''
+    for ws_ato, reports in workspaces.items():
+        for report in sorted(reports, key=lambda r: r.get('displayId', '')):
+            flag = ' [UPDATED]' if report.get('updated') else ''
+            lines += [
+                sub,
+                f' REPORT {report.get("displayId", "")}{flag}',
+                sub,
+                f' ATO      : {ws_ato}',
+                f' Size     : {report.get("size", "—")}',
+                f' Activity : {report.get("activity", "—")}',
+                f' Location : {report.get("location", "—")}',
+                f' Time     : {fmt_time(report.get("time"))}',
+            ]
+            if report.get('yourAnalysis'):
+                lines.append(f' Analysis : {report["yourAnalysis"]}')
+            for ck, cv in (report.get('custom') or {}).items():
+                lines.append(f' {ck} : {cv}')
+            if (report.get('user') or {}).get('initials'):
+                lines.append(f' By       : {report["user"]["initials"]}')
+            for bi, b in enumerate(report.get('bda') or []):
+                coords = f' @ {b.get("coords")}' if b.get('coords') else ''
+                note = f' - {b.get("note")}' if b.get('note') else ''
+                lines.append(
+                    f'   BDA {bi + 1}  : {b.get("effect", "Unknown")} - {b.get("target", "")}{coords}{note}'
+                )
+
+            for i, h in enumerate(
+                sorted(report.get('history', []), key=lambda x: x.get('lastModified', 0))
+            ):
                 lines += [
-                    sub,
-                    f' REPORT {report.get("displayId", "")}{flag}',
-                    sub,
-                    f' ATO      : {ws_ato}',
-                    f' Size     : {report.get("size", "—")}',
-                    f' Activity : {report.get("activity", "—")}',
-                    f' Location : {report.get("location", "—")}',
-                    f' Time     : {fmt_time(report.get("time"))}',
+                    '',
+                    f'   ↳ Previous Entry {i + 1}',
+                    f'      Size     : {h.get("size", "—")}',
+                    f'      Activity : {h.get("activity", "—")}',
+                    f'      Location : {h.get("location", "—")}',
+                    f'      Time     : {fmt_time(h.get("time"))}',
                 ]
-                if report.get('yourAnalysis'):
-                    lines.append(f' Analysis : {report["yourAnalysis"]}')
-                for ck, cv in (report.get('custom') or {}).items():
-                    lines.append(f' {ck} : {cv}')
-                if (report.get('user') or {}).get('initials'):
-                    lines.append(f' By       : {report["user"]["initials"]}')
-                for bi, b in enumerate(report.get('bda') or []):
-                    coords = f' @ {b.get("coords")}' if b.get('coords') else ''
-                    note   = f' - {b.get("note")}' if b.get('note') else ''
-                    lines.append(f'   BDA {bi + 1}  : {b.get("effect", "Unknown")} - {b.get("target", "")}{coords}{note}')
+                if h.get('yourAnalysis'):
+                    lines.append(f'      Analysis : {h["yourAnalysis"]}')
+            lines.append('')
 
-                for i, h in enumerate(sorted(report.get('history', []), key=lambda x: x.get('lastModified', 0))):
-                    lines += [
-                        '',
-                        f'   ↳ Previous Entry {i + 1}',
-                        f'      Size     : {h.get("size", "—")}',
-                        f'      Activity : {h.get("activity", "—")}',
-                        f'      Location : {h.get("location", "—")}',
-                        f'      Time     : {fmt_time(h.get("time"))}',
-                    ]
-                    if h.get('yourAnalysis'):
-                        lines.append(f'      Analysis : {h["yourAnalysis"]}')
-                lines.append('')
+    machine_json = json.dumps(
+        {'workspaces': workspaces, 'config': config, 'profiles': profiles, 'formats': formats},
+        separators=(',', ':'),
+        ensure_ascii=False,
+    )
+    lines += [
+        div,
+        ' MACHINE DATA — DO NOT EDIT BELOW THIS LINE',
+        div,
+        BACKUP_START,
+        machine_json,
+        BACKUP_END,
+        '',
+    ]
 
-        machine_json = json.dumps(
-            {'workspaces': workspaces, 'config': config, 'profiles': profiles,
-             'formats': DATA_STORE.get('formats', {})},
-            separators=(',', ':'), ensure_ascii=False
-        )
-        lines += [
-            div,
-            ' MACHINE DATA — DO NOT EDIT BELOW THIS LINE',
-            div,
-            BACKUP_START,
-            machine_json,
-            BACKUP_END,
-            '',
-        ]
+    return filename, '\n'.join(lines)
 
-        content = '\n'.join(lines)
-        dest    = os.path.join(BACKUP_DIR, filename)
+
+# Serializes writers so a slower, older snapshot can never land on disk after a
+# newer one. Separate from data_lock so disk I/O never blocks request handlers.
+_disk_lock = threading.Lock()
+
+
+def save_data_to_disk() -> None:
+    """Persist DATA_STORE atomically to ``{ATO}_{Title}.txt``.
+
+    The backup text is rendered while holding ``data_lock`` (a consistent,
+    CPU-only snapshot), then written after releasing it. Holding the lock
+    across the write used to stall every sync and POST for the duration of
+    the disk I/O, which is noticeable on the USB sticks and network shares
+    this often runs from.
+    """
+    with _disk_lock:
+        with data_lock:
+            rendered = render_backup(
+                DATA_STORE.get('workspaces', {}),
+                DATA_STORE.get('config', {}),
+                DATA_STORE.get('profiles', {}),
+                DATA_STORE.get('formats', {}),
+            )
+        if rendered is None:
+            return
+        filename, content = rendered
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        dest = os.path.join(BACKUP_DIR, filename)
         tmp_fd, tmp_path = tempfile.mkstemp(dir=BACKUP_DIR, suffix='.tmp')
-
         try:
             with open(tmp_fd, 'w', encoding='utf-8') as tmp_f:
                 tmp_f.write(content)
-            # Cross-platform atomic rename (no remove-first window vs Py2).
-            os.replace(tmp_path, dest)
+            os.replace(tmp_path, dest)  # atomic: readers never see a partial file
         except Exception as exc:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
             safe_print(f'[!] Error saving to disk: {exc}')
 
 
@@ -748,8 +802,8 @@ def save_data_to_disk() -> None:
 # HTTP request handler
 # =============================================================================
 
-class SaltSyncHandler(server.SimpleHTTPRequestHandler):
 
+class SaltSyncHandler(server.SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
         return  # suppress per-request console noise
 
@@ -770,12 +824,16 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
         # Strip query string so cache-bust params don't 404.
         path = self.path.split('?', 1)[0]
         if path == '/api/sync':
-            if not self._authorized(): return
-            self._handle_sync()
+            if self._authorized():
+                self._handle_sync()
         elif path == '/api/events':
-            if not self._authorized(): return
-            self._handle_sse()
-        elif path in ('/', '/Salt%20Report%20Workbench.html', '/Salt Report Workbench.html'):
+            if self._authorized():
+                self._handle_sse()
+        elif path in (
+            '/',
+            '/index.html',
+            '/Salt%20Report%20Workbench.html',
+        ):  # last: legacy bookmark
             # HTML serve is unauthenticated; startup modal gates data endpoints.
             self._serve_workbench()
         else:
@@ -786,7 +844,13 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
         view_only = getattr(self.server, 'view_only', False)
         if _check_access_code(self.headers, view_only, self.client_address[0]):
             return True
-        self._send_json({'status': 'error', 'message': 'Access denied. Enter the access code from the server console.'}, 401)
+        self._send_json(
+            {
+                'status': 'error',
+                'message': 'Access denied. Enter the access code from the server console.',
+            },
+            401,
+        )
         return False
 
     def _handle_sync(self) -> None:
@@ -797,10 +861,10 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
             if _sync_cache_prefix is None:
                 data = {
                     'workspaces': DATA_STORE['workspaces'],
-                    'config':     DATA_STORE['config'],
-                    'profiles':   DATA_STORE['profiles'],
-                    'formats':    DATA_STORE.get('formats', {}),
-                    'sources':    workspace_sources,
+                    'config': DATA_STORE['config'],
+                    'profiles': DATA_STORE['profiles'],
+                    'formats': DATA_STORE.get('formats', {}),
+                    'sources': workspace_sources,
                 }
                 full = json.dumps(data, separators=(',', ':'))
                 _sync_cache_prefix = full[:-1].encode('utf-8')
@@ -822,9 +886,12 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
         ro = b'true' if getattr(self.server, 'view_only', False) else b'false'
         body = (
             prefix
-            + b',"connected_users":'    + str(connected).encode('ascii')
-            + b',"connected_initials":' + initials_json
-            + b',"read_only":'          + ro
+            + b',"connected_users":'
+            + str(connected).encode('ascii')
+            + b',"connected_initials":'
+            + initials_json
+            + b',"read_only":'
+            + ro
             + b'}'
         )
         self.send_response(200)
@@ -870,10 +937,8 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
         finally:
             # Prune client and drop IP->initials mapping if no other tabs remain (else dict grows forever).
             with sse_lock:
-                try:
+                with contextlib.suppress(ValueError):
                     sse_clients.remove(client)
-                except ValueError:
-                    pass
                 still_here = any(c.ip == client.ip for c in sse_clients)
                 if not still_here:
                     client_initials.pop(client.ip, None)
@@ -881,7 +946,7 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
     def _serve_workbench(self) -> None:
         content = _get_workbench_html()
         if content is None:
-            self.send_error(404, 'Salt Report Workbench.html not found in server directory')
+            self.send_error(404, 'index.html not found - run `python scripts/build.py` first')
             return
         # Viewer port: pre-set body class so edit UI is hidden before JS runs (avoids flash).
         view_only = getattr(self.server, 'view_only', False)
@@ -916,7 +981,9 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
             return
         # Rate-limit before auth/body so wrong-code floods are throttled too.
         if not rate_limit_check(self.client_address[0]):
-            self._send_json({'status': 'error', 'message': 'Rate limit exceeded. Retry shortly.'}, 429)
+            self._send_json(
+                {'status': 'error', 'message': 'Rate limit exceeded. Retry shortly.'}, 429
+            )
             return
         if not self._authorized():
             return
@@ -941,20 +1008,19 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
             return
         # Schema check — bad shape never reaches DATA_STORE.
         validator = _VALIDATORS.get(path)
-        if validator is not None:
-            if (err := validator(data)):
-                self._send_json({'status': 'error', 'message': f'Validation failed: {err}'}, 400)
-                return
+        if validator is not None and (err := validator(data)):
+            self._send_json({'status': 'error', 'message': f'Validation failed: {err}'}, 400)
+            return
 
         handled = False
 
         if path == '/api/save_reports':
-            ato      = (data.get('ato') or '').strip().upper()
+            ato = (data.get('ato') or '').strip().upper()
             incoming = data.get('reports', [])
-            source   = (data.get('source') or '').strip().lower()
+            source = (data.get('source') or '').strip().lower()
             if ato:
                 with data_lock:
-                    is_new   = ato not in DATA_STORE['workspaces']
+                    is_new = ato not in DATA_STORE['workspaces']
                     existing = DATA_STORE['workspaces'].get(ato, [])
                     DATA_STORE['workspaces'][ato] = _merge_reports(existing, incoming)
                     # Provenance label; routine edits don't touch source.
@@ -977,7 +1043,9 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
                 if source in ('backup', 'csv'):
                     label = 'Backup (.txt)' if source == 'backup' else 'CSV (.csv)'
                     safe_print('\n' + '─' * 64)
-                    safe_print(f" [+] Loaded {label}: {len(incoming)} report(s) merged into ATO '{ato}'.")
+                    safe_print(
+                        f" [+] Loaded {label}: {len(incoming)} report(s) merged into ATO '{ato}'."
+                    )
                     safe_print('─' * 64)
                 handled = True
 
@@ -1002,11 +1070,13 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
             return
 
         elif path == '/api/edit_report':
-            ato       = (data.get('ato') or '').strip().upper()
+            ato = (data.get('ato') or '').strip().upper()
             report_id = data.get('reportId')
-            fields    = data.get('fields') or {}
+            fields = data.get('fields') or {}
             if not ato or not report_id or not fields:
-                self._send_json({'status': 'error', 'message': 'Missing ato, reportId, or fields.'}, 400)
+                self._send_json(
+                    {'status': 'error', 'message': 'Missing ato, reportId, or fields.'}, 400
+                )
                 return
             # Server-stamped attribution: override client `user` with our IP->initials->profile lookup.
             # Falls back to client claim for brand-new IPs.
@@ -1018,9 +1088,21 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
                     known_profile = DATA_STORE['profiles'].get(known_initials)
                 if known_profile:
                     fields['user'] = known_profile
-            ALLOWED = ('size', 'activity', 'location', 'time', 'yourAnalysis',
-                       'displayId', 'fullId', 'ato', 'title', 'updated',
-                       'custom', 'user', 'lastModified')
+            ALLOWED = (
+                'size',
+                'activity',
+                'location',
+                'time',
+                'yourAnalysis',
+                'displayId',
+                'fullId',
+                'ato',
+                'title',
+                'updated',
+                'custom',
+                'user',
+                'lastModified',
+            )
             updated_count = 0
             with data_lock:
                 reps = DATA_STORE['workspaces'].get(ato, [])
@@ -1045,7 +1127,7 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
             return
 
         elif path == '/api/delete_history':
-            ato       = (data.get('ato') or '').strip().upper()
+            ato = (data.get('ato') or '').strip().upper()
             deletions = data.get('deletions', [])
             if not ato or not deletions:
                 self._send_json({'status': 'error', 'message': 'Missing ato or deletions.'}, 400)
@@ -1053,12 +1135,12 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
             drop: dict = {}
             for d in deletions:
                 rid = d.get('reportId')
-                lm  = d.get('lastModified')
+                lm = d.get('lastModified')
                 if rid is None or lm is None:
                     continue
                 drop.setdefault(rid, set()).add(lm)
             removed = 0
-            now_ms  = int(time.time() * 1000)
+            now_ms = int(time.time() * 1000)
             with data_lock:
                 reps = DATA_STORE['workspaces'].get(ato, [])
                 for r in reps:
@@ -1068,7 +1150,7 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
                     kept = [h for h in hist if h.get('lastModified') not in lms]
                     if len(kept) != len(hist):
                         removed += len(hist) - len(kept)
-                        r['history']      = kept
+                        r['history'] = kept
                         r['lastModified'] = now_ms
                 if removed > 0:
                     invalidate_sync_cache()
@@ -1080,8 +1162,12 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
         elif path == '/api/save_config':
             cfg = data.get('config')
             if cfg:
+                # Keep only the fields the app uses: config is re-broadcast to
+                # every client on every sync, so arbitrary extra keys would
+                # bloat everyone's payload and the backup file.
+                clean = {'ato': cfg.get('ato', ''), 'title': cfg.get('title', '')}
                 with data_lock:
-                    DATA_STORE['config'] = cfg
+                    DATA_STORE['config'] = clean
                     invalidate_sync_cache()
             handled = True
 
@@ -1099,15 +1185,17 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
 
         elif path == '/api/save_profile':
             profile = data.get('profile')
-            if profile and 'initials' in profile:
+            ini = ((profile or {}).get('initials') or '').strip()
+            if ini:
+                # Known fields only (see save_config), keyed by the same stripped
+                # initials the IP map uses, so server-stamped attribution matches.
+                clean = {'initials': ini, 'color': profile.get('color', '#0a84ff')}
                 with data_lock:
-                    DATA_STORE['profiles'][profile['initials']] = profile
+                    DATA_STORE['profiles'][ini] = clean
                     invalidate_sync_cache()
                 # IP -> initials so /api/sync includes them and /api/edit_report can server-stamp.
-                ini = (profile.get('initials') or '').strip()
-                if ini:
-                    with sse_lock:
-                        client_initials[self.client_address[0]] = ini
+                with sse_lock:
+                    client_initials[self.client_address[0]] = ini
                 handled = True
             else:
                 self._send_json({'status': 'error', 'message': 'Invalid profile data.'}, 400)
@@ -1125,9 +1213,10 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
 # Server
 # =============================================================================
 
+
 class SaltSyncServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
-    daemon_threads      = True  # SSE threads die with main on Ctrl+C
+    daemon_threads = True  # SSE threads die with main on Ctrl+C
 
     def __init__(self, *args, view_only: bool = False, **kwargs):
         # Per-listener mode flag; handler checks via self.server.view_only.
@@ -1142,6 +1231,7 @@ class SaltSyncServer(socketserver.ThreadingTCPServer):
 # =============================================================================
 # Boot
 # =============================================================================
+
 
 def run_boot_dashboard(viewer_port: int | None = None) -> None:
     """Boot banner — title, network URL, access code, optional viewer URL."""
@@ -1164,31 +1254,54 @@ def run_boot_dashboard(viewer_port: int | None = None) -> None:
 def parse_cli_args() -> argparse.Namespace:
     """CLI knobs for port, bind, backup dir, auto-launch, access code."""
     p = argparse.ArgumentParser(
-        prog='salt_sync_server_py3',
-        description='S.A.L.T. Report Workbench sync server (Python 3.11).',
+        prog='salt_sync_server',
+        description='S.A.L.T. Report Workbench sync server.',
     )
-    p.add_argument('--port', type=int, default=PORT,
-                   help=f'HTTP port to listen on (default: {PORT}).')
-    p.add_argument('--host', default=HOST,
-                   help=f'Interface to bind (default: {HOST!r}; use 127.0.0.1 to restrict to localhost).')
-    p.add_argument('--backup-dir', default=BACKUP_DIR,
-                   help=f'Directory for backup .txt files (default: {BACKUP_DIR!r}).')
-    p.add_argument('--no-browser', action='store_true',
-                   help='Do not auto-open the workbench in a browser on launch.')
-    p.add_argument('--no-minimize', action='store_true',
-                   help='Do not minimize the console window on Windows.')
-    p.add_argument('--viewer-port', type=int, default=VIEWER_PORT, metavar='PORT',
-                   help=f'Read-only sister listener (default: {VIEWER_PORT}). '
-                        'Clients hitting this port see live data via SSE but '
-                        'every POST returns 405. Pass 0 to disable.')
-    p.add_argument('--access-code', default=None, metavar='CODE',
-                   help='Override the auto-generated editor access code with '
-                        'a specific value (e.g. for testing or a memorable '
-                        'session code). Default: a fresh random code each launch.')
-    p.add_argument('--no-access-code', action='store_true',
-                   help='Disable the editor-port access-code gate entirely. '
-                        'Everyone on the LAN can edit. Use only on a fully '
-                        'trusted network.')
+    p.add_argument(
+        '--port', type=int, default=PORT, help=f'HTTP port to listen on (default: {PORT}).'
+    )
+    p.add_argument(
+        '--host',
+        default=HOST,
+        help=f'Interface to bind (default: {HOST!r}; use 127.0.0.1 to restrict to localhost).',
+    )
+    p.add_argument(
+        '--backup-dir',
+        default=BACKUP_DIR,
+        help=f'Directory for backup .txt files (default: {BACKUP_DIR!r}).',
+    )
+    p.add_argument(
+        '--no-browser',
+        action='store_true',
+        help='Do not auto-open the workbench in a browser on launch.',
+    )
+    p.add_argument(
+        '--no-minimize', action='store_true', help='Do not minimize the console window on Windows.'
+    )
+    p.add_argument(
+        '--viewer-port',
+        type=int,
+        default=VIEWER_PORT,
+        metavar='PORT',
+        help=f'Read-only sister listener (default: {VIEWER_PORT}). '
+        'Clients hitting this port see live data via SSE but '
+        'every POST returns 405. Pass 0 to disable.',
+    )
+    p.add_argument(
+        '--access-code',
+        default=None,
+        metavar='CODE',
+        help='Override the auto-generated editor access code with '
+        'a specific value (e.g. for testing or a memorable '
+        'session code). Default: a fresh random code each launch.',
+    )
+    p.add_argument(
+        '--no-access-code',
+        action='store_true',
+        help='Disable the editor-port access-code gate entirely. '
+        'Everyone on the LAN can edit. Use only on a fully '
+        'trusted network.',
+    )
     return p.parse_args()
 
 
@@ -1198,10 +1311,8 @@ def graceful_drain() -> None:
         with sse_lock:
             snapshot = list(sse_clients)
         for c in snapshot:
-            try:
+            with contextlib.suppress(Exception):
                 c.send(b'event: shutdown\ndata: server-stopping\n\n')
-            except Exception:
-                pass
     except Exception:
         pass
     try:
@@ -1214,8 +1325,8 @@ def graceful_drain() -> None:
 if __name__ == '__main__':
     args = parse_cli_args()
     # CLI values win over module defaults; functions look names up at call time.
-    PORT       = args.port
-    HOST       = args.host
+    PORT = args.port
+    HOST = args.host
     BACKUP_DIR = args.backup_dir
     # Access code: explicit override > --no-access-code > random per-launch. Uppercase to match comparison.
     if args.no_access_code:

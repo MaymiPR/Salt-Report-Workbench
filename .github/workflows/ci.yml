@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install ruff==0.17.2
+      - name: Ruff lint
+        run: ruff check --output-format=github .
+      - name: Ruff format
+        run: ruff format --check .
+      - name: JavaScript syntax
+        run: node --check src/app.js
+
+  test:
+    name: Test (Python ${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.12", "3.13"]
+        include:
+          # Operators run this on Windows laptops; make sure it works there.
+          - os: windows-latest
+            python: "3.13"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit and integration tests
+        run: python -m unittest discover -s tests -v
+
+  build:
+    name: Build and smoke test
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build
+        run: python -W error scripts/build.py
+      - name: Smoke test the built server
+        run: |
+          python dist/salt_sync_server.py --no-browser --no-minimize \
+            --port 8080 --viewer-port 8081 --no-access-code &
+          for i in $(seq 1 20); do curl -fs http://127.0.0.1:8080/ >/dev/null && break; sleep 0.5; done
+          curl -fsS http://127.0.0.1:8080/ | grep -q '<style>'
+          curl -fsS http://127.0.0.1:8081/ | grep -q 'class="read-only"'
+          curl -fsS http://127.0.0.1:8080/api/sync | python -c "import json,sys; d=json.load(sys.stdin); assert d['read_only'] is False"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -d '{}' http://127.0.0.1:8081/api/save_config)" = 405
+          echo "smoke test passed"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SaltReportWorkbench-dist
+          path: dist/
+          if-no-files-found: error
