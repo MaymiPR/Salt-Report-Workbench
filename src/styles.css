@@ -500,6 +500,16 @@ body.local-mode .startup-access-divider { display: none; }
     color: var(--text-secondary);
     line-height: 1.2;
 }
+/* A change the server refused: kept locally until fixed or discarded. */
+.unsaved-badge {
+    font-size: 0.8em;
+    color: var(--system-red);
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: help;
+}
+.discard-btn { background-color: rgba(255, 69, 58, 0.12); color: var(--system-red); font-size: 0.74em; font-weight: 600; padding: 4px 10px; border-radius: 100px; margin: 0; border: none; letter-spacing: 0.02em; }
+.discard-btn:hover { background-color: rgba(255, 69, 58, 0.22); opacity: 1; }
 
 /* ── History toggle — small rotating chevron with hover wash. */
 .history-btn {
@@ -697,6 +707,7 @@ body.read-only #deleteSelectedBtn,
 body.read-only #sendToAtoSelect,
 body.read-only #sendToAtoBtn,
 body.read-only .restore-btn,
+body.read-only .discard-btn,
 body.read-only .workspace-row-unload,
 body.read-only #importBackupBtnTrigger,
 body.read-only #importCsvBtnTrigger,

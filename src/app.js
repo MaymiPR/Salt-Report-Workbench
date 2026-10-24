@@ -268,6 +268,15 @@ const openHistoryRows = new Set();
 let isExportViewActive = false;
 let pendingCsv         = null; // { headers, rows, filename }
 let offlinePendingPush = localStorage.getItem('salt_offline_push') === 'true';
+// What the server holds, per workspace (report key -> lastModified), so a
+// push sends only what changed. Refreshed on every pull; a workspace with no
+// record yet (say, right after a reload) is pushed in full.
+let serverVersions = {};
+// Changes the server refused, per workspace (report key -> { report, reason }).
+// Kept so nothing is lost: shown as "Not saved" until fixed or discarded.
+let unsaved = readStored('salt_unsaved', {});
+const saveUnsaved = () => { try { localStorage.setItem('salt_unsaved', JSON.stringify(unsaved)); } catch (e) {} };
+const unsavedEntry = (ato, report) => ((unsaved[ato] || {})[SaltCore.reportKey(report)]) || null;
 
 // Dedupe localStorage writes — skip if the JSON hasn't actually changed.
 let lastSavedReportsJson = localStorage.getItem('salt_reports_by_ato') || '';
@@ -554,9 +563,11 @@ const renderLog = (filterText = el.log.search.value.toLowerCase()) => {
         const histBtn = (report.history && report.history.length > 0)
             ? `<button class="history-btn ${isOpen ? 'open' : ''}" data-history-id="${report.id}" title="View past versions">&#8250;</button>`
             : `<button class="history-btn" style="visibility:hidden;" disabled>&#8250;</button>`;
-        const statusText  = report.updated
-            ? `<span class="id-cell-wrap">${escapeHtml(formatFullId(report))}<span class="id-updated-badge">(Updated)</span></span>`
+        const refused     = isReadOnly ? null : unsavedEntry(activeAto, report);
+        const statusText  = (report.updated || refused)
+            ? `<span class="id-cell-wrap">${escapeHtml(formatFullId(report))}${report.updated ? '<span class="id-updated-badge">(Updated)</span>' : ''}${refused ? `<span class="unsaved-badge" title="${escapeHtml(refused.reason)}">Not saved</span>` : ''}</span>`
             : escapeHtml(formatFullId(report));
+        const discardBtn  = refused ? `<button class="discard-btn" data-discard-id="${report.id}" title="Drop this unsaved change">Discard</button>` : '';
         // Use the user recorded on the report itself (avoids color collisions
         // when two operators share initials).
         const reporter    = report.user || null;
@@ -580,7 +591,7 @@ const renderLog = (filterText = el.log.search.value.toLowerCase()) => {
                         : `All ${done} assessed`;
             bdaBtn = `<button class="bda-btn ${state}${worstCls ? ' bda-worst-' + worstCls : ''}${openBdaRows.has(report.id) ? ' open' : ''}" data-bda-id="${report.id}" title="${tip}">${label}</button>`;
         }
-        row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${report.id}" title="Select"> ${histBtn} <button class="copy-btn" data-id="${report.id}">Copy</button>${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${clampCell(report.size)}</td><td class="col-activity">${clampCell(report.activity)}</td><td class="col-location">${clampCell(report.location)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}</td><td class="col-analysis">${clampCell(report.yourAnalysis)}</td>${cusCells(report.custom)}`;
+        row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${report.id}" title="Select"> ${histBtn} <button class="copy-btn" data-id="${report.id}">Copy</button>${discardBtn}${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${clampCell(report.size)}</td><td class="col-activity">${clampCell(report.activity)}</td><td class="col-location">${clampCell(report.location)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}</td><td class="col-analysis">${clampCell(report.yourAnalysis)}</td>${cusCells(report.custom)}`;
         frag.appendChild(row);
 
         if (bdaMode && openBdaRows.has(report.id)) frag.appendChild(buildBdaRow(report));
@@ -794,6 +805,32 @@ const loadReportForEditing = (reportId) => {
     // Make the always-reserved Cancel button slot actually visible now.
     el.form.cancelBtn.style.visibility = 'visible';
     el.form.nowBtn.disabled        = false;
+};
+
+// Drop refused changes for the given report ids in the active workspace.
+// The server's copy, if it ever had one, comes back with the next sync.
+const discardUnsaved = (ids, { confirm = true } = {}) => {
+    const entries = unsaved[activeAto] || {};
+    const reps = ids.map(id => localReports.find(r => r.id === id)).filter(r => r && unsavedEntry(activeAto, r));
+    if (!reps.length) return;
+    const run = () => {
+        reps.forEach(r => {
+            const k = SaltCore.reportKey(r);
+            delete entries[k];
+            // Never saved: there's no server copy to come back, so remove it here.
+            if (!(serverVersions[activeAto] || {})[k]) localReports = localReports.filter(x => x !== r);
+        });
+        saveUnsaved();
+        reportsByAto[activeAto] = localReports;
+        saveReportsByAtoToLocal();
+        renderLog();
+        showToast(reps.length === 1 ? `Unsaved change to ${formatFullId(reps[0])} discarded.` : `${reps.length} unsaved changes discarded.`);
+        syncWithServer();
+    };
+    if (!confirm) { run(); return; }
+    showConfirmation(reps.length === 1
+        ? `Discard your unsaved change to ${formatFullId(reps[0])}? The server's copy, if there is one, comes back.`
+        : `Discard ${reps.length} unsaved changes?`, run);
 };
 
 // DESTRUCTIVE rollback: chosen history version becomes current; current
@@ -1432,26 +1469,75 @@ const handleUnauthorized = () => {
     if (!isReadOnly && !document.body.classList.contains('read-only')) openStartupModal();
 };
 
-// Push one workspace's reports (an empty list unloads it). Returns 'ok',
-// 'queued' when the change should be retried later (server unreachable, code
-// rejected, rate limited, or a server error), or 'rejected' when the server
-// refused the data itself; retrying identical data would only be refused
-// again, so that case is reported to the user instead.
-async function pushWorkspace(ato, reports, source) {
+// Record the outcome of a push for each report in `batch`.
+const markSaved = (ato, batch) => {
+    const versions = serverVersions[ato] = serverVersions[ato] || {};
+    let cleared = false;
+    batch.forEach(r => {
+        const k = SaltCore.reportKey(r);
+        versions[k] = r.lastModified || 0;
+        if (unsaved[ato] && unsaved[ato][k]) { delete unsaved[ato][k]; cleared = true; }
+    });
+    if (cleared) saveUnsaved();
+};
+const markRefused = (ato, report, reason) => {
+    (unsaved[ato] = unsaved[ato] || {})[SaltCore.reportKey(report)] = { report: JSON.parse(JSON.stringify(report)), reason };
+    saveUnsaved();
+};
+
+// POST a batch of reports. When the server refuses it, split the batch to
+// find exactly which reports it refuses, so one bad report can't hold back
+// the rest. Returns { queued, refused: [reasons] }.
+async function sendBatch(ato, batch, source) {
     let res;
     try {
-        res = reports.length
-            ? await postJson('/api/save_reports', source ? { ato, reports, source } : { ato, reports })
-            : await postJson('/api/unload_ato', { ato });
+        res = await postJson('/api/save_reports', source ? { ato, reports: batch, source } : { ato, reports: batch });
     } catch (err) {
-        return 'queued';
+        return { queued: true, refused: [] };
     }
-    if (res.ok) return 'ok';
-    if (res.status === 401) { handleUnauthorized(); return 'queued'; }
-    if (res.status === 429 || res.status >= 500) return 'queued';
-    const reason = await res.json().then(j => j.message).catch(() => '') || `HTTP ${res.status}`;
-    showToast(`The server did not save ${ato}: ${reason}`, true);
-    return 'rejected';
+    if (res.ok) { markSaved(ato, batch); return { queued: false, refused: [] }; }
+    if (res.status === 401) { handleUnauthorized(); return { queued: true, refused: [] }; }
+    if (res.status === 429 || res.status >= 500) return { queued: true, refused: [] };
+    if (batch.length === 1) {
+        const message = await res.json().then(j => j.message).catch(() => '') || `HTTP ${res.status}`;
+        // The batch index ("reports[0].size ...") means nothing to an operator.
+        const reason = message.replace(/^Validation failed: reports\[\d+\]\./, 'Validation failed: ').replace(/\.?$/, '.');
+        markRefused(ato, batch[0], reason);
+        return { queued: false, refused: [reason] };
+    }
+    const mid = Math.ceil(batch.length / 2);
+    const a = await sendBatch(ato, batch.slice(0, mid), source);
+    const b = await sendBatch(ato, batch.slice(mid), source);
+    return { queued: a.queued || b.queued, refused: [...a.refused, ...b.refused] };
+}
+
+// Push one workspace: the reports the server doesn't have in their current
+// version (an empty workspace is unloaded instead). A refused version is not
+// re-sent until someone changes it. Returns 'ok', 'queued' when the push
+// should be retried (server unreachable, code rejected, rate limited, server
+// error), or 'rejected' when the server refused some reports; those are kept
+// as "Not saved" and the user is told why.
+async function pushWorkspace(ato, reports, source) {
+    if (!reports.length) {
+        try {
+            const res = await postJson('/api/unload_ato', { ato });
+            if (res.status === 401) { handleUnauthorized(); return 'queued'; }
+            return res.status === 429 || res.status >= 500 ? 'queued' : 'ok';
+        } catch (err) {
+            return 'queued';
+        }
+    }
+    const batch = SaltCore.changedReports(reports, serverVersions[ato]).filter(r => {
+        const u = unsavedEntry(ato, r);
+        return !u || u.report.lastModified !== r.lastModified;
+    });
+    if (!batch.length) return 'ok';
+    const { queued, refused } = await sendBatch(ato, batch, source);
+    if (refused.length) {
+        showToast(`The server did not save ${refused.length === 1 ? 'a report' : refused.length + ' reports'} in ${ato}: ${refused[0]} Kept as "Not saved" until you fix or discard it.`, true);
+        if (ato === activeAto) renderLog();
+    }
+    return queued ? 'queued' : refused.length ? 'rejected' : 'ok';
 }
 
 // Push the active workspace. `source` is an optional hint ('backup' | 'csv')
@@ -1504,6 +1590,19 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     isReadOnly = !!readOnly;
     document.body.classList.toggle('read-only', isReadOnly);
     reportsByAto = workspaces || {};
+    serverVersions = {};
+    Object.entries(reportsByAto).forEach(([ato, reps]) => { serverVersions[ato] = SaltCore.knownVersions(reps); });
+    // Refused changes stay on top of the server's copy until fixed or
+    // discarded, unless someone has since saved a newer version.
+    let droppedUnsaved = false;
+    Object.entries(unsaved).forEach(([ato, entries]) => {
+        const list = Object.values(entries).map(e => e.report);
+        if (!list.length) return;
+        const { reports, superseded } = SaltCore.withUnsaved(reportsByAto[ato], list);
+        reportsByAto[ato] = reports;
+        superseded.forEach(k => { delete entries[k]; droppedUnsaved = true; });
+    });
+    if (droppedUnsaved) saveUnsaved();
     saveReportsByAtoToLocal();
 
     // ATO/Title sync. Editors: server config is authoritative.
@@ -1663,10 +1762,13 @@ async function handleFormSubmit(mode) {
             // forward in either case (matches pre-split behavior).
             const newTitle = el.config.title.value.trim() || 'Report #';
             finalReport = { ...orig, ...data, displayId:tDid, ato:tAto, title:newTitle, fullId:`${newTitle}${tDid}`, updated:false, lastModified:now, user:userProfile };
-        } else if (mode === 'edit') {
+        } else if (mode === 'edit' || unsavedEntry(activeAto, orig)) {
             // EDIT: overwrite fields in place. No history snapshot. `updated`
             // and `history` are preserved exactly as-is, so the audit trail
             // is untouched — the user is simply correcting the current text.
+            // Fixing a change the server refused works the same way even via
+            // Update: the refused version never reached the server, so it
+            // doesn't belong in history.
             finalReport = { ...orig, ...data, lastModified:now, user:userProfile };
             editTargetId = idToUpdate;
         } else {
@@ -1753,6 +1855,12 @@ el.log.body.addEventListener('click', e => {
         const id = histBtn.dataset.historyId;
         openHistoryRows.has(id) ? openHistoryRows.delete(id) : openHistoryRows.add(id);
         renderLog(el.log.search.value.toLowerCase());
+        return;
+    }
+    const discardBtn = e.target.closest('[data-discard-id]');
+    if (discardBtn) {
+        e.stopPropagation();
+        discardUnsaved([discardBtn.dataset.discardId]);
         return;
     }
     const restoreBtn = e.target.closest('[data-restore-id]');
@@ -1844,6 +1952,13 @@ el.log.deleteBtn.addEventListener('click', () => {
     const total = mainIds.length + histSel.length;
     if (!total) return;
     showConfirmation(`Delete ${total} item(s)?`, async () => {
+        // A change the server refused can't be deleted on the server (the
+        // deleted version would be refused too), so deleting it discards it.
+        const refusedIds = mainIds.filter(id => { const r = localReports.find(x => x.id === id); return r && unsavedEntry(activeAto, r); });
+        if (refusedIds.length) {
+            discardUnsaved(refusedIds, { confirm: false });
+            refusedIds.forEach(id => mainIds.splice(mainIds.indexOf(id), 1));
+        }
         // ── Main report deletions (soft-delete via the deleted flag) ─────────
         if (mainIds.length) {
             const deletedSet = new Set(mainIds);
@@ -1881,7 +1996,7 @@ el.log.deleteBtn.addEventListener('click', () => {
 el.log.selectAll.addEventListener('click',   () => { document.querySelectorAll('.row-selector, .history-selector').forEach(cb => cb.checked=true);  updateSelectionUI(); el.menu.panel.style.display='none'; });
 el.log.deselectAll.addEventListener('click', () => { document.querySelectorAll('.row-selector, .history-selector').forEach(cb => cb.checked=false); updateSelectionUI(); el.menu.panel.style.display='none'; });
 
-el.log.sendBtn.addEventListener('click', () => {
+el.log.sendBtn.addEventListener('click', async () => {
     const target = el.log.sendSelect.value;
     if (!target) { showToast('Select a destination ATO first.', true); return; }
     const ids = [...document.querySelectorAll('.row-selector:checked')].map(cb => cb.dataset.id);
@@ -1894,13 +2009,18 @@ el.log.sendBtn.addEventListener('click', () => {
         const rep = { ...reportsByAto['IMPORT'][idx] };
         const did = `${target}${String(lastNum+moved+1).padStart(3,'0')}`;
         rep.ato=target; rep.title=(reportsByAto[target].find(r=>r.title&&!r.deleted)||{}).title||target; rep.displayId=did; rep.fullId=`${rep.title}${did}`; rep.lastModified=Date.now();
-        targetReps.push(rep); reportsByAto['IMPORT'][idx].deleted=true; moved++;
+        targetReps.push(rep);
+        // Bump the IMPORT copy too, or the deletion would never be sent.
+        reportsByAto['IMPORT'][idx] = { ...reportsByAto['IMPORT'][idx], deleted: true, lastModified: Date.now() };
+        moved++;
     });
     reportsByAto[target] = targetReps;
-    saveLocalAndSync(reportsByAto);
     showToast(`Moved ${moved} report(s) to ${target}.`);
-    if (activeAto==='IMPORT') renderLog();
     updateSelectionUI(); populateAtoHistory();
+    // The destination isn't the active workspace, so push it explicitly;
+    // otherwise the next sync would drop the moved reports.
+    await saveLocalAndSync(reportsByAto);
+    await pushWorkspace(target, reportsByAto[target]);
 });
 
 el.log.search.addEventListener('input', debounce(e => renderLog(e.target.value.toLowerCase()), 100));

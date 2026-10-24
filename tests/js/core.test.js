@@ -214,3 +214,38 @@ test('the CSV identifier is whatever the caller displays', () => {
     const csv = core.reportsCsv([report()], { local: false, customLabels: [], idOf: x => core.formatFullId(x, 'space') });
     assert.equal(core.parseCsv(csv)[1][0], 'Patrol ALPHA001');
 });
+
+// --- Sync bookkeeping ---
+
+test('reports are keyed like the server merges them', () => {
+    assert.equal(core.reportKey({ id: 'u1', displayId: 'A001' }), 'u1');
+    assert.equal(core.reportKey({ displayId: 'A001' }), 'A001');
+    assert.equal(core.reportKey({}), '');
+});
+
+test('a push carries only reports the server lacks in that version', () => {
+    const server = [report({ id: 'a', lastModified: 1 }), report({ id: 'b', lastModified: 2 })];
+    const known = core.knownVersions(server);
+    const local = [
+        report({ id: 'a', lastModified: 1 }),          // unchanged
+        report({ id: 'b', lastModified: 5 }),          // edited
+        report({ id: 'c', lastModified: 3 }),          // new
+        report({ id: 'd', lastModified: 4, deleted: true }), // deleted before the server saw it
+        { size: 'no key' },                            // can't be merged, never sent
+    ];
+    assert.deepEqual(core.changedReports(local, known).map(r => r.id), ['b', 'c', 'd']);
+    assert.equal(core.changedReports(local, undefined).length, 4, 'no record: send everything mergeable');
+});
+
+test('refused changes stay over the server copy until superseded', () => {
+    const server = [report({ id: 'a', size: 'server', lastModified: 5 }), report({ id: 'b', size: 'server', lastModified: 9 })];
+    const unsaved = [
+        report({ id: 'a', size: 'mine', lastModified: 7 }),  // newer than the server's: shown
+        report({ id: 'b', size: 'mine', lastModified: 8 }),  // the server moved past it: dropped
+        report({ id: 'n', size: 'mine', lastModified: 1 }),  // never saved: added
+    ];
+    const { reports, superseded } = core.withUnsaved(server, unsaved);
+    assert.deepEqual(reports.map(r => `${r.id}:${r.size}`), ['a:mine', 'b:server', 'n:mine']);
+    assert.deepEqual(superseded, ['b']);
+    assert.equal(server[0].size, 'server', 'the server copy itself is not modified');
+});

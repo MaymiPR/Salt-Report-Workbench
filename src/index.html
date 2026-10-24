@@ -323,7 +323,8 @@
                         <li>The <strong>status dot</strong> next to &ldquo;Report Log&rdquo;: green = connected and synced, red = locally run with no server connection (working from local storage only).</li>
                         <li><strong>Connected users count</strong> shows the number of unique people on the server. Multiple tabs open on the same machine count once.</li>
                         <li>Changes made while locally run queue in your browser and replay automatically the moment the server comes back.</li>
-                        <li>If the server refuses a change outright (for example a field longer than it accepts), a red message says so and names the reason, so nothing disappears silently.</li>
+                        <li>Each change sends only the reports it touched, not the whole workspace, so syncing stays quick however long the operation runs.</li>
+                        <li>If the server refuses a report (for example a field longer than it accepts), a red message gives the reason and the report stays in your table marked <strong>Not saved</strong>; hover the mark for the reason. Fix it (Edit or Update) and it is sent again; or click <strong>Discard</strong> (or delete it) to drop the change and get the server's copy back. The rest of your reports keep syncing either way.</li>
                     </ul>
                     <h4 class="manual-subhead">What the Sync Server Does Automatically</h4>
                     <ul>
