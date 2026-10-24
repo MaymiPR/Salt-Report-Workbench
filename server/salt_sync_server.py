@@ -38,8 +38,9 @@ VIEWER_PORT: int | None = 8081
 _HERE = os.path.dirname(os.path.abspath(__file__))
 # Next to the server (as documented), not the launch directory.
 BACKUP_DIR = os.path.join(_HERE, 'Auto Backups')
-# Cap on incoming POST bodies. Every push carries a whole workspace, so this has
-# to fit a long operation's worth of reports with their history.
+# Cap on incoming POST bodies. A client with no record of the server's copy
+# (right after a reload) pushes a whole workspace, so this has to fit a long
+# operation's worth of reports with their history.
 MAX_BODY_BYTES: int = 16 * 1024 * 1024
 # Refused bodies up to this size are read and dropped so the client gets the
 # error reply (see SaltSyncHandler._discard_body); larger ones just close.
