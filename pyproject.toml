@@ -3,7 +3,7 @@ name = "salt-report-workbench"
 version = "2.1.0"
 description = "Offline-first tactical SALT reporting workbench with real-time LAN sync."
 readme = "README.md"
-license = "AGPL-3.0-or-later"
+license = "AGPL-3.0-only"
 requires-python = ">=3.10"
 # Deliberately empty: the server and build use only the standard library so the
 # tool runs on air-gapped machines with nothing but a stock Python install.
