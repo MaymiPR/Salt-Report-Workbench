@@ -37,7 +37,6 @@ All notable changes to this project are documented here. The format follows
   port to anyone, and characters a browser cookie can't carry.
 - The access-code box accepts codes longer than 10 characters, so a custom
   `--access-code` can be typed in.
-
 - "Send to ATO" from the IMPORT workspace never pushed the destination
   workspace, so the moved reports were lost on the next sync.
 - The MTI export finds counts written "4x tracked" (and "4 x tracked"), not
@@ -54,8 +53,8 @@ All notable changes to this project are documented here. The format follows
 - The CSV and MTI Identifier column matches the table and copy text
   ("Patrol - ALPHA001", following the Title Separator) instead of the stored
   form without a separator ("PatrolALPHA001").
-- The upload cap is 16 MB instead of 1 MB. Every push carries the whole
-  workspace, and a long operation outgrows 1 MB.
+- The upload cap is 16 MB instead of 1 MB, so the full push a browser makes
+  after a reload fits even a long operation.
 - The ⋯ menu's "Clear All Data" is now "Clear Workspace", which is what it
   does. It shares Unload's behavior, so it also clears the title and form.
 - The server reports unexpected errors on its console instead of swallowing
