@@ -17,6 +17,7 @@ import threading
 import time
 import webbrowser
 from datetime import datetime, timezone
+from typing import ClassVar
 
 # --- Configuration ---
 PORT: int = 8080
@@ -282,6 +283,23 @@ MAX_BDA_TARGET = 200
 MAX_BDA_EFFECT = 30
 MAX_BDA_NOTE = 500
 _FORMAT_LINE_TYPES = {'id', 'size', 'activity', 'location', 'time', 'analysis', 'custom'}
+# Report fields /api/edit_report may overwrite. History and BDA change through
+# save_reports, where merging applies.
+_EDITABLE_FIELDS = (
+    'size',
+    'activity',
+    'location',
+    'time',
+    'yourAnalysis',
+    'displayId',
+    'fullId',
+    'ato',
+    'title',
+    'updated',
+    'custom',
+    'user',
+    'lastModified',
+)
 
 # ISO 8601 with optional fractional seconds, optional Z (tolerates hand-edited legacy backups).
 _ISO_TIME_RE = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$')
@@ -300,6 +318,20 @@ def _is_int(v) -> bool:
     return isinstance(v, int) and not isinstance(v, bool)
 
 
+def _check_ato(data: dict) -> str | None:
+    """Every request addressed to one workspace names it the same way."""
+    ato = data.get('ato')
+    if not _is_str(ato, MAX_ATO_LEN) or not ato:
+        return f'ato must be a non-empty string ≤{MAX_ATO_LEN} chars'
+    return None
+
+
+def _check_color(c, field: str) -> str | None:
+    if not isinstance(c, str) or not _COLOR_RE.match(c):
+        return f'{field} must be a hex color (e.g. #0a84ff)'
+    return None
+
+
 def _validate_user(u, prefix: str) -> str | None:
     """Optional user object. None → ok; bad shape → error string."""
     if u is None:
@@ -309,9 +341,7 @@ def _validate_user(u, prefix: str) -> str | None:
     if 'initials' in u and not _is_str(u['initials'], MAX_INITIALS_LEN):
         return f'{prefix}.initials must be a string ≤{MAX_INITIALS_LEN} chars'
     if 'color' in u:
-        c = u['color']
-        if not isinstance(c, str) or not _COLOR_RE.match(c):
-            return f'{prefix}.color must be a hex color (e.g. #0a84ff)'
+        return _check_color(u['color'], f'{prefix}.color')
     return None
 
 
@@ -385,9 +415,8 @@ def _validate_report(r, idx: int) -> str | None:
 
 
 def _v_save_reports(data: dict) -> str | None:
-    ato = data.get('ato')
-    if not _is_str(ato, MAX_ATO_LEN) or not ato:
-        return f'ato must be a non-empty string ≤{MAX_ATO_LEN} chars'
+    if err := _check_ato(data):
+        return err
     reps = data.get('reports')
     if not isinstance(reps, list):
         return 'reports must be a list'
@@ -405,17 +434,9 @@ def _v_save_reports(data: dict) -> str | None:
     return None
 
 
-def _v_unload_ato(data: dict) -> str | None:
-    ato = data.get('ato')
-    if not _is_str(ato, MAX_ATO_LEN) or not ato:
-        return f'ato must be a non-empty string ≤{MAX_ATO_LEN} chars'
-    return None
-
-
 def _v_edit_report(data: dict) -> str | None:
-    ato = data.get('ato')
-    if not _is_str(ato, MAX_ATO_LEN) or not ato:
-        return f'ato must be a non-empty string ≤{MAX_ATO_LEN} chars'
+    if err := _check_ato(data):
+        return err
     rid = data.get('reportId')
     if not _is_str(rid, MAX_ID_LEN) or not rid:
         return 'reportId must be a non-empty string'
@@ -427,9 +448,8 @@ def _v_edit_report(data: dict) -> str | None:
 
 
 def _v_delete_history(data: dict) -> str | None:
-    ato = data.get('ato')
-    if not _is_str(ato, MAX_ATO_LEN) or not ato:
-        return f'ato must be a non-empty string ≤{MAX_ATO_LEN} chars'
+    if err := _check_ato(data):
+        return err
     deletions = data.get('deletions')
     if not isinstance(deletions, list):
         return 'deletions must be a list'
@@ -465,16 +485,13 @@ def _v_save_profile(data: dict) -> str | None:
     if not _is_str(p.get('initials'), MAX_INITIALS_LEN) or not p.get('initials'):
         return f'profile.initials must be a non-empty string ≤{MAX_INITIALS_LEN} chars'
     if 'color' in p:
-        c = p['color']
-        if not isinstance(c, str) or not _COLOR_RE.match(c):
-            return 'profile.color must be a hex color (e.g. #0a84ff)'
+        return _check_color(p['color'], 'profile.color')
     return None
 
 
 def _v_save_format(data: dict) -> str | None:
-    ato = data.get('ato')
-    if not _is_str(ato, MAX_ATO_LEN) or not ato:
-        return f'ato must be a non-empty string ≤{MAX_ATO_LEN} chars'
+    if err := _check_ato(data):
+        return err
     fmt = data.get('format')
     if not isinstance(fmt, dict):
         return 'format must be an object'
@@ -495,10 +512,11 @@ def _v_save_format(data: dict) -> str | None:
     return None
 
 
-# Path -> validator. Add an entry when adding a new POST route.
+# Path -> validator. A new POST route needs an entry here and one in
+# SaltSyncHandler._POST_ROUTES.
 _VALIDATORS = {
     '/api/save_reports': _v_save_reports,
-    '/api/unload_ato': _v_unload_ato,
+    '/api/unload_ato': _check_ato,
     '/api/edit_report': _v_edit_report,
     '/api/delete_history': _v_delete_history,
     '/api/save_config': _v_save_config,
@@ -817,14 +835,21 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return  # suppress per-request console noise
 
-    def _send_json(self, data, status: int = 200) -> None:
-        body = json.dumps(data).encode('utf-8')
+    def _send_body(
+        self, body: bytes, content_type: str, status: int = 200, headers: tuple = ()
+    ) -> None:
+        """Send a complete, uncacheable response."""
         self.send_response(status)
-        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+        for name, value in headers:
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_json(self, data, status: int = 200) -> None:
+        self._send_body(json.dumps(data).encode('utf-8'), 'application/json', status)
 
     # -------------------------------------------------------------------------
     # GET
@@ -921,12 +946,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             + ro
             + b'}'
         )
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Content-Length', str(len(body)))
-        self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
-        self.end_headers()
-        self.wfile.write(body)
+        self._send_body(body, 'application/json')
 
     def _handle_sse(self):
         """SSE stream. `select` wakes on 15s heartbeat or client disconnect (instant prune on refresh)."""
@@ -986,15 +1006,11 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 ('<meta name="salt-access-code" content="' + _access_code + '">').encode('utf-8'),
                 1,
             )
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/html; charset=utf-8')
-        # No-cache so rebuilds propagate without manual cache-clearing.
-        self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
-        self.send_header('Pragma', 'no-cache')
-        self.send_header('Expires', '0')
-        self.send_header('Content-Length', str(len(content)))
-        self.end_headers()
-        self.wfile.write(content)
+        # Uncacheable, older-browser headers included, so rebuilds propagate
+        # without manual cache-clearing.
+        self._send_body(
+            content, 'text/html; charset=utf-8', headers=(('Pragma', 'no-cache'), ('Expires', '0'))
+        )
 
     # -------------------------------------------------------------------------
     # POST
@@ -1034,209 +1050,197 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         if not isinstance(data, dict):
             self._send_json({'status': 'error', 'message': 'Body must be a JSON object.'}, 400)
             return
+        route = self._POST_ROUTES.get(path)
+        if route is None:
+            self._send_json({'status': 'error', 'message': 'Not Found'}, 404)
+            return
         # Schema check — bad shape never reaches DATA_STORE.
         validator = _VALIDATORS.get(path)
         if validator is not None and (err := validator(data)):
             self._send_json({'status': 'error', 'message': f'Validation failed: {err}'}, 400)
             return
+        route(self, data)
 
-        handled = False
+    def _bad_request(self, message: str) -> None:
+        self._send_json({'status': 'error', 'message': message}, 400)
 
-        if path == '/api/save_reports':
-            ato = (data.get('ato') or '').strip().upper()
-            incoming = data.get('reports', [])
-            source = (data.get('source') or '').strip().lower()
-            if ato:
-                with data_lock:
-                    is_new = ato not in DATA_STORE['workspaces']
-                    existing = DATA_STORE['workspaces'].get(ato, [])
-                    DATA_STORE['workspaces'][ato] = _merge_reports(existing, incoming)
-                    # Provenance label; routine edits don't touch source.
-                    if source == 'backup':
-                        workspace_sources[ato] = 'Uploaded backup (.txt)'
-                    elif source == 'csv':
-                        workspace_sources[ato] = 'Uploaded CSV (.csv)'
-                    elif is_new:
-                        workspace_sources[ato] = 'In-session'
-                    invalidate_sync_cache()
-                # Learn this connection's operator from the reports it logs, for
-                # IP attribution. Not from imports: a backup or CSV carries other
-                # people's reports, and the importer would take on their identity.
-                client_ip = self.client_address[0]
-                for r in incoming if source not in ('backup', 'csv') else ():
-                    ini = ((r.get('user') or {}).get('initials') or '').strip()
-                    if ini:
-                        with sse_lock:
-                            client_initials[client_ip] = ini
-                        break
-                # Console bulk-import notification (browser shows full state).
-                if source in ('backup', 'csv'):
-                    label = 'Backup (.txt)' if source == 'backup' else 'CSV (.csv)'
-                    safe_print('\n' + '─' * 64)
-                    safe_print(
-                        f" [+] Loaded {label}: {len(incoming)} report(s) merged into ATO '{ato}'."
-                    )
-                    safe_print('─' * 64)
-                handled = True
+    def _commit(self, **extra) -> None:
+        """The end of every successful write: persist, notify clients, confirm."""
+        schedule_save()
+        broadcast_update()
+        self._send_json({'status': 'success', **extra})
 
-        elif path == '/api/unload_ato':
-            ato = (data.get('ato') or '').strip().upper()
-            if not ato:
-                self._send_json({'status': 'error', 'message': 'Missing ATO.'}, 400)
-                return
-            with data_lock:
-                DATA_STORE['workspaces'].pop(ato, None)
-                DATA_STORE.get('formats', {}).pop(ato, None)
-                workspace_sources.pop(ato, None)
-                cfg = DATA_STORE.get('config') or {}
-                if (cfg.get('ato') or '').strip().upper() == ato:
-                    DATA_STORE['config'] = {}
-                invalidate_sync_cache()
-            # Persist the removal — without this the unload lived only in
-            # memory and the workspace came back on the next server restart.
-            schedule_save()
-            broadcast_update()
-            self._send_json({'status': 'success', 'message': 'ATO unloaded.'})
+    # -------------------------------------------------------------------------
+    # POST routes. Each gets the parsed, validated body and sends the reply.
+    # -------------------------------------------------------------------------
+
+    def _post_save_reports(self, data: dict) -> None:
+        ato = (data.get('ato') or '').strip().upper()
+        if not ato:
+            self._bad_request('Missing ATO.')
             return
-
-        elif path == '/api/edit_report':
-            ato = (data.get('ato') or '').strip().upper()
-            report_id = data.get('reportId')
-            fields = data.get('fields') or {}
-            if not ato or not report_id or not fields:
-                self._send_json(
-                    {'status': 'error', 'message': 'Missing ato, reportId, or fields.'}, 400
-                )
-                return
-            # Server-stamped attribution: override client `user` with our IP->initials->profile lookup.
-            # Falls back to client claim for brand-new IPs.
-            client_ip = self.client_address[0]
-            with sse_lock:
-                known_initials = client_initials.get(client_ip, '')
-            if known_initials:
-                with data_lock:
-                    known_profile = DATA_STORE['profiles'].get(known_initials)
-                if known_profile:
-                    fields['user'] = known_profile
-            ALLOWED = (
-                'size',
-                'activity',
-                'location',
-                'time',
-                'yourAnalysis',
-                'displayId',
-                'fullId',
-                'ato',
-                'title',
-                'updated',
-                'custom',
-                'user',
-                'lastModified',
-            )
-            updated_count = 0
-            with data_lock:
-                reps = DATA_STORE['workspaces'].get(ato, [])
-                for r in reps:
-                    if r.get('id') != report_id:
-                        continue
-                    for k in ALLOWED:
-                        if k in fields:
-                            r[k] = fields[k]
-                    if 'lastModified' not in fields:
-                        r['lastModified'] = int(time.time() * 1000)
-                    updated_count += 1
-                    break
-                if updated_count > 0:
-                    invalidate_sync_cache()
-            if updated_count == 0:
-                self._send_json({'status': 'error', 'message': 'Report not found.'}, 404)
-                return
-            schedule_save()
-            broadcast_update()
-            self._send_json({'status': 'success'})
-            return
-
-        elif path == '/api/delete_history':
-            ato = (data.get('ato') or '').strip().upper()
-            deletions = data.get('deletions', [])
-            if not ato or not deletions:
-                self._send_json({'status': 'error', 'message': 'Missing ato or deletions.'}, 400)
-                return
-            drop: dict = {}
-            for d in deletions:
-                rid = d.get('reportId')
-                lm = d.get('lastModified')
-                if rid is None or lm is None:
-                    continue
-                drop.setdefault(rid, set()).add(lm)
-            removed = 0
-            now_ms = int(time.time() * 1000)
-            with data_lock:
-                reps = DATA_STORE['workspaces'].get(ato, [])
-                for r in reps:
-                    if not (lms := drop.get(r.get('id'))):
-                        continue
-                    hist = r.get('history') or []
-                    kept = [h for h in hist if h.get('lastModified') not in lms]
-                    if len(kept) != len(hist):
-                        removed += len(hist) - len(kept)
-                        r['history'] = kept
-                        r['lastModified'] = now_ms
-                if removed > 0:
-                    invalidate_sync_cache()
-            schedule_save()
-            broadcast_update()
-            self._send_json({'status': 'success', 'removed': removed})
-            return
-
-        elif path == '/api/save_config':
-            cfg = data.get('config')
-            if cfg:
-                # Keep only the fields the app uses: config is re-broadcast to
-                # every client on every sync, so arbitrary extra keys would
-                # bloat everyone's payload and the backup file.
-                clean = {'ato': cfg.get('ato', ''), 'title': cfg.get('title', '')}
-                with data_lock:
-                    DATA_STORE['config'] = clean
-                    invalidate_sync_cache()
-            handled = True
-
-        elif path == '/api/save_format':
-            ato = (data.get('ato') or '').strip().upper()
-            fmt = data.get('format')
-            if ato and isinstance(fmt, dict):
-                with data_lock:
-                    DATA_STORE.setdefault('formats', {})[ato] = fmt
-                    invalidate_sync_cache()
-                handled = True
-            else:
-                self._send_json({'status': 'error', 'message': 'Missing ato or format.'}, 400)
-                return
-
-        elif path == '/api/save_profile':
-            profile = data.get('profile')
-            ini = ((profile or {}).get('initials') or '').strip()
-            if ini:
-                # Known fields only (see save_config), keyed by the same stripped
-                # initials the IP map uses, so server-stamped attribution matches.
-                clean = {'initials': ini, 'color': profile.get('color', '#0a84ff')}
-                with data_lock:
-                    DATA_STORE['profiles'][ini] = clean
-                    invalidate_sync_cache()
-                # IP -> initials so /api/sync includes them and /api/edit_report can server-stamp.
-                with sse_lock:
-                    client_initials[self.client_address[0]] = ini
-                handled = True
-            else:
-                self._send_json({'status': 'error', 'message': 'Invalid profile data.'}, 400)
-                return
-
-        if handled:
-            schedule_save()
-            broadcast_update()
-            self._send_json({'status': 'success'})
+        incoming = data.get('reports', [])
+        source = (data.get('source') or '').strip().lower()
+        with data_lock:
+            is_new = ato not in DATA_STORE['workspaces']
+            existing = DATA_STORE['workspaces'].get(ato, [])
+            DATA_STORE['workspaces'][ato] = _merge_reports(existing, incoming)
+            # Provenance label; routine edits don't touch source.
+            if source == 'backup':
+                workspace_sources[ato] = 'Uploaded backup (.txt)'
+            elif source == 'csv':
+                workspace_sources[ato] = 'Uploaded CSV (.csv)'
+            elif is_new:
+                workspace_sources[ato] = 'In-session'
+            invalidate_sync_cache()
+        if source in ('backup', 'csv'):
+            # Console bulk-import notification (browser shows full state).
+            label = 'Backup (.txt)' if source == 'backup' else 'CSV (.csv)'
+            safe_print('\n' + '─' * 64)
+            safe_print(f" [+] Loaded {label}: {len(incoming)} report(s) merged into ATO '{ato}'.")
+            safe_print('─' * 64)
         else:
-            self._send_json({'status': 'error', 'message': 'Not Found'}, 404)
+            # Learn this connection's operator from the reports it logs, for IP
+            # attribution. Not from imports: a backup or CSV carries other
+            # people's reports, and the importer would take on their identity.
+            for r in incoming:
+                ini = ((r.get('user') or {}).get('initials') or '').strip()
+                if ini:
+                    with sse_lock:
+                        client_initials[self.client_address[0]] = ini
+                    break
+        self._commit()
+
+    def _post_unload_ato(self, data: dict) -> None:
+        ato = (data.get('ato') or '').strip().upper()
+        if not ato:
+            self._bad_request('Missing ATO.')
+            return
+        with data_lock:
+            DATA_STORE['workspaces'].pop(ato, None)
+            DATA_STORE.get('formats', {}).pop(ato, None)
+            workspace_sources.pop(ato, None)
+            cfg = DATA_STORE.get('config') or {}
+            if (cfg.get('ato') or '').strip().upper() == ato:
+                DATA_STORE['config'] = {}
+            invalidate_sync_cache()
+        # Persisted like any write: an unload that lived only in memory came
+        # back on the next server restart.
+        self._commit(message='ATO unloaded.')
+
+    def _post_edit_report(self, data: dict) -> None:
+        ato = (data.get('ato') or '').strip().upper()
+        report_id = data.get('reportId')
+        fields = data.get('fields') or {}
+        if not ato or not report_id or not fields:
+            self._bad_request('Missing ato, reportId, or fields.')
+            return
+        # Server-stamped attribution: override client `user` with our IP->initials->profile lookup.
+        # Falls back to client claim for brand-new IPs.
+        with sse_lock:
+            known_initials = client_initials.get(self.client_address[0], '')
+        if known_initials:
+            with data_lock:
+                known_profile = DATA_STORE['profiles'].get(known_initials)
+            if known_profile:
+                fields['user'] = known_profile
+        found = False
+        with data_lock:
+            for r in DATA_STORE['workspaces'].get(ato, []):
+                if r.get('id') != report_id:
+                    continue
+                for k in _EDITABLE_FIELDS:
+                    if k in fields:
+                        r[k] = fields[k]
+                if 'lastModified' not in fields:
+                    r['lastModified'] = int(time.time() * 1000)
+                found = True
+                break
+            if found:
+                invalidate_sync_cache()
+        if not found:
+            self._send_json({'status': 'error', 'message': 'Report not found.'}, 404)
+            return
+        self._commit()
+
+    def _post_delete_history(self, data: dict) -> None:
+        ato = (data.get('ato') or '').strip().upper()
+        deletions = data.get('deletions', [])
+        if not ato or not deletions:
+            self._bad_request('Missing ato or deletions.')
+            return
+        drop: dict = {}
+        for d in deletions:
+            rid = d.get('reportId')
+            lm = d.get('lastModified')
+            if rid is None or lm is None:
+                continue
+            drop.setdefault(rid, set()).add(lm)
+        removed = 0
+        now_ms = int(time.time() * 1000)
+        with data_lock:
+            for r in DATA_STORE['workspaces'].get(ato, []):
+                if not (lms := drop.get(r.get('id'))):
+                    continue
+                hist = r.get('history') or []
+                kept = [h for h in hist if h.get('lastModified') not in lms]
+                if len(kept) != len(hist):
+                    removed += len(hist) - len(kept)
+                    r['history'] = kept
+                    r['lastModified'] = now_ms
+            if removed > 0:
+                invalidate_sync_cache()
+        self._commit(removed=removed)
+
+    def _post_save_config(self, data: dict) -> None:
+        cfg = data.get('config')
+        if cfg:
+            # Keep only the fields the app uses: config is re-broadcast to
+            # every client on every sync, so arbitrary extra keys would
+            # bloat everyone's payload and the backup file.
+            clean = {'ato': cfg.get('ato', ''), 'title': cfg.get('title', '')}
+            with data_lock:
+                DATA_STORE['config'] = clean
+                invalidate_sync_cache()
+        self._commit()
+
+    def _post_save_format(self, data: dict) -> None:
+        ato = (data.get('ato') or '').strip().upper()
+        fmt = data.get('format')
+        if not ato or not isinstance(fmt, dict):
+            self._bad_request('Missing ato or format.')
+            return
+        with data_lock:
+            DATA_STORE.setdefault('formats', {})[ato] = fmt
+            invalidate_sync_cache()
+        self._commit()
+
+    def _post_save_profile(self, data: dict) -> None:
+        profile = data.get('profile')
+        ini = ((profile or {}).get('initials') or '').strip()
+        if not ini:
+            self._bad_request('Invalid profile data.')
+            return
+        # Known fields only (see save_config), keyed by the same stripped
+        # initials the IP map uses, so server-stamped attribution matches.
+        clean = {'initials': ini, 'color': profile.get('color', '#0a84ff')}
+        with data_lock:
+            DATA_STORE['profiles'][ini] = clean
+            invalidate_sync_cache()
+        # IP -> initials so /api/sync includes them and /api/edit_report can server-stamp.
+        with sse_lock:
+            client_initials[self.client_address[0]] = ini
+        self._commit()
+
+    _POST_ROUTES: ClassVar[dict] = {
+        '/api/save_reports': _post_save_reports,
+        '/api/unload_ato': _post_unload_ato,
+        '/api/edit_report': _post_edit_report,
+        '/api/delete_history': _post_delete_history,
+        '/api/save_config': _post_save_config,
+        '/api/save_format': _post_save_format,
+        '/api/save_profile': _post_save_profile,
+    }
 
 
 # =============================================================================
