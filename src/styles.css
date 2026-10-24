@@ -47,6 +47,15 @@ h2 { font-size: 1.35em; font-weight: 600; margin-top: 0; margin-bottom: 0; lette
 .form-header-block { text-align: center; margin-bottom: 24px; padding-bottom: 15px; border-bottom: 1px solid var(--divider); }
 label { display: block; margin-bottom: 6px; font-weight: 500; color: var(--text-secondary); font-size: 0.85em; }
 .config-inputs label { white-space: nowrap; }
+/* Small-caps field and section labels; each keeps only its own spacing below. */
+.profile-menu-label, .profile-field-label, .startup-section-label, .startup-field-label,
+.export-block-label, .export-action-col-label, .filter-field label {
+    font-size: 0.72em;
+    color: var(--text-secondary);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+}
 /* Workspace fields match the Set button's height so the row aligns. */
 #atoDesignator, #reportTitlePrefix { height: 46px; box-sizing: border-box; }
 #reportStartNum { width: 90px; text-align: center; padding: 8px; }
@@ -126,11 +135,10 @@ button:hover { opacity: 0.85; }
 .profile-menu-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .profile-preview-avatar { width: 40px; height: 40px; border-radius: 50%; background-color: var(--system-blue); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85em; color: white; flex-shrink: 0; letter-spacing: 0.5px; transition: background-color 0.2s; }
 .profile-header-text { display: flex; flex-direction: column; gap: 3px; }
-.profile-menu-label { font-size: 0.72em; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; }
 .profile-current-name { font-size: 0.95em; color: var(--text-primary); font-weight: 600; }
 .profile-menu-divider { height: 1px; background: var(--divider); margin-bottom: 14px; }
 .profile-field { margin-bottom: 10px; }
-.profile-field-label { display: block; font-size: 0.72em; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 5px; }
+.profile-field-label, .startup-field-label { display: block; margin-bottom: 5px; }
 #user-initials-input { width: 100%; text-transform: uppercase; box-sizing: border-box; }
 .color-swatches { display: flex; gap: 7px; flex-wrap: wrap; }
 .color-swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; transition: transform 0.15s, border-color 0.15s; outline: none; }
@@ -176,7 +184,7 @@ button:hover { opacity: 0.85; }
 .startup-subtitle { font-size: 0.88em; color: var(--text-secondary); margin: 0; line-height: 1.4; }
 
 .startup-section { margin-bottom: 4px; }
-.startup-section-label { font-size: 0.72em; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 12px; }
+.startup-section-label { margin-bottom: 12px; }
 
 /* Access-code field on the startup modal — server alphabet is uppercase. */
 #startup-access-code {
@@ -223,7 +231,6 @@ body.local-mode .startup-access-divider { display: none; }
 
 .startup-field { margin-bottom: 14px; }
 .startup-field:last-child { margin-bottom: 0; }
-.startup-field-label { display: block; font-size: 0.72em; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 5px; }
 
 .startup-divider { height: 1px; background: var(--divider); margin: 22px 0; }
 
@@ -596,12 +603,12 @@ body.local-mode .startup-access-divider { display: none; }
 .export-panel-subtitle { font-size: 0.8em; color: var(--text-secondary); white-space: nowrap; }
 .export-panel-heading { display: flex; align-items: baseline; gap: 10px; }
 .export-block { margin-bottom: 18px; }
-.export-block-label { font-size: 0.72em; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px; }
+.export-block-label { margin-bottom: 10px; }
 .export-block-label span { text-transform: none; font-size: 1em; letter-spacing: 0; color: var(--system-gray); font-weight: 400; margin-left: 6px; }
 /* Export Filter — date/time range picker */
 .filter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px; }
 @media (max-width: 600px) { .filter-grid { grid-template-columns: 1fr; } }
-.filter-field label { display: flex; align-items: center; gap: 6px; font-size: 0.72em; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.6px; font-weight: 500; margin-bottom: 6px; }
+.filter-field label { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .filter-mode { font-size: 0.95em; color: var(--system-blue); font-weight: 700; letter-spacing: 0.3px; text-transform: none; }
 .filter-pair { display: flex; gap: 8px; align-items: stretch; }
 .filter-pair input { box-sizing: border-box; padding: 11px 14px; border: 1.5px solid transparent; border-radius: 12px; background-color: var(--input-bg); color: var(--text-primary); font-size: 0.95em; font-family: inherit; transition: border-color 0.2s, background-color 0.2s; color-scheme: dark; margin: 0; }
@@ -659,7 +666,7 @@ body.local-mode .startup-access-divider { display: none; }
 .export-option-desc { font-size: 0.8em; color: var(--text-secondary); margin-top: 2px; }
 .export-action-grid { display: flex; justify-content: center; gap: 48px; margin-bottom: 20px; flex-wrap: wrap; }
 .export-action-col { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-width: 210px; }
-.export-action-col-label { font-size: 0.72em; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; text-align: center; }
+.export-action-col-label { margin-bottom: 4px; text-align: center; }
 .export-action-col button { width: 100%; text-align: center; padding: 12px 20px; }
 .export-action-vdivider { width: 1px; background: var(--divider); align-self: stretch; margin: 16px 0; }
 #dataMgmtMenu #exportViewToggleBtn.active { color: var(--system-blue); font-weight: 600; }
