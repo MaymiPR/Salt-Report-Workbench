@@ -142,7 +142,17 @@ const el = {
 };
 
 // --- 2. State ---
-let reportsByAto  = JSON.parse(localStorage.getItem('salt_reports_by_ato') || '{}');
+// Parse a JSON value from localStorage. A missing or corrupt entry yields the
+// fallback rather than stopping the app at startup.
+const readStored = (key, fallback) => {
+    try {
+        const raw = localStorage.getItem(key);
+        return raw === null ? fallback : (JSON.parse(raw) ?? fallback);
+    } catch (e) {
+        return fallback;
+    }
+};
+let reportsByAto  = readStored('salt_reports_by_ato', {});
 let activeAto     = null;
 // Viewer-only: the workspace the viewer has clicked to look at locally.
 // `activeAto` always tracks the server's config.ato (the editor's choice);
@@ -153,7 +163,10 @@ let localReports  = [];
 // Mirror of the server's profile dict; embedded in backup exports so
 // re-importing into a fresh deployment restores everyone's initials/color.
 let localProfiles = {};
-let localConfig   = JSON.parse(localStorage.getItem('salt_offline_config') || '{"ato":"","title":""}');
+// Last synced profiles, so the startup modal can offer them before the first
+// sync of a later session (or offline).
+const _PROFILES_CACHE_KEY = 'salt_profiles_cache';
+let localConfig   = readStored('salt_offline_config', { ato: '', title: '' });
 let userProfile   = null;
 // ato → source descriptor ("alpha01.txt" | "Uploaded backup" | "In-session").
 let workspaceSources = {};
@@ -235,7 +248,7 @@ const FORMAT_PRESETS = {
     'salt':   [{type:'id'},{type:'size'},{type:'activity'},{type:'location'},{type:'time'}],
     'salt-u': [{type:'size'},{type:'activity'},{type:'location'},{type:'time'},{type:'id'}],
 };
-let workspaceFormats = JSON.parse(localStorage.getItem('salt_ws_formats') || '{}');
+let workspaceFormats = readStored('salt_ws_formats', {});
 // The last format this operator actually worked with. A workspace that has no
 // format of its own adopts this, so Builder changes survive an ATO switch.
 const _LAST_FORMAT_KEY = 'salt_last_format';
@@ -333,11 +346,14 @@ const postJson = (path, body) => fetch(path, {
 const setupMenuToggle = (btn, menu) => btn.addEventListener('click', e => { e.stopPropagation(); menu.style.display = menu.style.display === 'block' ? 'none' : 'block'; });
 
 // --- 4. Notifications (toasts + confirmation dialog) ---
+let toastTimer = null;
 const showToast = (msg, isErr = false) => {
     el.toast.regular.textContent = msg;
     el.toast.regular.style.backgroundColor = isErr ? 'rgba(255,69,58,0.9)' : 'rgba(28,28,30,0.85)';
     el.toast.regular.classList.add('show');
-    setTimeout(() => el.toast.regular.classList.remove('show'), 4000);
+    // Restart the clock, so an earlier toast's timer can't hide this one early.
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.toast.regular.classList.remove('show'), 4000);
 };
 // One prompt at a time: a new prompt replaces an unanswered one and drops its
 // action, so Confirm only ever runs what the dialog is showing.
@@ -353,10 +369,6 @@ el.toast.cancelBtn .addEventListener('click', hideConfirmation);
 
 // --- 5. Rendering ---
 
-// ─── BDA (Battle Damage Assessment) ──────────────────────────────────────
-// Sub-row under a report (same pattern as history) listing assessments and
-// an inline add-form. Target quick-picks are parsed from the report's own
-// Size elements and Location grids.
 // Custom builder fields get their own table columns, appended after Analysis
 // (same order the CSV export uses). Only the custom <th>s are added/removed —
 // the fixed columns keep their identity and their sort-click bindings.
@@ -377,6 +389,11 @@ const syncCustomColumns = () => {
     });
 };
 
+// ─── BDA (Battle Damage Assessment) ──────────────────────────────────────
+// Sub-row under a report (same pattern as history) listing assessments and
+// an inline add-form. Target quick-picks are parsed from the report's own
+// Size elements and Location grids.
+
 // Effects, worst-first. `key` is the compact checklist label, `cls` drives
 // the color, and index order defines severity for the pill roll-up.
 const BDA_EFFECTS = [
@@ -396,8 +413,8 @@ const bdaElements = (report) => {
     const raw   = String(report.location || '');
     const grids = (raw.includes(',') ? raw.split(/[,;]/) : raw.split(/\s+/))
                     .map(s => s.trim()).filter(t => t.length >= 4);
-    return els.slice(0, 20).map((el, i) => ({
-        target: el,
+    return els.slice(0, 20).map((element, i) => ({
+        target: element,
         coords: (grids.length === els.length) ? grids[i]
               : (grids.length === 1)          ? grids[0]
               : '',
@@ -783,8 +800,7 @@ const ensureWorkspaceFormat = () => {
         try { localStorage.setItem(_LAST_FORMAT_KEY, JSON.stringify(own)); } catch (e) {}
         return;
     }
-    let carry = null;
-    try { carry = JSON.parse(localStorage.getItem(_LAST_FORMAT_KEY) || 'null'); } catch (e) {}
+    const carry = readStored(_LAST_FORMAT_KEY, null);
     if (!carry || !Array.isArray(carry.lines) || !carry.lines.length) return;
     // Nothing worth carrying if it's just the stock preset.
     if (JSON.stringify(carry.lines) === JSON.stringify(FORMAT_PRESETS['salt'])) return;
@@ -855,7 +871,7 @@ const restoreHistoryVersion = (reportId, lastModified) => {
     const dropMsg    = newerCount > 0
         ? ` This will discard the current version and ${newerCount} newer update${newerCount === 1 ? '' : 's'}.`
         : ' This will discard the current version.';
-    showConfirmation(`Restore this version as current for ${report.fullId}?${dropMsg}`, async () => {
+    showConfirmation(`Restore this version as current for ${formatFullId(report)}?${dropMsg}`, async () => {
         const now = Date.now();
         // Drop the chosen snapshot and everything newer; keep strictly older.
         report.history = (report.history || []).filter(h => h.lastModified < snapshot.lastModified);
@@ -889,7 +905,7 @@ const setAtoState = (isSet) => {
 };
 
 const setProfileFromLocalStorage = () => {
-    const saved = JSON.parse(localStorage.getItem('salt_user_profile_local'));
+    const saved = readStored('salt_user_profile_local', null);
     if (saved) { userProfile = saved; el.profile.initials.value = userProfile.initials; el.profile.color.value = userProfile.color; selectSwatch(userProfile.color); updateProfilePreview(); }
 };
 
@@ -1857,34 +1873,37 @@ async function handleFormSubmit(mode) {
 
     if (idToUpdate && (mode === 'edit' || mode === 'update')) {
         const idx = reports.findIndex(r => r.id === idToUpdate);
-        if (idx > -1) {
-            const orig = reports[idx];
-            const tAto = el.config.ato.value.trim().toUpperCase().replace(/-/g,'');
-            const tNum = String(el.form.startNum.value).padStart(3,'0');
-            const tDid = `${tAto}${tNum}`;
-            if (tDid !== orig.displayId) {
-                // Renumber/rename branch — applies to both Edit and Update. The
-                // identity of the report changed, so prior history doesn't carry
-                // forward in either case (matches pre-split behavior).
-                const newTitle = el.config.title.value.trim() || 'Report #';
-                finalReport = { ...orig, ...data, displayId:tDid, ato:tAto, title:newTitle, fullId:`${newTitle}${tDid}`, updated:false, lastModified:now, user:userProfile };
-            } else if (mode === 'edit') {
-                // EDIT: overwrite fields in place. No history snapshot. `updated`
-                // and `history` are preserved exactly as-is, so the audit trail
-                // is untouched — the user is simply correcting the current text.
-                finalReport = { ...orig, ...data, lastModified:now, user:userProfile };
-                editTargetId = idToUpdate;
-            } else {
-                // UPDATE: snapshot the old values into history if anything changed.
-                const changed = orig.size!==data.size||orig.activity!==data.activity||orig.location!==data.location||(orig.yourAnalysis||'')!==(data.yourAnalysis||'')||new Date(orig.time).getTime()!==new Date(finalTime).getTime()||JSON.stringify(orig.custom||{})!==JSON.stringify(data.custom||{});
-                let hist = orig.history||[];
-                if (changed) hist = [...hist, { size:orig.size||'', activity:orig.activity||'', location:orig.location||'', time:orig.time, yourAnalysis:orig.yourAnalysis||'', custom:orig.custom||{}, user:orig.user, lastModified:orig.lastModified }];
-                finalReport = { ...orig, ...data, history:hist, updated:changed, lastModified:now, user:userProfile };
-            }
-            reports[idx] = finalReport;
-            const verb = mode === 'edit' ? 'edited' : 'saved';
-            showToast(`${formatFullId(finalReport)} ${verb} & copied!`);
+        if (idx === -1 || reports[idx].deleted) {
+            showToast('That report no longer exists. Another operator may have deleted it.', true);
+            resetForm();
+            return;
         }
+        const orig = reports[idx];
+        const tAto = el.config.ato.value.trim().toUpperCase().replace(/-/g,'');
+        const tNum = String(el.form.startNum.value).padStart(3,'0');
+        const tDid = `${tAto}${tNum}`;
+        if (tDid !== orig.displayId) {
+            // Renumber/rename branch — applies to both Edit and Update. The
+            // identity of the report changed, so prior history doesn't carry
+            // forward in either case (matches pre-split behavior).
+            const newTitle = el.config.title.value.trim() || 'Report #';
+            finalReport = { ...orig, ...data, displayId:tDid, ato:tAto, title:newTitle, fullId:`${newTitle}${tDid}`, updated:false, lastModified:now, user:userProfile };
+        } else if (mode === 'edit') {
+            // EDIT: overwrite fields in place. No history snapshot. `updated`
+            // and `history` are preserved exactly as-is, so the audit trail
+            // is untouched — the user is simply correcting the current text.
+            finalReport = { ...orig, ...data, lastModified:now, user:userProfile };
+            editTargetId = idToUpdate;
+        } else {
+            // UPDATE: snapshot the old values into history if anything changed.
+            const changed = orig.size!==data.size||orig.activity!==data.activity||orig.location!==data.location||(orig.yourAnalysis||'')!==(data.yourAnalysis||'')||new Date(orig.time).getTime()!==new Date(finalTime).getTime()||JSON.stringify(orig.custom||{})!==JSON.stringify(data.custom||{});
+            let hist = orig.history||[];
+            if (changed) hist = [...hist, { size:orig.size||'', activity:orig.activity||'', location:orig.location||'', time:orig.time, yourAnalysis:orig.yourAnalysis||'', custom:orig.custom||{}, user:orig.user, lastModified:orig.lastModified }];
+            finalReport = { ...orig, ...data, history:hist, updated:changed, lastModified:now, user:userProfile };
+        }
+        reports[idx] = finalReport;
+        const verb = mode === 'edit' ? 'edited' : 'saved';
+        showToast(`${formatFullId(finalReport)} ${verb} & copied!`);
     } else {
         // NEW REPORT path
         const atoPrefix   = el.config.ato.value.trim().toUpperCase().replace(/-/g,'');
@@ -2099,7 +2118,7 @@ el.log.sendBtn.addEventListener('click', () => {
         const idx = (reportsByAto['IMPORT']||[]).findIndex(r => r.id===id); if(idx===-1) return;
         const rep = { ...reportsByAto['IMPORT'][idx] };
         const did = `${target}${String(lastNum+moved+1).padStart(3,'0')}`;
-        rep.ato=target; rep.title=(reportsByAto[target].find(r=>r.title&&!r.deleted)||{}).title||target; rep.displayId=did; rep.fullId=did; rep.lastModified=Date.now();
+        rep.ato=target; rep.title=(reportsByAto[target].find(r=>r.title&&!r.deleted)||{}).title||target; rep.displayId=did; rep.fullId=`${rep.title}${did}`; rep.lastModified=Date.now();
         targetReps.push(rep); reportsByAto['IMPORT'][idx].deleted=true; moved++;
     });
     reportsByAto[target] = targetReps;
@@ -2219,12 +2238,7 @@ if (el.profile.accessCopy) {
 
 // Known profiles = server-synced (live) merged over the last session's cache,
 // so returning users can pick their profile even before the first sync lands.
-const _PROFILES_CACHE_KEY = 'salt_profiles_cache';
-const knownProfiles = () => {
-    let cached = {};
-    try { cached = JSON.parse(localStorage.getItem(_PROFILES_CACHE_KEY) || '{}'); } catch (e) {}
-    return { ...cached, ...localProfiles };
-};
+const knownProfiles = () => ({ ...readStored(_PROFILES_CACHE_KEY, {}), ...localProfiles });
 
 // Quick Start: one section offering everything the modal asks for as a
 // preset — operator identity, ATO designator, and report title — each an
@@ -2655,13 +2669,15 @@ document.addEventListener('keydown', e => {
     // AND any of the SALT fields has content. Doesn't clear when the form is
     // already empty (so Escape outside an active task doesn't do anything noisy).
     if (e.key==='Escape' && el.form.root.contains(e.target) && !el.form.reportId.value) {
+        const customInputs = [...document.querySelectorAll('#salt-fields [data-custom-label]')];
         const hasContent = el.form.size.value.trim() || el.form.activity.value.trim() ||
                            el.form.location.value.trim() || el.form.time.value.trim() ||
-                           el.form.analysis.value.trim();
+                           el.form.analysis.value.trim() || customInputs.some(i => i.value.trim());
         if (hasContent) {
             e.preventDefault();
             el.form.size.value = el.form.activity.value = el.form.location.value = '';
             el.form.time.value = el.form.analysis.value = '';
+            customInputs.forEach(i => { i.value = ''; });
             if (e.target.blur) e.target.blur();
             showToast('Fields cleared.');
             return;
@@ -2703,7 +2719,7 @@ if (localStorage.getItem('salt_layout')==='horizontal') el.layout.grid.classList
 applyLayoutMode();
 
 const lastAto    = localStorage.getItem('salt_last_active_ato');
-const lastConfig = JSON.parse(localStorage.getItem('salt_offline_config')||'null');
+const lastConfig = readStored('salt_offline_config', null);
 if (lastAto && lastConfig && lastConfig.ato === lastAto) {
     activeAto = lastAto; localConfig = lastConfig;
     localReports = reportsByAto[activeAto]||[];
