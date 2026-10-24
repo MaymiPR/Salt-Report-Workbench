@@ -1,20 +1,19 @@
-# -*- coding: utf-8 -*-
 import argparse
+import contextlib
+import ctypes
 import http.server as server
-import secrets
-import socket
-import socketserver
 import json
 import os
 import re
-import threading
-import tempfile
+import secrets
 import select
+import socket
+import socketserver
+import tempfile
+import threading
 import time
 import webbrowser
-import ctypes
 from datetime import datetime, timezone
-
 
 # --- Configuration ---
 PORT: int     = 8080
@@ -68,7 +67,7 @@ _save_timer_lock = threading.Lock()
 # Random per-launch code; host shares it verbally with editors. Viewer port is NOT
 # gated. Host's browser auto-fills via meta injection on 127.0.0.1 requests.
 # Alphabet excludes confusables (0/O, 1/l/I, 5/S) for radio-readability.
-ACCESS_CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRTUVWXYZ'
+ACCESS_CODE_ALPHABET = '2346789ABCDEFGHJKLMNPQRTUVWXYZ'   # no 0/O, 1/I/l, 5/S
 ACCESS_CODE_LENGTH   = 10
 # Set at boot (parse_cli_args). None means access-code auth is disabled.
 _access_code: str | None = None
@@ -90,7 +89,7 @@ _workbench_html_lock = threading.Lock()
 class SSEClient:
     """Thread-safe SSE writer; carries client IP for attribution lookups."""
 
-    __slots__ = ('wfile', '_lock', 'ip')
+    __slots__ = ('_lock', 'ip', 'wfile')
 
     def __init__(self, wfile, ip: str = ''):
         self.wfile = wfile
@@ -197,10 +196,8 @@ def _local_ips() -> set:
                 ips.add(info[4][0])
         except Exception:
             pass
-        try:
+        with contextlib.suppress(Exception):
             ips.add(get_local_ip())
-        except Exception:
-            pass
         _local_ips_cache = ips
     return _local_ips_cache
 
@@ -593,7 +590,7 @@ def load_data_from_disk() -> None:
 
         for filepath in candidates:
             try:
-                with open(filepath, 'r', encoding='utf-8') as f:
+                with open(filepath, encoding='utf-8') as f:
                     raw = f.read()
                 if (result := _extract_json_from_file(raw)) is not None:
                     fname = os.path.basename(filepath)
@@ -625,127 +622,150 @@ def load_data_from_disk() -> None:
             invalidate_sync_cache()
 
 
-def save_data_to_disk() -> None:
-    """Persist DATA_STORE atomically to {ATO}_{Title}.txt via os.replace."""
-    with data_lock:
-        os.makedirs(BACKUP_DIR, exist_ok=True)
+def render_backup(workspaces: dict, config: dict, profiles: dict,
+                  formats: dict) -> tuple[str, str] | None:
+    """Return ``(filename, text)`` for a backup of the given state, or None if empty.
 
-        workspaces = DATA_STORE.get('workspaces', {})
-        config     = DATA_STORE.get('config', {})
-        profiles   = DATA_STORE.get('profiles', {})
+    Pure: no I/O, no globals. The text is a human-readable report summary
+    followed by a machine-readable JSON block that ``_extract_json_from_file``
+    reads back on the next boot.
+    """
+    # Nothing loaded — don't emit an empty placeholder file.
+    if not workspaces:
+        return None
 
-        # Nothing loaded — don't emit an empty placeholder file.
-        if not workspaces:
-            return
+    # Unloading the active workspace clears config; fall back to a real
+    # workspace name so we never create a stray "ATO_SALT.txt".
+    ato   = config.get('ato', '').strip()
+    title = config.get('title', '').strip()
+    if not ato:
+        ato = sorted(workspaces)[0]
+        if not title:
+            first = next((r for r in workspaces.get(ato, []) if r.get('title')), None)
+            title = first.get('title') if first else 'SALT'
+    title = title or 'SALT'
 
-        # Unloading the active workspace clears config; fall back to a real
-        # workspace name so we never create a stray "ATO_SALT.txt".
-        ato   = config.get('ato', '').strip()
-        title = config.get('title', '').strip()
-        if not ato:
-            ato = sorted(workspaces)[0]
-            if not title:
-                first = next((r for r in workspaces.get(ato, []) if r.get('title')), None)
-                title = first.get('title') if first else 'SALT'
-        title = title or 'SALT'
+    def _safe(s: str) -> str:
+        return ''.join(c if c.isalnum() or c in '-_' else '_' for c in s).strip('_')
+    filename = f'{_safe(ato)}_{_safe(title)}.txt'
 
-        def _safe(s: str) -> str:
-            return ''.join(c if c.isalnum() or c in '-_' else '_' for c in s).strip('_')
-        filename = f'{_safe(ato)}_{_safe(title)}.txt'
+    div = '=' * 72
+    sub = '-' * 72
+    # Timezone-aware UTC (utcnow() deprecated in Py3.12).
+    now = datetime.now(timezone.utc)
+    ts  = f'{now:%Y-%m-%d} · {now:%H%MZ}'
 
-        div = '=' * 72
-        sub = '-' * 72
-        # Timezone-aware UTC (utcnow() deprecated in Py3.12).
-        now = datetime.now(timezone.utc)
-        ts  = f'{now:%Y-%m-%d} · {now:%H%MZ}'
+    def fmt_time(iso) -> str:
+        if not iso:
+            return '—'
+        try:
+            # Strip fractional seconds; ISO stored with literal Z suffix.
+            dt = datetime.strptime(iso.split('.')[0], '%Y-%m-%dT%H:%M:%S')
+            return f'{dt:%Y-%m-%d %H%MZ}'
+        except (ValueError, AttributeError):
+            return iso
 
-        def fmt_time(iso) -> str:
-            if not iso:
-                return '—'
-            try:
-                # Strip fractional seconds; ISO stored with literal Z suffix.
-                dt = datetime.strptime(iso.split('.')[0], '%Y-%m-%dT%H:%M:%S')
-                return f'{dt:%Y-%m-%d %H%MZ}'
-            except (ValueError, AttributeError):
-                return iso
+    lines = [
+        div,
+        ' S.A.L.T. REPORT WORKBENCH — AUTO BACKUP (SESSION)',
+        f' ATO Designator : {ato}',
+        f' Report Title   : {title}',
+        f' Total Reports  : {sum(len(v) for v in workspaces.values())}',
+        f' Exported       : {ts}',
+        div,
+        '',
+    ]
 
-        lines = [
-            div,
-            ' S.A.L.T. REPORT WORKBENCH — AUTO BACKUP (SESSION)',
-            f' ATO Designator : {ato}',
-            f' Report Title   : {title}',
-            f' Total Reports  : {sum(len(v) for v in workspaces.values())}',
-            f' Exported       : {ts}',
-            div,
-            '',
-        ]
+    for ws_ato, reports in workspaces.items():
+        for report in sorted(reports, key=lambda r: r.get('displayId', '')):
+            flag = ' [UPDATED]' if report.get('updated') else ''
+            lines += [
+                sub,
+                f' REPORT {report.get("displayId", "")}{flag}',
+                sub,
+                f' ATO      : {ws_ato}',
+                f' Size     : {report.get("size", "—")}',
+                f' Activity : {report.get("activity", "—")}',
+                f' Location : {report.get("location", "—")}',
+                f' Time     : {fmt_time(report.get("time"))}',
+            ]
+            if report.get('yourAnalysis'):
+                lines.append(f' Analysis : {report["yourAnalysis"]}')
+            for ck, cv in (report.get('custom') or {}).items():
+                lines.append(f' {ck} : {cv}')
+            if (report.get('user') or {}).get('initials'):
+                lines.append(f' By       : {report["user"]["initials"]}')
+            for bi, b in enumerate(report.get('bda') or []):
+                coords = f' @ {b.get("coords")}' if b.get('coords') else ''
+                note   = f' - {b.get("note")}' if b.get('note') else ''
+                lines.append(f'   BDA {bi + 1}  : {b.get("effect", "Unknown")} - {b.get("target", "")}{coords}{note}')
 
-        for ws_ato, reports in workspaces.items():
-            for report in sorted(reports, key=lambda r: r.get('displayId', '')):
-                flag = ' [UPDATED]' if report.get('updated') else ''
+            for i, h in enumerate(sorted(report.get('history', []), key=lambda x: x.get('lastModified', 0))):
                 lines += [
-                    sub,
-                    f' REPORT {report.get("displayId", "")}{flag}',
-                    sub,
-                    f' ATO      : {ws_ato}',
-                    f' Size     : {report.get("size", "—")}',
-                    f' Activity : {report.get("activity", "—")}',
-                    f' Location : {report.get("location", "—")}',
-                    f' Time     : {fmt_time(report.get("time"))}',
+                    '',
+                    f'   ↳ Previous Entry {i + 1}',
+                    f'      Size     : {h.get("size", "—")}',
+                    f'      Activity : {h.get("activity", "—")}',
+                    f'      Location : {h.get("location", "—")}',
+                    f'      Time     : {fmt_time(h.get("time"))}',
                 ]
-                if report.get('yourAnalysis'):
-                    lines.append(f' Analysis : {report["yourAnalysis"]}')
-                for ck, cv in (report.get('custom') or {}).items():
-                    lines.append(f' {ck} : {cv}')
-                if (report.get('user') or {}).get('initials'):
-                    lines.append(f' By       : {report["user"]["initials"]}')
-                for bi, b in enumerate(report.get('bda') or []):
-                    coords = f' @ {b.get("coords")}' if b.get('coords') else ''
-                    note   = f' - {b.get("note")}' if b.get('note') else ''
-                    lines.append(f'   BDA {bi + 1}  : {b.get("effect", "Unknown")} - {b.get("target", "")}{coords}{note}')
+                if h.get('yourAnalysis'):
+                    lines.append(f'      Analysis : {h["yourAnalysis"]}')
+            lines.append('')
 
-                for i, h in enumerate(sorted(report.get('history', []), key=lambda x: x.get('lastModified', 0))):
-                    lines += [
-                        '',
-                        f'   ↳ Previous Entry {i + 1}',
-                        f'      Size     : {h.get("size", "—")}',
-                        f'      Activity : {h.get("activity", "—")}',
-                        f'      Location : {h.get("location", "—")}',
-                        f'      Time     : {fmt_time(h.get("time"))}',
-                    ]
-                    if h.get('yourAnalysis'):
-                        lines.append(f'      Analysis : {h["yourAnalysis"]}')
-                lines.append('')
+    machine_json = json.dumps(
+        {'workspaces': workspaces, 'config': config, 'profiles': profiles,
+         'formats': formats},
+        separators=(',', ':'), ensure_ascii=False
+    )
+    lines += [
+        div,
+        ' MACHINE DATA — DO NOT EDIT BELOW THIS LINE',
+        div,
+        BACKUP_START,
+        machine_json,
+        BACKUP_END,
+        '',
+    ]
 
-        machine_json = json.dumps(
-            {'workspaces': workspaces, 'config': config, 'profiles': profiles,
-             'formats': DATA_STORE.get('formats', {})},
-            separators=(',', ':'), ensure_ascii=False
-        )
-        lines += [
-            div,
-            ' MACHINE DATA — DO NOT EDIT BELOW THIS LINE',
-            div,
-            BACKUP_START,
-            machine_json,
-            BACKUP_END,
-            '',
-        ]
+    return filename, '\n'.join(lines)
 
-        content = '\n'.join(lines)
-        dest    = os.path.join(BACKUP_DIR, filename)
+
+# Serializes writers so a slower, older snapshot can never land on disk after a
+# newer one. Separate from data_lock so disk I/O never blocks request handlers.
+_disk_lock = threading.Lock()
+
+
+def save_data_to_disk() -> None:
+    """Persist DATA_STORE atomically to ``{ATO}_{Title}.txt``.
+
+    The backup text is rendered while holding ``data_lock`` (a consistent,
+    CPU-only snapshot), then written after releasing it. Holding the lock
+    across the write used to stall every sync and POST for the duration of
+    the disk I/O, which is noticeable on the USB sticks and network shares
+    this often runs from.
+    """
+    with _disk_lock:
+        with data_lock:
+            rendered = render_backup(
+                DATA_STORE.get('workspaces', {}),
+                DATA_STORE.get('config', {}),
+                DATA_STORE.get('profiles', {}),
+                DATA_STORE.get('formats', {}),
+            )
+        if rendered is None:
+            return
+        filename, content = rendered
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        dest = os.path.join(BACKUP_DIR, filename)
         tmp_fd, tmp_path = tempfile.mkstemp(dir=BACKUP_DIR, suffix='.tmp')
-
         try:
             with open(tmp_fd, 'w', encoding='utf-8') as tmp_f:
                 tmp_f.write(content)
-            # Cross-platform atomic rename (no remove-first window vs Py2).
-            os.replace(tmp_path, dest)
+            os.replace(tmp_path, dest)   # atomic: readers never see a partial file
         except Exception as exc:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
             safe_print(f'[!] Error saving to disk: {exc}')
 
 
@@ -775,11 +795,11 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
         # Strip query string so cache-bust params don't 404.
         path = self.path.split('?', 1)[0]
         if path == '/api/sync':
-            if not self._authorized(): return
-            self._handle_sync()
+            if self._authorized():
+                self._handle_sync()
         elif path == '/api/events':
-            if not self._authorized(): return
-            self._handle_sse()
+            if self._authorized():
+                self._handle_sse()
         elif path in ('/', '/index.html', '/Salt%20Report%20Workbench.html'):   # last: legacy bookmark
             # HTML serve is unauthenticated; startup modal gates data endpoints.
             self._serve_workbench()
@@ -875,10 +895,8 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
         finally:
             # Prune client and drop IP->initials mapping if no other tabs remain (else dict grows forever).
             with sse_lock:
-                try:
+                with contextlib.suppress(ValueError):
                     sse_clients.remove(client)
-                except ValueError:
-                    pass
                 still_here = any(c.ip == client.ip for c in sse_clients)
                 if not still_here:
                     client_initials.pop(client.ip, None)
@@ -946,10 +964,9 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
             return
         # Schema check — bad shape never reaches DATA_STORE.
         validator = _VALIDATORS.get(path)
-        if validator is not None:
-            if (err := validator(data)):
-                self._send_json({'status': 'error', 'message': f'Validation failed: {err}'}, 400)
-                return
+        if validator is not None and (err := validator(data)):
+            self._send_json({'status': 'error', 'message': f'Validation failed: {err}'}, 400)
+            return
 
         handled = False
 
@@ -1085,8 +1102,12 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
         elif path == '/api/save_config':
             cfg = data.get('config')
             if cfg:
+                # Keep only the fields the app uses: config is re-broadcast to
+                # every client on every sync, so arbitrary extra keys would
+                # bloat everyone's payload and the backup file.
+                clean = {'ato': cfg.get('ato', ''), 'title': cfg.get('title', '')}
                 with data_lock:
-                    DATA_STORE['config'] = cfg
+                    DATA_STORE['config'] = clean
                     invalidate_sync_cache()
             handled = True
 
@@ -1104,15 +1125,17 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
 
         elif path == '/api/save_profile':
             profile = data.get('profile')
-            if profile and 'initials' in profile:
+            ini = ((profile or {}).get('initials') or '').strip()
+            if ini:
+                # Known fields only (see save_config), keyed by the same stripped
+                # initials the IP map uses, so server-stamped attribution matches.
+                clean = {'initials': ini, 'color': profile.get('color', '#0a84ff')}
                 with data_lock:
-                    DATA_STORE['profiles'][profile['initials']] = profile
+                    DATA_STORE['profiles'][ini] = clean
                     invalidate_sync_cache()
                 # IP -> initials so /api/sync includes them and /api/edit_report can server-stamp.
-                ini = (profile.get('initials') or '').strip()
-                if ini:
-                    with sse_lock:
-                        client_initials[self.client_address[0]] = ini
+                with sse_lock:
+                    client_initials[self.client_address[0]] = ini
                 handled = True
             else:
                 self._send_json({'status': 'error', 'message': 'Invalid profile data.'}, 400)
@@ -1203,10 +1226,8 @@ def graceful_drain() -> None:
         with sse_lock:
             snapshot = list(sse_clients)
         for c in snapshot:
-            try:
+            with contextlib.suppress(Exception):
                 c.send(b'event: shutdown\ndata: server-stopping\n\n')
-            except Exception:
-                pass
     except Exception:
         pass
     try:
