@@ -464,6 +464,13 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("Validation failed", body["message"])
         self.assertEqual(self.post("/api/nope", {})[0], 404)
+        # A blank workspace name is a bad request, not a missing route.
+        status, body = self.post("/api/save_reports", {"ato": "   ", "reports": [report()]})
+        self.assertEqual((status, body["message"]), (400, "Missing ATO."))
+        status, body = self.post(
+            "/api/edit_report", {"ato": "ALPHA", "reportId": "ghost", "fields": {"size": "x"}}
+        )
+        self.assertEqual((status, body["message"]), (404, "Report not found."))
 
     def test_bad_content_length_is_its_own_error(self):
         status, raw = self.request(
