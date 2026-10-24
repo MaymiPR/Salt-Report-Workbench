@@ -44,6 +44,13 @@ or a package registry:
   <img src="docs/screenshots/viewer.png" alt="The report log in view-only mode, with a workspaces sidebar and six SALT reports" width="900">
 </p>
 
+## How it was made
+
+S.A.L.T. Report Workbench was created entirely with
+[Claude](https://www.anthropic.com/claude), Anthropic's AI: every line of code,
+the brand assets, and this documentation. Field testing by the operators who use
+it shaped what it does.
+
 ## Features
 
 | Feature | What it does |
