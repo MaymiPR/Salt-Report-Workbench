@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="80 80 352 352" width="352" height="352" fill="currentColor" role="img" aria-labelledby="title">
+  <title id="title">S.A.L.T. Report Workbench</title>
+  <!-- Single color. Inline, it inherits the surrounding text color; as an <img> it renders black. -->
+  <rect x="112" y="124" width="288" height="44" rx="22"/>
+  <rect x="112" y="196" width="216" height="44" rx="22"/>
+  <rect x="112" y="268" width="168" height="44" rx="22"/>
+  <rect x="112" y="340" width="152" height="44" rx="22"/>
+  <circle cx="352" cy="290" r="7"/>
+  <g fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round">
+    <circle cx="352" cy="290" r="26"/>
+    <path d="M352 244v12M352 324v12M306 290h12M386 290h12"/>
+  </g>
+</svg>

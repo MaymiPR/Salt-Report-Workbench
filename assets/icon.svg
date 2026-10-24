@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="title">
+  <title id="title">S.A.L.T. Report Workbench</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#242427"/>
+      <stop offset="1" stop-color="#141416"/>
+    </linearGradient>
+  </defs>
+  <!-- Tile: carries its own background so the mark reads on light and dark. -->
+  <rect width="512" height="512" fill="url(#tile)"/>
+  <!-- Faint map grid: the reports are about places. -->
+  <path d="M171 36V476M341 36V476M36 171H476M36 341H476" stroke="#FFFFFF" stroke-opacity=".05" stroke-width="2"/>
+  <!-- Four report lines: Size, Activity, Location, Time. -->
+  <rect x="112" y="124" width="288" height="44" rx="22" fill="#F5F5F7" fill-opacity=".94"/>
+  <rect x="112" y="196" width="216" height="44" rx="22" fill="#F5F5F7" fill-opacity=".70"/>
+  <rect x="112" y="268" width="168" height="44" rx="22" fill="#0A84FF"/>
+  <rect x="112" y="340" width="152" height="44" rx="22" fill="#F5F5F7" fill-opacity=".48"/>
+  <!-- Location is the line that matters: it ends on a grid reticle. -->
+  <g fill="none" stroke="#0A84FF" stroke-width="10" stroke-linecap="round">
+    <circle cx="352" cy="290" r="26"/>
+    <path d="M352 244v12M352 324v12M306 290h12M386 290h12"/>
+  </g>
+  <circle cx="352" cy="290" r="7" fill="#0A84FF"/>
+</svg>
