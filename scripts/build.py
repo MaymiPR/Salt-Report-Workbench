@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 r"""Build a self-contained, ready-to-run distribution of the workbench.
 
 Reads the frontend sources in ``src/`` and inlines the stylesheet and script
@@ -43,6 +42,14 @@ def _indent(text: str, spaces: int = 8) -> str:
     return "\n".join(pad + line if line.strip() else "" for line in text.splitlines())
 
 
+def _show(path: Path) -> str:
+    """Repo-relative path for messages; absolute if it lives elsewhere."""
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
 def bundle(html: str, css: str, js: str) -> str:
     """Return ``html`` with its stylesheet link and script tag replaced inline.
 
@@ -69,7 +76,7 @@ def main() -> int:
     missing = [p for p in (SRC_HTML, SRC_CSS, SRC_JS, SERVER) if not p.is_file()]
     if missing:
         for p in missing:
-            print(f" [!] missing: {p.relative_to(ROOT)}")
+            print(f" [!] missing: {_show(p)}")
         return 1
 
     try:
@@ -87,8 +94,8 @@ def main() -> int:
     out_html.write_text(html, encoding="utf-8")
     shutil.copy2(SERVER, DIST / SERVER.name)
 
-    print(f" [*] {out_html.relative_to(ROOT)}  ({out_html.stat().st_size / 1024:.1f} KB)")
-    print(f" [*] {(DIST / SERVER.name).relative_to(ROOT)}")
+    print(f" [*] {_show(out_html)}  ({out_html.stat().st_size / 1024:.1f} KB)")
+    print(f" [*] {_show(DIST / SERVER.name)}")
     print(f"\n [+] Done. Run:  python dist/{SERVER.name}\n")
     return 0
 
