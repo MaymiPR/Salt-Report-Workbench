@@ -122,7 +122,7 @@
                     <p>Your identity is the initials and tag color shown in the <strong>By</strong> column on every report you log. It lets you (and anyone else watching) see at a glance who logged what.</p>
                     <ul>
                         <li>Set your <strong>Initials</strong> and <strong>Tag Color</strong> on first launch via the startup modal.</li>
-                        <li>The startup modal opens with a compact <strong>Quick Start</strong> strip listing what it already knows as one-click presets, in three rows: <strong>Operator</strong> (known initials with their tag color), <strong>ATO</strong> (loaded workspaces), and <strong>Title</strong> (report titles seen before). The rows are independent, so you can pick a known operator and ATO but type a brand-new title. Picking an ATO also fills its usual title if you haven&rsquo;t typed one. Each row shows the five most recent entries, and the whole strip hides on a first-ever run when there&rsquo;s nothing to offer.</li>
+                        <li>The startup modal opens with a compact <strong>Quick Start</strong> strip listing what it already knows as one-click presets, in three rows: <strong>Operator</strong> (known initials with their tag color), <strong>ATO</strong> (loaded workspaces), and <strong>Title</strong> (report titles seen before). The rows are independent, so you can pick a known operator and ATO but type a brand-new title. Picking an ATO also fills its usual title if you haven&rsquo;t typed one. Each row shows up to five entries, and the whole strip hides on a first-ever run when there&rsquo;s nothing to offer.</li>
                         <li>To change them later: open the ellipsis menu &rarr; <strong>Workspaces</strong>, then click the <strong>person icon</strong> tab. Edit and press <em>Set Initials</em>.</li>
                         <li>The Identity tab also shows the current <strong>Access Code</strong> with a one-click Copy button (handy for sharing with a teammate joining the session).</li>
                         <li>Each device or operator has its own identity stored per-browser.</li>
@@ -247,7 +247,7 @@
 
                 <section class="manual-section">
                     <h3>The Workspaces Panel</h3>
-                    <p>Open from the ellipsis menu &rarr; <strong>Workspaces</strong>. The form panel is replaced by a tabbed surface with three tabs:</p>
+                    <p>Open from the ellipsis menu &rarr; <strong>Workspaces</strong>. The form panel is replaced by a tabbed surface with four tabs: Import / Export, Workspaces, Builder (see <em>Report Builder</em> below), and Identity.</p>
 
                     <p class="manual-step">Import / Export tab (default)</p>
                     <ul>
@@ -258,7 +258,7 @@
                         <li><strong>Export CSV</strong>: flat tabular export. Current report appears first, then each history entry on its own row labeled <code>Update #N (Old)</code>, then each BDA assessment as a <code>BDA #N</code> row (target in Size, effect in Activity, coords in MGRS). Custom builder fields are appended as extra columns after Analysis.</li>
                         <li><strong>Export MTI CSV</strong>: splits into two files (<code>_tracked.csv</code> and <code>_wheeled.csv</code>) by scanning Size for vehicle counts. Covers history entries too.</li>
                         <li><strong>Export All ATOs</strong> toggle: bundles every loaded workspace into a single backup file instead of just the active one.</li>
-                        <li><strong>CSV Import</strong>: maps incoming columns to SALT fields and lands the rows in a staging workspace called <em>IMPORT</em>. Check the rows you want, pick a destination ATO from the dropdown that appears, and send them.</li>
+                        <li><strong>CSV Import</strong>: maps incoming columns to SALT fields and imports the rows into the workspace you choose: the active one, another loaded workspace, or a staging workspace called <em>IMPORT</em>. From IMPORT, check the rows you want, pick a destination ATO from the dropdown that appears, and send them.</li>
                     </ul>
 
                     <p class="manual-step">Workspaces tab</p>
@@ -323,6 +323,7 @@
                         <li>The <strong>status dot</strong> next to &ldquo;Report Log&rdquo;: green = connected and synced, red = locally run with no server connection (working from local storage only).</li>
                         <li><strong>Connected users count</strong> shows the number of unique people on the server. Multiple tabs open on the same machine count once.</li>
                         <li>Changes made while locally run queue in your browser and replay automatically the moment the server comes back.</li>
+                        <li>If the server refuses a change outright (for example a field longer than it accepts), a red message says so and names the reason, so nothing disappears silently.</li>
                     </ul>
                     <h4 class="manual-subhead">What the Sync Server Does Automatically</h4>
                     <ul>
@@ -368,7 +369,7 @@
                         <li><strong>No startup modal</strong> on viewer load. Viewers don&rsquo;t need an identity or workspace selection, so the page paints straight to the report log without prompting.</li>
                         <li>A small orange <strong>VIEW ONLY</strong> badge sits to the right of the &ldquo;Workspaces&rdquo; sidebar header so the operator knows the mode without crowding the report-log header.</li>
                         <li>The form panel is replaced by a persistent <strong>Workspaces sidebar</strong> on the left, listing every loaded workspace with click-to-switch (local-only: switching here only changes the viewer&rsquo;s own view, not anyone else&rsquo;s).</li>
-                        <li>Each row shows the <strong>ATO designator</strong> in bold and the workspace <strong>title</strong> as a subdued sublabel right after it. No separator punctuation is needed; the typographic contrast does the visual separating.</li>
+                        <li>Each row shows the <strong>ATO designator</strong> in bold and the workspace <strong>title</strong> as a subdued sublabel right after it, separated by a dash or a space according to the <strong>Title Separator</strong> setting.</li>
                         <li>Each row carries up to two small circular indicators next to the workspace title so the viewer can tell their local view apart from the editor&rsquo;s:
                             <ul>
                                 <li><strong>A</strong> (blue), <em>Active</em>: the workspace the editor is currently logging into on the main tool. Driven by the server&rsquo;s <code>config.ato</code>; updates live (no refresh) when the editor switches.</li>
@@ -377,7 +378,7 @@
                             Hover either indicator for its full label. The <strong>A slot is always reserved</strong> on every row (invisible where the workspace isn&rsquo;t active), so the <strong>S</strong> indicator lands at the same horizontal coordinate on every row instead of shifting position.</li>
                         <li>The right side of each row shows <strong>unique reports</strong> and <strong>total reports</strong> counts in the same language the report-log header uses, so the numbers correspond when you switch between views.</li>
                         <li>The <strong>source filename</strong> (e.g. <code>XG_TEST.txt</code>, <code>Uploaded backup</code>, <code>In-session</code>) is hidden in the viewer sidebar. It&rsquo;s editor-only metadata about where a workspace came from, irrelevant to observers. The editor&rsquo;s Workspaces tab in the main report log still shows it.</li>
-                        <li>The editor-only ellipsis-menu items (Horizontal Layout, Select All / Deselect All, Clear All) are hidden. Export still works: viewers can download backups and CSVs of what they&rsquo;re seeing.</li>
+                        <li>The editor-only ellipsis-menu items (Horizontal Layout, Select All / Deselect All, Clear Workspace) are hidden. Export still works: viewers can download backups and CSVs of what they&rsquo;re seeing.</li>
                         <li>Live updates flow normally: any edit by an editor appears in the viewer&rsquo;s table within a fraction of a second, and switching the active workspace on the editor side updates the A indicator on every viewer in real time.</li>
                         <li>The page is stamped read-only by the server before it even loads in the browser, so the editor UI never flashes on a viewer&rsquo;s refresh.</li>
                     </ul>
@@ -519,7 +520,7 @@
                                     <hr>
                                     <button id="userManualBtn">User Manual</button>
                                     <hr>
-                                    <button id="clearAllBtn">Clear All Data</button>
+                                    <button id="clearAllBtn">Clear Workspace</button>
                                 </div>
                             </div>
                         </div>

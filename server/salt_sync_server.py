@@ -1285,13 +1285,13 @@ def run_boot_dashboard(viewer_port: int | None = None) -> None:
     safe_print('                      S.A.L.T. Sync Server')
     safe_print('═' * 64)
     safe_print(' [*] Starting S.A.L.T. Sync Server...')
-    safe_print(f' [+] Workbench : http://{ip}:{PORT}')
+    safe_print(f' [+] Workbench   : http://{ip}:{PORT}')
     if _access_code is None:
         safe_print(' [!] Access Code : UNGATED  (no code — anyone can edit)')
     else:
         safe_print(f' [+] Access Code : {_access_code}')
     if viewer_port is not None:
-        safe_print(f' [+] Read Only : http://{ip}:{viewer_port}')
+        safe_print(f' [+] Read Only   : http://{ip}:{viewer_port}')
     safe_print(' [!] Press Ctrl+C to stop.')
     safe_print('═' * 64 + '\n')
 
