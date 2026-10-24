@@ -15,7 +15,7 @@ get set up and what a change needs before it merges.
 
 ## License of contributions
 
-The project is licensed under AGPL-3.0-or-later. By submitting a contribution,
+The project is licensed under AGPL-3.0-only. By submitting a contribution,
 you agree that it is licensed under the same terms.
 
 ## Setup

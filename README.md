@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/version-2.1.0-0A84FF" alt="Version 2.1.0">
   <img src="https://img.shields.io/badge/python-3.10%2B-0A84FF" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/dependencies-none-32D74B" alt="No dependencies">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-8E8E93" alt="License: AGPL-3.0-or-later"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-8E8E93" alt="License: AGPL v3"></a>
 </p>
 
 ---
@@ -46,10 +46,10 @@ or a package registry:
 
 ## How it was made
 
-S.A.L.T. Report Workbench was created entirely with
-[Claude](https://www.anthropic.com/claude), Anthropic's AI: every line of code,
-the brand assets, and this documentation. Field testing by the operators who use
-it shaped what it does.
+S.A.L.T. Report Workbench was created entirely with Claude (Anthropic's AI):
+every line of code, the brand assets and this documentation. The operators who
+use it were the reference: their field testing shaped what it does, as recorded
+in [CHANGELOG.md](CHANGELOG.md).
 
 ## Features
 
@@ -245,7 +245,11 @@ Please report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
 ## License
 
-S.A.L.T. Report Workbench is free software under the [GNU Affero General Public
-License, version 3 or (at your option) any later version](LICENSE). You can use,
-study, change, and share it. If you change it and let other people use your
-version over a network, you must offer them its source code too.
+S.A.L.T. Report Workbench is free software under the
+[GNU Affero General Public License v3](LICENSE). It is built with nothing but
+the Python standard library and a single self-contained HTML page, so it has no
+third-party code or licenses to ship with a download.
+
+Python is a trademark of the Python Software Foundation and Windows is a
+trademark of Microsoft; other names are trademarks of their owners and are used
+only to describe compatibility.

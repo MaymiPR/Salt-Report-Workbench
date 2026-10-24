@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-rem SPDX-License-Identifier: AGPL-3.0-or-later
+rem SPDX-License-Identifier: AGPL-3.0-only
 rem
 rem S.A.L.T. Report Workbench launcher. Double-click to start the sync server.
 rem No install and no admin rights needed, only Python 3.10 or newer.
