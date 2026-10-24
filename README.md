@@ -56,7 +56,7 @@ in [CHANGELOG.md](CHANGELOG.md).
 | Feature | What it does |
 | --- | --- |
 | **Real-time sync** | Server-Sent Events push every change to every browser within a second. Last-modified-wins merging resolves concurrent edits. |
-| **Offline-first** | Full functionality from local storage; queued changes replay automatically on reconnect. |
+| **Offline-first** | Full functionality from local storage; queued changes replay automatically on reconnect. Each change uploads only the reports it touched, and a report the server refuses stays visible as *Not saved* until it's fixed or discarded. |
 | **Report builder** | Reorder lines, switch between SALT and SALT-U, and add custom fields (e.g. `W: Weather`) that get their own form box, table column, and copy-text line. Saved per workspace and synced to the team. |
 | **BDA tracking** | Hidden until you need it. A checklist pre-pairs each element of a report with its grid, so a ten-target assessment is ten clicks. Revisable, searchable, exported. |
 | **Edit history** | *Update* snapshots the prior version; *Edit* corrects in place. Any prior version can be restored. |
@@ -231,8 +231,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and conventions.
 
 ## Roadmap
 
-- **Push only what changed.** Every log currently uploads the whole
-  workspace, which grows with the operation.
 - **One backup file per workspace.** Today each file holds every workspace, so
   data is duplicated and the newest file wins on reload.
 - **BDA roll-up** above the table (assessed, destroyed, unassessed) with

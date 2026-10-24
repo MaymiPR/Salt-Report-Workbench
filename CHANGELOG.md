@@ -36,8 +36,22 @@ All notable changes to this project are documented here. The format follows
 - The access-code box accepts codes longer than 10 characters, so a custom
   `--access-code` can be typed in.
 
+- "Send to ATO" from the IMPORT workspace never pushed the destination
+  workspace, so the moved reports were lost on the next sync.
+- The MTI export finds counts written "4x tracked" (and "4 x tracked"), not
+  only "4 tracked".
+
 ### Changed
 
+- Each change uploads only the reports it touched instead of the whole
+  workspace, so syncing no longer grows with the length of the operation.
+- A report the server refuses is no longer lost. It stays in the table marked
+  *Not saved*, with the server's reason, until it is fixed (then it is sent
+  again) or discarded (the server's copy comes back). When several reports are
+  sent together, the rest still land.
+- The CSV and MTI Identifier column matches the table and copy text
+  ("Patrol - ALPHA001", following the Title Separator) instead of the stored
+  form without a separator ("PatrolALPHA001").
 - The upload cap is 16 MB instead of 1 MB. Every push carries the whole
   workspace, and a long operation outgrows 1 MB.
 - The ⋯ menu's "Clear All Data" is now "Clear Workspace", which is what it

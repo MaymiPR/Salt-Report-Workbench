@@ -45,12 +45,25 @@ waits on the network. Rendering is one function per surface, such as `renderLog`
 and `renderWorkspacesList`, that rebuilds its DOM from state into a
 `DocumentFragment` for a single reflow.
 
+Pushes are deltas. After every pull the client records the version
+(`lastModified`) of each report the server holds, and a push sends only the
+reports that are new or changed since; with no record yet, such as right after
+a reload, it sends the whole workspace. The server needs nothing special for
+this: merging a partial batch is what it always did.
+
 When a push can't land (the server is unreachable, rate-limits it, or
 errors), the client sets `salt_offline_push`, and the next sync pushes again
 *before* pulling, so the pull can't overwrite changes the server hasn't seen.
-Because merging is idempotent (below), replaying is always safe. A push the
-server refuses outright, such as a field over its length limit, is shown to
-the user with the server's reason instead of being retried.
+Because merging is idempotent (below), replaying is always safe.
+
+When the server refuses a batch outright (validation, size), the client
+splits it until it knows exactly which reports were refused, so the rest
+still land. Refused reports go to `salt_unsaved` in localStorage, are laid
+back over the server's copy after every pull (`withUnsaved` in `core.js`),
+and are marked *Not saved* with the server's reason. A refused version isn't
+re-sent until someone changes it; editing it sends it again, and Discard
+drops it so the server's copy returns. Nothing a user typed is lost, and one
+bad report never stalls syncing for anyone.
 
 ### Server (`server/salt_sync_server.py`)
 
