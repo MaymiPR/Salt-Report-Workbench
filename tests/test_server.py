@@ -9,6 +9,8 @@ Standard library only, matching the project's zero-dependency rule. Run with
 from __future__ import annotations
 
 import contextlib
+import http.client
+import io
 import json
 import shutil
 import sys
@@ -231,7 +233,7 @@ class RateLimitTests(unittest.TestCase):
     def test_burst_then_reject_then_refill(self):
         clock = [1000.0]
         with (
-            mock.patch.object(srv.time, "time", lambda: clock[0]),
+            mock.patch.object(srv.time, "monotonic", lambda: clock[0]),
             mock.patch.object(srv, "RATE_BUCKET_CAPACITY", 3),
             mock.patch.object(srv, "RATE_REFILL_PER_SECOND", 1.0),
         ):
@@ -289,6 +291,43 @@ class AccessCodeTests(unittest.TestCase):
             self.assertTrue(
                 srv._check_access_code({}, False, remote), "--no-access-code disables the gate"
             )
+
+    def test_blank_or_unsendable_access_code_overrides_are_refused(self):
+        # Regression: --access-code " " became an empty code that an empty
+        # cookie matched, silently opening the editor port.
+        for bad in (" ", "", "with space", "x" * 65, "café"):
+            with (
+                mock.patch.object(sys, "argv", ["salt_sync_server", "--access-code", bad]),
+                mock.patch("sys.stderr", io.StringIO()),
+                self.assertRaises(SystemExit, msg=repr(bad)),
+            ):
+                srv.parse_cli_args()
+        with mock.patch.object(sys, "argv", ["salt_sync_server", "--access-code", "Field-Day_7"]):
+            self.assertEqual(srv.parse_cli_args().access_code, "Field-Day_7")
+
+
+class ErrorReportingTests(unittest.TestCase):
+    def handle(self, exc):
+        httpd = srv.SaltSyncServer(("127.0.0.1", 0), srv.SaltSyncHandler)
+        try:
+            with mock.patch.object(srv, "safe_print") as printed:
+                try:
+                    raise exc
+                except Exception:
+                    httpd.handle_error(None, ("203.0.113.9", 1))
+            return printed.call_args_list
+        finally:
+            httpd.server_close()
+
+    def test_clients_going_away_stay_quiet(self):
+        for exc in (ConnectionResetError(), BrokenPipeError(), TimeoutError()):
+            self.assertEqual(self.handle(exc), [], repr(exc))
+
+    def test_real_errors_are_reported(self):
+        # Regression: every handler exception was swallowed, bugs included.
+        calls = self.handle(KeyError("boom"))
+        self.assertEqual(len(calls), 1)
+        self.assertIn("boom", calls[0].args[0])
 
 
 # --------------------------------------------------------------------------- #
@@ -433,10 +472,46 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn(b"Content-Length", raw)
 
+    def raw_post(self, path, headers):
+        """POST with hand-set headers and no body, which urllib won't send."""
+        conn = http.client.HTTPConnection("127.0.0.1", self.editor.server_address[1], timeout=5)
+        try:
+            conn.putrequest("POST", path)
+            for name, value in headers.items():
+                conn.putheader(name, value)
+            conn.endheaders()
+            return conn.getresponse().status
+        finally:
+            conn.close()
+
     def test_oversized_bodies_are_refused(self):
+        # Regression: the body went unread, and closing a socket with unread
+        # data resets it; on Windows the client often lost the 413 in the reset.
         with mock.patch.object(srv, "MAX_BODY_BYTES", 64):
-            status, _ = self.post("/api/save_reports", {"ato": "A", "reports": [report()]})
-        self.assertEqual(status, 413)
+            for _ in range(20):
+                status, _ = self.post("/api/save_reports", {"ato": "A", "reports": [report()]})
+                self.assertEqual(status, 413)
+
+    def test_negative_content_length_is_refused_at_once(self):
+        # Regression: rfile.read(-1) waited for the client to close the connection.
+        self.assertEqual(self.raw_post("/api/save_config", {"Content-Length": "-1"}), 400)
+
+    def test_cookie_with_non_ascii_characters_is_simply_denied(self):
+        # Regression: compare_digest raised on non-ASCII text and the request
+        # got no response at all.
+        status = self.raw_post(
+            "/api/save_config", {"Content-Length": "0", "Cookie": "salt_access=é"}
+        )
+        self.assertEqual(status, 401)
+
+    def test_files_beside_the_server_are_not_exposed(self):
+        # Regression: the handler inherited SimpleHTTPRequestHandler, whose HEAD
+        # reported the size and date of any file in the launch directory.
+        req = urllib.request.Request(self.base + "/README.md", method="HEAD")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+        ctx.exception.close()
+        self.assertEqual(ctx.exception.code, 501)
 
     def test_posts_are_rate_limited(self):
         with (
