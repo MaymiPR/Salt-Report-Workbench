@@ -1,0 +1,1145 @@
+:root {
+    color-scheme: dark;
+    --bg-color: #000000;
+    --panel-bg: #1c1c1e;
+    --input-bg: #2c2c2e;
+    --input-bg-hover: #3a3a3c;
+    --text-primary: #f5f5f7;
+    --text-secondary: #8e8e93;
+    --system-blue: #0a84ff;
+    --system-green: #32d74b;
+    --system-red: #ff453a;
+    --system-gray: #48484a;
+    --divider: #38383a;
+    --glass-bg: rgba(28, 28, 30, 0.75);
+    --glass-border: rgba(255, 255, 255, 0.1);
+}
+
+html, body { height: 100%; margin: 0; display: flex; flex-direction: column; background-color: var(--bg-color); -webkit-font-smoothing: antialiased; overflow-y: hidden; }
+/* Pre-paint flash gate — hides the app until JS decides whether to open the
+   startup modal. Removed by JS once that decision is made. */
+html.salt-ready-gate .app-wrapper { visibility: hidden; }
+/* Horizontal layout grows taller than the viewport, so re-enable page scroll. */
+body.scrollable-layout, html:has(body.scrollable-layout) { overflow-y: auto; height: auto; min-height: 100%; }
+body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.5; padding: 20px; box-sizing: border-box; color: var(--text-primary); }
+.app-wrapper { flex: 1 0 auto; display: flex; justify-content: center; align-items: center; padding-bottom: 50px; position: relative; }
+.container { max-width: 1600px; width: 100%; margin: 0 auto; position: relative; padding-bottom: 20px; box-sizing: border-box; }
+
+h2 { font-size: 1.35em; font-weight: 600; margin-top: 0; margin-bottom: 0; letter-spacing: -0.02em; }
+/* Two-panel grid: 340px form / fit-content(1100px) report, centered as a unit. */
+.grid-container { display: grid; grid-template-columns: 340px fit-content(1100px); grid-template-rows: calc(105vh - 100px); gap: 24px; justify-content: center; align-items: stretch; }
+/* Horizontal layout: stack to one column, form auto / report 1fr. */
+.grid-container.horizontal-layout { grid-template-columns: 1fr; grid-template-rows: auto; justify-content: stretch; }
+.form-section, .report-section { padding: 30px; background-color: var(--panel-bg); border-radius: 20px; border: 1px solid var(--glass-border); min-width: 0; box-sizing: border-box; }
+/* Form is a flex column; the Analysis textarea grows to fill height. */
+.form-section { display: flex; flex-direction: column; min-width: 280px; overflow: hidden; }
+#saltForm { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+#salt-fields { flex: 0 0 auto; }
+#analysis-field { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 70px; margin-bottom: 12px; }
+#yourAnalysis { flex: 1 1 auto; resize: none; min-height: 50px; box-sizing: border-box; }
+.update-controls { flex: 0 0 auto; }
+.report-section { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+#main-form-header { text-align: center; margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+.form-header-block { text-align: center; margin-bottom: 24px; padding-bottom: 15px; border-bottom: 1px solid var(--divider); }
+label { display: block; margin-bottom: 6px; font-weight: 500; color: var(--text-secondary); font-size: 0.85em; }
+.config-inputs label { white-space: nowrap; }
+/* Workspace fields match the Set button's height so the row aligns. */
+#atoDesignator, #reportTitlePrefix { height: 46px; box-sizing: border-box; }
+#reportStartNum { width: 90px; text-align: center; padding: 8px; }
+
+input[type="text"], input[type="number"], select, textarea, input[type="color"], input[type="file"] { width: 100%; box-sizing: border-box; padding: 12px 16px; border: 1.5px solid transparent; border-radius: 12px; background-color: var(--input-bg); color: var(--text-primary); font-size: 1em; font-family: inherit; transition: all 0.2s ease; }
+input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:focus { background-color: var(--panel-bg); border-color: var(--system-blue); outline: none; }
+select { -webkit-appearance: none; appearance: none; background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%238E8E93%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22/%3E%3C/svg%3E'); background-repeat: no-repeat; background-position: right 1rem center; background-size: .65em auto; }
+input:read-only { opacity: 0.5; cursor: not-allowed; }
+input.requires-set { border-color: var(--system-red); background-color: rgba(255, 69, 58, 0.1); }
+input[type="checkbox"] { -webkit-appearance: none; appearance: none; width: 17px; height: 17px; border-radius: 5px; border: 1.5px solid var(--system-gray); background-color: var(--input-bg); background-repeat: no-repeat; background-position: center; cursor: pointer; flex-shrink: 0; transition: background-color 0.15s, border-color 0.15s; vertical-align: middle; }
+input[type="checkbox"]:checked { background-color: #60cdff; border-color: #60cdff; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 8'%3E%3Cpath fill='none' stroke='%23ffffff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' d='M1 4l3 3 5-6'/%3E%3C/svg%3E"); background-size: 70%; }
+input[type="checkbox"]:hover { border-color: var(--text-secondary); }
+
+button { color: white; padding: 12px 20px; border: none; border-radius: 12px; cursor: pointer; font-size: 0.95em; font-weight: 600; transition: transform 0.1s ease, opacity 0.2s ease; }
+button:active { transform: scale(0.96); }
+button:hover { opacity: 0.85; }
+#logButton { background-color: var(--system-blue); width: 100%; margin-top: 6px; }
+#editUpdatePair { display: flex; gap: 8px; margin-top: 6px; }
+#editUpdatePair button { flex: 1 1 0; }
+#editButton   { background-color: var(--system-gray); }
+#updateButton { background-color: var(--system-blue); }
+#cancelButton { background-color: var(--system-gray); width: 100%; margin-top: 10px; }
+
+.config-controls { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; margin-bottom: 28px; }
+.config-inputs { display: flex; flex-direction: column; gap: 15px; }
+.config-button-wrapper { align-self: stretch; display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 6px; }
+#setAtoBtn { height: 46px; width: 90px; }
+#atoHistorySelect { padding: 12px 28px 12px 10px; font-size: 0.85em; border-radius: 8px; width: 90px; margin-top: 27px; }
+
+.time-control { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; }
+.time-control input { flex-grow: 1; margin-bottom: 0; }
+.time-control button { margin-right: 0; width: 90px; height: 46px; flex-shrink: 0; text-align: center; }
+.set-btn { background-color: var(--system-blue); color: white; }
+.change-btn { background-color: var(--system-gray); }
+#updateTimeBtn { background-color: var(--system-blue); }
+#updateTimeBtn:disabled { background-color: var(--system-gray); opacity: 0.35; cursor: not-allowed; transform: none; }
+
+.copy-btn { background-color: rgba(10, 132, 255, 0.12); color: var(--system-blue); font-size: 0.74em; font-weight: 600; padding: 4px 12px; border-radius: 100px; margin: 0; border: none; transition: background-color 0.15s ease; letter-spacing: 0.02em; }
+.copy-btn:hover { background-color: rgba(10, 132, 255, 0.22); opacity: 1; }
+/* Restore (history rows): same pill shape as Copy, green accent. */
+.restore-btn { background-color: rgba(50, 215, 75, 0.12); color: var(--system-green); font-size: 0.74em; font-weight: 600; padding: 4px 10px; border-radius: 100px; margin: 0; border: none; transition: background-color 0.15s ease; letter-spacing: 0.02em; cursor: pointer; }
+.restore-btn:hover { background-color: rgba(50, 215, 75, 0.22); opacity: 1; }
+.hist-arrow { color: var(--text-secondary); font-size: 0.95em; line-height: 1; }
+
+/* Report-log header row: title, search (flex-grows), metrics, action buttons. */
+.report-header { display: flex; align-items: center; gap: 10px; padding-bottom: 15px; border-bottom: 1px solid var(--divider); margin-bottom: 10px; }
+.report-header h2 { white-space: nowrap; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.status-dot.online { background-color: var(--system-green); box-shadow: 0 0 6px var(--system-green); }
+.status-dot.offline { background-color: var(--system-red); box-shadow: 0 0 6px var(--system-red); }
+/* Connected-operator count — same chip in the report header and the
+   Workspaces panel header, so it's one rule rather than inline styles. */
+.connected-users-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 0.78em; font-weight: 400; color: var(--text-secondary); white-space: nowrap; }
+.connected-users-chip svg { opacity: 0.6; }
+#report-count { font-size: 0.78em; color: var(--text-secondary); white-space: nowrap; font-weight: 400; }
+/* Stacked metrics — active count over total-including-history. */
+.report-metrics { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; line-height: 1.25; flex-shrink: 0; }
+#report-total-count { font-size: 0.72em; color: var(--text-secondary); white-space: nowrap; font-weight: 400; opacity: 0.7; }
+
+        .form-header-row { display: flex; justify-content: flex-start; align-items: center; margin-bottom: 20px; margin-top: 0; padding-top: 15px; border-top: 1px solid var(--divider); gap: 10px; }
+#form-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Search bar fills the slack between title and the right-hand button cluster. */
+.search-bar-wrapper { position: relative; flex: 1 1 auto; min-width: 0; margin: 0; display: flex; align-items: center; }
+.search-bar-wrapper .icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); pointer-events: none; z-index: 2;}
+#searchBar { width: 100%; padding: 12px 16px 12px 36px; border-radius: 12px; background-color: var(--input-bg); border: 1.5px solid transparent; color: var(--text-primary); font-size: 1em; font-family: inherit; transition: all 0.2s ease; margin: 0; box-sizing: border-box; }
+#searchBar:focus { background-color: var(--panel-bg); border-color: var(--system-blue); outline: none; }
+#deleteSelectedBtn { font-size: 0.85em; padding: 8px 14px; background-color: var(--system-red); display: none; margin: 0; }
+#sendToAtoSelect { font-size: 0.85em; padding: 6px 24px 6px 10px; border-radius: 8px; margin: 0; width: 90px; }
+#sendToAtoBtn { font-size: 0.85em; padding: 8px 14px; background-color: var(--system-green); margin: 0; }
+
+.icon-btn { background: transparent; border: none; padding: 6px; cursor: pointer; color: var(--text-secondary); display: flex; align-items: center; justify-content: center; border-radius: 10px; margin: 0; height: 36px; width: 36px; }
+.icon-btn:hover { background-color: var(--input-bg); color: var(--text-primary); }
+.icon-btn svg { fill: currentColor; width: 22px; height: 22px; }
+
+/* Identity form (inline, inside the Workspaces panel's Identity tab). */
+#userProfileMenu.identity-section { display: block; margin-top: 8px; }
+.profile-menu-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.profile-preview-avatar { width: 40px; height: 40px; border-radius: 50%; background-color: var(--system-blue); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85em; color: white; flex-shrink: 0; letter-spacing: 0.5px; transition: background-color 0.2s; }
+.profile-header-text { display: flex; flex-direction: column; gap: 3px; }
+.profile-menu-label { font-size: 0.72em; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; }
+.profile-current-name { font-size: 0.95em; color: var(--text-primary); font-weight: 600; }
+.profile-menu-divider { height: 1px; background: var(--divider); margin-bottom: 14px; }
+.profile-field { margin-bottom: 10px; }
+.profile-field-label { display: block; font-size: 0.72em; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 5px; }
+#user-initials-input { width: 100%; text-transform: uppercase; box-sizing: border-box; }
+.color-swatches { display: flex; gap: 7px; flex-wrap: wrap; }
+.color-swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; transition: transform 0.15s, border-color 0.15s; outline: none; }
+.color-swatch:hover { transform: scale(1.2); }
+.color-swatch.selected { border-color: white; transform: scale(1.1); }
+
+/* First-run setup modal — Apple-style centered dialog. */
+.startup-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    box-sizing: border-box;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+.startup-overlay.show { display: flex; opacity: 1; }
+
+.startup-modal {
+    background-color: var(--glass-bg);
+    backdrop-filter: blur(40px);
+    -webkit-backdrop-filter: blur(40px);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    padding: 28px;
+    width: 100%;
+    max-width: 440px;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+    color: var(--text-primary);
+    transform: scale(0.96);
+    transition: transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.startup-overlay.show .startup-modal { transform: scale(1); }
+
+.startup-header { text-align: center; margin-bottom: 22px; }
+.startup-header h2 { font-size: 1.15em; font-weight: 600; margin: 0 0 6px 0; letter-spacing: -0.01em; }
+.startup-subtitle { font-size: 0.88em; color: var(--text-secondary); margin: 0; line-height: 1.4; }
+
+.startup-section { margin-bottom: 4px; }
+.startup-section-label { font-size: 0.72em; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 12px; }
+
+/* Access-code field on the startup modal — server alphabet is uppercase. */
+#startup-access-code {
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-weight: 600;
+}
+.startup-access-error { display: none; color: var(--system-red); font-size: 0.82em; margin-top: 6px; line-height: 1.4; }
+.startup-access-error.show { display: block; }
+/* Viewer port has no code gate — hide the whole section + divider. */
+body.read-only .startup-access-section,
+body.read-only .startup-access-divider,
+body.local-mode .startup-access-section,
+body.local-mode .startup-access-divider { display: none; }
+
+.startup-id-row { display: flex; align-items: flex-end; gap: 14px; margin-bottom: 14px; }
+/* Quick Start presets — one row each for operator, ATO, and title. */
+.startup-chips-label { font-size: 0.7em; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-right: 2px; }
+.startup-preset-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.startup-preset-row:last-child { margin-bottom: 0; }
+.startup-preset-row .startup-chips-label { flex: 0 0 46px; margin-right: 0; font-size: 0.62em; opacity: 0.75; }
+.startup-chip-list { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: 1 1 auto; min-width: 0; }
+/* Presets are a shortcut, not the main event — quieter and tighter than the
+   identity/workspace controls they fill in. */
+.startup-presets-section .startup-profile-chip {
+    background: transparent;
+    border-color: var(--divider);
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: 0.75em;
+    padding: 3px 10px;
+    gap: 5px;
+}
+.startup-presets-section .startup-profile-chip .chip-dot { width: 6px; height: 6px; }
+.startup-presets-section .startup-profile-chip:hover { color: var(--text-primary); border-color: var(--system-blue); }
+.startup-profile-chip.selected { border-color: var(--system-blue); background-color: rgba(10, 132, 255, 0.12); color: var(--text-primary); }
+.startup-profile-chip { display: inline-flex; align-items: center; gap: 6px; background-color: var(--input-bg); border: 1px solid var(--glass-border); color: var(--text-primary); border-radius: 100px; padding: 4px 12px; font-size: 0.82em; font-weight: 600; cursor: pointer; margin: 0; transition: background-color 0.15s ease, border-color 0.15s ease; }
+.startup-profile-chip:hover { border-color: var(--system-blue); opacity: 1; }
+.startup-profile-chip .chip-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.startup-avatar { width: 46px; height: 46px; font-size: 0.95em; flex-shrink: 0; }
+.startup-id-fields { flex: 1; min-width: 0; }
+.startup-id-fields input { text-transform: uppercase; }
+
+.startup-field { margin-bottom: 14px; }
+.startup-field:last-child { margin-bottom: 0; }
+.startup-field-label { display: block; font-size: 0.72em; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 5px; }
+
+.startup-divider { height: 1px; background: var(--divider); margin: 22px 0; }
+
+.startup-continue-btn { width: 100%; margin-top: 18px; padding: 14px; font-size: 1em; }
+
+/* User Manual modal — wider/scrollable variant of the startup shell. */
+.manual-modal { max-width: 640px; display: flex; flex-direction: column; max-height: calc(100vh - 80px); }
+.manual-body  { overflow-y: auto; padding-right: 6px; margin-right: -6px; /* reserve scrollbar gutter */ }
+.manual-section { margin-bottom: 18px; }
+.manual-section:last-child { margin-bottom: 0; }
+.manual-section h3 {
+    font-size: 0.78em;
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin: 0 0 10px 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--divider);
+}
+.manual-section p  { margin: 0 0 8px 0; font-size: 0.92em; line-height: 1.55; color: var(--text-primary); }
+.manual-section ul,
+.manual-section ol { margin: 0; padding-left: 18px; }
+.manual-section ul ul { margin-top: 6px; padding-left: 18px; }
+.manual-section li { font-size: 0.9em; line-height: 1.55; margin-bottom: 6px; color: var(--text-primary); }
+.manual-section li:last-child { margin-bottom: 0; }
+/* Tutorial sub-headings ("To Update a report", etc.). */
+.manual-step { margin: 14px 0 4px 0; font-size: 0.92em; color: var(--system-blue); font-weight: 600; }
+.manual-step + ol { margin-top: 4px; }
+.manual-step-result { margin: 4px 0 0 0; font-size: 0.88em; color: var(--text-secondary); line-height: 1.5; }
+.manual-step-result em { color: var(--text-secondary); }
+.manual-section ul ul li { font-size: 0.95em; color: var(--text-secondary); margin-bottom: 4px; }
+.manual-section ul ul li strong { color: var(--text-primary); }
+.manual-section strong { color: var(--text-primary); font-weight: 600; }
+.manual-section em     { color: var(--text-secondary); font-style: normal; }
+.manual-section code,
+.manual-section kbd {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    background-color: var(--input-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 0.85em;
+    color: var(--text-primary);
+}
+.manual-section kbd { box-shadow: inset 0 -1px 0 rgba(0,0,0,0.4); }
+/* "Locally" / "With sync server" mode lines under feature bullets. */
+.manual-section .manual-modes { margin: 8px 0 0 0; font-size: 0.88em; line-height: 1.55; color: var(--text-primary); }
+.manual-section .manual-modes + .manual-modes { margin-top: 3px; }
+.manual-section .manual-modes strong { display: inline-block; min-width: 140px; color: var(--system-blue); font-weight: 600; }
+/* Heading-level "Local only" / "Online only" tags. */
+.manual-section h3 .manual-tag {
+    display: inline-block;
+    font-size: 0.78em;
+    font-weight: 600;
+    padding: 2px 9px;
+    border-radius: 100px;
+    margin-left: 8px;
+    letter-spacing: 0.3px;
+    vertical-align: middle;
+    text-transform: none;
+    border: 1px solid transparent;
+}
+.manual-tag.local  { background: rgba(50, 215, 75, 0.14);  color: var(--system-green); border-color: rgba(50, 215, 75, 0.3); }
+.manual-tag.online { background: rgba(10, 132, 255, 0.14); color: var(--system-blue);  border-color: rgba(10, 132, 255, 0.3); }
+.manual-testers { background-color: rgba(10, 132, 255, 0.06); border: 1px solid var(--glass-border); border-radius: 12px; padding: 14px 16px; }
+.manual-testers h3 { border-bottom: none; padding-bottom: 0; color: var(--system-blue); }
+.manual-tester-list { font-weight: 500; font-size: 0.88em !important; color: var(--text-primary); line-height: 1.7 !important; }
+/* Manual footer: version + copyright, discreet small caps. */
+.manual-version-footer {
+    text-align: center;
+    font-size: 0.72em;
+    color: var(--text-secondary);
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    font-weight: 500;
+    margin: 18px 0 0 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--divider);
+    opacity: 0.7;
+}
+#set-profile-btn { background-color: var(--system-blue); width: 100%; margin-top: 4px; }
+
+/* Access code display in the Identity tab. Monospace and tracked so each
+   character reads clearly when the host shares the code verbally. Read-only
+   — there is no input here; the editing path is the startup modal where
+   the server validates the entered code. */
+.profile-field-hint {
+    font-size: 0.85em;
+    color: var(--text-secondary);
+    text-transform: none;
+    letter-spacing: 0.2px;
+    font-weight: 400;
+    opacity: 0.75;
+    margin-left: 4px;
+}
+.access-code-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background-color: var(--input-bg);
+    border: 1.5px solid transparent;
+    border-radius: 12px;
+    padding: 9px 14px;
+}
+.access-code-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 1.02em;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    color: var(--text-primary);
+    user-select: all;        /* triple-click selects the whole code */
+    -webkit-user-select: all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+.access-code-display .copy-btn {
+    flex: 0 0 auto;
+}
+.access-code-display .copy-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.data-management-menu { position: relative; }
+#dataMgmtMenu { display: none; position: absolute; right: 0; top: calc(100% + 8px); background-color: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: 14px; padding: 6px; z-index: 20; min-width: 250px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+#dataMgmtMenu button { width: 100%; text-align: left; background: transparent; font-size: 0.9em; margin: 0; border-radius: 8px; padding: 10px 14px; color: var(--text-primary); font-weight: 500; }
+#dataMgmtMenu hr { border: none; border-top: 1px solid var(--divider); margin: 5px 0; }
+#dataMgmtMenu button:hover { background: var(--system-blue); }
+#clearAllBtn { color: var(--system-red) !important; }
+#clearAllBtn:hover { background: var(--system-red) !important; color: white !important; }
+.file-input-wrapper { display: none; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--system-gray); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+
+/* --- Report log table --- */
+/* Outer card scrolls on both axes; intrinsic min comes from per-column widths. */
+.table-wrapper {
+    background: var(--panel-bg);
+    border: 1px solid var(--divider);
+    border-radius: 14px;
+    overflow: auto;
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    -webkit-overflow-scrolling: touch;
+}
+
+#reportLogTable {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: auto;
+    font-size: 0.92em;
+}
+
+/* Sticky header row, small-caps labels. */
+#reportLogTable thead th {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background-color: var(--panel-bg);
+    padding: 14px 10px 13px;
+    /* Centered so the label stays over the middle of its column instead of
+       stranded at the left edge when a column widens (e.g. many coords). */
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.7em;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    user-select: none;
+}
+/* Header underline pinned beneath the sticky row. */
+#reportLogTable thead th::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 1px;
+    background: var(--divider);
+}
+
+/* Body cells. */
+#reportLogTable tbody td {
+    padding: 12px 10px;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--divider);
+    vertical-align: middle;
+    line-height: 1.45;
+    transition: background-color 0.15s ease;
+}
+#reportLogTable tbody tr:last-child td { border-bottom: none; }
+#reportLogTable tbody tr:hover:not(.history-sub-row) td {
+    background-color: rgba(255, 255, 255, 0.04);
+    cursor: pointer;
+}
+#reportLogTable tr.selected-row td {
+    background-color: rgba(10, 132, 255, 0.16);
+}
+
+/* Short, non-wrappable columns shrink to content via the `width:1%` trick. */
+#reportLogTable th.col-action, #reportLogTable td.col-action,
+#reportLogTable th.col-by,     #reportLogTable td.col-by,
+#reportLogTable th.col-time,   #reportLogTable td.col-time {
+    width: 1%;
+    white-space: nowrap;
+}
+
+/* Wrappable columns: max-width on th+td; min-width on td only (keeps headers
+   compact in the empty state, prevents content cells from crushing). */
+#reportLogTable th.col-id, #reportLogTable td.col-id { max-width: 130px; font-weight: 500; }
+#reportLogTable td.col-id { min-width: 80px; }
+#reportLogTable th.col-size, #reportLogTable td.col-size { max-width: 90px; }
+#reportLogTable td.col-size { min-width: 55px; }
+#reportLogTable th.col-location, #reportLogTable td.col-location { max-width: 130px; }
+#reportLogTable td.col-location { min-width: 80px; }
+#reportLogTable th.col-activity, #reportLogTable td.col-activity,
+#reportLogTable th.col-analysis, #reportLogTable td.col-analysis { max-width: 200px; }
+/* Builder custom fields — one column each, appended after Analysis. */
+#reportLogTable th.col-custom, #reportLogTable td.col-custom { max-width: 160px; }
+
+/* Wrappable cells break on word boundaries — keeps content under max-width. */
+#reportLogTable td.col-id,
+#reportLogTable td.col-size,
+#reportLogTable td.col-location,
+#reportLogTable td.col-activity,
+#reportLogTable td.col-analysis {
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+.action-cell { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+
+/* By column — centered pill badge. */
+#reportLogTable th.col-by, #reportLogTable td.col-by,
+#reportLogTable th.reporter-col, #reportLogTable td.reporter-col {
+    text-align: center;
+}
+.reporter-text {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 100px;
+    background-color: rgba(255, 255, 255, 0.06);
+    font-weight: 600;
+    font-size: 0.85em;
+    line-height: 1.25;
+    letter-spacing: 0.02em;
+}
+
+/* Identifier column — stacks the "(Updated)" badge below the ID. */
+.id-cell-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.id-updated-badge {
+    font-size: 0.8em;
+    color: var(--text-secondary);
+    line-height: 1.2;
+}
+
+/* ── History toggle — small rotating chevron with hover wash. */
+.history-btn {
+    background: transparent;
+    border: none;
+    color: var(--system-blue);
+    cursor: pointer;
+    font-size: 1.05em;
+    padding: 2px 5px;
+    font-weight: 600;
+    line-height: 1;
+    border-radius: 6px;
+    transition: transform 0.2s ease, background-color 0.15s ease;
+}
+.history-btn:hover { background-color: rgba(10, 132, 255, 0.15); }
+.history-btn.open { transform: rotate(90deg); }
+
+/* ── History sub-row — indented appearance with blue accent on left edge. */
+.history-sub-row td {
+    background-color: rgba(10, 132, 255, 0.04) !important;
+    color: var(--text-secondary);
+    font-size: 0.88em;
+    padding-top: 9px !important;
+    padding-bottom: 9px !important;
+    border-color: rgba(10, 132, 255, 0.15) !important;
+}
+.history-sub-row td:first-child {
+    border-left: 3px solid var(--system-blue);
+    padding-left: 11px !important;
+}
+
+/* Table scrollbar — dark theme, inset border so it doesn't bleed the corners. */
+.table-wrapper::-webkit-scrollbar { width: 10px; height: 10px; }
+.table-wrapper::-webkit-scrollbar-track { background: transparent; }
+.table-wrapper::-webkit-scrollbar-thumb {
+    background: var(--system-gray);
+    border-radius: 100px;
+    border: 2px solid var(--panel-bg);
+}
+.table-wrapper::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+.table-wrapper::-webkit-scrollbar-corner { background: transparent; }
+
+/* Toast z-index sits above startup overlay (2000) so it renders over the blur. */
+.toast { visibility: hidden; min-width: 280px; background-color: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); color: #fff; text-align: center; border-radius: 16px; padding: 16px 20px; position: fixed; z-index: 2500; left: 50%; transform: translateX(-50%) translateY(20px); bottom: 40px; font-size: 0.95em; font-weight: 500; opacity: 0; transition: opacity 0.4s, transform 0.4s, visibility 0.4s; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+.toast.show { visibility: visible; opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.confirm { bottom: 50vh; transform: translate(-50%, 50%) scale(0.9); }
+.toast.confirm.show { transform: translate(-50%, 50%) scale(1); }
+.toast.confirm #confirmButtons { display: flex; gap: 10px; margin-top: 16px; justify-content: center; }
+#confirmButtons button { flex: 1; padding: 10px; border-radius: 10px; }
+.confirm-btn { background-color: var(--system-red); }
+.cancel-btn { background-color: var(--input-bg); color: var(--text-primary); }
+
+.horizontal-layout .form-section { display: block; padding-top: 18px; padding-bottom: 18px; }
+.horizontal-layout .form-header-row { justify-content: flex-start; gap: 30px; }
+.horizontal-layout .config-controls { gap: 10px; padding-bottom: 14px; margin-bottom: 0; }
+.horizontal-layout .config-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
+.horizontal-layout .config-inputs input { padding: 8px 12px; height: 36px; }
+.horizontal-layout .config-inputs label { margin-bottom: 3px; }
+.horizontal-layout .config-button-wrapper { align-self: end; justify-content: flex-end; }
+.horizontal-layout #atoHistorySelect { margin-top: 0; height: 36px; padding-top: 6px; padding-bottom: 6px; }
+.horizontal-layout #setAtoBtn { height: 36px; padding: 0 16px; }
+.horizontal-layout #saltForm { display: grid; grid-template-columns: 1fr 1fr; grid-template-areas: "fields analysis" "submit submit"; gap: 24px 40px; }
+.horizontal-layout #salt-fields { grid-area: fields; }
+.horizontal-layout #analysis-field { grid-area: analysis; }
+.horizontal-layout #analysis-field textarea { height: calc(100% - 28px); margin-bottom: 0; }
+.update-controls { flex-shrink: 0; }
+.horizontal-layout .update-controls { grid-area: submit; margin-top: 0; }
+.input-group { margin-bottom: 12px; }
+.horizontal-layout .input-group { margin-bottom: 16px; }
+.horizontal-layout .input-group input, .horizontal-layout .input-group .time-control { margin-bottom: 0; }
+.horizontal-layout .time-control { margin-bottom: 0; }
+.horizontal-layout .search-bar-wrapper { margin: 0; max-width: none; }
+/* Horizontal layout: cap table height so rows scroll internally instead of pushing the footer past the fold. */
+.horizontal-layout .table-wrapper { max-height: 65vh; }
+.horizontal-layout .report-header h2 { margin-right: 0; }
+.sortable-th { cursor: pointer; user-select: none; white-space: nowrap; transition: color 0.15s ease; }
+.sortable-th:hover { color: var(--text-primary); }
+.sort-icon { display: inline-block; font-size: 0.85em; opacity: 0.35; margin-left: 5px; color: var(--text-secondary); transition: opacity 0.15s ease, color 0.15s ease; }
+.sortable-th:hover .sort-icon { opacity: 0.7; }
+.sort-icon.active { opacity: 1; color: var(--system-blue); }
+
+#logView { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+/* flex:1 + min-height:0 gives the inner workspaces list a bounded height to scroll against. */
+#exportPanel { display: none; flex-direction: column; flex: 1; min-height: 0; }
+.export-panel-header { display: flex; align-items: flex-start; justify-content: space-between; padding-bottom: 14px; border-bottom: 1px solid var(--divider); margin-bottom: 18px; }
+.export-panel-title { display: flex; align-items: center; gap: 8px; font-size: 1.35em; font-weight: 600; color: var(--text-primary); letter-spacing: -0.02em; }
+.export-panel-subtitle { font-size: 0.8em; color: var(--text-secondary); white-space: nowrap; }
+.export-panel-heading { display: flex; align-items: baseline; gap: 10px; }
+.export-block { margin-bottom: 18px; }
+.export-block-label { font-size: 0.72em; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px; }
+.export-block-label span { text-transform: none; font-size: 1em; letter-spacing: 0; color: var(--system-gray); font-weight: 400; margin-left: 6px; }
+/* Export Filter — date/time range picker */
+.filter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px; }
+@media (max-width: 600px) { .filter-grid { grid-template-columns: 1fr; } }
+.filter-field label { display: flex; align-items: center; gap: 6px; font-size: 0.72em; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.6px; font-weight: 500; margin-bottom: 6px; }
+.filter-mode { font-size: 0.95em; color: var(--system-blue); font-weight: 700; letter-spacing: 0.3px; text-transform: none; }
+.filter-pair { display: flex; gap: 8px; align-items: stretch; }
+.filter-pair input { box-sizing: border-box; padding: 11px 14px; border: 1.5px solid transparent; border-radius: 12px; background-color: var(--input-bg); color: var(--text-primary); font-size: 0.95em; font-family: inherit; transition: border-color 0.2s, background-color 0.2s; color-scheme: dark; margin: 0; }
+.filter-pair input:focus { background-color: var(--panel-bg); border-color: var(--system-blue); outline: none; }
+.filter-date { flex: 0 0 150px; min-width: 0; }
+.filter-time { flex: 0 0 95px; text-align: center; letter-spacing: 0.5px; }
+.filter-date::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; opacity: 0.7; transition: opacity 0.15s; }
+.filter-date::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+.filter-time::placeholder { color: var(--text-secondary); opacity: 0.7; letter-spacing: normal; }
+/* Compact preset row — secondary to action buttons. */
+.filter-presets { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.filter-presets-label { font-size: 0.75em; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-right: 2px; }
+.filter-preset-btn {
+    background-color: var(--input-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: 0.78em;
+    font-weight: 500;
+    line-height: 1.4;
+    cursor: pointer;
+    margin: 0;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.filter-preset-btn:hover  { background-color: var(--input-bg-hover); border-color: var(--system-blue); }
+.filter-preset-btn:active { background-color: var(--system-blue); color: #fff; }
+.filter-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; flex-wrap: wrap; }
+/* Stacked counts — quiet by default; blue when a filter narrows the set. */
+.filter-count-line {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    line-height: 1.25;
+}
+.filter-count-line .filter-count-main {
+    font-size: 0.78em;
+    color: var(--text-secondary);
+    font-weight: 400;
+    white-space: nowrap;
+}
+.filter-count-line .filter-count-detail {
+    font-size: 0.72em;
+    color: var(--text-secondary);
+    font-weight: 400;
+    opacity: 0.7;
+    white-space: nowrap;
+}
+.filter-count-line.active .filter-count-main,
+.filter-count-line.active .filter-count-detail { color: var(--system-blue); opacity: 1; }
+.filter-meta button { padding: 8px 18px; font-size: 0.85em; margin: 0; }
+.export-divider { height: 1px; background: var(--divider); margin: 4px 0 18px 0; }
+.export-option-row { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+.export-option-text { font-size: 0.92em; color: var(--text-primary); line-height: 1.4; }
+.export-option-desc { font-size: 0.8em; color: var(--text-secondary); margin-top: 2px; }
+.export-action-grid { display: flex; justify-content: center; gap: 48px; margin-bottom: 20px; flex-wrap: wrap; }
+.export-action-col { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-width: 210px; }
+.export-action-col-label { font-size: 0.72em; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; text-align: center; }
+.export-action-col button { width: 100%; text-align: center; padding: 12px 20px; }
+.export-action-vdivider { width: 1px; background: var(--divider); align-self: stretch; margin: 16px 0; }
+#dataMgmtMenu #exportViewToggleBtn.active { color: var(--system-blue); font-weight: 600; }
+
+/* --- Read-only / viewer mode ---
+   Applied when /api/sync returns read_only:true (viewer port). Server enforces
+   via 405 on POST; CSS is UX only — hide mutation controls, swap form panel
+   for workspaces sidebar. */
+.view-only-badge {
+    display: none;          /* hidden by default; revealed by body.read-only */
+    margin-left: 10px;
+    font-size: 0.6em;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    padding: 3px 9px;
+    border-radius: 100px;
+    background-color: rgba(255, 159, 10, 0.18);
+    color: var(--system-orange, #ff9f0a);
+    border: 1px solid rgba(255, 159, 10, 0.4);
+    vertical-align: middle;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+body.read-only .view-only-badge { display: inline-block; }
+/* Hide form, show sidebar in column 1 (grid auto-placement skips display:none). */
+body.read-only .form-section        { display: none; }
+body.read-only .workspaces-sidebar  { display: flex; }
+/* Sidebar duplicates the Workspaces tab — hide it; panel opens on Import/Export. */
+body.read-only #exportPanel .ws-tabs                                { display: none !important; }
+body.read-only #exportPanel .ws-tab-panel[data-tab-panel="workspaces"] { display: none !important; }
+/* Sidebar list scrolls internally so total height matches the report panel. */
+body.read-only .workspaces-sidebar .workspaces-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+/* Source filename (e.g. "XG_TEST.txt") is editor-only metadata — viewers
+   don't need to know which backup file a workspace came from. Hide the
+   meta row in the viewer sidebar so the block stays focused on the
+   workspace name, indicators, and counts. */
+body.read-only .workspaces-sidebar .workspace-row-meta { display: none; }
+/* Hide every mutation control to prevent confusing 405-toast spam. */
+body.read-only #deleteSelectedBtn,
+body.read-only #sendToAtoSelect,
+body.read-only #sendToAtoBtn,
+body.read-only .restore-btn,
+body.read-only .workspace-row-unload,
+body.read-only #importBackupBtnTrigger,
+body.read-only #importCsvBtnTrigger,
+body.read-only .ws-tab[data-tab="identity"],
+body.read-only #set-profile-btn,
+/* Ellipsis-menu items that have no purpose in a read-only session. */
+body.read-only #toggleLayoutBtn,
+body.read-only #selectAllBtn,
+body.read-only #deselectAllBtn,
+body.read-only #clearAllBtn { display: none !important; }
+/* Viewer mode: drop every separator in the ellipsis menu. With Layout,
+   Select/Deselect, and Clear All hidden, the remaining items (Time, Workspaces,
+   User Manual) are few enough that dividers add visual noise without grouping
+   anything meaningful. */
+body.read-only #dataMgmtMenu hr { display: none !important; }
+/* In viewer mode the entire workspace row is a click target — clicking
+   switches the local view to that workspace (no /api/save_config POST;
+   the switch stays in this browser and doesn't drag other viewers along). */
+body.read-only .workspace-row { cursor: pointer; }
+body.read-only .workspace-row:hover:not(.active) { background-color: var(--input-bg-hover); }
+/* Hide the row-selector checkboxes too — they're only useful for delete,
+   which is gone. */
+body.read-only .row-selector,
+body.read-only .history-selector { display: none; }
+/* Row hover should not suggest "click to edit" when editing is impossible. */
+body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor: default; }
+
+/* --- Workspaces panel tabs (Apple segmented control) --- */
+.ws-tabs {
+    display: inline-flex;
+    gap: 4px;
+    padding: 4px;
+    background-color: var(--input-bg);
+    border-radius: 10px;
+    margin-bottom: 18px;
+}
+.ws-tab {
+    background: transparent;
+    color: var(--text-secondary);
+    border: none;
+    padding: 7px 18px;
+    border-radius: 8px;
+    font-size: 0.86em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+    margin: 0;
+    letter-spacing: 0.2px;
+}
+.ws-tab:hover { color: var(--text-primary); opacity: 1; }
+.ws-tab.active {
+    background-color: var(--panel-bg);
+    color: var(--text-primary);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.ws-tab:active { transform: none; }
+/* Icon-only tab variant (Identity person glyph). */
+.ws-tab-icon { padding: 7px 12px; display: inline-flex; align-items: center; justify-content: center; }
+.ws-tab-icon svg { width: 16px; height: 16px; display: block; }
+/* Workspaces variant flexes for internal scroll; export keeps block flow. */
+.ws-tab-panel { display: block; }
+.ws-tab-panel[data-tab-panel="workspaces"] {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+/* Only the list flexes; identity block keeps natural height. */
+.ws-tab-panel[data-tab-panel="workspaces"] > .export-block.ws-block-fill {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* --- Workspaces list — one row per loaded workspace, active highlighted, internal scroll. --- */
+.workspaces-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+.workspaces-empty {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.85em;
+    padding: 16px 8px;
+    background-color: var(--input-bg);
+    border-radius: 10px;
+}
+.workspace-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background-color: var(--input-bg);
+    border: 1px solid transparent;
+    border-radius: 10px;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.workspace-row.active {
+    border-color: rgba(10, 132, 255, 0.45);
+    background-color: rgba(10, 132, 255, 0.10);
+}
+.workspace-row-id {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+/* ATO line: text on the left (truncates with ellipsis), indicator dots on
+   the right (fixed-width, never clipped). Both ACTIVE + SHOWING coexist
+   without pushing the title off. */
+.workspace-row-ato-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.workspace-row-ato {
+    font-weight: 600;
+    font-size: 0.95em;
+    color: var(--text-primary);
+    letter-spacing: 0.2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    /* Do NOT grow — size to content so the ACTIVE dot sits immediately
+       beside the title text instead of being pushed to the far right of
+       the row. Showing-tag uses margin-left:auto to take the right edge. */
+    flex: 0 1 auto;
+}
+/* Title sublabel — lighter weight + secondary color reads as distinct from
+   the bold ATO designator. */
+.workspace-row-title {
+    font-weight: 400;
+    color: var(--text-secondary);
+    margin-left: 4px;
+}
+/* Optional dash separator between ATO and title (toggleable, default on). */
+.workspace-row-sep {
+    font-weight: 400;
+    color: var(--text-secondary);
+    margin-left: 4px;
+}
+/* SHOWING slot sits immediately after ACTIVE so both indicators read as a
+   single grouped status cluster ( ⓐⓢ ) hugging the title. */
+.workspace-row-tags {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
+}
+/* Minimal indicator dots — single-letter circular monograms sized so both
+   ACTIVE (A) and SHOWING (S) can coexist on a row without pushing the
+   workspace title off. Subtle ring instead of a flat fill for a quieter,
+   more refined look. */
+.workspace-active-tag,
+.workspace-showing-tag {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0;
+    border-radius: 50%;
+    line-height: 1;
+    text-transform: uppercase;
+    cursor: default;
+    flex-shrink: 0;
+    transition: background-color 0.15s ease, transform 0.15s ease;
+}
+.workspace-active-tag:hover,
+.workspace-showing-tag:hover { transform: scale(1.12); }
+.workspace-active-tag {
+    background-color: rgba(10, 132, 255, 0.16);
+    color: var(--system-blue);
+    box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.35);
+}
+/* Invisible placeholder — reserves the ACTIVE slot's width on rows where
+   the workspace isn't active, so the SHOWING dot lands at the same
+   horizontal position on every row. */
+.workspace-active-tag.placeholder {
+    visibility: hidden;
+    pointer-events: none;
+}
+/* Viewer-mode SHOWING — orange, matches the VIEW ONLY badge family. */
+.workspace-showing-tag {
+    background-color: rgba(255, 159, 10, 0.16);
+    color: var(--system-orange, #ff9f0a);
+    box-shadow: inset 0 0 0 1px rgba(255, 159, 10, 0.4);
+}
+.workspace-row-meta {
+    font-size: 0.78em;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.workspace-row-meta .workspace-source { font-style: italic; opacity: 0.9; }
+.workspace-row-meta .workspace-source.empty { font-style: normal; opacity: 0.6; }
+.workspace-row-counts {
+    font-size: 0.8em;
+    color: var(--text-secondary);
+    flex: 0 0 auto;
+    text-align: right;
+    white-space: nowrap;
+    line-height: 1.3;
+}
+.workspace-row-counts strong { color: var(--text-primary); font-weight: 600; }
+.workspace-row-unload {
+    background-color: rgba(255, 69, 58, 0.14);
+    color: var(--system-red);
+    border: 1px solid rgba(255, 69, 58, 0.3);
+    font-size: 0.78em;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 100px;
+    flex: 0 0 auto;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+.workspace-row-unload:hover { background-color: rgba(255, 69, 58, 0.25); opacity: 1; }
+
+/* --- Workspaces sidebar (viewer mode) — replaces form-section, same chrome. --- */
+.workspaces-sidebar {
+    display: none;  /* shown only via body.read-only above */
+    flex-direction: column;
+    padding: 30px;
+    background-color: var(--panel-bg);
+    border-radius: 20px;
+    border: 1px solid var(--glass-border);
+    min-width: 280px;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+.workspaces-sidebar-header {
+    padding-bottom: 15px;
+    border-bottom: 1px solid var(--divider);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+.workspaces-sidebar-header h2 {
+    margin: 0;
+    font-size: 1.35em;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+}
+
+/* CSV Import — Column Mapping View */
+#csvImportPanel { display: none; flex-direction: column; }
+.csv-map-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 4px; }
+@media (max-width: 900px) { .csv-map-grid { grid-template-columns: 1fr; gap: 18px; } }
+.csv-col-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px; background-color: var(--input-bg); border-radius: 12px; max-height: 220px; overflow-y: auto; align-content: flex-start; }
+.csv-col-badge { display: inline-block; padding: 5px 11px; border-radius: 8px; background-color: var(--panel-bg); border: 1px solid var(--glass-border); font-size: 0.82em; color: var(--text-primary); white-space: nowrap; }
+.csv-col-badge.empty { color: var(--text-secondary); font-style: italic; }
+.csv-map-row { display: grid; grid-template-columns: 110px 1fr; gap: 12px; align-items: center; margin-bottom: 10px; }
+.csv-map-row label { margin-bottom: 0; color: var(--text-primary); font-weight: 500; font-size: 0.92em; }
+.csv-map-row select { padding: 10px 28px 10px 12px; font-size: 0.9em; height: 40px; margin: 0; }
+#csvDestSelect { padding: 10px 28px 10px 12px; font-size: 0.9em; height: 40px; margin: 0; }
+.csv-dest-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.csv-dest-row select { flex: 1 1 240px; min-width: 200px; max-width: 320px; }
+.csv-dest-row button { flex: 0 0 auto; white-space: nowrap; padding: 11px 22px; margin: 0; height: 40px; }
+
+/* --- Dense-cell clamp (Size / Activity / Location / Analysis) ---
+   Long free text (several MGRS grids, a wordy analysis) is capped at 2 lines.
+   Only cells that actually overflow get the `.clampable` affordance; clicking
+   one toggles `.expanded`. Scoped to the class rather than per-column so any
+   cell built with clampCell() picks up the behavior. */
+#reportLogTable td .cell-clamp {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+/* Extra class beats the base rule, so the cap lifts when expanded. */
+#reportLogTable td .cell-clamp.expanded { -webkit-line-clamp: unset; }
+.cell-clamp.clampable, .cell-clamp.expanded { cursor: pointer; }
+.cell-clamp.clampable:hover { color: var(--system-blue); }
+
+/* --- Report Builder --- */
+#builderScopeNote { text-transform: none; letter-spacing: 0; font-size: 1em; color: var(--system-gray); font-weight: 400; margin-left: 6px; }
+.builder-presets { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; }
+.builder-lines { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+.builder-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background-color: var(--input-bg);
+    border: 1px solid transparent;
+    border-radius: 10px;
+    cursor: grab;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.builder-line:hover { border-color: var(--glass-border); }
+.builder-grip { color: var(--text-secondary); opacity: 0.6; font-size: 0.9em; cursor: grab; }
+.builder-line-name { flex: 1 1 auto; font-size: 0.92em; font-weight: 600; color: var(--text-primary); }
+.builder-line-sub { font-size: 0.78em; font-weight: 400; color: var(--text-secondary); margin-left: 6px; }
+.builder-line-btns { display: inline-flex; gap: 4px; }
+.builder-line-btns button {
+    background-color: var(--panel-bg);
+    color: var(--text-secondary);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 0.72em;
+    margin: 0;
+    cursor: pointer;
+}
+.builder-line-btns button:hover { color: var(--text-primary); border-color: var(--system-blue); opacity: 1; }
+.builder-line-btns .builder-del:hover { color: var(--system-red); border-color: var(--system-red); }
+.builder-palette { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
+.builder-add-row { display: flex; gap: 8px; align-items: center; }
+.builder-add-row input { flex: 1 1 auto; padding: 9px 12px; font-size: 0.9em; }
+.builder-add-row .builder-letter-input { flex: 0 0 120px; text-align: center; text-transform: uppercase; }
+.builder-add-row button { flex: 0 0 auto; padding: 9px 16px; font-size: 0.85em; margin: 0; white-space: nowrap; }
+.builder-preview {
+    background-color: var(--input-bg);
+    border-radius: 12px;
+    padding: 14px 16px;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.85em;
+    line-height: 1.5;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    margin: 0;
+}
+
+/* --- BDA (hidden until ellipsis toggle) --- */
+.bda-btn {
+    background-color: rgba(255, 159, 10, 0.12);
+    color: var(--system-orange, #ff9f0a);
+    font-size: 0.72em;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 100px;
+    margin: 0;
+    border: none;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+    white-space: nowrap;
+}
+.bda-btn:hover { opacity: 1; filter: brightness(1.25); }
+/* Pill states: hollow when nothing is assessed, tinted while partial, solid
+   and colored by the worst recorded outcome once every element is done. */
+.bda-btn.bda-none {
+    background: transparent;
+    color: var(--text-secondary);
+    box-shadow: inset 0 0 0 1px var(--divider);
+}
+.bda-btn.bda-partial { background-color: rgba(255, 159, 10, 0.16); color: var(--system-orange, #ff9f0a); box-shadow: inset 0 0 0 1px rgba(255, 159, 10, 0.4); }
+.bda-btn.bda-full    { background-color: rgba(255, 159, 10, 0.28); color: var(--system-orange, #ff9f0a); }
+.bda-btn.bda-full.bda-worst-destroyed    { background-color: rgba(255, 69, 58, 0.28);  color: var(--system-red); }
+.bda-btn.bda-full.bda-worst-damaged,
+.bda-btn.bda-full.bda-worst-mobilitykill { background-color: rgba(255, 159, 10, 0.28); color: var(--system-orange, #ff9f0a); }
+.bda-btn.bda-full.bda-worst-suppressed   { background-color: rgba(255, 214, 10, 0.22); color: #ffd60a; }
+.bda-btn.bda-full.bda-worst-noeffect,
+.bda-btn.bda-full.bda-worst-unknown      { background-color: var(--input-bg); color: var(--text-secondary); }
+.bda-btn.open { box-shadow: inset 0 0 0 1px currentColor; }
+.bda-sub-row td { background-color: rgba(255, 159, 10, 0.04) !important; border-left: 3px solid var(--system-orange, #ff9f0a); padding: 10px 14px !important; }
+.bda-wrap { display: flex; flex-direction: column; gap: 8px; }
+.bda-list { display: flex; flex-direction: column; gap: 4px; }
+.bda-empty { color: var(--text-secondary); font-size: 0.82em; opacity: 0.8; }
+.bda-entry { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.85em; padding: 3px 0; }
+.bda-effect { font-weight: 600; font-size: 0.76em; text-transform: uppercase; letter-spacing: 0.4px; padding: 1px 8px; border-radius: 100px; white-space: nowrap; cursor: pointer; transition: filter 0.15s ease; }
+.bda-effect:hover { filter: brightness(1.3); }
+body.read-only .bda-effect { cursor: default; }
+body.read-only .bda-effect:hover { filter: none; }
+/* Inline effect editor sits where the badge was, so the row doesn't jump. */
+.bda-eff-group.bda-eff-editing { margin-left: 0; }
+.bda-eff-destroyed    { background-color: rgba(255, 69, 58, 0.18);  color: var(--system-red); }
+.bda-eff-damaged,
+.bda-eff-mobilitykill { background-color: rgba(255, 159, 10, 0.18); color: var(--system-orange, #ff9f0a); }
+.bda-eff-suppressed   { background-color: rgba(255, 214, 10, 0.15); color: #ffd60a; }
+.bda-eff-noeffect,
+.bda-eff-unknown      { background-color: var(--input-bg); color: var(--text-secondary); }
+.bda-target { color: var(--text-primary); font-weight: 500; }
+.bda-coords { color: var(--text-secondary); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.92em; letter-spacing: 0.3px; }
+.bda-note { color: var(--text-secondary); }
+.bda-meta { color: var(--text-secondary); font-size: 0.78em; margin-left: auto; white-space: nowrap; opacity: 0.8; }
+.bda-del { background: transparent; border: none; color: var(--text-secondary); font-size: 0.75em; padding: 2px 6px; margin: 0; cursor: pointer; opacity: 0.6; }
+.bda-del:hover { color: var(--system-red); opacity: 1; }
+/* Checklist: one row per element from the report, pre-paired with its grid.
+   Pick an effect to stage it; nothing is written until Log Assessments. */
+.bda-add { border-top: 1px solid var(--divider); padding-top: 8px; display: flex; flex-direction: column; gap: 5px; }
+.bda-check-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 3px 6px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.bda-check-row.staged { background-color: rgba(255, 159, 10, 0.07); border-color: rgba(255, 159, 10, 0.25); }
+.bda-check-row input { box-sizing: border-box; padding: 6px 10px; font-size: 0.84em; border-radius: 8px; }
+.bda-check-row .bda-ck-target { flex: 2 1 150px; min-width: 0; font-weight: 500; }
+.bda-check-row .bda-ck-coords { flex: 2 1 130px; min-width: 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.78em; }
+.bda-eff-group { display: inline-flex; gap: 3px; flex: 0 0 auto; margin-left: auto; }
+.bda-eff-btn {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--divider);
+    border-radius: 7px;
+    padding: 4px 9px;
+    font-size: 0.7em;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    margin: 0;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.bda-eff-btn:hover { opacity: 1; border-color: currentColor; }
+.bda-eff-btn.bda-eff-destroyed:hover,    .bda-eff-btn.bda-eff-destroyed.picked    { color: var(--system-red); }
+.bda-eff-btn.bda-eff-damaged:hover,      .bda-eff-btn.bda-eff-damaged.picked,
+.bda-eff-btn.bda-eff-mobilitykill:hover, .bda-eff-btn.bda-eff-mobilitykill.picked { color: var(--system-orange, #ff9f0a); }
+.bda-eff-btn.bda-eff-suppressed:hover,   .bda-eff-btn.bda-eff-suppressed.picked   { color: #ffd60a; }
+.bda-eff-btn.bda-eff-noeffect:hover,     .bda-eff-btn.bda-eff-noeffect.picked,
+.bda-eff-btn.bda-eff-unknown:hover,      .bda-eff-btn.bda-eff-unknown.picked      { color: var(--text-primary); }
+.bda-eff-btn.picked { background-color: rgba(255, 255, 255, 0.06); border-color: currentColor; }
+.bda-add-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
+.bda-commit-btn { flex: 0 0 auto; padding: 7px 16px; font-size: 0.82em; margin: 0; border-radius: 9px; }
+.bda-commit-btn:disabled { background-color: var(--system-gray); opacity: 0.35; cursor: not-allowed; transform: none; }
+/* Viewers can read assessments but never mutate them. */
+body.read-only .bda-add, body.read-only .bda-del { display: none; }
+
+/* Analysis column hides when the workspace format doesn't include Analysis. */
+#reportLogTable.hide-analysis th.col-analysis,
+#reportLogTable.hide-analysis td.col-analysis { display: none; }
+
+/* --- Responsive: narrow screens stack the panels and the page scrolls. --- */
+@media (max-width: 1024px) {
+    html, body { overflow-y: auto; height: auto; }
+    .grid-container { grid-template-columns: 1fr; grid-template-rows: auto; }
+    .table-wrapper { max-height: 65vh; }
+    .report-header { flex-wrap: wrap; row-gap: 8px; }
+    .search-bar-wrapper { order: 10; flex-basis: 100%; max-width: none; }
+}

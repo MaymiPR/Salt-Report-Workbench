@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Server injects the editor access code here for 127.0.0.1 (host browser) so the modal can auto-fill. Empty for non-localhost / viewer port. -->
+    <meta name="salt-access-code" content="">
+    <!-- Pre-paint gate — hides body until JS decides whether to open the startup modal, avoiding a dark-panel flash before the modal lands. -->
+    <script>document.documentElement.classList.add('salt-ready-gate');</script>
+    <title>S.A.L.T. Report Workbench&trade;</title>
+    <link rel="stylesheet" href="Salt Report Workbench.css">
+</head>
+<body>
+    <div id="toast-notification" class="toast"></div>
+    <div id="confirmation-toast" class="toast confirm">
+        <div id="confirmation-message" style="margin-bottom: 8px;"></div>
+        <div id="confirmButtons">
+             <button id="cancelActionBtn" class="cancel-btn">Cancel</button>
+             <button id="confirmActionBtn" class="confirm-btn">Confirm</button>
+        </div>
+    </div>
+
+    <!-- First-run setup modal — shown when Report ID, ATO, Title, or (editor port) access code is missing. -->
+    <div id="startupModal" class="startup-overlay" aria-hidden="true">
+        <div class="startup-modal" role="dialog" aria-modal="true" aria-labelledby="startupHeading">
+            <div class="startup-header">
+                <h2 id="startupHeading">Welcome to S.A.L.T. Report Workbench&trade;</h2>
+                <p class="startup-subtitle">Set your identity and workspace to begin.</p>
+            </div>
+
+            <div class="startup-section startup-access-section">
+                <div class="startup-section-label">Access Code</div>
+                <div class="startup-field">
+                    <label class="startup-field-label" for="startup-access-code">From the server console</label>
+                    <input type="text" id="startup-access-code" placeholder="e.g. K7M2X9PQR3" maxlength="10" autocomplete="off" spellcheck="false">
+                    <div id="startup-access-error" class="startup-access-error" role="alert"></div>
+                </div>
+            </div>
+
+            <div class="startup-divider startup-access-divider"></div>
+
+            <div class="startup-section startup-presets-section" id="startup-presets" style="display:none;">
+                <div class="startup-section-label">Quick Start</div>
+                <div class="startup-preset-row" id="startup-preset-profiles">
+                    <span class="startup-chips-label">Operator</span>
+                    <div class="startup-chip-list"></div>
+                </div>
+                <div class="startup-preset-row" id="startup-preset-atos">
+                    <span class="startup-chips-label">ATO</span>
+                    <div class="startup-chip-list"></div>
+                </div>
+                <div class="startup-preset-row" id="startup-preset-titles">
+                    <span class="startup-chips-label">Title</span>
+                    <div class="startup-chip-list"></div>
+                </div>
+            </div>
+
+            <div class="startup-divider" id="startup-presets-divider" style="display:none;"></div>
+
+            <div class="startup-section">
+                <div class="startup-section-label">Report Identity</div>
+                <div class="startup-id-row">
+                    <div id="startup-preview-avatar" class="profile-preview-avatar startup-avatar">?</div>
+                    <div class="startup-id-fields">
+                        <label class="startup-field-label" for="startup-initials">Initials</label>
+                        <input type="text" id="startup-initials" placeholder="e.g. AB" maxlength="3" autocomplete="off">
+                    </div>
+                </div>
+                <div class="startup-field">
+                    <label class="startup-field-label">Tag Color</label>
+                    <div class="color-swatches" id="startup-color-swatches">
+                        <button type="button" class="color-swatch selected" data-color="#0a84ff" style="background:#0a84ff" title="Blue"></button>
+                        <button type="button" class="color-swatch" data-color="#5ac8fa" style="background:#5ac8fa" title="Sky"></button>
+                        <button type="button" class="color-swatch" data-color="#32d74b" style="background:#32d74b" title="Green"></button>
+                        <button type="button" class="color-swatch" data-color="#ffd60a" style="background:#ffd60a" title="Yellow"></button>
+                        <button type="button" class="color-swatch" data-color="#ff9f0a" style="background:#ff9f0a" title="Orange"></button>
+                        <button type="button" class="color-swatch" data-color="#ff453a" style="background:#ff453a" title="Red"></button>
+                        <button type="button" class="color-swatch" data-color="#ff375f" style="background:#ff375f" title="Pink"></button>
+                        <button type="button" class="color-swatch" data-color="#bf5af2" style="background:#bf5af2" title="Purple"></button>
+                    </div>
+                    <input type="hidden" id="startup-color" value="#0a84ff">
+                </div>
+            </div>
+
+            <div class="startup-divider"></div>
+
+            <div class="startup-section">
+                <div class="startup-section-label">Workspace</div>
+                <div class="startup-field">
+                    <label class="startup-field-label" for="startup-ato">ATO Designator</label>
+                    <input type="text" id="startup-ato" placeholder="e.g. ALPHA01" autocomplete="off">
+                </div>
+                <div class="startup-field">
+                    <label class="startup-field-label" for="startup-title">Report Title</label>
+                    <input type="text" id="startup-title" placeholder="e.g. Patrol Report" autocomplete="off">
+                </div>
+            </div>
+
+            <button type="button" id="startupContinueBtn" class="set-btn startup-continue-btn">Get Started</button>
+        </div>
+    </div>
+
+    <!-- User Manual modal: opened from the ellipsis menu. -->
+    <div id="manualModal" class="startup-overlay manual-overlay" aria-hidden="true">
+        <div class="startup-modal manual-modal" role="dialog" aria-modal="true" aria-labelledby="manualHeading">
+            <div class="startup-header">
+                <h2 id="manualHeading">S.A.L.T. Report Workbench&trade; User Manual</h2>
+                <p class="startup-subtitle">A quick tour of the things that aren&rsquo;t obvious at first glance.</p>
+            </div>
+
+            <div class="manual-body">
+                <section class="manual-section">
+                    <h3>What This Tool Does</h3>
+                    <p>S.A.L.T. Report Workbench is a <strong>locally-run</strong> logging tool for SALT reports (Size, Activity, Location, Time). Open the HTML in any browser and it just works: no install, no internet, no server required. Everything you log is saved to your browser&rsquo;s local storage and stays there until you clear it.</p>
+                    <p><strong>Online sync is optional.</strong> When you run the included Python sync server, every connected browser on the network shares the same workspace in real time, and every change gets backed up to disk. Lose connection mid-session and the tool keeps working locally: your changes queue in local storage and replay automatically the moment the server is back.</p>
+                </section>
+
+                <section class="manual-section">
+                    <h3>Report Identity</h3>
+                    <p>Your identity is the initials and tag color shown in the <strong>By</strong> column on every report you log. It lets you (and anyone else watching) see at a glance who logged what.</p>
+                    <ul>
+                        <li>Set your <strong>Initials</strong> and <strong>Tag Color</strong> on first launch via the startup modal.</li>
+                        <li>The startup modal opens with a compact <strong>Quick Start</strong> strip listing what it already knows as one-click presets, in three rows: <strong>Operator</strong> (known initials with their tag color), <strong>ATO</strong> (loaded workspaces), and <strong>Title</strong> (report titles seen before). The rows are independent, so you can pick a known operator and ATO but type a brand-new title. Picking an ATO also fills its usual title if you haven&rsquo;t typed one. Each row shows the five most recent entries, and the whole strip hides on a first-ever run when there&rsquo;s nothing to offer.</li>
+                        <li>To change them later: open the ellipsis menu &rarr; <strong>Workspaces</strong>, then click the <strong>person icon</strong> tab. Edit and press <em>Set Initials</em>.</li>
+                        <li>The Identity tab also shows the current <strong>Access Code</strong> with a one-click Copy button (handy for sharing with a teammate joining the session).</li>
+                        <li>Each device or operator has its own identity stored per-browser.</li>
+                    </ul>
+                    <p class="manual-modes"><strong>Locally:</strong> Identity stays in your browser only. Your initials and color appear on the reports you log.</p>
+                    <p class="manual-modes"><strong>With sync server:</strong> Identity is also broadcast to the server, so every connected peer sees your initials and color on your reports in their own table.</p>
+                </section>
+
+                <section class="manual-section">
+                    <h3>Set Up Your Workspace</h3>
+                    <ul>
+                        <li>Type your <strong>ATO Designator</strong> (the workspace key, e.g. <code>ALPHA01</code>) and a <strong>Title</strong> (e.g. <code>Patrol Report</code>) in the top form.</li>
+                        <li>Press <strong>Set</strong> &mdash; or just hit <kbd>Enter</kbd> from either field. Both fields lock and that ATO becomes the active workspace.</li>
+                        <li>To switch workspaces later, press <strong>Change</strong>. This unlocks the ATO/Title fields and the dropdown below.</li>
+                        <li>The dropdown lists every other workspace available. Pick one to jump to it.</li>
+                        <li>To create a brand-new workspace, just type a new ATO name and press <strong>Set</strong>. No separate &ldquo;new&rdquo; button needed.</li>
+                    </ul>
+                    <p class="manual-modes"><strong>Locally:</strong> The ATO/Title pair is remembered per-browser; the dropdown lists every workspace your browser has cached.</p>
+                    <p class="manual-modes"><strong>With sync server:</strong> The ATO/Title becomes the active workspace for every connected peer. Picking a different one switches everyone with you. The dropdown lists every workspace currently loaded on the server.</p>
+                </section>
+
+                <section class="manual-section">
+                    <h3>Log a New Report</h3>
+                    <ul>
+                        <li>Fill in <strong>Size</strong>, <strong>Activity</strong>, <strong>Location</strong> (required), plus <strong>Time</strong> (optional). The <strong>Analysis</strong> box is hidden by default; enable it per workspace from the Builder tab if you use it.</li>
+                        <li><strong>Multiple grids auto-separate</strong>: type several MGRS coordinates in Location without commas (<code>12ABC123456 21CBA321654</code>, spaced digits fine too) and commas are inserted between them on log. If you type your own commas, or mix in free text, nothing is changed.</li>
+                        <li><strong>Time field</strong>: type <code>HHMM</code> and it auto-formats to <code>HH:MM</code> on blur. Leave it blank and the report gets stamped with the current time when you submit.</li>
+                        <li>Press the blue <strong>Log New Report</strong> button or hit <kbd>Enter</kbd> from any field.</li>
+                        <li>After submission: the report <strong>auto-copies to your clipboard</strong> in proper SALT format, ready to paste into a chat or radio script.</li>
+                        <li>Numbering is automatic (highest existing + 1). Override using the small <em>#</em> field next to the form.</li>
+                        <li><kbd>Esc</kbd> while filling out a new report clears all the fields.</li>
+                    </ul>
+                    <p class="manual-modes"><strong>Locally:</strong> The report saves to your browser&rsquo;s local storage immediately and stays there until you clear it.</p>
+                    <p class="manual-modes"><strong>With sync server:</strong> The report is also pushed to the server and broadcast to every connected peer in real time. If the server is unreachable mid-log, the report queues in local storage and replays the moment the server is back.</p>
+                </section>
+
+                <section class="manual-section">
+                    <h3>Edit, Update, and Restore an Existing Report</h3>
+                    <p>Click any row to load it into the form. The submit area swaps the single <strong>Log</strong> button for an <strong>Edit</strong> + <strong>Update</strong> pair.</p>
+
+                    <p class="manual-step">To Update a report (the situation actually changed)</p>
+                    <ol>
+                        <li>Click the row in the table.</li>
+                        <li>Change the fields. Press the <strong>Now</strong> button to stamp the update with the current time, or type a new Time manually.</li>
+                        <li>Press <strong>Update</strong> (blue) or hit <kbd>Enter</kbd>.</li>
+                    </ol>
+                    <p class="manual-step-result">The old values snapshot into the report&rsquo;s history, the report gets an <em>(Updated)</em> badge in the table, and the new SALT auto-copies to your clipboard with <em>(Updated)</em> appended to the identifier line.</p>
+
+                    <p class="manual-step">To Edit a report (typo or formatting fix)</p>
+                    <ol>
+                        <li>Click the row in the table.</li>
+                        <li>Fix the field(s).</li>
+                        <li>Press <strong>Edit</strong> (gray) or hit <kbd>Ctrl</kbd>+<kbd>Enter</kbd>.</li>
+                    </ol>
+                    <p class="manual-step-result">The report is overwritten in place: no history entry, no <em>(Updated)</em> badge. Use when you&rsquo;re correcting yourself, not recording a real change.</p>
+
+                    <p class="manual-step">To Restore a previous version (rollback)</p>
+                    <ol>
+                        <li>Click the chevron (&rsaquo;) next to the row to expand its history.</li>
+                        <li>Find the version you want to bring back.</li>
+                        <li>Click the green <strong>Restore</strong> pill and confirm.</li>
+                    </ol>
+                    <p class="manual-step-result">That historical version becomes the current state. <em>Destructive</em>: the current values and every history entry newer than the chosen one are discarded. Older entries are preserved.</p>
+
+                    <p style="margin-top:14px;"><strong>What the buttons do:</strong></p>
+                    <ul>
+                        <li><strong>Update</strong> (blue): pushes the current values into history and marks the report <em>(Updated)</em>.</li>
+                        <li><strong>Edit</strong> (gray): overwrites in place. No history entry, no <em>(Updated)</em> badge.</li>
+                        <li><strong>Now</strong>: snaps the Time field to the current time. Only active while editing an existing report.</li>
+                        <li><strong>Restore</strong> (green pill on a history sub-row): destructive rollback to that historical version.</li>
+                    </ul>
+
+                    <p>Shortcuts while editing:</p>
+                    <ul>
+                        <li><kbd>Enter</kbd>: Update</li>
+                        <li><kbd>Ctrl</kbd>+<kbd>Enter</kbd>: Edit</li>
+                        <li><kbd>Esc</kbd>: Cancel and clear the form</li>
+                    </ul>
+
+                    <p class="manual-modes"><strong>Locally:</strong> All three operations persist to your browser&rsquo;s local storage immediately.</p>
+                    <p class="manual-modes"><strong>With sync server:</strong> Each operation is also pushed to the server; the server rewrites the backup file and broadcasts to peers so everyone sees the change instantly. Restore&rsquo;s discards are reflected in the backup file too: the rolled-back entries don&rsquo;t survive.</p>
+                </section>
+
+                <section class="manual-section">
+                    <h3>Working with the Table</h3>
+                    <ul>
+                        <li><strong>Click any row</strong> to load it into the form for editing.</li>
+                        <li><strong>Copy button</strong> on each row copies that report to clipboard in SALT format. If the report has been updated, the identifier line includes <em>(Updated)</em> so the recipient knows it&rsquo;s a revised entry, not the original.</li>
+                        <li><strong>Chevron (&rsaquo;)</strong> next to a report expands its history below: every prior version with size, activity, location, time, and who saved it.</li>
+                        <li><strong>(Updated) tag</strong> under the ID means the report has been changed at least once.</li>
+                        <li><strong>Checkboxes</strong> select rows; the <strong>Delete</strong> button appears at the top once anything is checked. Works on top-level reports AND individual history rows. <kbd>Esc</kbd> deselects everything at once.</li>
+                        <li><strong>Dense cells stay compact</strong>: Size, Activity, Location, and Analysis are each capped at two lines. When content overflows (several MGRS grids, a wordy analysis), that cell turns clickable; click to expand it in place, click again to collapse. Cells whose content already fits stay plain and are not clickable. Hovering shows the full content as a tooltip, and it works on history rows too.</li>
+                        <li><strong>Sort</strong> by clicking the Identifier header (cycles numeric asc / desc / recently-modified) or the Time header (toggles asc / desc).</li>
+                        <li><strong>Select All / Deselect All</strong> in the ellipsis menu hit every visible checkbox at once.</li>
+                    </ul>
+                    <p class="manual-modes"><strong>Locally:</strong> Sort, history toggle, copy, row selection, and clicking-to-edit all run entirely in your browser.</p>
+                    <p class="manual-modes"><strong>With sync server:</strong> Deletions also remove the entries from the server&rsquo;s in-memory store and rewrite the backup file. Other connected browsers see the deletion within milliseconds.</p>
+                </section>
+
+                <section class="manual-section">
+                    <h3>Search <span class="manual-tag local">Local only</span></h3>
+                    <p>Search runs entirely in your browser. It filters the rows already loaded; it never queries the server.</p>
+                    <ul>
+                        <li><kbd>Ctrl</kbd>+<kbd>S</kbd> jumps straight into the search bar.</li>
+                        <li><kbd>Esc</kbd> while focused on the search bar clears the text <em>and</em> the filter. Table snaps back to the full view.</li>
+                        <li>General typing matches across ID, size, activity, location, analysis, reporter initials, the formatted time, any custom builder fields, and BDA assessments (target, coords, effect).</li>
+                        <li><strong>Cardinal direction shortcut</strong>: type a single direction token (<code>n</code>, <code>s</code>, <code>e</code>, <code>w</code>, <code>ne</code>, <code>nw</code>, <code>se</code>, or <code>sw</code>) and the search switches to a word-boundary match on Activity. So <code>se</code> finds &ldquo;moving SE&rdquo; without also matching the &ldquo;se&rdquo; inside &ldquo;observed&rdquo;.</li>
+                    </ul>
+                </section>
+
+                <section class="manual-section">
+                    <h3>Time &amp; Layout Toggles <span class="manual-tag local">Local only</span></h3>
+                    <p>Layout and time-format choices are saved per-browser and never sync. Every operator can pick their own.</p>
+                    <ul>
+                        <li><strong>Zulu / Local Time</strong> (in the ellipsis menu): flips every visible time stamp between UTC (Z) and your browser&rsquo;s local time (L). The column header shows which mode you&rsquo;re in. The actual stored times never change; only the display does.</li>
+                        <li><strong>Vertical layout</strong> (default): form on the left, table on the right. The page itself doesn&rsquo;t scroll; only the table scrolls inside its panel.</li>
+                        <li><strong>Horizontal layout</strong>: form on top, table below. The page does scroll, but the table is capped in height so you&rsquo;re never forced to scroll past hundreds of rows to reach anything below it.</li>
+                        <li><strong>Title Separator</strong> (in the ellipsis menu): switches the character between the report title and the ATO designator everywhere the identifier is displayed: workspace lists, the table&rsquo;s Identifier column, and copied report text. Default is a dash (<code>Patrol Report - ALPHA001</code>); toggle to a plain space (<code>Patrol Report ALPHA001</code>). Display-only; stored report data never changes.</li>
+                        <li>On narrow screens the two panels stack vertically and the page scrolls; nothing is hidden or disabled, just rearranged.</li>
+                    </ul>
+                </section>
+
+                <section class="manual-section">
+                    <h3>The Workspaces Panel</h3>
+                    <p>Open from the ellipsis menu &rarr; <strong>Workspaces</strong>. The form panel is replaced by a tabbed surface with three tabs:</p>
+
+                    <p class="manual-step">Import / Export tab (default)</p>
+                    <ul>
+                        <li><strong>Filter by Time Range</strong>: set From and/or To to narrow what gets exported. Leave both blank to include everything.</li>
+                        <li><strong>Quick presets (12h / 6h / 1h)</strong>: one click fills both pickers relative to now, respecting your active Zulu/Local time mode.</li>
+                        <li><strong>Filter stats</strong>: stacked counts beneath the picker show <em>N of M unique reports</em> + <em>N of M total reports</em> (the second line includes every saved history entry). Turns blue when a filter is active.</li>
+                        <li><strong>Export Backup (.txt)</strong>: full snapshot with human-readable content at the top and machine-readable JSON at the bottom. Re-import to merge it back in.</li>
+                        <li><strong>Export CSV</strong>: flat tabular export. Current report appears first, then each history entry on its own row labeled <code>Update #N (Old)</code>, then each BDA assessment as a <code>BDA #N</code> row (target in Size, effect in Activity, coords in MGRS). Custom builder fields are appended as extra columns after Analysis.</li>
+                        <li><strong>Export MTI CSV</strong>: splits into two files (<code>_tracked.csv</code> and <code>_wheeled.csv</code>) by scanning Size for vehicle counts. Covers history entries too.</li>
+                        <li><strong>Export All ATOs</strong> toggle: bundles every loaded workspace into a single backup file instead of just the active one.</li>
+                        <li><strong>CSV Import</strong>: maps incoming columns to SALT fields and lands the rows in a staging workspace called <em>IMPORT</em>. Check the rows you want, pick a destination ATO from the dropdown that appears, and send them.</li>
+                    </ul>
+
+                    <p class="manual-step">Workspaces tab</p>
+                    <ul>
+                        <li>Lists every workspace currently loaded with its source (which backup file it was loaded from, or &ldquo;Uploaded backup&rdquo;, &ldquo;Uploaded CSV&rdquo;, or &ldquo;In-session&rdquo;), live report count, and history count.</li>
+                        <li>The currently-active workspace is highlighted blue and tagged <em>Active</em>.</li>
+                        <li>Each row has an <strong>Unload</strong> button. Unloading clears the workspace from memory and notifies peers; the backup file on disk is preserved, so a server restart would reload it.</li>
+                    </ul>
+
+                    <p class="manual-step">Identity tab (person icon)</p>
+                    <ul>
+                        <li>Same identity form as the startup modal: initials, tag color, Save.</li>
+                        <li>Shows the current <strong>Access Code</strong> at the top with a <em>Copy</em> button for sharing with another editor (display-only: you can&rsquo;t edit it here; that path is the startup modal).</li>
+                    </ul>
+
+                    <p class="manual-modes"><strong>Locally:</strong> Exports generate files from your browser&rsquo;s current state and download to your machine. Backup and CSV imports merge incoming data into your local workspace.</p>
+                    <p class="manual-modes"><strong>With sync server:</strong> Imports also push the merged result to the server, so peers see the new entries on their next refresh and the server&rsquo;s backup file is rewritten to include them. Unloads broadcast in real time.</p>
+                </section>
+
+                <section class="manual-section">
+                    <h3>Report Builder</h3>
+                    <p>Open from the ellipsis menu &rarr; <strong>Workspaces</strong>, then the <strong>Builder</strong> tab. It controls how reports are composed: the order of the form fields and the exact shape of the copied report text. The format is saved <strong>per workspace and synced to everyone</strong>, so the whole team writes reports the same way.</p>
+                    <ul>
+                        <li>A format is an ordered list of lines. Drag a line (or use the arrow buttons) to move it; the &#10005; removes it.</li>
+                        <li>The <strong>Identifier</strong> line is special: at the top it renders as the header (like it always has); anywhere lower it renders as a <code>U:</code> line. That is the whole difference between the two presets.</li>
+                        <li><strong>SALT preset</strong>: identifier on top, then S / A / L / T.</li>
+                        <li><strong>SALT-U preset</strong>: S / A / L / T first, then <code>U:</code> with the identifier.</li>
+                        <li><strong>Analysis is off by default</strong> in both presets. Removed built-in lines (including Analysis) appear in the <strong>Add back</strong> palette; one click restores them. When Analysis is off, its form box and table column hide too.</li>
+                        <li><strong>Add Field</strong> creates a custom line from two parts: the <strong>letter</strong> it copies as and <strong>what it represents</strong>. Example: letter <code>W</code>, name <em>Weather</em>. The form shows a box labeled <em>Weather</em>, the report table gains a <em>Weather</em> column, and the copied text prints <code>W: value</code>. Values save on each report and travel through sync, history, and backups; empty ones are skipped in the copy.</li>
+                        <li>Switching presets keeps your custom fields (they re-append after the preset lines).</li>
+                        <li>The <strong>Live Preview</strong> shows the copied-text shape using your latest report (or sample data), updating as you rearrange.</li>
+                        <li><strong>Each custom field also gets its own table column</strong>, appended after Analysis in format order. The column header shows the descriptive name (hover it to see which letter it copies as). Columns appear, reorder, and disappear the moment you change the format &mdash; no refresh. The built-in columns keep their fixed positions.</li>
+                        <li>Removing a custom field only removes its column: the values stay on the reports, so re-adding the field brings them straight back (and they remain in backups and CSV exports either way).</li>
+                        <li><strong>New workspaces inherit your current format.</strong> Add a field on one ATO, switch to a brand-new one, and your columns come with you &mdash; the format is adopted and saved for that workspace so the whole team converges on it. A workspace that already has its own format keeps it: switching back and forth never overwrites either one.</li>
+                    </ul>
+                    <p class="manual-modes"><strong>Locally:</strong> The format is cached per-browser and still applies offline.</p>
+                    <p class="manual-modes"><strong>With sync server:</strong> Format changes broadcast instantly; every editor&rsquo;s form re-arranges live. Formats are stored in backup files and restored on server restart or re-import.</p>
+                </section>
+
+                <section class="manual-section">
+                    <h3>BDA Tracking</h3>
+                    <p>Battle Damage Assessment lives on each report but stays <strong>completely hidden</strong> until you need it: flip <strong>Show BDA</strong> in the ellipsis menu to reveal it (per-browser; flip back to hide).</p>
+                    <ul>
+                        <li>With BDA shown, every report row gets a <strong>BDA</strong> pill in the Action column. Click it to expand the report&rsquo;s BDA panel, the same way history expands.</li>
+                        <li><strong>The panel is a checklist, not a blank form.</strong> It lists the report&rsquo;s own elements already paired with their grids, one row each. Assess an element with a single click on <code>DEST</code>, <code>DMG</code>, <code>MOB</code>, <code>SUPP</code>, <code>NONE</code>, or <code>?</code>. A ten-item report is ten clicks, no typing.</li>
+                        <li><strong>Pairing</strong>: when the number of Size elements matches the number of Location grids they pair in order; when there&rsquo;s a single grid every element shares it; otherwise the grid is left blank for you to fill. Both fields stay editable on every row.</li>
+                        <li>Picks are <strong>staged, not saved</strong>. The button reads <em>Log 3 Assessments</em> and commits them all at once as a single sync push. Click a chosen effect again to unstage that row.</li>
+                        <li>Assessed elements drop off the checklist, so it always shows only what&rsquo;s outstanding. When nothing is left it says so.</li>
+                        <li><strong>The pill shows status at a glance</strong>: hollow when nothing is assessed, <code>BDA 2/3</code> while partial, solid once complete, colored by the worst outcome recorded (red destroyed, orange damaged or mobility kill, yellow suppressed, gray no effect or unknown). Hover it for the full count.</li>
+                        <li><strong>Assessments can be revised.</strong> Click a logged assessment&rsquo;s effect badge and the effect buttons appear in its place with the current value marked; pick another to change it (Damaged &rarr; Destroyed, or back). The revision is re-stamped with the current time and whoever made it, and a toast confirms the change.</li>
+                        <li>Each assessment is stamped with the time and your identity, and can be deleted from the same panel.</li>
+                        <li>Assessments sync to every connected browser, append to the copied report text as <code>BDA n:</code> lines, are written into backup files, and appear in <strong>CSV exports</strong> as <code>BDA #n</code> rows (target in Size, effect in Activity, coords in MGRS).</li>
+                        <li>BDA content is <strong>searchable</strong>: type <code>destroyed</code> or a grid into the search bar to find the reports carrying it.</li>
+                        <li>Viewers on the read-only port can see assessments but cannot add or delete them.</li>
+                    </ul>
+                </section>
+
+                <section class="manual-section">
+                    <h3>Sync and Server Status <span class="manual-tag online">Online only</span></h3>
+                    <p>This section only applies when the Python sync server is running. Without the server, the tool operates entirely from your browser&rsquo;s local storage.</p>
+                    <ul>
+                        <li>The <strong>status dot</strong> next to &ldquo;Report Log&rdquo;: green = connected and synced, red = locally run with no server connection (working from local storage only).</li>
+                        <li><strong>Connected users count</strong> shows the number of unique people on the server. Multiple tabs open on the same machine count once.</li>
+                        <li>Changes made while locally run queue in your browser and replay automatically the moment the server comes back.</li>
+                    </ul>
+                    <h4 style="margin: 12px 0 6px; font-size: 0.9em; color: var(--text-secondary);">What the Sync Server Does Automatically</h4>
+                    <ul>
+                        <li><strong>Auto-opens your browser</strong> to the tool when you launch the server.</li>
+                        <li><strong>Auto-minimizes the console window</strong> so it stays out of the way while running in the background.</li>
+                        <li><strong>Creates the Auto Backups folder</strong> next to itself on first run if it doesn&rsquo;t already exist.</li>
+                        <li><strong>Auto-loads all backup files on startup</strong>: it scans the Auto Backups folder for <code>{ATO}_{Title}.txt</code> files and loads every workspace it finds, so your data is always ready without any manual import step.</li>
+                        <li><strong>Auto-saves after every change</strong>: any log, edit, update, or delete immediately writes an updated backup file to disk so nothing is lost if the server restarts.</li>
+                        <li><strong>Broadcasts changes to all clients</strong> in real time via Server-Sent Events, so every connected browser updates instantly without anyone needing to refresh.</li>
+                        <li><strong>Generates a fresh access code</strong> on every launch (shown in the console) so a previous session&rsquo;s code can&rsquo;t be reused.</li>
+                        <li><strong>Validates every request</strong>: malformed payloads are rejected with a clear error, a rate limiter throttles abuse per-IP, and edits to existing reports are server-stamped with the operator the server knows is behind that connection (so attribution can&rsquo;t be spoofed by a misbehaving client).</li>
+                        <li><strong>Atomic disk writes</strong>: backup files are written via a temp-file-then-rename, so a crash mid-save can never leave a corrupted backup.</li>
+                        <li><strong>Graceful drain on Ctrl+C</strong>: notifies connected clients, flushes any pending disk write, then exits.</li>
+                    </ul>
+                    <h4 style="margin: 12px 0 6px; font-size: 0.9em; color: var(--text-secondary);">Boot Dashboard</h4>
+                    <p>On launch the server prints a compact boot banner naming itself, then four labeled lines:</p>
+                    <ul>
+                        <li><code>Workbench</code>: the LAN URL editors hit to use the tool (default port <code>8080</code>).</li>
+                        <li><code>Access Code</code>: the 10-character per-launch code editors must enter on the startup modal. Shows <code>UNGATED</code> when started with <code>--no-access-code</code>.</li>
+                        <li><code>Read Only</code>: the read-only viewer URL (default port <code>8081</code>). Omitted when <code>--viewer-port 0</code> disables the listener.</li>
+                        <li>A <code>Press Ctrl+C to stop.</code> hint.</li>
+                    </ul>
+                </section>
+
+                <section class="manual-section">
+                    <h3>Access Code <span class="manual-tag online">Online only</span></h3>
+                    <p>The editor port is gated by a 10-character code that the server generates on every launch. The host shares it once; editors enter it once per server session.</p>
+                    <ul>
+                        <li>The code uses only characters that are unambiguous to share verbally over a radio (no <code>0</code>/<code>O</code>, no <code>1</code>/<code>I</code>/<code>l</code>, no <code>5</code>/<code>S</code>).</li>
+                        <li>The host&rsquo;s own browser <strong>auto-fills</strong> the code on the startup modal. They review identity/ATO/title and click Continue.</li>
+                        <li>Other editors see the modal with an empty <strong>Access Code</strong> field. They type what the host shared with them; the server validates on submit and rejects with a red inline error if wrong.</li>
+                        <li>Once entered correctly, the code is cached per-browser; refreshing the page doesn&rsquo;t re-prompt. Restarting the server <strong>rotates the code</strong>, so on the next visit the modal reappears for re-confirmation.</li>
+                        <li><strong>Local mode</strong> (opening the HTML file directly, no server): the access-code field is hidden entirely and never required. There is no server to gate.</li>
+                        <li>To re-share the code mid-session, open the <strong>Identity tab</strong> in the Workspaces panel. It&rsquo;s shown there with a Copy button.</li>
+                    </ul>
+                </section>
+
+                <section class="manual-section">
+                    <h3>View-Only Mode <span class="manual-tag online">Online only</span></h3>
+                    <p>The server can serve a second listener on a separate port (default <code>8081</code>) that is read-only. Observers on this port see live data but cannot create, edit, delete, restore, import, or unload anything.</p>
+                    <ul>
+                        <li>Viewers connect with <strong>no access code</strong>. The read/write distinction is enforced by the port itself: every POST to the viewer port returns 405.</li>
+                        <li><strong>No startup modal</strong> on viewer load. Viewers don&rsquo;t need an identity or workspace selection, so the page paints straight to the report log without prompting.</li>
+                        <li>A small orange <strong>VIEW ONLY</strong> badge sits to the right of the &ldquo;Workspaces&rdquo; sidebar header so the operator knows the mode without crowding the report-log header.</li>
+                        <li>The form panel is replaced by a persistent <strong>Workspaces sidebar</strong> on the left, listing every loaded workspace with click-to-switch (local-only: switching here only changes the viewer&rsquo;s own view, not anyone else&rsquo;s).</li>
+                        <li>Each row shows the <strong>ATO designator</strong> in bold and the workspace <strong>title</strong> as a subdued sublabel right after it. No separator punctuation is needed; the typographic contrast does the visual separating.</li>
+                        <li>Each row carries up to two small circular indicators next to the workspace title so the viewer can tell their local view apart from the editor&rsquo;s:
+                            <ul>
+                                <li><strong>A</strong> (blue), <em>Active</em>: the workspace the editor is currently logging into on the main tool. Driven by the server&rsquo;s <code>config.ato</code>; updates live (no refresh) when the editor switches.</li>
+                                <li><strong>S</strong> (orange), <em>Showing</em>: the workspace the viewer is currently looking at. Defaults to the active one and follows the editor automatically. Clicking another row pins S there without disturbing A; once the viewer has clicked away, subsequent editor switches no longer drag their view along.</li>
+                            </ul>
+                            Hover either indicator for its full label. The <strong>A slot is always reserved</strong> on every row (invisible where the workspace isn&rsquo;t active), so the <strong>S</strong> indicator lands at the same horizontal coordinate on every row instead of shifting position.</li>
+                        <li>The right side of each row shows <strong>unique reports</strong> and <strong>total reports</strong> counts in the same language the report-log header uses, so the numbers correspond when you switch between views.</li>
+                        <li>The <strong>source filename</strong> (e.g. <code>XG_TEST.txt</code>, <code>Uploaded backup</code>, <code>In-session</code>) is hidden in the viewer sidebar. It&rsquo;s editor-only metadata about where a workspace came from, irrelevant to observers. The editor&rsquo;s Workspaces tab in the main report log still shows it.</li>
+                        <li>The editor-only ellipsis-menu items (Horizontal Layout, Select All / Deselect All, Clear All) are hidden. Export still works: viewers can download backups and CSVs of what they&rsquo;re seeing.</li>
+                        <li>Live updates flow normally: any edit by an editor appears in the viewer&rsquo;s table within a fraction of a second, and switching the active workspace on the editor side updates the A indicator on every viewer in real time.</li>
+                        <li>The page is stamped read-only by the server before it even loads in the browser, so the editor UI never flashes on a viewer&rsquo;s refresh.</li>
+                    </ul>
+                </section>
+
+                <section class="manual-section">
+                    <h3>All Keyboard Shortcuts</h3>
+                    <ul>
+                        <li><kbd>Enter</kbd>: Submit. Update if editing, Log if logging new. In the ATO Designator or Report Title field it presses <em>Set</em> instead.</li>
+                        <li><kbd>Ctrl</kbd>+<kbd>Enter</kbd>: Edit (overwrite without history).</li>
+                        <li><kbd>Esc</kbd>: Cancel editing, deselect any selected table rows, clear new-report fields, or (when focused on the search bar) clear the search filter.</li>
+                        <li><kbd>Ctrl</kbd>+<kbd>S</kbd>: Jump to search bar.</li>
+                    </ul>
+                </section>
+
+                <section class="manual-section manual-testers">
+                    <h3>Testers</h3>
+                    <p>A short thank you to the testers who put up with the bugs and kept the vibe coding going:</p>
+                    <p class="manual-tester-list">You know who you are.</p>
+                </section>
+                <p class="manual-version-footer">Version 2.0</p>
+            </div>
+
+            <button type="button" id="manualCloseBtn" class="set-btn startup-continue-btn">Close</button>
+        </div>
+    </div>
+
+    <div class="app-wrapper">
+        <div class="container">
+            <div class="grid-container" id="mainGrid">
+                <div class="form-section">
+                    <div class="form-header-block">
+                        <h2 id="main-form-header">S.A.L.T. Report Workbench&trade;</h2>
+                    </div>
+
+                    <div class="config-controls">
+                        <div class="config-inputs">
+                            <div>
+                                <label for="atoDesignator">ATO Designator</label>
+                                <input type="text" id="atoDesignator" placeholder="Set ATO">
+                            </div>
+                            <div>
+                                <label for="reportTitlePrefix">Report Title</label>
+                                <input type="text" id="reportTitlePrefix" placeholder="Set Title">
+                            </div>
+                        </div>
+                        <div class="config-button-wrapper">
+                            <select id="atoHistorySelect" disabled></select>
+                            <button id="setAtoBtn" class="set-btn">Set</button>
+                        </div>
+                    </div>
+
+                    <div class="form-header-row">
+                        <h2 id="form-title">New Report</h2>
+                        <input type="number" id="reportStartNum" min="1" placeholder="Number">
+                    </div>
+
+                    <form id="saltForm">
+                        <input type="hidden" id="reportId">
+                        <div id="salt-fields">
+                            <div class="input-group">
+                                <input type="text" id="size" placeholder="Size">
+                            </div>
+                            <div class="input-group">
+                                <input type="text" id="activity" placeholder="Activity">
+                            </div>
+                            <div class="input-group">
+                                <input type="text" id="location" placeholder="Location">
+                            </div>
+                            <div class="input-group">
+                                <div class="time-control">
+                                    <input type="text" id="time" placeholder="Time" maxlength="5">
+                                    <button type="button" id="updateTimeBtn" disabled>Now</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="analysis-field">
+                            <textarea id="yourAnalysis" rows="2" placeholder="Your Analysis (Optional)"></textarea>
+                        </div>
+                        <div class="update-controls">
+                            <button type="submit" id="logButton">Log New Report</button>
+                            <div id="editUpdatePair" style="display:none;">
+                                <button type="button" id="editButton">Edit</button>
+                                <button type="button" id="updateButton">Update</button>
+                            </div>
+                            <button type="button" id="cancelButton" style="visibility:hidden;">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Workspaces sidebar — viewer-mode only; replaces form-section, click-to-switch (local-only). -->
+                <aside class="workspaces-sidebar">
+                    <div class="workspaces-sidebar-header">
+                        <h2>Workspaces</h2>
+                        <span class="view-only-badge" title="This server is read-only. You cannot create, edit, or delete reports.">VIEW ONLY</span>
+                    </div>
+                    <div id="workspacesSidebarList" class="workspaces-list"></div>
+                </aside>
+
+                <div class="report-section">
+                    <div id="logView">
+                    <div class="report-header">
+                        <h2>
+                            <div id="status-dot" class="status-dot" title="Sync Status"></div>
+                            <span id="connected-users" class="connected-users-chip" title="Users connected">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                <span id="connected-users-count">1</span>
+                            </span>
+                            Report Log
+                        </h2>
+                        <div class="search-bar-wrapper">
+                             <span class="icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
+                            </span>
+                            <input type="search" id="searchBar" placeholder="Search...">
+                        </div>
+                        <div class="report-metrics">
+                            <span id="report-count"></span>
+                            <span id="report-total-count" title="Total reports including every saved update"></span>
+                        </div>
+
+                        <button id="deleteSelectedBtn">Delete</button>
+                        <select id="sendToAtoSelect" style="display:none;"></select>
+                        <button id="sendToAtoBtn" style="display:none;">&#8594;</button>
+
+                        <div class="data-management-menu">
+                            <button id="dataMgmtBtn" class="icon-btn" title="Options">
+                                <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2.5"></circle><circle cx="12" cy="12" r="2.5"></circle><circle cx="19" cy="12" r="2.5"></circle></svg>
+                            </button>
+                            <div id="dataMgmtMenu">
+                                <button id="toggleLayoutBtn"></button>
+                                <button id="toggleTimeFormatBtn"></button>
+                                <button id="toggleSepBtn"></button>
+                                <button id="toggleBdaBtn"></button>
+                                <button id="exportViewToggleBtn">Workspaces</button>
+                                <hr>
+                                <button id="selectAllBtn">Select All</button>
+                                <button id="deselectAllBtn">Deselect All</button>
+                                <hr>
+                                <button id="userManualBtn">User Manual</button>
+                                <hr>
+                                <button id="clearAllBtn">Clear All Data</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="table-wrapper">
+                        <table id="reportLogTable">
+                            <thead>
+                                <tr>
+                                    <th class="col-action">Action</th>
+                                    <th class="col-by reporter-col">By</th>
+                                    <th id="sort-id-th" class="col-id sortable-th">Identifier <span id="sort-id-icon" class="sort-icon">&#8645;</span></th>
+                                    <th class="col-size">Size</th>
+                                    <th class="col-activity">Activity</th>
+                                    <th class="col-location">Location</th>
+                                    <th id="sort-time-th" class="col-time sortable-th"><span id="time-header">Time (Z)</span> <span id="sort-time-icon" class="sort-icon">&#8645;</span></th>
+                                    <th class="col-analysis">Analysis</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reportLogBody">
+                            </tbody>
+                        </table>
+                    </div>
+                    </div><!-- end #logView -->
+                    <div id="exportPanel">
+                        <div class="export-panel-header">
+                            <div class="export-panel-heading">
+                                <div class="export-panel-title">
+                                    <div id="status-dot-export" class="status-dot" title="Sync Status"></div>
+                                    <span class="connected-users-chip" title="Users connected">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                                        <span id="connected-users-count-export">1</span>
+                                    </span>
+                                    <span>Workspaces</span>
+                                </div>
+                                <div id="export-panel-subtitle" class="export-panel-subtitle">Loading&#8230;</div>
+                            </div>
+                            <button id="closeExportViewBtn" class="icon-btn" title="Close Workspaces View">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+
+                        <!-- Segmented-control tabs — local-only, last-used tab persisted to localStorage. -->
+                        <div class="ws-tabs" role="tablist">
+                            <button type="button" class="ws-tab active" data-tab="export" role="tab" aria-selected="true">Import / Export</button>
+                            <button type="button" class="ws-tab" data-tab="workspaces" role="tab" aria-selected="false">Workspaces</button>
+                            <button type="button" class="ws-tab" data-tab="builder" role="tab" aria-selected="false">Builder</button>
+                            <button type="button" class="ws-tab ws-tab-icon" data-tab="identity" role="tab" aria-selected="false" title="Identity" aria-label="Identity">
+                                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 12C14.2091 12 16 10.2091 16 8C16 5.79086 14.2091 4 12 4C9.79086 4 8 5.79086 8 8C8 10.2091 9.79086 12 12 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 21V19C20 16.7909 18.2091 15 16 15H8C5.79086 15 4 16.7909 4 19V21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                        </div>
+
+                        <!-- Tab: Workspaces — loaded ATOs with source, counts, and Unload. -->
+                        <div class="ws-tab-panel" data-tab-panel="workspaces" style="display:none;">
+                            <div class="export-block ws-block-fill">
+                                <div class="export-block-label">Loaded Workspaces</div>
+                                <div id="workspacesList" class="workspaces-list"></div>
+                            </div>
+                        </div>
+
+                        <!-- Tab: Identity — same form the header dropdown used; opened by the person icon. -->
+                        <div class="ws-tab-panel" data-tab-panel="identity" style="display:none;">
+                            <div class="export-block">
+                                <div class="export-block-label">Report Identity</div>
+                                <div id="userProfileMenu" class="identity-section">
+                                    <div class="profile-menu-header">
+                                        <div id="profile-preview-avatar" class="profile-preview-avatar">?</div>
+                                        <div class="profile-header-text">
+                                            <span class="profile-menu-label">Your ID</span>
+                                            <span id="profile-preview-name" class="profile-current-name">Not Set</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Access code (display-only). Editing path is the startup modal, gated by server validation. -->
+                                    <div class="profile-field">
+                                        <label class="profile-field-label">Access Code <span class="profile-field-hint">share with other editors</span></label>
+                                        <div class="access-code-display">
+                                            <code id="identityAccessCode" class="access-code-text">&mdash;</code>
+                                            <button type="button" id="identityAccessCopyBtn" class="copy-btn" title="Copy access code to clipboard">Copy</button>
+                                        </div>
+                                    </div>
+
+                                    <div class="profile-menu-divider"></div>
+
+                                    <div class="profile-field">
+                                        <label class="profile-field-label">Initials</label>
+                                        <input type="text" id="user-initials-input" placeholder="e.g. AB" maxlength="3">
+                                    </div>
+                                    <div class="profile-field">
+                                        <label class="profile-field-label">Tag Color</label>
+                                        <div class="color-swatches" id="color-swatches">
+                                            <button class="color-swatch" data-color="#0a84ff" style="background:#0a84ff" title="Blue"></button>
+                                            <button class="color-swatch" data-color="#5ac8fa" style="background:#5ac8fa" title="Sky"></button>
+                                            <button class="color-swatch" data-color="#32d74b" style="background:#32d74b" title="Green"></button>
+                                            <button class="color-swatch" data-color="#ffd60a" style="background:#ffd60a" title="Yellow"></button>
+                                            <button class="color-swatch" data-color="#ff9f0a" style="background:#ff9f0a" title="Orange"></button>
+                                            <button class="color-swatch" data-color="#ff453a" style="background:#ff453a" title="Red"></button>
+                                            <button class="color-swatch" data-color="#ff375f" style="background:#ff375f" title="Pink"></button>
+                                            <button class="color-swatch" data-color="#bf5af2" style="background:#bf5af2" title="Purple"></button>
+                                        </div>
+                                        <input type="hidden" id="user-color-input" value="#0a84ff">
+                                    </div>
+                                    <button id="set-profile-btn" class="set-btn">Set Initials</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tab: Builder — per-workspace report format editor with live preview. -->
+                        <div class="ws-tab-panel" data-tab-panel="builder" style="display:none;">
+                            <div class="export-block">
+                                <div class="export-block-label">Report Format <span id="builderScopeNote"></span></div>
+                                <div class="builder-presets">
+                                    <span class="startup-chips-label">Presets</span>
+                                    <button type="button" class="filter-preset-btn" data-fmt-preset="salt">SALT</button>
+                                    <button type="button" class="filter-preset-btn" data-fmt-preset="salt-u">SALT-U</button>
+                                </div>
+                                <div id="builderLines" class="builder-lines"></div>
+                                <div id="builderPalette" class="builder-palette" style="display:none;"></div>
+                                <div class="builder-add-row">
+                                    <input type="text" id="builderNewLetter" class="builder-letter-input" placeholder="Letter (e.g. W)" maxlength="3">
+                                    <input type="text" id="builderNewLabel" placeholder="What it represents (e.g. Weather)" maxlength="30">
+                                    <button type="button" id="builderAddBtn" class="set-btn">Add Field</button>
+                                </div>
+                            </div>
+                            <div class="export-divider"></div>
+                            <div class="export-block">
+                                <div class="export-block-label">Live Preview <span>what the copied report text will look like</span></div>
+                                <pre id="builderPreview" class="builder-preview"></pre>
+                            </div>
+                        </div>
+
+                        <!-- Tab: Import / Export — action grid, time filter, options. -->
+                        <div class="ws-tab-panel" data-tab-panel="export">
+                            <div class="export-action-grid">
+                                <div class="export-action-col">
+                                    <div class="export-action-col-label">Export</div>
+                                    <button type="button" id="exportPanelBackupBtn" class="set-btn">Export Backup (.txt)</button>
+                                    <button type="button" id="exportPanelCsvBtn" class="set-btn">Export CSV (.csv)</button>
+                                </div>
+                                <div class="export-action-vdivider"></div>
+                                <div class="export-action-col">
+                                    <div class="export-action-col-label">Import</div>
+                                    <button id="importBackupBtnTrigger" class="set-btn">Import from Backup (.txt)</button>
+                                    <button id="importCsvBtnTrigger" class="set-btn">Import External CSV</button>
+                                    <input type="file" id="importBackupFileInput" class="file-input-wrapper">
+                                    <input type="file" id="importCsvFileInput" class="file-input-wrapper" accept=".csv">
+                                </div>
+                            </div>
+
+                            <div class="export-divider"></div>
+
+                            <div class="export-block">
+                                <div class="export-block-label">Filter by Time Range</div>
+                            <div class="filter-grid">
+                                <div class="filter-field">
+                                    <label>From <span class="filter-mode" id="export-from-mode">(Z)</span></label>
+                                    <div class="filter-pair">
+                                        <input type="date" id="export-from-date" class="filter-date" aria-label="From date">
+                                        <input type="text" id="export-from-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
+                                    </div>
+                                </div>
+                                <div class="filter-field">
+                                    <label>To <span class="filter-mode" id="export-to-mode">(Z)</span></label>
+                                    <div class="filter-pair">
+                                        <input type="date" id="export-to-date" class="filter-date" aria-label="To date">
+                                        <input type="text" id="export-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="filter-presets" aria-label="Quick range presets">
+                                <span class="filter-presets-label">Last</span>
+                                <button type="button" class="filter-preset-btn" data-preset-hours="12">12h</button>
+                                <button type="button" class="filter-preset-btn" data-preset-hours="6">6h</button>
+                                <button type="button" class="filter-preset-btn" data-preset-hours="1">1h</button>
+                            </div>
+                            <div class="filter-meta">
+                                <span id="export-filter-count" class="filter-count-line">All reports will be exported.</span>
+                                <button id="exportClearFilterBtn" class="cancel-btn">Clear</button>
+                            </div>
+                        </div>
+
+                        <div class="export-divider"></div>
+
+                        <div class="export-block">
+                            <div class="export-block-label">Options</div>
+                            <label class="export-option-row">
+                                <input type="checkbox" id="exportAllAtosToggle">
+                                <div>
+                                    <div class="export-option-text">Export All ATOs</div>
+                                    <div class="export-option-desc">Backup includes every loaded workspace, not just the active one</div>
+                                </div>
+                            </label>
+                            <label class="export-option-row" style="margin-top:10px;">
+                                <input type="checkbox" id="exportMtiToggle">
+                                <div>
+                                    <div class="export-option-text">MTI Export</div>
+                                    <div class="export-option-desc">Splits CSV into separate tracked and wheeled files</div>
+                                </div>
+                            </label>
+                        </div>
+                        </div><!-- /ws-tab-panel data-tab-panel="export" -->
+                    </div>
+
+                    <div id="csvImportPanel">
+                        <div class="export-panel-header">
+                            <div class="export-panel-heading">
+                                <div class="export-panel-title">Import CSV &mdash; Map Columns</div>
+                                <div id="csvImportSubtitle" class="export-panel-subtitle">No file loaded</div>
+                            </div>
+                            <button id="closeCsvImportBtn" class="icon-btn" title="Cancel Import">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+
+                        <div class="csv-map-grid">
+                            <div>
+                                <div class="export-block-label">CSV Columns Detected</div>
+                                <div id="csvColList" class="csv-col-list"></div>
+                            </div>
+                            <div>
+                                <div class="export-block-label">Map to Report Fields</div>
+                                <div class="csv-map-row">
+                                    <label>Title</label>
+                                    <select id="csvMapTitle"></select>
+                                </div>
+                                <div class="csv-map-row">
+                                    <label>Size</label>
+                                    <select id="csvMapSize"></select>
+                                </div>
+                                <div class="csv-map-row">
+                                    <label>Activity</label>
+                                    <select id="csvMapActivity"></select>
+                                </div>
+                                <div class="csv-map-row">
+                                    <label>Location</label>
+                                    <select id="csvMapLocation"></select>
+                                </div>
+                                <div class="csv-map-row">
+                                    <label>Time</label>
+                                    <select id="csvMapTime"></select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="export-divider"></div>
+
+                        <div class="export-block">
+                            <div class="export-block-label">Destination Workspace</div>
+                            <div class="csv-dest-row">
+                                <select id="csvDestSelect"></select>
+                                <button id="csvConfirmBtn" class="set-btn">Import Reports</button>
+                                <button id="csvCancelBtn" class="cancel-btn">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="Salt Report Workbench.js"></script>
+</body>
+</html>
