@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `Start SALT Workbench.bat`, a double-click launcher for Windows that needs no
+  install or admin rights. It can be pointed at a specific `python.exe` by
+  editing one line or setting `SALT_PYTHON`, and otherwise finds Python by
+  itself, including a portable copy in a `python\` folder beside it. The build
+  copies it into `dist/`.
+
 ## [2.0.0] - 2026-10-24
 
 First tagged release. SALT logging with real-time LAN sync over Server-Sent

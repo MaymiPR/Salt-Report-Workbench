@@ -76,6 +76,9 @@ python scripts/build.py
 python dist/salt_sync_server.py
 ```
 
+On Windows you can instead double-click **`dist/Start SALT Workbench.bat`**. See
+[Windows launcher](#windows-launcher) below.
+
 The server prints its addresses and an access code, then opens your browser:
 
 ```text
@@ -94,10 +97,37 @@ to watch.
 
 ### Distributing to a team
 
-`python scripts/build.py` produces a `dist/` folder containing exactly two files,
-`index.html` and `salt_sync_server.py`. Copy that folder to any machine with Python
-and run the server; nothing else is needed. Every CI run also publishes `dist/` as a
-downloadable artifact.
+`python scripts/build.py` produces a `dist/` folder containing three files:
+`index.html`, `salt_sync_server.py`, and `Start SALT Workbench.bat`. Copy that folder
+to any machine with Python and run the server; nothing else is needed. Every CI run
+also publishes `dist/` as a downloadable artifact.
+
+### Windows launcher
+
+`Start SALT Workbench.bat` starts the server with a double-click. It needs no
+install and no admin rights, and works from a network share. It uses the first
+Python 3.10+ it finds, in this order:
+
+1. The path on the `set "PYTHON_EXE="` line near the top of the file. If your
+   machine needs a specific `python.exe`, open the launcher in Notepad and put the
+   full path between the quotes:
+   ```bat
+   set "PYTHON_EXE=C:\Tools\Python312\python.exe"
+   ```
+2. The `SALT_PYTHON` environment variable, which you can set once per user
+   without editing the file and without admin rights:
+   ```bat
+   setx SALT_PYTHON "C:\Tools\Python312\python.exe"
+   ```
+3. A portable Python in a `python\` folder beside the launcher (for example the
+   embeddable package from python.org, unzipped as `python\`).
+4. The `py` launcher, then `python` on `PATH`.
+5. Standard install folders that were never added to `PATH`.
+
+If you set a path in step 1 or 2 and it doesn't work, the launcher says so and
+stops instead of quietly using some other Python. Anything you type after the
+launcher's name goes to the server, for example
+`"Start SALT Workbench.bat" --port 9090`.
 
 ### Without a server
 
@@ -161,9 +191,10 @@ never leaves a half-written file.
 │   ├── styles.css
 │   └── app.js
 ├── server/
-│   └── salt_sync_server.py   Standard-library HTTP + SSE sync server
+│   ├── salt_sync_server.py   Standard-library HTTP + SSE sync server
+│   └── Start SALT Workbench.bat  Windows double-click launcher
 ├── scripts/
-│   └── build.py              Bundles src/ into dist/index.html, copies the server
+│   └── build.py              Bundles src/ into dist/index.html, copies the server and launcher
 ├── tests/                    unittest suite: server logic, HTTP API, build
 ├── assets/                   Logo, icon, banners, social preview (see BRAND.md)
 ├── docs/                     Architecture notes and screenshots
@@ -181,7 +212,7 @@ The app has no dependencies, and the dev tools are optional.
 ```bash
 python scripts/build.py                  # bundle src/ into dist/
 python server/salt_sync_server.py        # run against the dev build
-python -m unittest discover -s tests     # 54 tests, standard library only
+python -m unittest discover -s tests     # 59 tests, standard library only
 
 pip install ruff==0.17.2 pre-commit      # optional tooling
 ruff check . && ruff format --check .
