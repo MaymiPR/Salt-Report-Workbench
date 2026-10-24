@@ -11,9 +11,11 @@ into a single ``index.html``, then copies the sync server next to it::
                               \                             /
                                dist/index.html   dist/salt_sync_server.py
 
-The resulting ``dist/`` folder is the deliverable: hand it to an operator and
-``python salt_sync_server.py`` runs it with no install and no network access.
-Opening ``dist/index.html`` directly also works, in local (offline) mode.
+The Windows launcher, ``server/Start SALT Workbench.bat``, is copied too. The
+resulting ``dist/`` folder is the deliverable: hand it to an operator and
+``python salt_sync_server.py`` (or a double-click on the launcher) runs it with
+no install and no network access. Opening ``dist/index.html`` directly also
+works, in local (offline) mode.
 
 Usage:  python scripts/build.py
 """
@@ -28,6 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 SERVER = ROOT / "server" / "salt_sync_server.py"
+LAUNCHER = ROOT / "server" / "Start SALT Workbench.bat"
 DIST = ROOT / "dist"
 
 SRC_HTML = SRC / "index.html"
@@ -77,7 +80,7 @@ def main() -> int:
     print("\n S.A.L.T. Report Workbench -- build")
     print(" " + "-" * 40)
 
-    missing = [p for p in (SRC_HTML, SRC_CSS, SRC_JS, SERVER) if not p.is_file()]
+    missing = [p for p in (SRC_HTML, SRC_CSS, SRC_JS, SERVER, LAUNCHER) if not p.is_file()]
     if missing:
         for p in missing:
             print(f" [!] missing: {_show(p)}")
@@ -97,10 +100,17 @@ def main() -> int:
     out_html = DIST / "index.html"
     out_html.write_text(html, encoding="utf-8")
     shutil.copy2(SERVER, DIST / SERVER.name)
+    # cmd.exe misreads batch files with bare LF endings, so force CRLF however
+    # the source was checked out.
+    launcher = LAUNCHER.read_text(encoding="utf-8").splitlines()
+    out_launcher = DIST / LAUNCHER.name
+    out_launcher.write_text("\n".join(launcher) + "\n", encoding="utf-8", newline="\r\n")
 
     print(f" [*] {_show(out_html)}  ({out_html.stat().st_size / 1024:.1f} KB)")
     print(f" [*] {_show(DIST / SERVER.name)}")
-    print(f"\n [+] Done. Run:  python dist/{SERVER.name}\n")
+    print(f" [*] {_show(out_launcher)}")
+    print(f"\n [+] Done. Run:  python dist/{SERVER.name}")
+    print(f"     On Windows, double-click dist/{LAUNCHER.name} instead.\n")
     return 0
 
 

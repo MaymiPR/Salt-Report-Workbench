@@ -64,6 +64,10 @@ class MainTests(unittest.TestCase):
         self.assertIn("<style>", html)
         self.assertNotIn('<script src="app.js">', html)
         self.assertTrue((self.tmp / "dist" / "salt_sync_server.py").is_file())
+        launcher = (self.tmp / "dist" / build.LAUNCHER.name).read_bytes()
+        self.assertIn(b"salt_sync_server.py", launcher)
+        # cmd.exe needs CRLF; every line must end in one, none in a bare LF.
+        self.assertEqual(launcher.count(b"\n"), launcher.count(b"\r\n"))
 
     def test_missing_source_returns_nonzero(self):
         with mock.patch.object(build, "SRC_JS", self.tmp / "nope.js"), mock.patch("builtins.print"):
