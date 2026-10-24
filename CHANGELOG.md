@@ -12,7 +12,8 @@ First tagged release. SALT logging with real-time LAN sync over Server-Sent
 Events, offline mode, edit history with restore, workspaces, a read-only viewer
 port, a per-launch access code, the report builder (SALT and SALT-U presets,
 custom fields with their own table columns), BDA tracking with a pre-paired
-checklist, and backup, CSV, and MTI exports.
+checklist, and backup, CSV, and MTI exports. Licensed under
+AGPL-3.0-or-later.
 
 Changes below are relative to the untracked build this release grew out of.
 

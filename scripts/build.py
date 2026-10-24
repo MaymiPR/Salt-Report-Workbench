@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 r"""Build a self-contained, ready-to-run distribution of the workbench.
 
 Reads the frontend sources in ``src/`` and inlines the stylesheet and script

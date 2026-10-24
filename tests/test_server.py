@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Tests for the sync server: pure logic plus HTTP behaviour against a live instance.
 
 Standard library only, matching the project's zero-dependency rule. Run with

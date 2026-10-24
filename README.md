@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/version-2.0.0-0A84FF" alt="Version 2.0.0">
   <img src="https://img.shields.io/badge/python-3.10%2B-0A84FF" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/dependencies-none-32D74B" alt="No dependencies">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-8E8E93" alt="MIT license"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-8E8E93" alt="License: AGPL-3.0-or-later"></a>
 </p>
 
 ---
@@ -207,4 +207,7 @@ Please report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
 ## License
 
-[MIT](LICENSE)
+S.A.L.T. Report Workbench is free software under the [GNU Affero General Public
+License, version 3 or (at your option) any later version](LICENSE). You can use,
+study, change, and share it. If you change it and let other people use your
+version over a network, you must offer them its source code too.

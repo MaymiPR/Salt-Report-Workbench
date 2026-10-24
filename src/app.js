@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 document.addEventListener('DOMContentLoaded', () => {
 
 // --- 1. Elements (cached at startup; namespaced by panel) ---
