@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-10-24
+
 ### Changed
 
 - Licensed under the GNU AGPL v3 only (`AGPL-3.0-only`), matching the author's
@@ -78,6 +80,7 @@ Changes below are relative to the untracked build this release grew out of.
 - Ruff, pre-commit, EditorConfig, and a Makefile.
 - README, architecture notes, and contributing, security, and conduct guides.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.1.1...HEAD
+[2.1.1]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/MaymiPR/SaltReportWorkbench/releases/tag/v2.0.0

@@ -1,6 +1,6 @@
 [project]
 name = "salt-report-workbench"
-version = "2.1.0"
+version = "2.1.1"
 description = "Offline-first tactical SALT reporting workbench with real-time LAN sync."
 readme = "README.md"
 license = "AGPL-3.0-only"
