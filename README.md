@@ -174,7 +174,7 @@ The app has no dependencies, and the dev tools are optional.
 ```bash
 python scripts/build.py                  # bundle src/ into dist/
 python server/salt_sync_server.py        # run against the dev build
-python -m unittest discover -s tests     # 53 tests, standard library only
+python -m unittest discover -s tests     # 54 tests, standard library only
 
 pip install ruff==0.17.2 pre-commit      # optional tooling
 ruff check . && ruff format --check .

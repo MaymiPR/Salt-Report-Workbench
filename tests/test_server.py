@@ -250,6 +250,15 @@ class RateLimitTests(unittest.TestCase):
             self.assertTrue(srv.rate_limit_check("10.0.0.2"))
 
 
+class ConsoleOutputTests(unittest.TestCase):
+    def test_output_is_flushed_so_redirected_logs_show_the_access_code(self):
+        # Regression: with stdout redirected, the boot banner (and the access
+        # code in it) stayed in Python's buffer while the server ran.
+        with mock.patch("builtins.print") as fake_print:
+            srv.safe_print(" [+] Access Code : K7M2X9PQR3")
+        self.assertTrue(fake_print.call_args.kwargs.get("flush"))
+
+
 class AccessCodeTests(unittest.TestCase):
     def test_generated_codes_avoid_confusable_characters(self):
         for _ in range(200):

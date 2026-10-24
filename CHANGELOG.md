@@ -17,6 +17,9 @@ All notable changes to this project are documented here. The format follows
   than in whatever directory the server was launched from. ([#1])
 - The access-code alphabet no longer includes `5`, which the docs already said
   was excluded to avoid confusion with `S`. ([#1])
+- The boot banner, including the access code, appears immediately when the
+  server's output is redirected to a log file or a service wrapper. It used
+  to sit in Python's output buffer. ([#1])
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace. ([#1])
 
@@ -37,7 +40,7 @@ All notable changes to this project are documented here. The format follows
 
 - Brand identity: logo, monochrome variants, avatar, README banners, social
   preview, and an inline favicon. ([#1])
-- A 53-test suite covering merge rules, backup round trips, validation, rate
+- A 54-test suite covering merge rules, backup round trips, validation, rate
   limiting, access control, and live HTTP behavior. ([#1])
 - CI: lint, tests on Python 3.10–3.13 and on Windows, and a build smoke test. ([#1])
 - Ruff, pre-commit, EditorConfig, and a Makefile. ([#1])

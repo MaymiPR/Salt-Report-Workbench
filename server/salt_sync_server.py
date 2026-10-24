@@ -130,12 +130,17 @@ def broadcast_update() -> None:
 
 
 def safe_print(msg: str) -> None:
-    """Print with fallback for legacy Windows codepages that can't render non-ASCII."""
+    """Print with fallback for legacy Windows codepages that can't render non-ASCII.
+
+    Flushes every line: when stdout is redirected (a log file, a service
+    wrapper) Python block-buffers it, and the boot banner, including the
+    access code, would otherwise not appear until the buffer happened to fill.
+    """
     try:
-        print(msg)
+        print(msg, flush=True)
     except UnicodeEncodeError:
         fallback = msg.replace('™', '(TM)').replace('©', '(C)')
-        print(fallback.encode('ascii', 'ignore').decode('ascii'))
+        print(fallback.encode('ascii', 'ignore').decode('ascii'), flush=True)
 
 
 def invalidate_sync_cache() -> None:
