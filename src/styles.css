@@ -291,7 +291,7 @@ body.local-mode .startup-access-divider { display: none; }
 .manual-testers { background-color: rgba(10, 132, 255, 0.06); border: 1px solid var(--glass-border); border-radius: 12px; padding: 14px 16px; }
 .manual-testers h3 { border-bottom: none; padding-bottom: 0; color: var(--system-blue); }
 .manual-tester-list { font-weight: 500; font-size: 0.88em !important; color: var(--text-primary); line-height: 1.7 !important; }
-/* Manual footer: version + copyright, discreet small caps. */
+/* Manual footer: version + source link, discreet small caps. */
 .manual-version-footer {
     text-align: center;
     font-size: 0.72em;
