@@ -198,7 +198,6 @@ never leaves a half-written file.
 ├── tests/                    unittest suite: server logic, HTTP API, build
 ├── assets/                   Logo, icon, banners, social preview (see BRAND.md)
 ├── docs/                     Architecture notes and screenshots
-├── archive/                  Historical snapshots; not built or run
 └── dist/                     Build output (git-ignored)
 ```
 
