@@ -317,14 +317,17 @@ const showToast = (msg, isErr = false) => {
     el.toast.regular.classList.add('show');
     setTimeout(() => el.toast.regular.classList.remove('show'), 4000);
 };
+// One prompt at a time: a new prompt replaces an unanswered one and drops its
+// action, so Confirm only ever runs what the dialog is showing.
+let pendingConfirm = null;
+const hideConfirmation = () => { el.toast.confirm.classList.remove('show'); pendingConfirm = null; };
 const showConfirmation = (msg, onConfirm) => {
     el.toast.message.textContent = msg;
+    pendingConfirm = onConfirm;
     el.toast.confirm.classList.add('show');
-    const hide = () => { el.toast.confirm.classList.remove('show'); el.toast.confirmBtn.removeEventListener('click', ok); el.toast.cancelBtn.removeEventListener('click', hide); };
-    const ok   = () => { onConfirm(); hide(); };
-    el.toast.confirmBtn.addEventListener('click', ok,   { once: true });
-    el.toast.cancelBtn .addEventListener('click', hide, { once: true });
 };
+el.toast.confirmBtn.addEventListener('click', () => { const run = pendingConfirm; hideConfirmation(); if (run) run(); });
+el.toast.cancelBtn .addEventListener('click', hideConfirmation);
 
 // --- 5. Rendering ---
 
