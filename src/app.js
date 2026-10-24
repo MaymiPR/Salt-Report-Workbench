@@ -721,6 +721,7 @@ const applyFormFieldOrder = () => {
             g.className = 'input-group custom-input-group';
             const inp = document.createElement('input');
             inp.type = 'text';
+            inp.maxLength = 500;  // the server's per-value limit
             // Form shows the descriptive name; the copy text uses the letter.
             inp.placeholder = line.name || line.label;
             inp.dataset.customLabel = line.label;
@@ -1628,40 +1629,60 @@ function setConnectionStatus(isOnline) {
     el.status.dotExp.title     = title;
 }
 
-// `source` is an optional hint ('backup' | 'csv') for server-side logging.
-async function pushToServer(source) {
-    if (!activeAto) return;
+// POST a JSON body to the sync server. Resolves to the Response whatever its
+// status; rejects only when the server can't be reached.
+const postJson = (path, body) => fetch(path, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+});
+
+// Wrong, missing, or rotated access code: forget it and re-prompt. The viewer
+// port never answers 401, but stay defensive.
+const handleUnauthorized = () => {
+    clearAccessCode();
+    setConnectionStatus(false);
+    if (!isReadOnly && !document.body.classList.contains('read-only')) openStartupModal();
+};
+
+// Push one workspace's reports (an empty list unloads it). Returns 'ok',
+// 'queued' when the change should be retried later (server unreachable, code
+// rejected, rate limited, or a server error), or 'rejected' when the server
+// refused the data itself; retrying identical data would only be refused
+// again, so that case is reported to the user instead.
+async function pushWorkspace(ato, reports, source) {
+    let res;
     try {
-        if (!localReports || localReports.length === 0) {
-            await fetch('/api/unload_ato', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ ato: activeAto }) });
-        } else {
-            const body = { ato: activeAto, reports: localReports };
-            if (source) body.source = source;
-            await fetch('/api/save_reports', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-        }
-        offlinePendingPush = false;
-        localStorage.setItem('salt_offline_push', 'false');
-        setConnectionStatus(true);
+        res = reports.length
+            ? await postJson('/api/save_reports', source ? { ato, reports, source } : { ato, reports })
+            : await postJson('/api/unload_ato', { ato });
     } catch (err) {
-        offlinePendingPush = true;
-        localStorage.setItem('salt_offline_push', 'true');
-        setConnectionStatus(false);
+        return 'queued';
     }
+    if (res.ok) return 'ok';
+    if (res.status === 401) { handleUnauthorized(); return 'queued'; }
+    if (res.status === 429 || res.status >= 500) return 'queued';
+    const reason = await res.json().then(j => j.message).catch(() => '') || `HTTP ${res.status}`;
+    showToast(`The server did not save ${ato}: ${reason}`, true);
+    return 'rejected';
+}
+
+// Push the active workspace. `source` is an optional hint ('backup' | 'csv')
+// for server-side logging. Resolves false when the change is still queued.
+async function pushToServer(source) {
+    if (!activeAto) return true;
+    const result = await pushWorkspace(activeAto, localReports || [], source);
+    offlinePendingPush = result === 'queued';
+    localStorage.setItem('salt_offline_push', String(offlinePendingPush));
+    setConnectionStatus(!offlinePendingPush);
+    return !offlinePendingPush;
 }
 
 async function syncWithServer() {
     try {
-        if (offlinePendingPush && activeAto) {
-            await pushToServer();
-        }
+        // Never pull over local changes the server hasn't accepted yet: the
+        // pull replaces local state, so they would be lost.
+        if (offlinePendingPush && activeAto && !(await pushToServer())) return;
         const res = await fetch('/api/sync');
-        if (res.status === 401) {
-            // Wrong/missing/rotated code — clear and re-prompt. Viewer port never 401s, but be defensive.
-            clearAccessCode();
-            setConnectionStatus(false);
-            if (!isReadOnly && !document.body.classList.contains('read-only')) openStartupModal();
-            return;
-        }
+        if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) throw new Error('Server unreachable');
         const state = await res.json();
         applyServerUpdate(state.workspaces, state.config, state.profiles, state.connected_users, state.sources, state.connected_initials, state.read_only, state.formats);

@@ -34,7 +34,7 @@
                 <div class="startup-section-label">Access Code</div>
                 <div class="startup-field">
                     <label class="startup-field-label" for="startup-access-code">From the server console</label>
-                    <input type="text" id="startup-access-code" placeholder="e.g. K7M2X9PQR3" maxlength="10" autocomplete="off" spellcheck="false">
+                    <input type="text" id="startup-access-code" placeholder="e.g. K7M2X9PQR3" maxlength="64" autocomplete="off" spellcheck="false">
                     <div id="startup-access-error" class="startup-access-error" role="alert"></div>
                 </div>
             </div>
@@ -90,11 +90,11 @@
                 <div class="startup-section-label">Workspace</div>
                 <div class="startup-field">
                     <label class="startup-field-label" for="startup-ato">ATO Designator</label>
-                    <input type="text" id="startup-ato" placeholder="e.g. ALPHA01" autocomplete="off">
+                    <input type="text" id="startup-ato" placeholder="e.g. ALPHA01" maxlength="50" autocomplete="off">
                 </div>
                 <div class="startup-field">
                     <label class="startup-field-label" for="startup-title">Report Title</label>
-                    <input type="text" id="startup-title" placeholder="e.g. Patrol Report" autocomplete="off">
+                    <input type="text" id="startup-title" placeholder="e.g. Patrol Report" maxlength="100" autocomplete="off">
                 </div>
             </div>
 
@@ -417,11 +417,11 @@
                         <div class="config-inputs">
                             <div>
                                 <label for="atoDesignator">ATO Designator</label>
-                                <input type="text" id="atoDesignator" placeholder="Set ATO">
+                                <input type="text" id="atoDesignator" placeholder="Set ATO" maxlength="50">
                             </div>
                             <div>
                                 <label for="reportTitlePrefix">Report Title</label>
-                                <input type="text" id="reportTitlePrefix" placeholder="Set Title">
+                                <input type="text" id="reportTitlePrefix" placeholder="Set Title" maxlength="100">
                             </div>
                         </div>
                         <div class="config-button-wrapper">
@@ -439,13 +439,13 @@
                         <input type="hidden" id="reportId">
                         <div id="salt-fields">
                             <div class="input-group">
-                                <input type="text" id="size" placeholder="Size">
+                                <input type="text" id="size" placeholder="Size" maxlength="500">
                             </div>
                             <div class="input-group">
-                                <input type="text" id="activity" placeholder="Activity">
+                                <input type="text" id="activity" placeholder="Activity" maxlength="500">
                             </div>
                             <div class="input-group">
-                                <input type="text" id="location" placeholder="Location">
+                                <input type="text" id="location" placeholder="Location" maxlength="500">
                             </div>
                             <div class="input-group">
                                 <div class="time-control">
@@ -455,7 +455,7 @@
                             </div>
                         </div>
                         <div id="analysis-field">
-                            <textarea id="yourAnalysis" rows="2" placeholder="Your Analysis (Optional)"></textarea>
+                            <textarea id="yourAnalysis" rows="2" placeholder="Your Analysis (Optional)" maxlength="5000"></textarea>
                         </div>
                         <div class="update-controls">
                             <button type="submit" id="logButton">Log New Report</button>
