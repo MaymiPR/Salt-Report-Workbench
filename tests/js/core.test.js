@@ -199,3 +199,18 @@ test('the MTI export splits tracked and wheeled counts', () => {
     assert.ok(mti.tracked.includes('"2 tracked"'));
     assert.ok(mti.wheeled.includes('"3 wheeled"'));
 });
+
+test('MTI counts written as "4x tracked" are found too', () => {
+    // Regression: only "4 tracked" matched, though operators write "4x".
+    const reps = [report({ size: '4x Tracked, 2 x wheeled' }), report({ id: 'r2', size: '1X TRACKED' })];
+    const mti = core.mtiCsvs(reps, { local: false, idOf: x => core.formatFullId(x, 'dash') });
+    assert.equal(mti.trackedRows, 2);
+    assert.equal(mti.wheeledRows, 1);
+    assert.ok(mti.tracked.includes('"Patrol - ALPHA001","Original","4x tracked"'));
+    assert.ok(mti.wheeled.includes('"2 x wheeled"'));
+});
+
+test('the CSV identifier is whatever the caller displays', () => {
+    const csv = core.reportsCsv([report()], { local: false, customLabels: [], idOf: x => core.formatFullId(x, 'space') });
+    assert.equal(core.parseCsv(csv)[1][0], 'Patrol ALPHA001');
+});
