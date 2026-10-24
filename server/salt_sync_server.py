@@ -1032,9 +1032,11 @@ class SaltSyncHandler(server.SimpleHTTPRequestHandler):
                     elif is_new:
                         workspace_sources[ato] = 'In-session'
                     invalidate_sync_cache()
-                # Capture initials from any report in the batch for IP attribution.
+                # Learn this connection's operator from the reports it logs, for
+                # IP attribution. Not from imports: a backup or CSV carries other
+                # people's reports, and the importer would take on their identity.
                 client_ip = self.client_address[0]
-                for r in incoming:
+                for r in incoming if source not in ('backup', 'csv') else ():
                     ini = ((r.get('user') or {}).get('initials') or '').strip()
                     if ini:
                         with sse_lock:

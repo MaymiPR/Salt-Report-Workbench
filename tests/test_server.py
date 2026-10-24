@@ -473,6 +473,15 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(edited["size"], "3x T-72")
         self.assertEqual(edited["user"]["initials"], "AB")
 
+    def test_importing_reports_does_not_change_who_the_importer_is(self):
+        # Regression: a backup of someone else's reports re-labelled the
+        # importer's connection, so their later edits were stamped as that person.
+        self.post("/api/save_profile", {"profile": {"initials": "AB", "color": "#32d74b"}})
+        theirs = report(user={"initials": "JR", "color": "#ff9f0a"})
+        for source in ("backup", "csv"):
+            self.post("/api/save_reports", {"ato": "ALPHA", "reports": [theirs], "source": source})
+            self.assertEqual(srv.client_initials["127.0.0.1"], "AB", source)
+
     def test_history_entries_can_be_deleted_individually(self):
         r = report(history=[{"size": "v1", "lastModified": 10}, {"size": "v2", "lastModified": 20}])
         self.post("/api/save_reports", {"ato": "ALPHA", "reports": [r]})
