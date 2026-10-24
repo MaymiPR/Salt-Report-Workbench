@@ -708,7 +708,7 @@ body.read-only #selectAllBtn,
 body.read-only #deselectAllBtn,
 body.read-only #clearAllBtn { display: none !important; }
 /* Viewer mode: drop every separator in the ellipsis menu. With Layout,
-   Select/Deselect, and Clear All hidden, the remaining items (Time, Workspaces,
+   Select/Deselect, and Clear Workspace hidden, the remaining items (Time, Workspaces,
    User Manual) are few enough that dividers add visual noise without grouping
    anything meaningful. */
 body.read-only #dataMgmtMenu hr { display: none !important; }
