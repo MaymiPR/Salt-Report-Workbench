@@ -14,6 +14,12 @@ All notable changes to this project are documented here. The format follows
   itself, including a portable copy in a `python\` folder beside it. The build
   copies it into `dist/`.
 
+### Removed
+
+- The ™ marks after the product name and the © line in the server banner and
+  the manual footer. They began as a joke; the name isn't a registered
+  trademark. The license's copyright notices are unchanged.
+
 ## [2.0.0] - 2026-10-24
 
 First tagged release. SALT logging with real-time LAN sync over Server-Sent

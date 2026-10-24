@@ -141,8 +141,7 @@ def safe_print(msg: str) -> None:
     try:
         print(msg, flush=True)
     except UnicodeEncodeError:
-        fallback = msg.replace('™', '(TM)').replace('©', '(C)')
-        print(fallback.encode('ascii', 'ignore').decode('ascii'), flush=True)
+        print(msg.encode('ascii', 'ignore').decode('ascii'), flush=True)
 
 
 def invalidate_sync_cache() -> None:
@@ -1239,7 +1238,7 @@ def run_boot_dashboard(viewer_port: int | None = None) -> None:
     """Boot banner — title, network URL, access code, optional viewer URL."""
     ip = get_local_ip()
     safe_print('\n' + '═' * 64)
-    safe_print('                   S.A.L.T. Sync Server ™')
+    safe_print('                      S.A.L.T. Sync Server')
     safe_print('═' * 64)
     safe_print(' [*] Starting S.A.L.T. Sync Server...')
     safe_print(f' [+] Workbench : http://{ip}:{PORT}')
