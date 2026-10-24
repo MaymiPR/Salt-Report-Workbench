@@ -29,10 +29,12 @@ Don't recolor the Location line, rotate the mark, or add effects.
 ## Palette
 
 Taken from the app's own CSS variables, so the brand and the product match.
+The one exception is the background of the brand assets, a touch lighter than
+the app's pure black so the mark doesn't vanish against dark pages.
 
 | Role | Name | Hex |
 | --- | --- | --- |
-| Background | Night | `#0B0B0D` |
+| Asset background | Night | `#0B0B0D` |
 | Surface | Panel | `#1C1C1E` |
 | Primary / Location | Signal Blue | `#0A84FF` |
 | Online / success | Go Green | `#32D74B` |

@@ -42,15 +42,20 @@ waits on the network. Rendering is one function per surface, such as `renderLog`
 and `renderWorkspacesList`, that rebuilds its DOM from state into a
 `DocumentFragment` for a single reflow.
 
-When a push fails, the client sets `salt_offline_push` and retries the whole
-workspace on the next successful sync. Because merging is idempotent (below),
-replaying is always safe.
+When a push can't land (the server is unreachable, rate-limits it, or
+errors), the client sets `salt_offline_push`, and the next sync pushes again
+*before* pulling, so the pull can't overwrite changes the server hasn't seen.
+Because merging is idempotent (below), replaying is always safe. A push the
+server refuses outright, such as a field over its length limit, is shown to
+the user with the server's reason instead of being retried.
 
 ### Server (`server/salt_sync_server.py`)
 
-A `ThreadingTCPServer` subclass with one `SimpleHTTPRequestHandler`. The same
-handler class serves both ports; each listener carries a `view_only` flag that
-the handler checks per request.
+A `ThreadingTCPServer` subclass with one `BaseHTTPRequestHandler` subclass.
+The same handler class serves both ports; each listener carries a `view_only`
+flag that the handler checks per request. Every POST route is a method in the
+handler's `_POST_ROUTES` table, paired with a schema validator in
+`_VALIDATORS`.
 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
@@ -122,8 +127,10 @@ The viewer port has no code; its protection is that every POST returns `405`.
 
 Every POST is also rate-limited per IP with a token bucket (60-request burst,
 refilling at 5 per second), validated against a hand-written schema for its
-endpoint, and capped at 1 MB. Edits are attributed to the operator the server
-already associates with that IP, not to whatever identity the client claims.
+endpoint, and capped at 16 MB. A refused request's body is read and dropped
+before the reply, so the client receives the error rather than a connection
+reset. Edits are attributed to the operator the server already associates with
+that IP, not to whatever identity the client claims.
 
 See [SECURITY.md](../SECURITY.md) for what this model does and does not protect
 against.

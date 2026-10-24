@@ -63,7 +63,7 @@ in [CHANGELOG.md](CHANGELOG.md).
 | **Workspaces** | Separate ATOs with their own reports and formats. Switch live, and the team switches with you. |
 | **View-only port** | Observers watch live on a second port that rejects every write, with no code required. |
 | **Exports** | Human-readable backups that re-import losslessly, CSV (including history and BDA rows), and MTI tracked/wheeled splits. |
-| **Hardened server** | Per-endpoint schema validation, per-IP rate limiting, server-stamped attribution that clients can't forge, atomic writes, and a 1 MB body cap. |
+| **Hardened server** | Per-endpoint schema validation, per-IP rate limiting, server-stamped attribution that clients can't forge, atomic writes, and a 16 MB body cap. |
 
 ## Quick start
 
@@ -211,7 +211,7 @@ The app has no dependencies, and the dev tools are optional.
 ```bash
 python scripts/build.py                  # bundle src/ into dist/
 python server/salt_sync_server.py        # run against the dev build
-python -m unittest discover -s tests     # 59 tests, standard library only
+python -m unittest discover -s tests     # 66 tests, standard library only
 
 pip install ruff==0.17.2 pre-commit      # optional tooling
 ruff check . && ruff format --check .
@@ -229,6 +229,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and conventions.
 
 ## Roadmap
 
+- **Push only what changed.** Every log currently uploads the whole
+  workspace, which grows with the operation.
 - **One backup file per workspace.** Today each file holds every workspace, so
   data is duplicated and the newest file wins on reload.
 - **BDA roll-up** above the table (assessed, destroyed, unassessed) with

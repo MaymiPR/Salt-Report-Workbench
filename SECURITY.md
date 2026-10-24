@@ -4,10 +4,11 @@
 
 Please **do not** open a public issue for a security problem.
 
-Report it privately to the maintainer, [@MaymiPR](https://github.com/MaymiPR),
-through a [draft security advisory](https://github.com/MaymiPR/SaltReportWorkbench/security/advisories/new)
-or a direct message on GitHub. Include what you found, how to reproduce it, and
-what an attacker could do with it.
+Report it privately with GitHub's
+[private vulnerability reporting](https://github.com/MaymiPR/SaltReportWorkbench/security/advisories/new)
+(the repository's **Security** tab, then **Report a vulnerability**). Only the
+maintainer, [@MaymiPR](https://github.com/MaymiPR), can see the report. Include
+what you found, how to reproduce it, and what an attacker could do with it.
 
 You can expect an acknowledgement within a week. Fixes for confirmed issues are
 released as soon as practical and credited to you unless you prefer otherwise.
@@ -29,7 +30,7 @@ a determined attacker on that network.
   constant time, from an alphabet built to be read aloud.
 - Spoofed attribution: edits are stamped with the operator the server already
   associates with the connection, not the identity a client claims.
-- Malformed or oversized input: per-endpoint schema validation, a 1 MB body
+- Malformed or oversized input: per-endpoint schema validation, a 16 MB body
   cap, and per-IP rate limiting.
 - Corrupted backups: atomic writes, so a crash never leaves a partial file.
 
