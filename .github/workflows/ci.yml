@@ -73,6 +73,6 @@ jobs:
           echo "smoke test passed"
       - uses: actions/upload-artifact@v4
         with:
-          name: salt-report-workbench-dist
+          name: SaltReportWorkbench-dist
           path: dist/
           if-no-files-found: error

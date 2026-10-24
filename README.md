@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MaymiPR/salt-report-workbench/actions/workflows/ci.yml"><img src="https://github.com/MaymiPR/salt-report-workbench/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/MaymiPR/SaltReportWorkbench/actions/workflows/ci.yml"><img src="https://github.com/MaymiPR/SaltReportWorkbench/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/version-2.0.0-0A84FF" alt="Version 2.0.0">
   <img src="https://img.shields.io/badge/python-3.10%2B-0A84FF" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/dependencies-none-32D74B" alt="No dependencies">
@@ -63,8 +63,8 @@ or a package registry:
 **Prerequisites:** Python 3.10 or newer and any modern browser. That's all.
 
 ```bash
-git clone https://github.com/MaymiPR/salt-report-workbench.git
-cd salt-report-workbench
+git clone https://github.com/MaymiPR/SaltReportWorkbench.git
+cd SaltReportWorkbench
 python scripts/build.py
 python dist/salt_sync_server.py
 ```

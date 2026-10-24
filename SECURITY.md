@@ -5,7 +5,7 @@
 Please **do not** open a public issue for a security problem.
 
 Report it privately to the maintainer, [@MaymiPR](https://github.com/MaymiPR),
-through a [draft security advisory](https://github.com/MaymiPR/salt-report-workbench/security/advisories/new)
+through a [draft security advisory](https://github.com/MaymiPR/SaltReportWorkbench/security/advisories/new)
 or a direct message on GitHub. Include what you found, how to reproduce it, and
 what an attacker could do with it.
 

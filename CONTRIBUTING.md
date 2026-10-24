@@ -16,8 +16,8 @@ get set up and what a change needs before it merges.
 ## Setup
 
 ```bash
-git clone https://github.com/MaymiPR/salt-report-workbench.git
-cd salt-report-workbench
+git clone https://github.com/MaymiPR/SaltReportWorkbench.git
+cd SaltReportWorkbench
 pip install ruff==0.17.2 pre-commit   # optional, but CI runs both
 pre-commit install
 ```

@@ -54,6 +54,6 @@ read-only viewer port, a per-launch access code, the report builder (SALT and
 SALT-U presets, custom fields with their own table columns), BDA tracking with a
 pre-paired checklist, and backup, CSV, and MTI exports.
 
-[Unreleased]: https://github.com/MaymiPR/salt-report-workbench/compare/v2.0.0...HEAD
-[2.0.0]: https://github.com/MaymiPR/salt-report-workbench/releases/tag/v2.0.0
-[#1]: https://github.com/MaymiPR/salt-report-workbench/pull/1
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/MaymiPR/SaltReportWorkbench/releases/tag/v2.0.0
+[#1]: https://github.com/MaymiPR/SaltReportWorkbench/pull/1
