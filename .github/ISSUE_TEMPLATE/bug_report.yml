@@ -1,0 +1,49 @@
+name: Bug report
+description: Something doesn't work the way it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Thanks for reporting. Please don't paste real report content or access
+        codes; describe the shape of the data instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start the server with ...
+        2. Log a report with ...
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options:
+        - Editor (server)
+        - Viewer (read-only port)
+        - Local (HTML file, no server)
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: "Windows 11, Python 3.13, Edge 130"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console output or errors
+      description: Server console output and browser devtools errors, if any.
+      render: text
