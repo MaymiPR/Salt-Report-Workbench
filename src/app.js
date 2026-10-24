@@ -1418,11 +1418,24 @@ function processJsonImport(rawText) {
                     try { await fetch('/api/save_format', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ato: fAto, format: fFmt }) }); } catch(e){}
                 }
             }
-            saveLocalAndSync(all, 'backup');
+            await saveLocalAndSync(all, 'backup');
+            // That pushed the active workspace only. Push the rest of the
+            // file too: the sync below replaces local state with the server's,
+            // so anything not pushed would be lost.
+            let unsent = 0;
+            for (const ato of isLocalFile ? [] : Object.keys(imp.workspaces || {})) {
+                if (ato === activeAto || !(all[ato] || []).length) continue;
+                if (await pushWorkspace(ato, all[ato], 'backup') === 'queued') unsent++;
+            }
             closeExportView();
             loadConfig();
             if (imp.profiles) { for (const key in imp.profiles) { try { await fetch('/api/save_profile', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ profile: imp.profiles[key] }) }); } catch(e){} } }
             if (imp.config && imp.config.ato) { try { await fetch('/api/save_config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ config: imp.config }) }); } catch(e){} }
+            if (unsent) {
+                // Don't sync: it would drop the workspaces the server never got.
+                showToast(`${unsent} workspace(s) couldn't reach the server. Import the file again once it's back.`, true);
+                return;
+            }
             showToast('Import successful. Syncing...');
             syncWithServer();
         } catch (err) { showToast('Import failed: ' + (err && err.message ? err.message : 'invalid file'), true); }
