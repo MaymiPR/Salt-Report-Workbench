@@ -289,25 +289,47 @@ const generateUUID = () => {
 const escapeHtml  = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const safeColor   = (c) => /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(String(c)) ? c : 'var(--system-gray)';
 const debounce    = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
-const toZuluTimeString = (d) => {
+const pad2 = n => String(n).padStart(2, '0');
+// Calendar and clock fields of a Date, zero-padded, in local time or UTC (Zulu).
+const dateFields = (d, local) => local
+    ? { y: d.getFullYear(),    mo: pad2(d.getMonth() + 1),    day: pad2(d.getDate()),    h: pad2(d.getHours()),    mi: pad2(d.getMinutes()) }
+    : { y: d.getUTCFullYear(), mo: pad2(d.getUTCMonth() + 1), day: pad2(d.getUTCDate()), h: pad2(d.getUTCHours()), mi: pad2(d.getUTCMinutes()) };
+// "HH:MM", the format of the time inputs.
+const clockValue = (d, local) => { const f = dateFields(d, local); return `${f.h}:${f.mi}`; };
+// "YYYYMMDD_HHMMZ" (or "...L"), for export filenames.
+const fileStamp  = (d, local) => { const f = dateFields(d, local); return `${f.y}${f.mo}${f.day}_${f.h}${f.mi}${local ? 'L' : 'Z'}`; };
+// Report times as shown in the table and copy text: "1430Z" or "0830L".
+// Unparseable input is returned as-is rather than rendered as NaN.
+const toTimeString = (d, local) => {
     const x = (d instanceof Date) ? d : new Date(d);
     if (!x || isNaN(x.getTime())) return String(d);
-    return `${String(x.getUTCHours()).padStart(2,'0')}${String(x.getUTCMinutes()).padStart(2,'0')}Z`;
+    const f = dateFields(x, local);
+    return `${f.h}${f.mi}${local ? 'L' : 'Z'}`;
 };
-// Shift UTC ms by the browser's tz offset, then read the result as UTC to
-// produce the local wall-clock HHMM. Invalid-Date guard prevents leaks.
-const toLocalTimeString = (d) => {
-    const x = (d instanceof Date) ? d : new Date(d);
-    if (!x || isNaN(x.getTime())) return String(d);
-    const shifted = new Date(x.getTime() - x.getTimezoneOffset() * 60 * 1000);
-    const h = String(shifted.getUTCHours()).padStart(2, '0');
-    const m = String(shifted.getUTCMinutes()).padStart(2, '0');
-    return `${h}${m}L`;
+const toZuluTimeString  = (d) => toTimeString(d, false);
+const toLocalTimeString = (d) => toTimeString(d, true);
+// "1430" (or "930") typed into a time box becomes "14:30"; anything else is
+// left alone for the user to see and fix. Returns whether it changed.
+const autoColonTime = (input) => {
+    const v = input.value.trim();
+    if (!v || v.includes(':')) return false;
+    const digits = v.replace(/\D/g, '');
+    const padded = digits.length === 3 ? '0' + digits : digits;
+    if (padded.length !== 4) return false;
+    const h = padded.slice(0, 2), m = padded.slice(2, 4);
+    if (parseInt(h, 10) > 23 || parseInt(m, 10) > 59) return false;
+    input.value = `${h}:${m}`;
+    return true;
 };
 const copyToClipboard = (text) => {
     if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).catch(() => {}); return; }
     const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px'; document.body.appendChild(ta); ta.focus(); ta.select(); try { document.execCommand('copy'); } catch(e){} ta.remove();
 };
+// POST a JSON body to the sync server. Resolves to the Response whatever its
+// status; rejects only when the server can't be reached.
+const postJson = (path, body) => fetch(path, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+});
 const setupMenuToggle = (btn, menu) => btn.addEventListener('click', e => { e.stopPropagation(); menu.style.display = menu.style.display === 'block' ? 'none' : 'block'; });
 
 // --- 4. Notifications (toasts + confirmation dialog) ---
@@ -778,7 +800,7 @@ const saveWorkspaceFormat = (format) => {
     applyFormFieldOrder();
     // Custom fields own table columns now, so the log has to repaint too.
     renderLog();
-    try { fetch('/api/save_format', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ato: activeAto, format }) }); } catch (e) {}
+    postJson('/api/save_format', { ato: activeAto, format }).catch(() => {});
 };
 
 const resetForm = () => {
@@ -811,12 +833,7 @@ const loadReportForEditing = (reportId) => {
     el.form.location.value = report.location;
     el.form.analysis.value = report.yourAnalysis || '';
     document.querySelectorAll('#salt-fields [data-custom-label]').forEach(i => { i.value = (report.custom || {})[i.dataset.customLabel] || ''; });
-    const d = new Date(report.time);
-    if (timeDisplayMode === 'local') {
-        el.form.time.value = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-    } else {
-        el.form.time.value = `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
-    }
+    el.form.time.value = clockValue(new Date(report.time), timeDisplayMode === 'local');
     // Swap the single "Log New Report" submit for the Edit / Update pair.
     el.form.logBtn.style.display   = 'none';
     el.form.editPair.style.display = 'flex';
@@ -954,80 +971,51 @@ const safeFilename = (s) => String(s||'').split('').map(c => /[A-Za-z0-9_-]/.tes
 const getBackupFilename = (ato, title) => `${safeFilename(ato)}_${safeFilename(title)}`;
 
 // CSV filename: ATO_Title_YYYYMMDD_HHMM{Z|L} — suffix matches active time mode.
-const getCsvExportStamp = () => {
-    const now = new Date();
-    const pad = n => String(n).padStart(2, '0');
-    if (timeDisplayMode === 'local') {
-        return `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}L`;
-    }
-    return `${now.getUTCFullYear()}${pad(now.getUTCMonth()+1)}${pad(now.getUTCDate())}_${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}Z`;
-};
+const getCsvFilename = (ato, title) => `${safeFilename(ato)}_${safeFilename(title)}_${fileStamp(new Date(), timeDisplayMode === 'local')}`;
 
-const getCsvFilename = (ato, title) => `${safeFilename(ato)}_${safeFilename(title)}_${getCsvExportStamp()}`;
+// Plain-text backup pieces shared by the one-workspace and all-workspace
+// exports. Literal em-dashes (not the HTML entity): this is a .txt file.
+const BACKUP_DIV = '='.repeat(72), BACKUP_SUB = '─'.repeat(72);
+const backupTime  = iso => { if (!iso) return '—'; const f = dateFields(new Date(iso), false); return `${f.y}-${f.mo}-${f.day} ${f.h}${f.mi}Z`; };
+const backupStamp = () => { const f = dateFields(new Date(), false); return `${f.y}-${f.mo}-${f.day} · ${f.h}${f.mi}Z`; };
+// Readable entries for the given live reports, in report-number order.
+const backupReportBlocks = (reps) => [...reps].sort((a,b) => reportNum(a) - reportNum(b)).map(r => {
+    let out = `${BACKUP_SUB}\n REPORT ${r.displayId}${r.updated ? '  [UPDATED]' : ''}\n${BACKUP_SUB}\n`;
+    out += ` Size     : ${r.size||'—'}\n Activity : ${r.activity||'—'}\n Location : ${r.location||'—'}\n Time     : ${backupTime(r.time)}\n`;
+    if (r.yourAnalysis) out += ` Analysis : ${r.yourAnalysis}\n`;
+    Object.entries(r.custom || {}).forEach(([ck, cv]) => { out += ` ${ck} : ${cv}\n`; });
+    if (r.user?.initials) out += ` By       : ${r.user.initials}\n`;
+    (r.bda || []).forEach((b, bi) => { out += `   BDA ${bi+1}  : ${b.effect || 'Unknown'} - ${b.target || ''}${b.coords ? ' @ ' + b.coords : ''}${b.note ? ' - ' + b.note : ''}\n`; });
+    if (r.history?.length) {
+        [...r.history].sort((a,b) => a.lastModified - b.lastModified).forEach((h, i) => {
+            out += `\n   ↳ Previous Entry ${i+1}\n      Size     : ${h.size||'—'}\n      Activity : ${h.activity||'—'}\n      Location : ${h.location||'—'}\n      Time     : ${backupTime(h.time)}\n`;
+            if (h.yourAnalysis) out += `      Analysis : ${h.yourAnalysis}\n`;
+        });
+    }
+    return out + '\n';
+}).join('');
+// The block the server and the importer read back.
+const backupMachineData = (payload) =>
+    `\n${BACKUP_DIV}\n MACHINE DATA — DO NOT EDIT BELOW THIS LINE\n${BACKUP_DIV}\n##SALT_BACKUP##\n${JSON.stringify(payload)}\n##SALT_BACKUP_END##\n`;
 
 const generateBackupText = (ato, reps, title, profiles) => {
-    const pad = n => String(n).padStart(2,'0');
-    // Literal em-dash (NOT the HTML entity) — this is a plain .txt file.
-    const fmt = iso => { if (!iso) return '—'; const d = new Date(iso); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}Z`; };
-    const active  = reps.filter(r => !r.deleted);
-    const div = '='.repeat(72), sub = '─'.repeat(72);
-    const now = new Date();
-    const ts  = `${now.getUTCFullYear()}-${pad(now.getUTCMonth()+1)}-${pad(now.getUTCDate())} · ${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}Z`;
-    let out = `${div}\n S.A.L.T. REPORT WORKBENCH — ATO BACKUP\n ATO Designator : ${ato}\n Report Title   : ${title}\n Total Reports  : ${active.length}\n Exported       : ${ts}\n${div}\n\n`;
-    [...active].sort((a,b) => reportNum(a) - reportNum(b)).forEach(r => {
-        out += `${sub}\n REPORT ${r.displayId}${r.updated ? '  [UPDATED]' : ''}\n${sub}\n`;
-        out += ` Size     : ${r.size||'—'}\n Activity : ${r.activity||'—'}\n Location : ${r.location||'—'}\n Time     : ${fmt(r.time)}\n`;
-        if (r.yourAnalysis) out += ` Analysis : ${r.yourAnalysis}\n`;
-        Object.entries(r.custom || {}).forEach(([ck, cv]) => { out += ` ${ck} : ${cv}\n`; });
-        if (r.user?.initials) out += ` By       : ${r.user.initials}\n`;
-        (r.bda || []).forEach((b, bi) => { out += `   BDA ${bi+1}  : ${b.effect || 'Unknown'} - ${b.target || ''}${b.coords ? ' @ ' + b.coords : ''}${b.note ? ' - ' + b.note : ''}\n`; });
-        if (r.history?.length) {
-            [...r.history].sort((a,b) => a.lastModified - b.lastModified).forEach((h, i) => {
-                out += `\n   ↳ Previous Entry ${i+1}\n      Size     : ${h.size||'—'}\n      Activity : ${h.activity||'—'}\n      Location : ${h.location||'—'}\n      Time     : ${fmt(h.time)}\n`;
-                if (h.yourAnalysis) out += `      Analysis : ${h.yourAnalysis}\n`;
-            });
-        }
-        out += '\n';
-    });
-    const machine = JSON.stringify({ workspaces: { [ato]: reps }, config: { ato, title }, profiles: profiles||{}, formats: workspaceFormats[ato] ? { [ato]: workspaceFormats[ato] } : {} });
-    out += `\n${div}\n MACHINE DATA — DO NOT EDIT BELOW THIS LINE\n${div}\n`;
-    out += `##SALT_BACKUP##\n${machine}\n##SALT_BACKUP_END##\n`;
-    return out;
+    const active = reps.filter(r => !r.deleted);
+    return `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH — ATO BACKUP\n ATO Designator : ${ato}\n Report Title   : ${title}\n Total Reports  : ${active.length}\n Exported       : ${backupStamp()}\n${BACKUP_DIV}\n\n`
+        + backupReportBlocks(active)
+        + backupMachineData({ workspaces: { [ato]: reps }, config: { ato, title }, profiles: profiles||{}, formats: workspaceFormats[ato] ? { [ato]: workspaceFormats[ato] } : {} });
 };
 
 const generateAllAtosBackupText = (workspaces, activeAto, title, profiles) => {
-    const pad = n => String(n).padStart(2,'0');
-    const fmt = iso => { if (!iso) return '—'; const d = new Date(iso); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}Z`; };
-    const div = '='.repeat(72), sub = '─'.repeat(72);
-    const now = new Date();
-    const ts  = `${now.getUTCFullYear()}-${pad(now.getUTCMonth()+1)}-${pad(now.getUTCDate())} · ${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}Z`;
-    const atoKeys    = Object.keys(workspaces);
-    const totalReps  = atoKeys.reduce((n, k) => n + (workspaces[k]||[]).filter(r => !r.deleted).length, 0);
-    let out = `${div}\n S.A.L.T. REPORT WORKBENCH — FULL BACKUP (ALL ATOs)\n ATOs Included  : ${atoKeys.join(', ')}\n Total Reports  : ${totalReps}\n Exported       : ${ts}\n${div}\n\n`;
+    const atoKeys   = Object.keys(workspaces);
+    const totalReps = atoKeys.reduce((n, k) => n + (workspaces[k]||[]).filter(r => !r.deleted).length, 0);
+    let out = `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH — FULL BACKUP (ALL ATOs)\n ATOs Included  : ${atoKeys.join(', ')}\n Total Reports  : ${totalReps}\n Exported       : ${backupStamp()}\n${BACKUP_DIV}\n\n`;
     atoKeys.forEach(ato => {
         const active   = (workspaces[ato]||[]).filter(r => !r.deleted);
         const atoTitle = (active.find(r => r.title)||{}).title || ato;
-        out += `${div}\n ATO: ${ato}  —  ${atoTitle}  (${active.length} report${active.length !== 1 ? 's' : ''})\n${div}\n\n`;
-        [...active].sort((a,b) => reportNum(a) - reportNum(b)).forEach(r => {
-            out += `${sub}\n REPORT ${r.displayId}${r.updated ? '  [UPDATED]' : ''}\n${sub}\n`;
-            out += ` Size     : ${r.size||'—'}\n Activity : ${r.activity||'—'}\n Location : ${r.location||'—'}\n Time     : ${fmt(r.time)}\n`;
-            if (r.yourAnalysis) out += ` Analysis : ${r.yourAnalysis}\n`;
-            Object.entries(r.custom || {}).forEach(([ck, cv]) => { out += ` ${ck} : ${cv}\n`; });
-            if (r.user?.initials) out += ` By       : ${r.user.initials}\n`;
-            (r.bda || []).forEach((b, bi) => { out += `   BDA ${bi+1}  : ${b.effect || 'Unknown'} - ${b.target || ''}${b.coords ? ' @ ' + b.coords : ''}${b.note ? ' - ' + b.note : ''}\n`; });
-            if (r.history?.length) {
-                [...r.history].sort((a,b) => a.lastModified - b.lastModified).forEach((h, i) => {
-                    out += `\n   ↳ Previous Entry ${i+1}\n      Size     : ${h.size||'—'}\n      Activity : ${h.activity||'—'}\n      Location : ${h.location||'—'}\n      Time     : ${fmt(h.time)}\n`;
-                    if (h.yourAnalysis) out += `      Analysis : ${h.yourAnalysis}\n`;
-                });
-            }
-            out += '\n';
-        });
+        out += `${BACKUP_DIV}\n ATO: ${ato}  —  ${atoTitle}  (${active.length} report${active.length !== 1 ? 's' : ''})\n${BACKUP_DIV}\n\n`;
+        out += backupReportBlocks(active);
     });
-    const machine = JSON.stringify({ workspaces, config: { ato: activeAto, title }, profiles: profiles||{}, formats: workspaceFormats });
-    out += `\n${div}\n MACHINE DATA — DO NOT EDIT BELOW THIS LINE\n${div}\n`;
-    out += `##SALT_BACKUP##\n${machine}\n##SALT_BACKUP_END##\n`;
-    return out;
+    return out + backupMachineData({ workspaces, config: { ato: activeAto, title }, profiles: profiles||{}, formats: workspaceFormats });
 };
 
 const triggerDownload = (filename, content, type = 'text/plain;charset=utf-8') => {
@@ -1165,7 +1153,7 @@ async function unloadWorkspace(ato) {
     if (!ato || !reportsByAto[ato]) return;
     const wasActive = (ato === activeAto);
     showConfirmation(`Unload workspace "${ato}" from view? (Backup file on disk is preserved.)`, async () => {
-        try { await fetch('/api/unload_ato', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ato }) }); } catch(e){}
+        try { await postJson('/api/unload_ato', { ato }); } catch(e){}
         delete reportsByAto[ato];
         delete workspaceSources[ato];
         saveReportsByAtoToLocal();
@@ -1418,7 +1406,7 @@ function processJsonImport(rawText) {
                 workspaceFormats = { ...workspaceFormats, ...imp.formats };
                 localStorage.setItem('salt_ws_formats', JSON.stringify(workspaceFormats));
                 for (const [fAto, fFmt] of Object.entries(imp.formats)) {
-                    try { await fetch('/api/save_format', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ato: fAto, format: fFmt }) }); } catch(e){}
+                    try { await postJson('/api/save_format', { ato: fAto, format: fFmt }); } catch(e){}
                 }
             }
             await saveLocalAndSync(all, 'backup');
@@ -1432,8 +1420,8 @@ function processJsonImport(rawText) {
             }
             closeExportView();
             loadConfig();
-            if (imp.profiles) { for (const key in imp.profiles) { try { await fetch('/api/save_profile', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ profile: imp.profiles[key] }) }); } catch(e){} } }
-            if (imp.config && imp.config.ato) { try { await fetch('/api/save_config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ config: imp.config }) }); } catch(e){} }
+            if (imp.profiles) { for (const key in imp.profiles) { try { await postJson('/api/save_profile', { profile: imp.profiles[key] }); } catch(e){} } }
+            if (imp.config && imp.config.ato) { try { await postJson('/api/save_config', { config: imp.config }); } catch(e){} }
             if (unsent) {
                 // Don't sync: it would drop the workspaces the server never got.
                 showToast(`${unsent} workspace(s) couldn't reach the server. Import the file again once it's back.`, true);
@@ -1644,12 +1632,6 @@ function setConnectionStatus(isOnline) {
     el.status.dotExp.className = cls;
     el.status.dotExp.title     = title;
 }
-
-// POST a JSON body to the sync server. Resolves to the Response whatever its
-// status; rejects only when the server can't be reached.
-const postJson = (path, body) => fetch(path, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-});
 
 // Wrong, missing, or rotated access code: forget it and re-prompt. The viewer
 // port never answers 401, but stay defensive.
@@ -1926,28 +1908,24 @@ async function handleFormSubmit(mode) {
     // subsequent saveLocalAndSync push still runs as a safety net via merge.
     if (editTargetId && finalReport) {
         try {
-            await fetch('/api/edit_report', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    ato:      activeAto,
-                    reportId: editTargetId,
-                    fields: {
-                        size:         finalReport.size,
-                        activity:     finalReport.activity,
-                        location:     finalReport.location,
-                        time:         finalReport.time,
-                        yourAnalysis: finalReport.yourAnalysis,
-                        displayId:    finalReport.displayId,
-                        fullId:       finalReport.fullId,
-                        ato:          finalReport.ato,
-                        title:        finalReport.title,
-                        updated:      finalReport.updated,
-                        custom:       finalReport.custom || {},
-                        user:         userProfile,
-                        lastModified: now
-                    }
-                })
+            await postJson('/api/edit_report', {
+                ato:      activeAto,
+                reportId: editTargetId,
+                fields: {
+                    size:         finalReport.size,
+                    activity:     finalReport.activity,
+                    location:     finalReport.location,
+                    time:         finalReport.time,
+                    yourAnalysis: finalReport.yourAnalysis,
+                    displayId:    finalReport.displayId,
+                    fullId:       finalReport.fullId,
+                    ato:          finalReport.ato,
+                    title:        finalReport.title,
+                    updated:      finalReport.updated,
+                    custom:       finalReport.custom || {},
+                    user:         userProfile,
+                    lastModified: now
+                }
             });
         } catch (err) { /* offline — save_reports below will reconcile on next push */ }
     }
@@ -1970,17 +1948,9 @@ el.form.updateBtn.addEventListener('click', () => handleFormSubmit('update'));
 
 el.form.cancelBtn.addEventListener('click', resetForm);
 
-el.form.nowBtn.addEventListener('click', () => {
-    const now = new Date();
-    if (timeDisplayMode === 'local') { el.form.time.value = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`; }
-    else { el.form.time.value = `${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`; }
-});
+el.form.nowBtn.addEventListener('click', () => { el.form.time.value = clockValue(new Date(), timeDisplayMode === 'local'); });
 
-el.form.time.addEventListener('blur', e => {
-    let v = e.target.value.trim(); if (v.includes(':')) return;
-    let d = v.replace(/\D/g,''); if (d.length===3) d='0'+d;
-    if (d.length===4) { const h=d.slice(0,2), m=d.slice(2,4); if(parseInt(h)<=23&&parseInt(m)<=59) e.target.value=`${h}:${m}`; }
-});
+el.form.time.addEventListener('blur', e => autoColonTime(e.target));
 
 // Log body — unified event delegation (history toggle, copy, restore, row click)
 el.log.body.addEventListener('click', e => {
@@ -2103,11 +2073,7 @@ el.log.deleteBtn.addEventListener('click', () => {
             reportsByAto[activeAto] = localReports;
             // Tell the server to remove the same entries server-side and broadcast SSE.
             try {
-                await fetch('/api/delete_history', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ ato: activeAto, deletions: histSel })
-                });
+                await postJson('/api/delete_history', { ato: activeAto, deletions: histSel });
             } catch (err) { /* offline — local change persists, server reconciles on next push */ }
         }
         // Persist locally + push (save_reports merges by lastModified, which we bumped above).
@@ -2182,7 +2148,7 @@ async function applyAtoConfig() {
     localStorage.setItem('salt_last_active_ato', activeAto);
     localStorage.setItem('salt_offline_config', JSON.stringify(localConfig));
     setAtoState(true); renderLog();
-    try { await fetch('/api/save_config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ config: newConfig }) }); showToast('Configuration Synced.'); }
+    try { await postJson('/api/save_config', { config: newConfig }); showToast('Configuration Synced.'); }
     catch(e) { showToast('Configuration Saved Locally.'); }
     // If a sync ran during the await and clobbered anything, restore the intended state.
     activeAto    = newAto;
@@ -2221,17 +2187,7 @@ el.config.history.addEventListener('change', () => {
 el.menu.clearBtn.addEventListener('click', () => {
     if (!activeAto) { showToast('No active ATO board to clear.', true); return; }
     if (localReports.filter(r=>!r.deleted).length===0) { showToast('This board is already empty.', true); return; }
-    showConfirmation(`Clear the "${activeAto}" workspace from view? (Backup file will not be deleted)`, async () => {
-        try { await fetch('/api/unload_ato', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ato:activeAto }) }); } catch(e){}
-        delete reportsByAto[activeAto];
-        saveReportsByAtoToLocal();
-        const cleared = activeAto;
-        activeAto=''; localReports=[]; localConfig.ato='';
-        localStorage.removeItem('salt_last_active_ato');
-        offlinePendingPush = false; localStorage.setItem('salt_offline_push', 'false');
-        loadConfig(); renderLog(); populateAtoHistory();
-        showToast(`Workspace "${cleared}" cleared from view.`);
-    });
+    unloadWorkspace(activeAto);
 });
 
 // Profile
@@ -2241,7 +2197,7 @@ el.profile.setBtn.addEventListener('click', async () => {
     if (!initials) { showToast('Enter your initials.', true); return; }
     userProfile = { initials, color };
     localStorage.setItem('salt_user_profile_local', JSON.stringify(userProfile));
-    try { await fetch('/api/save_profile', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ profile:userProfile }) }); } catch(e){}
+    try { await postJson('/api/save_profile', { profile:userProfile }); } catch(e){}
     showToast('Profile saved!'); updateProfilePreview(); syncWithServer();
 });
 // Scope this to the profile menu's swatches so the startup-modal swatches
@@ -2464,7 +2420,7 @@ el.startup.continueBtn.addEventListener('click', async () => {
         // 1. Save the user's identity locally + to the server.
         userProfile = { initials, color: el.startup.color.value || '#0a84ff' };
         localStorage.setItem('salt_user_profile_local', JSON.stringify(userProfile));
-        try { await fetch('/api/save_profile', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ profile: userProfile }) }); } catch(e){}
+        try { await postJson('/api/save_profile', { profile: userProfile }); } catch(e){}
         // Sync the profile preview in the header.
         el.profile.initials.value = initials;
         el.profile.color.value    = userProfile.color;
@@ -2526,8 +2482,7 @@ document.getElementById('exportPanelBackupBtn').addEventListener('click', () => 
                 if (reps.length) filtered[ato] = reportsByAto[ato]; // keep full array (deleted flags intact) for machine data
             });
             if (!Object.keys(filtered).length) { showToast('No reports to export.', true); return; }
-            const now = new Date(), pad = n => String(n).padStart(2,'0');
-            const fname = `ALL_ATOS_${now.getUTCFullYear()}${pad(now.getUTCMonth()+1)}${pad(now.getUTCDate())}_${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}Z.txt`;
+            const fname = `ALL_ATOS_${fileStamp(new Date(), false)}.txt`;
             triggerDownload(fname, generateAllAtosBackupText(filtered, activeAto||'', localConfig.title||'SALT', localProfiles));
             showToast(`All ATOs backup exported!`);
             clearExportFilter();
@@ -2626,21 +2581,8 @@ el.workspaces.tabs.forEach(btn => {
     node.addEventListener('input',  renderExportPreview);
     node.addEventListener('change', renderExportPreview);
 });
-// Auto-format the typed time on blur, same UX as the report form's time field
-// (e.g. "1430" → "14:30"). Invalid input is left alone for the user to see/fix.
-const formatTimeOnBlur = (e) => {
-    const v = e.target.value.trim();
-    if (!v || v.includes(':')) return;
-    const digits = v.replace(/\D/g,'');
-    const padded = digits.length === 3 ? '0' + digits : digits;
-    if (padded.length === 4) {
-        const h = padded.slice(0,2), m = padded.slice(2,4);
-        if (parseInt(h,10) <= 23 && parseInt(m,10) <= 59) {
-            e.target.value = `${h}:${m}`;
-            renderExportPreview();
-        }
-    }
-};
+// Same "1430" -> "14:30" help as the report form's time field.
+const formatTimeOnBlur = (e) => { if (autoColonTime(e.target)) renderExportPreview(); };
 el.exp.fromTime.addEventListener('blur', formatTimeOnBlur);
 el.exp.toTime  .addEventListener('blur', formatTimeOnBlur);
 el.exp.clearBtn.addEventListener('click', clearExportFilter);
@@ -2649,14 +2591,10 @@ el.exp.clearBtn.addEventListener('click', clearExportFilter);
 // Writes both the From and To pairs from a single click, honoring the current
 // Zulu/Local time mode so the values line up with what the user sees elsewhere.
 const writeFilterPair = (dateField, timeField, d) => {
-    const pad = n => String(n).padStart(2, '0');
-    if (timeDisplayMode === 'local') {
-        dateField.value = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-        timeField.value = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    } else {
-        dateField.value = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
-        timeField.value = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
-    }
+    const local = timeDisplayMode === 'local';
+    const f = dateFields(d, local);
+    dateField.value = `${f.y}-${f.mo}-${f.day}`;
+    timeField.value = clockValue(d, local);
 };
 document.querySelectorAll('.filter-preset-btn').forEach(btn => {
     btn.addEventListener('click', () => {
