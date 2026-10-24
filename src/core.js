@@ -312,15 +312,16 @@ const reportsCsv = (reps, { local, customLabels, idOf }) => {
 };
 
 // MTI export: the tracked and wheeled vehicle counts found in each Size
-// (current version and history), as two CSVs.
+// (current version and history), as two CSVs. Counts are written the way
+// operators write them: "4 tracked", "4x tracked", or "4 x tracked".
 const mtiCsvs = (reps, { local, idOf }) => {
     const t = d => toTimeString(d, local);
     const out = { tracked: csvHeader(local), wheeled: csvHeader(local), trackedRows: 0, wheeledRows: 0 };
     const row = (id, upd, size, activity, location, time, analysis) => {
         const sl = (size||'').toLowerCase();
-        const tm = sl.match(/(\d+\s*tracked)/);
+        const tm = sl.match(/(\d+\s*x?\s*tracked)/);
         if (tm) { out.tracked += [csvField(id),csvField(upd),csvField(tm[1].trim()),csvField(activity),csvField(location),csvField(t(time)),csvField(analysis)].join(',')+'\r\n'; out.trackedRows++; }
-        const wm = sl.match(/(\d+\s*wheeled)/);
+        const wm = sl.match(/(\d+\s*x?\s*wheeled)/);
         if (wm) { out.wheeled += [csvField(id),csvField(upd),csvField(wm[1].trim()),csvField(activity),csvField(location),csvField(t(time)),csvField(analysis)].join(',')+'\r\n'; out.wheeledRows++; }
     };
     for (const r of reps) {

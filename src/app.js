@@ -2291,7 +2291,8 @@ document.getElementById('exportPanelCsvBtn').addEventListener('click', () => {
         const reps = getExportFilteredReports();
         if (!reps.length) { showToast('No reports to export.', true); return; }
         const local = timeDisplayMode === 'local';
-        const idOf  = r => r.fullId;
+        // The identifier as the table shows it ("Patrol - ALPHA001").
+        const idOf  = formatFullId;
         const base  = getCsvFilename(activeAto||'ATO', localConfig.title||'SALT');
         if (el.exp.mtiToggle.checked) {
             const mti = SaltCore.mtiCsvs(reps, { local, idOf });
