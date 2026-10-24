@@ -324,7 +324,7 @@
                         <li><strong>Connected users count</strong> shows the number of unique people on the server. Multiple tabs open on the same machine count once.</li>
                         <li>Changes made while locally run queue in your browser and replay automatically the moment the server comes back.</li>
                     </ul>
-                    <h4 style="margin: 12px 0 6px; font-size: 0.9em; color: var(--text-secondary);">What the Sync Server Does Automatically</h4>
+                    <h4 class="manual-subhead">What the Sync Server Does Automatically</h4>
                     <ul>
                         <li><strong>Auto-opens your browser</strong> to the tool when you launch the server.</li>
                         <li><strong>Auto-minimizes the console window</strong> so it stays out of the way while running in the background.</li>
@@ -337,7 +337,7 @@
                         <li><strong>Atomic disk writes</strong>: backup files are written via a temp-file-then-rename, so a crash mid-save can never leave a corrupted backup.</li>
                         <li><strong>Graceful drain on Ctrl+C</strong>: notifies connected clients, flushes any pending disk write, then exits.</li>
                     </ul>
-                    <h4 style="margin: 12px 0 6px; font-size: 0.9em; color: var(--text-secondary);">Boot Dashboard</h4>
+                    <h4 class="manual-subhead">Boot Dashboard</h4>
                     <p>On launch the server prints a compact boot banner naming itself, then four labeled lines:</p>
                     <ul>
                         <li><code>Workbench</code>: the LAN URL editors hit to use the tool (default port <code>8080</code>).</li>
@@ -479,68 +479,68 @@
 
                 <div class="report-section">
                     <div id="logView">
-                    <div class="report-header">
-                        <h2>
-                            <div id="status-dot" class="status-dot" title="Sync Status"></div>
-                            <span id="connected-users" class="connected-users-chip" title="Users connected">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                                <span id="connected-users-count">1</span>
-                            </span>
-                            Report Log
-                        </h2>
-                        <div class="search-bar-wrapper">
-                             <span class="icon">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
-                            </span>
-                            <input type="search" id="searchBar" placeholder="Search...">
-                        </div>
-                        <div class="report-metrics">
-                            <span id="report-count"></span>
-                            <span id="report-total-count" title="Total reports including every saved update"></span>
-                        </div>
+                        <div class="report-header">
+                            <h2>
+                                <div id="status-dot" class="status-dot" title="Sync Status"></div>
+                                <span id="connected-users" class="connected-users-chip" title="Users connected">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                    <span id="connected-users-count">1</span>
+                                </span>
+                                Report Log
+                            </h2>
+                            <div class="search-bar-wrapper">
+                                 <span class="icon">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
+                                </span>
+                                <input type="search" id="searchBar" placeholder="Search...">
+                            </div>
+                            <div class="report-metrics">
+                                <span id="report-count"></span>
+                                <span id="report-total-count" title="Total reports including every saved update"></span>
+                            </div>
 
-                        <button id="deleteSelectedBtn">Delete</button>
-                        <select id="sendToAtoSelect" style="display:none;"></select>
-                        <button id="sendToAtoBtn" style="display:none;">&#8594;</button>
+                            <button id="deleteSelectedBtn">Delete</button>
+                            <select id="sendToAtoSelect" style="display:none;"></select>
+                            <button id="sendToAtoBtn" style="display:none;">&#8594;</button>
 
-                        <div class="data-management-menu">
-                            <button id="dataMgmtBtn" class="icon-btn" title="Options">
-                                <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2.5"></circle><circle cx="12" cy="12" r="2.5"></circle><circle cx="19" cy="12" r="2.5"></circle></svg>
-                            </button>
-                            <div id="dataMgmtMenu">
-                                <button id="toggleLayoutBtn"></button>
-                                <button id="toggleTimeFormatBtn"></button>
-                                <button id="toggleSepBtn"></button>
-                                <button id="toggleBdaBtn"></button>
-                                <button id="exportViewToggleBtn">Workspaces</button>
-                                <hr>
-                                <button id="selectAllBtn">Select All</button>
-                                <button id="deselectAllBtn">Deselect All</button>
-                                <hr>
-                                <button id="userManualBtn">User Manual</button>
-                                <hr>
-                                <button id="clearAllBtn">Clear All Data</button>
+                            <div class="data-management-menu">
+                                <button id="dataMgmtBtn" class="icon-btn" title="Options">
+                                    <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2.5"></circle><circle cx="12" cy="12" r="2.5"></circle><circle cx="19" cy="12" r="2.5"></circle></svg>
+                                </button>
+                                <div id="dataMgmtMenu">
+                                    <button id="toggleLayoutBtn"></button>
+                                    <button id="toggleTimeFormatBtn"></button>
+                                    <button id="toggleSepBtn"></button>
+                                    <button id="toggleBdaBtn"></button>
+                                    <button id="exportViewToggleBtn">Workspaces</button>
+                                    <hr>
+                                    <button id="selectAllBtn">Select All</button>
+                                    <button id="deselectAllBtn">Deselect All</button>
+                                    <hr>
+                                    <button id="userManualBtn">User Manual</button>
+                                    <hr>
+                                    <button id="clearAllBtn">Clear All Data</button>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    <div class="table-wrapper">
-                        <table id="reportLogTable">
-                            <thead>
-                                <tr>
-                                    <th class="col-action">Action</th>
-                                    <th class="col-by reporter-col">By</th>
-                                    <th id="sort-id-th" class="col-id sortable-th">Identifier <span id="sort-id-icon" class="sort-icon">&#8645;</span></th>
-                                    <th class="col-size">Size</th>
-                                    <th class="col-activity">Activity</th>
-                                    <th class="col-location">Location</th>
-                                    <th id="sort-time-th" class="col-time sortable-th"><span id="time-header">Time (Z)</span> <span id="sort-time-icon" class="sort-icon">&#8645;</span></th>
-                                    <th class="col-analysis">Analysis</th>
-                                </tr>
-                            </thead>
-                            <tbody id="reportLogBody">
-                            </tbody>
-                        </table>
-                    </div>
+                        <div class="table-wrapper">
+                            <table id="reportLogTable">
+                                <thead>
+                                    <tr>
+                                        <th class="col-action">Action</th>
+                                        <th class="col-by reporter-col">By</th>
+                                        <th id="sort-id-th" class="col-id sortable-th">Identifier <span id="sort-id-icon" class="sort-icon">&#8645;</span></th>
+                                        <th class="col-size">Size</th>
+                                        <th class="col-activity">Activity</th>
+                                        <th class="col-location">Location</th>
+                                        <th id="sort-time-th" class="col-time sortable-th"><span id="time-header">Time (Z)</span> <span id="sort-time-icon" class="sort-icon">&#8645;</span></th>
+                                        <th class="col-analysis">Analysis</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="reportLogBody">
+                                </tbody>
+                            </table>
+                        </div>
                     </div><!-- end #logView -->
                     <div id="exportPanel">
                         <div class="export-panel-header">
@@ -671,53 +671,53 @@
 
                             <div class="export-block">
                                 <div class="export-block-label">Filter by Time Range</div>
-                            <div class="filter-grid">
-                                <div class="filter-field">
-                                    <label>From <span class="filter-mode" id="export-from-mode">(Z)</span></label>
-                                    <div class="filter-pair">
-                                        <input type="date" id="export-from-date" class="filter-date" aria-label="From date">
-                                        <input type="text" id="export-from-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
+                                <div class="filter-grid">
+                                    <div class="filter-field">
+                                        <label>From <span class="filter-mode" id="export-from-mode">(Z)</span></label>
+                                        <div class="filter-pair">
+                                            <input type="date" id="export-from-date" class="filter-date" aria-label="From date">
+                                            <input type="text" id="export-from-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
+                                        </div>
+                                    </div>
+                                    <div class="filter-field">
+                                        <label>To <span class="filter-mode" id="export-to-mode">(Z)</span></label>
+                                        <div class="filter-pair">
+                                            <input type="date" id="export-to-date" class="filter-date" aria-label="To date">
+                                            <input type="text" id="export-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
+                                        </div>
                                     </div>
                                 </div>
-                                <div class="filter-field">
-                                    <label>To <span class="filter-mode" id="export-to-mode">(Z)</span></label>
-                                    <div class="filter-pair">
-                                        <input type="date" id="export-to-date" class="filter-date" aria-label="To date">
-                                        <input type="text" id="export-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
+                                <div class="filter-presets" aria-label="Quick range presets">
+                                    <span class="filter-presets-label">Last</span>
+                                    <button type="button" class="filter-preset-btn" data-preset-hours="12">12h</button>
+                                    <button type="button" class="filter-preset-btn" data-preset-hours="6">6h</button>
+                                    <button type="button" class="filter-preset-btn" data-preset-hours="1">1h</button>
+                                </div>
+                                <div class="filter-meta">
+                                    <span id="export-filter-count" class="filter-count-line">All reports will be exported.</span>
+                                    <button id="exportClearFilterBtn" class="cancel-btn">Clear</button>
+                                </div>
+                            </div>
+
+                            <div class="export-divider"></div>
+
+                            <div class="export-block">
+                                <div class="export-block-label">Options</div>
+                                <label class="export-option-row">
+                                    <input type="checkbox" id="exportAllAtosToggle">
+                                    <div>
+                                        <div class="export-option-text">Export All ATOs</div>
+                                        <div class="export-option-desc">Backup includes every loaded workspace, not just the active one</div>
                                     </div>
-                                </div>
+                                </label>
+                                <label class="export-option-row" style="margin-top:10px;">
+                                    <input type="checkbox" id="exportMtiToggle">
+                                    <div>
+                                        <div class="export-option-text">MTI Export</div>
+                                        <div class="export-option-desc">Splits CSV into separate tracked and wheeled files</div>
+                                    </div>
+                                </label>
                             </div>
-                            <div class="filter-presets" aria-label="Quick range presets">
-                                <span class="filter-presets-label">Last</span>
-                                <button type="button" class="filter-preset-btn" data-preset-hours="12">12h</button>
-                                <button type="button" class="filter-preset-btn" data-preset-hours="6">6h</button>
-                                <button type="button" class="filter-preset-btn" data-preset-hours="1">1h</button>
-                            </div>
-                            <div class="filter-meta">
-                                <span id="export-filter-count" class="filter-count-line">All reports will be exported.</span>
-                                <button id="exportClearFilterBtn" class="cancel-btn">Clear</button>
-                            </div>
-                        </div>
-
-                        <div class="export-divider"></div>
-
-                        <div class="export-block">
-                            <div class="export-block-label">Options</div>
-                            <label class="export-option-row">
-                                <input type="checkbox" id="exportAllAtosToggle">
-                                <div>
-                                    <div class="export-option-text">Export All ATOs</div>
-                                    <div class="export-option-desc">Backup includes every loaded workspace, not just the active one</div>
-                                </div>
-                            </label>
-                            <label class="export-option-row" style="margin-top:10px;">
-                                <input type="checkbox" id="exportMtiToggle">
-                                <div>
-                                    <div class="export-option-text">MTI Export</div>
-                                    <div class="export-option-desc">Splits CSV into separate tracked and wheeled files</div>
-                                </div>
-                            </label>
-                        </div>
                         </div><!-- /ws-tab-panel data-tab-panel="export" -->
                     </div>
 

@@ -1,5 +1,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
+"""S.A.L.T. Report Workbench sync server.
+
+Serves the bundled page and keeps every connected browser in step: clients
+push reports with POSTs, the server merges them (newest edit wins), tells
+everyone over Server-Sent Events that something changed, and writes a
+readable backup file. An optional second port serves the same data read-only.
+
+Standard library only, so it runs on a stock Python 3.10+ install.
+See docs/ARCHITECTURE.md for the design.
+"""
+
 import argparse
 import contextlib
 import ctypes
@@ -77,8 +88,8 @@ _save_timer_lock = threading.Lock()
 # --- Access code (editor-port gate) ---
 # Random per-launch code; host shares it verbally with editors. Viewer port is NOT
 # gated. Host's browser auto-fills via meta injection on 127.0.0.1 requests.
-# Alphabet excludes confusables (0/O, 1/l/I, 5/S) for radio-readability.
-ACCESS_CODE_ALPHABET = '2346789ABCDEFGHJKLMNPQRTUVWXYZ'  # no 0/O, 1/I/l, 5/S
+# No look-alikes (0/O, 1/I/l, 5/S), so the code can be read aloud over a radio.
+ACCESS_CODE_ALPHABET = '2346789ABCDEFGHJKLMNPQRTUVWXYZ'
 ACCESS_CODE_LENGTH = 10
 # --access-code overrides: characters a browser cookie carries unchanged.
 ACCESS_CODE_OVERRIDE_RE = re.compile(r'[A-Za-z0-9_-]{1,64}')
@@ -182,7 +193,6 @@ def flush_pending_save() -> None:
 
 def get_local_ip() -> str:
     """Return the machine's outward-facing LAN IP."""
-    # Py3 sockets support the context manager protocol — no try/finally needed.
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         try:
             s.connect(('10.255.255.255', 1))
@@ -614,8 +624,6 @@ def _merge_reports(existing_list: list, incoming_list: list) -> list:
 
 def load_data_from_disk() -> None:
     """Read mtime-sorted .txt backups from BACKUP_DIR into DATA_STORE + workspace_sources."""
-    global DATA_STORE
-
     with data_lock:
         os.makedirs(BACKUP_DIR, exist_ok=True)
 
@@ -704,7 +712,6 @@ def render_backup(
 
     div = '=' * 72
     sub = '-' * 72
-    # Timezone-aware UTC (utcnow() deprecated in Py3.12).
     now = datetime.now(timezone.utc)
     ts = f'{now:%Y-%m-%d} · {now:%H%MZ}'
 

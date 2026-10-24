@@ -896,8 +896,6 @@ const restoreHistoryVersion = (reportId, lastModified) => {
 const setAtoState = (isSet) => {
     el.config.ato.readOnly   = isSet;
     el.config.title.readOnly = isSet;
-    el.config.ato.classList.remove('requires-set');
-    el.config.title.classList.remove('requires-set');
     el.config.setBtn.textContent = isSet ? 'Change' : 'Set';
     el.config.setBtn.classList.toggle('change-btn', isSet);
     el.config.setBtn.classList.toggle('set-btn', !isSet);
