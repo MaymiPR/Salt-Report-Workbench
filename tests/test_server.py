@@ -397,7 +397,8 @@ class HttpApiTests(unittest.TestCase):
             with urllib.request.urlopen(req, timeout=5) as resp:
                 return resp.status, resp.read()
         except urllib.error.HTTPError as exc:
-            return exc.code, exc.read()
+            with exc:  # an error response is still an open connection
+                return exc.code, exc.read()
 
     def post(self, path, body, **kw):
         status, raw = self.request(path, body, **kw)
