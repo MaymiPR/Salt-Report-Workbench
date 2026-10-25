@@ -54,3 +54,5 @@ fully trusted, isolated network.
 `Auto Backups/` and other runtime data are git-ignored, and the pre-commit
 configuration includes a private-key detector. Never commit real reports, and
 treat exported backups and CSVs with the same care as the reports themselves.
+The folder also holds `audit.log`, which names operators by initials and LAN
+address, and `snapshots/`, dated copies of the backup; both stay with the host.

@@ -135,6 +135,11 @@ past `SNAPSHOT_KEEP`. Snapshot names begin with the UTC time, so a listing is
 chronological. `load_data_from_disk` reads only the top level of the backup
 folder, so snapshots never load on their own; restoring one is a manual copy.
 
+Every accepted write passes through `_commit`, which also appends a line to
+`audit.log` in the backup folder: UTC time, the operator the server knows for
+that address (`AB@10.0.0.12`), and what changed. Server start and stop are
+logged the same way. The log is append-only and nothing reads it.
+
 > **Known limitation.** Each backup file currently contains every loaded
 > workspace, named after whichever one was active. Files duplicate each other,
 > and an unloaded workspace reappears on restart from an older file. That

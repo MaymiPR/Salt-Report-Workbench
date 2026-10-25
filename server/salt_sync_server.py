@@ -54,6 +54,8 @@ SAVE_DEBOUNCE_SECONDS: float = 0.5  # coalesce rapid mutations into one disk wri
 SNAPSHOT_DIR_NAME = 'snapshots'
 SNAPSHOT_INTERVAL_SECONDS: float = 3600.0
 SNAPSHOT_KEEP: int = 48
+# One line per accepted write (when, who, what), beside the backups.
+AUDIT_LOG_NAME = 'audit.log'
 
 # The bundled page sits beside the server in a built `dist/` folder; when run
 # straight from `server/` during development, fall back to `../dist/`.
@@ -204,6 +206,34 @@ def flush_pending_save() -> None:
             _save_timer.cancel()
             _save_timer = None
     save_data_to_disk()
+
+
+_audit_lock = threading.Lock()
+_audit_failed = False
+
+
+def audit(actor: str, what: str) -> None:
+    """Append one line to ``BACKUP_DIR/audit.log``: when, who, what.
+
+    Answers "who changed this, and when" after the fact. Operators are named
+    by the initials the server knows for their address, else the address
+    alone. A log that can't be written is reported once and never stops a
+    request.
+    """
+    global _audit_failed
+    stamp = f'{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}'
+    line = f'{stamp}  {actor:<20}  {" ".join(what.split())}\n'
+    try:
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        with (
+            _audit_lock,
+            open(os.path.join(BACKUP_DIR, AUDIT_LOG_NAME), 'a', encoding='utf-8') as f,
+        ):
+            f.write(line)
+    except OSError as exc:
+        if not _audit_failed:
+            _audit_failed = True
+            safe_print(f'[!] Could not write {AUDIT_LOG_NAME}: {exc}')
 
 
 def get_local_ip() -> str:
@@ -1148,8 +1178,16 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
     def _bad_request(self, message: str) -> None:
         self._send_json({'status': 'error', 'message': message}, 400)
 
-    def _commit(self, **extra) -> None:
-        """The end of every successful write: persist, notify clients, confirm."""
+    def _actor(self) -> str:
+        """Who is behind this connection, for the audit log: ``AB@10.0.0.12`` or the address."""
+        ip = self.client_address[0]
+        with sse_lock:
+            ini = client_initials.get(ip, '')
+        return f'{ini}@{ip}' if ini else ip
+
+    def _commit(self, what: str, **extra) -> None:
+        """The end of every successful write: log it, persist, notify clients, confirm."""
+        audit(self._actor(), what)
         schedule_save()
         broadcast_update()
         self._send_json({'status': 'success', **extra})
@@ -1193,7 +1231,13 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                     with sse_lock:
                         client_initials[self.client_address[0]] = ini
                     break
-        self._commit()
+        deleted = sum(1 for r in incoming if r.get('deleted'))
+        what = f'save_reports {ato}: {len(incoming)} report(s)'
+        if deleted:
+            what += f', {deleted} deleted'
+        if source in ('backup', 'csv'):
+            what += f', from {source}'
+        self._commit(what)
 
     def _post_unload_ato(self, data: dict) -> None:
         ato = (data.get('ato') or '').strip().upper()
@@ -1210,7 +1254,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             invalidate_sync_cache()
         # Persisted like any write: an unload that lived only in memory came
         # back on the next server restart.
-        self._commit(message='ATO unloaded.')
+        self._commit(f'unload_ato {ato}', message='ATO unloaded.')
 
     def _post_edit_report(self, data: dict) -> None:
         ato = (data.get('ato') or '').strip().upper()
@@ -1245,7 +1289,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         if not found:
             self._send_json({'status': 'error', 'message': 'Report not found.'}, 404)
             return
-        self._commit()
+        self._commit(f'edit_report {ato} {report_id}')
 
     def _post_delete_history(self, data: dict) -> None:
         ato = (data.get('ato') or '').strip().upper()
@@ -1274,7 +1318,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                     r['lastModified'] = now_ms
             if removed > 0:
                 invalidate_sync_cache()
-        self._commit(removed=removed)
+        self._commit(f'delete_history {ato}: {removed} entries', removed=removed)
 
     def _post_save_config(self, data: dict) -> None:
         cfg = data.get('config')
@@ -1286,7 +1330,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             with data_lock:
                 DATA_STORE['config'] = clean
                 invalidate_sync_cache()
-        self._commit()
+            self._commit(f'save_config {clean["ato"]} / {clean["title"]}')
+            return
+        self._commit('save_config (unchanged)')
 
     def _post_save_format(self, data: dict) -> None:
         ato = (data.get('ato') or '').strip().upper()
@@ -1297,7 +1343,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         with data_lock:
             DATA_STORE.setdefault('formats', {})[ato] = fmt
             invalidate_sync_cache()
-        self._commit()
+        self._commit(f'save_format {ato}')
 
     def _post_save_profile(self, data: dict) -> None:
         profile = data.get('profile')
@@ -1314,7 +1360,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         # IP -> initials so /api/sync includes them and /api/edit_report can server-stamp.
         with sse_lock:
             client_initials[self.client_address[0]] = ini
-        self._commit()
+        self._commit(f'save_profile {ini}')
 
     _POST_ROUTES: ClassVar[dict] = {
         '/api/save_reports': _post_save_reports,
@@ -1460,6 +1506,7 @@ def graceful_drain() -> None:
         safe_print(' [+] Pending changes flushed to disk.')
     except Exception as exc:
         safe_print(f' [!] Error flushing on shutdown: {exc}')
+    audit('server', 'stopped')
 
 
 if __name__ == '__main__':
@@ -1501,6 +1548,7 @@ if __name__ == '__main__':
         safe_print(f' [!] --viewer-port matches --port ({PORT}); ignored.')
 
     run_boot_dashboard(viewer_port=viewer_port_bound)
+    audit('server', f'started: editor port {PORT}, viewer port {viewer_port_bound or "off"}')
 
     _server_ip = get_local_ip()
 

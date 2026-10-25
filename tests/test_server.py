@@ -641,6 +641,27 @@ class HttpApiTests(unittest.TestCase):
         text = (Path(srv.BACKUP_DIR) / "ALPHA_Patrol.txt").read_text("utf-8")
         self.assertNotIn("BRAVO", srv._extract_json_from_file(text)["workspaces"])
 
+    def test_every_accepted_write_is_audited_with_its_operator(self):
+        log = Path(srv.BACKUP_DIR) / srv.AUDIT_LOG_NAME
+        before = len(log.read_text("utf-8").splitlines()) if log.exists() else 0
+        self.post("/api/save_profile", {"profile": {"initials": "AB", "color": "#32d74b"}})
+        self.post(
+            "/api/save_reports",
+            {"ato": "ALPHA", "reports": [report(), report("r2", "ALPHA002", deleted=True)]},
+        )
+        self.post("/api/edit_report", {"ato": "ALPHA", "reportId": "r1", "fields": {"size": "x"}})
+        # Refused writes leave no trace.
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]}, code="WRONGCODE2")
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report(time="bad")]})
+        lines = log.read_text("utf-8").splitlines()[before:]
+        self.assertEqual(len(lines), 3, lines)
+        stamp = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z  "
+        self.assertRegex(lines[0], stamp + r"AB@127\.0\.0\.1\s+save_profile AB$")
+        self.assertRegex(
+            lines[1], stamp + r"AB@127\.0\.0\.1\s+save_reports ALPHA: 2 report\(s\), 1 deleted$"
+        )
+        self.assertRegex(lines[2], stamp + r"AB@127\.0\.0\.1\s+edit_report ALPHA r1$")
+
     def test_dated_snapshots_are_kept_hourly_and_pruned(self):
         self.post("/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol"}})
         snap_dir = Path(srv.BACKUP_DIR) / srv.SNAPSHOT_DIR_NAME
