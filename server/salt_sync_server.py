@@ -14,6 +14,7 @@ See docs/ARCHITECTURE.md for the design.
 import argparse
 import contextlib
 import ctypes
+import gzip
 import http.server as server
 import json
 import os
@@ -268,6 +269,18 @@ def _check_access_code(headers, view_only: bool, client_ip: str) -> bool:
     # Constant-time compare to avoid timing-leak guesses. Bytes, because
     # compare_digest raises on str with non-ASCII characters.
     return secrets.compare_digest(submitted.encode(), _access_code.encode())
+
+
+def _gzip_sync_body(body: bytes) -> bytes:
+    """gzip a /api/sync body, reusing the last result when the body is unchanged."""
+    global _sync_gz_cache
+    with _sync_gz_lock:
+        if _sync_gz_cache is not None and _sync_gz_cache[0] == body:
+            return _sync_gz_cache[1]
+    packed = gzip.compress(body, compresslevel=5)
+    with _sync_gz_lock:
+        _sync_gz_cache = (body, packed)
+    return packed
 
 
 def _get_workbench_html() -> bytes | None:
@@ -1008,10 +1021,19 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             + ro
             + b'}'
         )
-        self._send_body(body, 'application/json')
+        # A month of reports is megabytes of JSON that every browser downloads
+        # after every change; it compresses five to eight times.
+        if 'gzip' in self.headers.get('Accept-Encoding', ''):
+            self._send_body(
+                _gzip_sync_body(body),
+                'application/json',
+                headers=(('Content-Encoding', 'gzip'), ('Vary', 'Accept-Encoding')),
+            )
+            return
+        self._send_body(body, 'application/json', headers=(('Vary', 'Accept-Encoding'),))
 
     def _handle_sse(self):
-        """SSE stream. `select` wakes on 15s heartbeat or client disconnect (instant prune on refresh)."""
+        """SSE stream. `select` wakes on the heartbeat or client disconnect (instant prune on refresh)."""
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')
         self.send_header('Cache-Control', 'no-cache')

@@ -103,7 +103,10 @@ The server is the meeting point, not the authority over content.
 - **Cached sync payload.** The JSON for workspaces, config, profiles, and
   formats is serialized once and cached as a byte prefix; only the small
   per-request tail (connected users, read-only flag) is appended each time. Any
-  mutation clears the cache.
+  mutation clears the cache. A client that accepts gzip (every browser) gets
+  the body compressed, five to eight times smaller; since every client pulls
+  the same state after a change, the compressed form is cached too and one
+  compression serves them all.
 
 ## Persistence
 
