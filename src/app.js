@@ -152,6 +152,24 @@ const readStored = (key, fallback) => {
         return fallback;
     }
 };
+// Write to localStorage. Storage can be full (a long operation's reports and
+// history, cached in every browser) or blocked. The app works from memory
+// either way, so a failure is reported once instead of thrown into whatever
+// was running; before this, a full store silently took the client offline.
+let storageWarned = false;
+const writeStored = (key, value) => {
+    try {
+        localStorage.setItem(key, value);
+        return true;
+    } catch (e) {
+        if (!storageWarned) {
+            storageWarned = true;
+            // Deferred: the first writes run before the toast exists.
+            setTimeout(() => showToast('Browser storage is full. This tab keeps working, but it can\'t save its offline copy or settings until space is freed.', true), 0);
+        }
+        return false;
+    }
+};
 let reportsByAto  = readStored('salt_reports_by_ato', {});
 let activeAto     = null;
 // Viewer-only: the workspace the viewer has clicked to look at locally.
@@ -196,7 +214,7 @@ const renderIdentityAccessCode = () => {
 const setAccessCode = (code) => {
     accessCode = (code || '').trim().toUpperCase();
     if (accessCode) {
-        localStorage.setItem(_ACCESS_CODE_KEY, accessCode);
+        writeStored(_ACCESS_CODE_KEY, accessCode);
         setAccessCookie(accessCode);
     }
     renderIdentityAccessCode();
@@ -275,15 +293,15 @@ let serverVersions = {};
 // Changes the server refused, per workspace (report key -> { report, reason }).
 // Kept so nothing is lost: shown as "Not saved" until fixed or discarded.
 let unsaved = readStored('salt_unsaved', {});
-const saveUnsaved = () => { try { localStorage.setItem('salt_unsaved', JSON.stringify(unsaved)); } catch (e) {} };
+const saveUnsaved = () => { writeStored('salt_unsaved', JSON.stringify(unsaved)); };
 const unsavedEntry = (ato, report) => ((unsaved[ato] || {})[SaltCore.reportKey(report)]) || null;
 
 // Dedupe localStorage writes — skip if the JSON hasn't actually changed.
 let lastSavedReportsJson = localStorage.getItem('salt_reports_by_ato') || '';
 const saveReportsByAtoToLocal = () => {
     const json = JSON.stringify(reportsByAto);
-    if (json !== lastSavedReportsJson) {
-        localStorage.setItem('salt_reports_by_ato', json);
+    // A write that fails is tried again on the next change, not forgotten.
+    if (json !== lastSavedReportsJson && writeStored('salt_reports_by_ato', json)) {
         lastSavedReportsJson = json;
     }
 };
@@ -746,7 +764,7 @@ const ensureWorkspaceFormat = () => {
     if (own) {
         // Remember the shape we're actually working in, so the next new
         // workspace inherits this rather than the last one we happened to edit.
-        try { localStorage.setItem(_LAST_FORMAT_KEY, JSON.stringify(own)); } catch (e) {}
+        writeStored(_LAST_FORMAT_KEY, JSON.stringify(own));
         return;
     }
     const carry = readStored(_LAST_FORMAT_KEY, null);
@@ -760,8 +778,8 @@ const ensureWorkspaceFormat = () => {
 const saveWorkspaceFormat = (format) => {
     if (!activeAto) return;
     workspaceFormats[activeAto] = format;
-    localStorage.setItem('salt_ws_formats', JSON.stringify(workspaceFormats));
-    try { localStorage.setItem(_LAST_FORMAT_KEY, JSON.stringify(format)); } catch (e) {}
+    writeStored('salt_ws_formats', JSON.stringify(workspaceFormats));
+    writeStored(_LAST_FORMAT_KEY, JSON.stringify(format));
     applyFormFieldOrder();
     // Custom fields own table columns now, so the log has to repaint too.
     renderLog();
@@ -1027,10 +1045,10 @@ async function unloadWorkspace(ato) {
             activeAto    = '';
             localReports = [];
             localConfig  = { ato:'', title:'' };
-            localStorage.setItem('salt_offline_config', JSON.stringify(localConfig));
+            writeStored('salt_offline_config', JSON.stringify(localConfig));
             localStorage.removeItem('salt_last_active_ato');
             offlinePendingPush = false;
-            localStorage.setItem('salt_offline_push', 'false');
+            writeStored('salt_offline_push', 'false');
             loadConfig();
             resetForm();
         }
@@ -1065,7 +1083,7 @@ const switchWorkspacesTab = (tabName) => {
     el.workspaces.tabPanels.forEach(panel => {
         panel.style.display = (panel.dataset.tabPanel === tabName) ? '' : 'none';
     });
-    localStorage.setItem('salt_workspaces_tab', tabName);
+    writeStored('salt_workspaces_tab', tabName);
     // Refresh derived state on switch so filter counts / list aren't stale.
     if (tabName === 'export')          renderExportPreview();
     else if (tabName === 'workspaces') renderWorkspacesList();
@@ -1204,7 +1222,7 @@ const openExportView = () => {
     el.exp.panel.style.display = 'flex';
     el.menu.exportBtn.classList.add('active');
     el.menu.panel.style.display = 'none';
-    localStorage.setItem('salt_view', 'export');
+    writeStored('salt_view', 'export');
     // Restore last-used tab; default 'export' for fresh sessions.
     switchWorkspacesTab(localStorage.getItem('salt_workspaces_tab') || 'export');
     renderExportPreview();
@@ -1216,7 +1234,7 @@ const closeExportView = () => {
     el.log.view.style.display  = 'flex';
     el.exp.panel.style.display = 'none';
     el.menu.exportBtn.classList.remove('active');
-    localStorage.setItem('salt_view', 'log');
+    writeStored('salt_view', 'log');
 };
 
 function processJsonImport(rawText) {
@@ -1236,14 +1254,14 @@ function processJsonImport(rawText) {
             if (imp.config && imp.config.ato && imp.config.title) {
                 activeAto   = imp.config.ato;
                 localConfig = { ato: imp.config.ato, title: imp.config.title };
-                localStorage.setItem('salt_offline_config', JSON.stringify(localConfig));
-                localStorage.setItem('salt_last_active_ato', activeAto);
+                writeStored('salt_offline_config', JSON.stringify(localConfig));
+                writeStored('salt_last_active_ato', activeAto);
                 setAtoState(true);
             }
             // Restore per-workspace report formats bundled in the backup.
             if (imp.formats && typeof imp.formats === 'object') {
                 workspaceFormats = { ...workspaceFormats, ...imp.formats };
-                localStorage.setItem('salt_ws_formats', JSON.stringify(workspaceFormats));
+                writeStored('salt_ws_formats', JSON.stringify(workspaceFormats));
                 for (const [fAto, fFmt] of Object.entries(imp.formats)) {
                     try { await postJson('/api/save_format', { ato: fAto, format: fFmt }); } catch(e){}
                 }
@@ -1336,7 +1354,7 @@ const openCsvImportView = () => {
 const closeCsvImportView = () => {
     el.csv.panel.style.display = 'none';
     el.log.view.style.display  = 'flex';
-    localStorage.setItem('salt_view', 'log');
+    writeStored('salt_view', 'log');
     pendingCsv = null;
 };
 
@@ -1415,10 +1433,10 @@ const confirmCsvImport = async () => {
     reportsByAto[dest] = [...existing, ...newReps];
     if (activeAto !== dest) {
         activeAto = dest;
-        localStorage.setItem('salt_last_active_ato', dest);
+        writeStored('salt_last_active_ato', dest);
         if (dest !== 'IMPORT') {
             localConfig = { ato: dest, title: destTitle };
-            localStorage.setItem('salt_offline_config', JSON.stringify(localConfig));
+            writeStored('salt_offline_config', JSON.stringify(localConfig));
             setAtoState(true);
             loadConfig();
         }
@@ -1441,7 +1459,7 @@ const confirmCsvImport = async () => {
     // and re-anchor localReports to the destination we imported into.
     if (activeAto !== intendedAto) {
         activeAto = intendedAto;
-        localStorage.setItem('salt_last_active_ato', intendedAto);
+        writeStored('salt_last_active_ato', intendedAto);
     }
     localReports = reportsByAto[activeAto] || [];
     renderLog();
@@ -1546,7 +1564,7 @@ async function pushToServer(source) {
     if (!activeAto) return true;
     const result = await pushWorkspace(activeAto, localReports || [], source);
     offlinePendingPush = result === 'queued';
-    localStorage.setItem('salt_offline_push', String(offlinePendingPush));
+    writeStored('salt_offline_push', String(offlinePendingPush));
     setConnectionStatus(!offlinePendingPush);
     return !offlinePendingPush;
 }
@@ -1572,7 +1590,7 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     // for workspaces the server hasn't seen survive.
     if (formats && typeof formats === 'object') {
         workspaceFormats = { ...workspaceFormats, ...formats };
-        try { localStorage.setItem('salt_ws_formats', JSON.stringify(workspaceFormats)); } catch (e) {}
+        writeStored('salt_ws_formats', JSON.stringify(workspaceFormats));
     }
     if (connectedUsers != null) {
         el.status.userCount.textContent    = connectedUsers;
@@ -1582,7 +1600,7 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     // Cache profiles so the startup modal can offer them even before the
     // first sync of a future session (or offline).
     if (profiles && Object.keys(profiles).length) {
-        try { localStorage.setItem(_PROFILES_CACHE_KEY, JSON.stringify(profiles)); } catch (e) {}
+        writeStored(_PROFILES_CACHE_KEY, JSON.stringify(profiles));
     }
     workspaceSources  = sources       || {};
     connectedInitials = Array.isArray(connInitials) ? connInitials : [];
@@ -1626,15 +1644,15 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     } else if (config && config.ato && config.title) {
         activeAto = config.ato;
         localConfig = { ato: config.ato, title: config.title };
-        localStorage.setItem('salt_offline_config', JSON.stringify(localConfig));
-        localStorage.setItem('salt_last_active_ato', activeAto);
+        writeStored('salt_offline_config', JSON.stringify(localConfig));
+        writeStored('salt_last_active_ato', activeAto);
         localReports = reportsByAto[activeAto] || [];
     } else {
         // Server config empty (e.g., another client just unloaded the active ATO).
         activeAto = null;
         localReports = [];
         localConfig = { ato: '', title: '' };
-        localStorage.setItem('salt_offline_config', JSON.stringify(localConfig));
+        writeStored('salt_offline_config', JSON.stringify(localConfig));
         localStorage.removeItem('salt_last_active_ato');
     }
 
@@ -2042,11 +2060,11 @@ el.log.search.addEventListener('keydown', e => {
 
 el.log.sortIdTh.addEventListener('click', () => {
     currentSortMode = currentSortMode==='recent' ? 'numAsc' : currentSortMode==='numAsc' ? 'numDesc' : 'recent';
-    localStorage.setItem('salt_sort_mode', currentSortMode); updateSortIcons(); renderLog(el.log.search.value.toLowerCase());
+    writeStored('salt_sort_mode', currentSortMode); updateSortIcons(); renderLog(el.log.search.value.toLowerCase());
 });
 el.log.sortTimeTh.addEventListener('click', () => {
     currentSortMode = currentSortMode==='timeAsc' ? 'timeDesc' : 'timeAsc';
-    localStorage.setItem('salt_sort_mode', currentSortMode); updateSortIcons(); renderLog(el.log.search.value.toLowerCase());
+    writeStored('salt_sort_mode', currentSortMode); updateSortIcons(); renderLog(el.log.search.value.toLowerCase());
 });
 
 // Config / ATO — shared logic for Set button and history dropdown
@@ -2059,16 +2077,16 @@ async function applyAtoConfig() {
     activeAto    = newAto;
     localConfig  = newConfig;
     localReports = reportsByAto[activeAto] || [];
-    localStorage.setItem('salt_last_active_ato', activeAto);
-    localStorage.setItem('salt_offline_config', JSON.stringify(localConfig));
+    writeStored('salt_last_active_ato', activeAto);
+    writeStored('salt_offline_config', JSON.stringify(localConfig));
     setAtoState(true); renderLog();
     try { await postJson('/api/save_config', { config: newConfig }); showToast('Configuration Synced.'); }
     catch(e) { showToast('Configuration Saved Locally.'); }
     // If a sync ran during the await and clobbered anything, restore the intended state.
     activeAto    = newAto;
     localConfig  = newConfig;
-    localStorage.setItem('salt_last_active_ato', activeAto);
-    localStorage.setItem('salt_offline_config', JSON.stringify(localConfig));
+    writeStored('salt_last_active_ato', activeAto);
+    writeStored('salt_offline_config', JSON.stringify(localConfig));
 }
 
 el.config.setBtn.addEventListener('click', () => {
@@ -2110,7 +2128,7 @@ el.profile.setBtn.addEventListener('click', async () => {
     const color    = el.profile.color.value;
     if (!initials) { showToast('Enter your initials.', true); return; }
     userProfile = { initials, color };
-    localStorage.setItem('salt_user_profile_local', JSON.stringify(userProfile));
+    writeStored('salt_user_profile_local', JSON.stringify(userProfile));
     try { await postJson('/api/save_profile', { profile:userProfile }); } catch(e){}
     showToast('Profile saved!'); updateProfilePreview(); syncWithServer();
 });
@@ -2245,7 +2263,7 @@ const closeStartupModal = () => {
     // Remember that so we don't keep re-forcing the modal on every refresh
     // of the same session.
     if (accessCode) {
-        try { localStorage.setItem(_ACCESS_CONFIRMED_KEY, accessCode); } catch (e) {}
+        writeStored(_ACCESS_CONFIRMED_KEY, accessCode);
     }
     forceStartupModal = false;
     el.startup.overlay.classList.remove('show');
@@ -2328,7 +2346,7 @@ el.startup.continueBtn.addEventListener('click', async () => {
     try {
         // 1. Save the user's identity locally + to the server.
         userProfile = { initials, color: el.startup.color.value || '#0a84ff' };
-        localStorage.setItem('salt_user_profile_local', JSON.stringify(userProfile));
+        writeStored('salt_user_profile_local', JSON.stringify(userProfile));
         try { await postJson('/api/save_profile', { profile: userProfile }); } catch(e){}
         // Sync the profile preview in the header.
         el.profile.initials.value = initials;
@@ -2493,11 +2511,11 @@ document.querySelectorAll('.filter-preset-btn').forEach(btn => {
 });
 
 // Layout / Time format
-el.menu.layoutBtn.addEventListener('click', () => { el.layout.grid.classList.toggle('horizontal-layout'); localStorage.setItem('salt_layout', el.layout.grid.classList.contains('horizontal-layout')?'horizontal':'vertical'); applyLayoutMode(); });
-el.menu.timeBtn.addEventListener('click', () => { timeDisplayMode=timeDisplayMode==='zulu'?'local':'zulu'; localStorage.setItem('salt_time_mode',timeDisplayMode); showToast(`Time format: ${timeDisplayMode}.`); updateTimeBtnText(); if(el.form.reportId.value) loadReportForEditing(el.form.reportId.value); renderLog(); if (isExportViewActive) renderExportPreview(); });
+el.menu.layoutBtn.addEventListener('click', () => { el.layout.grid.classList.toggle('horizontal-layout'); writeStored('salt_layout', el.layout.grid.classList.contains('horizontal-layout')?'horizontal':'vertical'); applyLayoutMode(); });
+el.menu.timeBtn.addEventListener('click', () => { timeDisplayMode=timeDisplayMode==='zulu'?'local':'zulu'; writeStored('salt_time_mode',timeDisplayMode); showToast(`Time format: ${timeDisplayMode}.`); updateTimeBtnText(); if(el.form.reportId.value) loadReportForEditing(el.form.reportId.value); renderLog(); if (isExportViewActive) renderExportPreview(); });
 el.menu.sepBtn.addEventListener('click', () => {
     atoTitleSep = atoTitleSep==='dash'?'space':'dash';
-    localStorage.setItem('salt_ato_title_sep', atoTitleSep);
+    writeStored('salt_ato_title_sep', atoTitleSep);
     updateSepBtnText();
     // The separator shows in the workspace lists, the Identifier column, the
     // edit-form title, and copied report text — refresh everything visible.
@@ -2508,7 +2526,7 @@ el.menu.sepBtn.addEventListener('click', () => {
     if (bp && bp.style.display !== 'none') renderBuilderPreview();
     showToast(`ATO/Title separator: ${atoTitleSep}.`);
 });
-el.menu.bdaBtn.addEventListener('click', () => { bdaMode = !bdaMode; localStorage.setItem('salt_bda_mode', bdaMode ? 'on' : 'off'); document.body.classList.toggle('bda-mode', bdaMode); updateBdaBtnText(); renderLog(); el.menu.panel.style.display='none'; showToast(bdaMode ? 'BDA tracking shown.' : 'BDA tracking hidden.'); });
+el.menu.bdaBtn.addEventListener('click', () => { bdaMode = !bdaMode; writeStored('salt_bda_mode', bdaMode ? 'on' : 'off'); document.body.classList.toggle('bda-mode', bdaMode); updateBdaBtnText(); renderLog(); el.menu.panel.style.display='none'; showToast(bdaMode ? 'BDA tracking shown.' : 'BDA tracking hidden.'); });
 
 // Menus
 setupMenuToggle(el.menu.btn, el.menu.panel);
