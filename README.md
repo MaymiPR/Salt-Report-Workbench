@@ -247,7 +247,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and conventions.
   data is duplicated and the newest file wins on reload.
 - **BDA roll-up** above the table (assessed, destroyed, unassessed) with
   click-to-filter, for the commander watching the viewer port.
-- **Sortable Size, Activity, and Location columns.**
 - **Browser tests** for the DOM layer in `app.js`; its pure logic is already
   covered through `core.js`.
 
