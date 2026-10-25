@@ -68,6 +68,12 @@ test('HTML, colors, and filenames are made safe', () => {
 
 // --- Reports ---
 
+test('the ATO prefix is upper case with no dashes, everywhere', () => {
+    assert.equal(core.atoPrefix(' alpha-01 '), 'ALPHA01');
+    assert.equal(core.atoPrefix('IMPORT'), 'IMPORT');
+    assert.equal(core.atoPrefix(null), '');
+});
+
 test('report numbers ignore digits that belong to the ATO', () => {
     assert.equal(core.reportNum({ displayId: 'TEST01001', ato: 'TEST01' }), 1);
     assert.equal(core.reportNum({ displayId: 'ALPHA012', ato: 'ALPHA' }), 12);

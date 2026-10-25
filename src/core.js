@@ -75,6 +75,11 @@ const safeFilename = (s) => String(s||'').split('').map(c => /[A-Za-z0-9_-]/.tes
 
 // --- Reports ---
 
+// The ATO as it appears in identifiers: upper case, no dashes ("alpha-01" ->
+// "ALPHA01"). Every path that numbers reports uses this, so one workspace
+// never ends up with two prefixes.
+const atoPrefix = (ato) => String(ato || '').trim().toUpperCase().replace(/-/g, '');
+
 // Sequence number of a report. `displayId` is `${ato}${paddedNumber}`, so a
 // naive trailing-digit match swallows the ATO's own digits when it ends in
 // one (TEST01001 -> 1001 instead of 1, making the next report TEST011002).
@@ -372,7 +377,7 @@ const withUnsaved = (serverReps, unsavedReps) => {
 const SaltCore = {
     pad2, dateFields, clockValue, fileStamp, toTimeString, autoColon, parseFilterTime,
     escapeHtml, safeColor, safeFilename,
-    reportNum, formatFullId, reportText, normalizeLocation,
+    atoPrefix, reportNum, formatFullId, reportText, normalizeLocation,
     BDA_EFFECTS, bdaElements, bdaSummary,
     backupFilename, backupText, allWorkspacesBackupText, parseBackup,
     parseCsv, reportsCsv, mtiCsvs,
