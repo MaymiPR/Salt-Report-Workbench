@@ -1396,11 +1396,12 @@ const confirmCsvImport = async () => {
     const dest     = el.csv.destSelect.value || 'IMPORT';
     const existing = reportsByAto[dest] || [];
     const lastNum  = existing.reduce((m, r) => Math.max(m, reportNum(r)), 0);
-    const prefix   = dest === 'IMPORT' ? 'IMP' : dest;
+    const prefix   = dest === 'IMPORT' ? 'IMP' : SaltCore.atoPrefix(dest);
     const destTitle = dest === 'IMPORT' ? 'IMPORT' : ((existing.find(r => r.title) || {}).title || dest);
 
-    let imported = 0, skipped = 0;
+    let imported = 0, skipped = 0, unreadTimes = 0;
     const newReps = [];
+    const importedAt = new Date().toISOString();
     pendingCsv.rows.forEach(r => {
         const activity = idx.activity !== -1 ? (r[idx.activity]||'').trim() : '';
         const size     = idx.size     !== -1 ? (r[idx.size]    ||'').trim() : '';
@@ -1412,16 +1413,20 @@ const confirmCsvImport = async () => {
         if (!activity && !size && !loc && !t && !csvTitle) { skipped++; return; }
         const did  = `${prefix}${String(lastNum + newReps.length + 1).padStart(3,'0')}`;
         const full = csvTitle || (dest === 'IMPORT' ? did : `${destTitle}${did}`);
+        // The server only takes ISO 8601; a time it can't read would refuse the
+        // whole row, so unreadable ones get the import time and are counted.
+        const when = t ? SaltCore.parseCsvTime(t, timeDisplayMode === 'local') : null;
+        if (t && !when) unreadTimes++;
         newReps.push({
             id: generateUUID(),
             displayId: did,
             fullId:    full,
-            ato:       dest,
+            ato:       SaltCore.atoPrefix(dest),
             title:     destTitle,
             size:      size || '-',
             activity,
             location:  loc,
-            time:      t || new Date().toISOString(),
+            time:      when || importedAt,
             yourAnalysis: '',
             history: [],
             updated: false,
@@ -1777,7 +1782,7 @@ async function handleFormSubmit(mode) {
             return;
         }
         const orig = reports[idx];
-        const tAto = el.config.ato.value.trim().toUpperCase().replace(/-/g,'');
+        const tAto = SaltCore.atoPrefix(el.config.ato.value);
         const tNum = String(el.form.startNum.value).padStart(3,'0');
         const tDid = `${tAto}${tNum}`;
         if (tDid !== orig.displayId) {
@@ -1807,7 +1812,7 @@ async function handleFormSubmit(mode) {
         showToast(`${formatFullId(finalReport)} ${verb} & copied!`);
     } else {
         // NEW REPORT path
-        const atoPrefix   = el.config.ato.value.trim().toUpperCase().replace(/-/g,'');
+        const atoPrefix   = SaltCore.atoPrefix(el.config.ato.value);
         const titlePrefix = el.config.title.value.trim() || 'Report #';
         const relevant    = reports.filter(r => !r.deleted && r.ato === atoPrefix);
         const lastNum     = relevant.reduce((m,r) => Math.max(m, reportNum(r)), 0);
@@ -2031,8 +2036,8 @@ el.log.sendBtn.addEventListener('click', async () => {
     ids.forEach((id, i) => {
         const idx = (reportsByAto['IMPORT']||[]).findIndex(r => r.id===id); if(idx===-1) return;
         const rep = { ...reportsByAto['IMPORT'][idx] };
-        const did = `${target}${String(lastNum+moved+1).padStart(3,'0')}`;
-        rep.ato=target; rep.title=(reportsByAto[target].find(r=>r.title&&!r.deleted)||{}).title||target; rep.displayId=did; rep.fullId=`${rep.title}${did}`; rep.lastModified=Date.now();
+        const did = `${SaltCore.atoPrefix(target)}${String(lastNum+moved+1).padStart(3,'0')}`;
+        rep.ato=SaltCore.atoPrefix(target); rep.title=(reportsByAto[target].find(r=>r.title&&!r.deleted)||{}).title||target; rep.displayId=did; rep.fullId=`${rep.title}${did}`; rep.lastModified=Date.now();
         targetReps.push(rep);
         // Bump the IMPORT copy too, or the deletion would never be sent.
         reportsByAto['IMPORT'][idx] = { ...reportsByAto['IMPORT'][idx], deleted: true, lastModified: Date.now() };
