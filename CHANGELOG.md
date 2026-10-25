@@ -20,6 +20,16 @@ All notable changes to this project are documented here. The format follows
   can't carry markup into everyone's browser.
 - The client reacts to the server's own shutdown notice, instead of waiting
   for the next failed heartbeat.
+- A typed time more than an hour ahead of now is dated yesterday. In Zulu mode
+  the day rolls over during a US evening, so `23:50` typed at `00:30Z` used to
+  land twenty-three hours in the future.
+- CSV import reads a Time column written as ISO 8601, `YYYY-MM-DD HH:MM`,
+  `HH:MM`/`HHMM` (today), or a DTG such as `241430Z`. Any other value gets the
+  import time and the result says how many. Before, a column in any form but
+  ISO 8601 made the server refuse every imported row.
+- A workspace whose ATO has a dash (`ALPHA-01`) numbers its reports with one
+  prefix. Reports from the form dropped the dash (`ALPHA01001`); CSV imports
+  and "Send to ATO" kept it, so the same workspace had two numbering schemes.
 
 ### Added
 
