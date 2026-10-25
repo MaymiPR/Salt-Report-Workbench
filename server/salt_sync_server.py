@@ -1257,13 +1257,24 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
 
 
 class SaltSyncServer(socketserver.ThreadingTCPServer):
-    allow_reuse_address = True
+    # SO_REUSEADDR lets a restart rebind a port whose old sockets are still in
+    # TIME_WAIT. On Windows it also lets a second copy of the server bind a port
+    # that is already listening, so two launches ran side by side with the
+    # traffic split between them and both wrote the same backups. There,
+    # SO_EXCLUSIVEADDRUSE refuses the second bind instead, and a closed listener
+    # can be rebound at once without SO_REUSEADDR.
+    allow_reuse_address = os.name != 'nt'
     daemon_threads = True  # SSE threads die with main on Ctrl+C
 
     def __init__(self, *args, view_only: bool = False, **kwargs):
         # Per-listener mode flag; handler checks via self.server.view_only.
         self.view_only = view_only
         super().__init__(*args, **kwargs)
+
+    def server_bind(self):
+        if os.name == 'nt':
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
     def handle_error(self, request, client_address):
         """Stay quiet when a client just goes away (closed tabs, dropped SSE
@@ -1391,7 +1402,12 @@ if __name__ == '__main__':
 
     load_data_from_disk()
 
-    httpd = SaltSyncServer((HOST, PORT), SaltSyncHandler)
+    try:
+        httpd = SaltSyncServer((HOST, PORT), SaltSyncHandler)
+    except OSError as exc:
+        safe_print(f'\n [!] Could not listen on port {PORT}: {exc}')
+        safe_print('     Is the server already running? Close it, or start this one with --port.')
+        sys.exit(1)
 
     # Optional viewer listener — same DATA_STORE; view_only=True returns 405 on POST. SSE spans both.
     # Created before the boot dashboard so it can report the actually-bound port.
