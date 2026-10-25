@@ -479,7 +479,6 @@ const commitBdaEntries = (reportId, wrap) => {
     report.lastModified = now;
     reportsByAto[activeAto] = localReports;
     saveLocalAndSync(reportsByAto);
-    renderLog();
     showToast(`${adds.length} assessment${adds.length === 1 ? '' : 's'} logged for ${formatFullId(report)}.`);
 };
 
@@ -499,7 +498,6 @@ const updateBdaEffect = (reportId, lm, effect) => {
     report.lastModified = Date.now();
     reportsByAto[activeAto] = localReports;
     saveLocalAndSync(reportsByAto);
-    renderLog();
     showToast(`${entry.target || 'Assessment'}: ${prev} → ${effect}.`);
 };
 
@@ -512,7 +510,6 @@ const deleteBdaEntry = (reportId, lm) => {
         report.lastModified = Date.now();
         reportsByAto[activeAto] = localReports;
         saveLocalAndSync(reportsByAto);
-        renderLog();
         showToast('BDA assessment deleted.');
     });
 };
