@@ -174,6 +174,20 @@ test('the BDA pill reports progress and the worst outcome', () => {
     assert.deepEqual(core.bdaSummary({ size: 'x1', bda: [] }), { done: 0, total: 1, worstCls: '' });
 });
 
+test('the BDA roll-up totals a workspace\'s elements and outcomes', () => {
+    const reps = [
+        { size: '4x T-72, 2x BMP-2', location: '', bda: [{ effect: 'Destroyed' }] },        // 1 of 2 assessed
+        { size: '1x ZSU', location: '', bda: [{ effect: 'Damaged' }, { effect: 'odd' }] },   // more assessments than elements
+        { size: '3x trucks', location: '', bda: [] },                                       // nothing yet
+        { size: '1x gone', deleted: true, bda: [{ effect: 'Destroyed' }] },                  // deleted: ignored
+    ];
+    assert.deepEqual(core.bdaRollup(reps), {
+        done: 3, total: 5, unassessed: 2,
+        byEffect: { Destroyed: 1, Damaged: 1, 'Mobility Kill': 0, Suppressed: 0, 'No Effect': 0, Unknown: 1 },
+    });
+    assert.deepEqual(core.bdaRollup([]).byEffect.Destroyed, 0);
+});
+
 // --- Backups ---
 
 test('a backup lists live reports and round-trips everything', () => {

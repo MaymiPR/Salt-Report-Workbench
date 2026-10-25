@@ -58,7 +58,7 @@ in [CHANGELOG.md](CHANGELOG.md).
 | **Real-time sync** | Server-Sent Events push every change to every browser within a second. Last-modified-wins merging resolves concurrent edits. |
 | **Offline-first** | Full functionality from local storage; queued changes replay automatically on reconnect. Each change uploads only the reports it touched, and a report the server refuses stays visible as *Not saved* until it's fixed or discarded. |
 | **Report builder** | Reorder lines, switch between SALT and SALT-U, and add custom fields (e.g. `W: Weather`) that get their own form box, table column, and copy-text line. Saved per workspace and synced to the team. |
-| **BDA tracking** | Hidden until you need it. A checklist pre-pairs each element of a report with its grid, so a ten-target assessment is ten clicks. Revisable, searchable, exported. |
+| **BDA tracking** | Hidden until you need it. A checklist pre-pairs each element of a report with its grid, so a ten-target assessment is ten clicks. A roll-up above the table totals the workspace by outcome, click-to-filter. Revisable, searchable, exported. |
 | **Edit history** | *Update* snapshots the prior version; *Edit* corrects in place. Any prior version can be restored, and Delete and Restore both offer a ten-second Undo. |
 | **Workspaces** | Separate ATOs with their own reports and formats. Switch live, and the team switches with you. |
 | **View-only port** | Observers watch live on a second port that rejects every write, with no code required. |
@@ -245,8 +245,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and conventions.
 
 - **One backup file per workspace.** Today each file holds every workspace, so
   data is duplicated and the newest file wins on reload.
-- **BDA roll-up** above the table (assessed, destroyed, unassessed) with
-  click-to-filter, for the commander watching the viewer port.
 - **Browser tests** for the DOM layer in `app.js`; its pure logic is already
   covered through `core.js`.
 
