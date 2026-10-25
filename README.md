@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.4.0-0A84FF" alt="Version 2.4.0">
+  <img src="https://img.shields.io/badge/version-2.4.1-0A84FF" alt="Version 2.4.1">
   <a href="https://github.com/MaymiPR/SaltReportWorkbench/actions/workflows/ci.yml"><img src="https://github.com/MaymiPR/SaltReportWorkbench/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-0A84FF" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/dependencies-none-32D74B" alt="No dependencies">
