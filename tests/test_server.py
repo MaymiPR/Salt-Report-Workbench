@@ -9,6 +9,7 @@ Standard library only, matching the project's zero-dependency rule. Run with
 from __future__ import annotations
 
 import contextlib
+import gzip
 import http.client
 import io
 import json
@@ -780,6 +781,39 @@ class HttpApiTests(unittest.TestCase):
             flush.assert_called_once()
             self.assertEqual(resp.readline(), b"event: shutdown\n")
             self.assertEqual(resp.readline(), b"data: server-stopping\n")
+
+    def test_sync_is_gzipped_for_clients_that_accept_it(self):
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        plain_status, plain = self.request("/api/sync")
+        self.assertEqual(plain_status, 200)
+        conn = http.client.HTTPConnection("127.0.0.1", self.editor.server_address[1], timeout=5)
+        try:
+            conn.request(
+                "GET",
+                "/api/sync",
+                headers={"Cookie": f"salt_access={CODE}", "Accept-Encoding": "gzip"},
+            )
+            resp = conn.getresponse()
+            packed = resp.read()
+            self.assertEqual(resp.getheader("Content-Encoding"), "gzip")
+            self.assertEqual(resp.getheader("Vary"), "Accept-Encoding")
+        finally:
+            conn.close()
+        self.assertLess(len(packed), len(plain))
+        self.assertEqual(json.loads(gzip.decompress(packed)), json.loads(plain))
+        # Same state, same compressed bytes: the second request reuses the first's work.
+        with mock.patch.object(srv.gzip, "compress", wraps=srv.gzip.compress) as spy:
+            conn = http.client.HTTPConnection("127.0.0.1", self.editor.server_address[1], timeout=5)
+            try:
+                conn.request(
+                    "GET",
+                    "/api/sync",
+                    headers={"Cookie": f"salt_access={CODE}", "Accept-Encoding": "gzip"},
+                )
+                self.assertEqual(conn.getresponse().read(), packed)
+            finally:
+                conn.close()
+        spy.assert_not_called()
 
 
 if __name__ == "__main__":
