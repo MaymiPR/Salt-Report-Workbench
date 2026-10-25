@@ -77,6 +77,12 @@ DATA_STORE: dict = {
 
 # Cached /api/sync prefix — all but the closing brace and connected_users count. Invalidated on every mutation.
 _sync_cache_prefix: bytes | None = None  # protected by data_lock
+# The last /api/sync body and its gzip form. Every client pulls the same state
+# after a change, so one compression serves them all. Protected by _sync_gz_lock.
+_sync_gz_cache: tuple[bytes, bytes] | None = None
+_sync_gz_lock = threading.Lock()
+# Seconds between SSE heartbeats; each one also detects a client that left without a FIN.
+SSE_HEARTBEAT_SECONDS: float = 15.0
 
 # Per-workspace provenance (ato -> source label). Rides on /api/sync. Protected by data_lock.
 workspace_sources: dict = {}
@@ -1021,7 +1027,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         sock = self.request  # underlying TCP socket
         try:
             while True:
-                ready, _, _ = select.select([sock], [], [], 15)
+                ready, _, _ = select.select([sock], [], [], SSE_HEARTBEAT_SECONDS)
                 if ready:
                     # Socket is readable. For SSE the client never sends data
                     # after the request — so this is a clean close (FIN) or
