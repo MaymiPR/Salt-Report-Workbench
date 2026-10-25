@@ -39,10 +39,7 @@ const el = {
         selectAll:   document.getElementById('selectAllBtn'),
         deselectAll: document.getElementById('deselectAllBtn'),
         view:        document.getElementById('logView'),
-        sortIdTh:    document.getElementById('sort-id-th'),
-        sortTimeTh:  document.getElementById('sort-time-th'),
-        sortIdIcon:  document.getElementById('sort-id-icon'),
-        sortTimeIcon:document.getElementById('sort-time-icon'),
+        sortHeaders: document.querySelectorAll('#reportLogTable thead .sortable-th[data-sort]'),
     },
     status: {
         dot:          document.getElementById('status-dot'),
@@ -254,6 +251,15 @@ let isReadOnly = document.body.classList.contains('read-only');
 const isLocalFile = location.protocol === 'file:';
 if (isLocalFile) document.body.classList.add('local-mode');
 let currentSortMode  = localStorage.getItem('salt_sort_mode') || 'recent';
+// Each sortable column's modes, in the order a click steps through them. The
+// Identifier header also offers "recent" (last modified first), the default.
+const SORT_MODES = {
+    id:       ['numAsc', 'numDesc', 'recent'],
+    time:     ['timeAsc', 'timeDesc'],
+    size:     ['sizeAsc', 'sizeDesc'],
+    activity: ['activityAsc', 'activityDesc'],
+    location: ['locationAsc', 'locationDesc'],
+};
 let timeDisplayMode  = localStorage.getItem('salt_time_mode')  || 'zulu';
 // Separator between the ATO designator and the workspace title: 'dash' | 'space'.
 let atoTitleSep      = localStorage.getItem('salt_ato_title_sep') || 'dash';
@@ -555,16 +561,17 @@ const renderLog = (filterText = el.log.search.value.toLowerCase()) => {
         }
     }
 
+    const dir = currentSortMode.endsWith('Desc') ? -1 : 1;
+    const textField = currentSortMode.replace(/Asc$|Desc$/, '');  // size | activity | location
     rows.sort((a, b) => {
+        if (currentSortMode === 'recent') return (b.lastModified||0) - (a.lastModified||0);
         // ISO 8601 strings sort lexicographically the same as chronologically,
-        // so we compare the raw `.time` strings instead of building a Date
-        // object on every comparison (was 2 × Date() per sort step).
-        if (currentSortMode === 'timeAsc')  return (a.time || '').localeCompare(b.time || '');
-        if (currentSortMode === 'timeDesc') return (b.time || '').localeCompare(a.time || '');
-        if (currentSortMode === 'recent')   return (b.lastModified||0) - (a.lastModified||0);
-        const na = reportNum(a);
-        const nb = reportNum(b);
-        return currentSortMode === 'numAsc' ? na - nb : nb - na;
+        // so the raw `.time` strings are compared, not Date objects.
+        if (textField === 'time') return dir * (a.time || '').localeCompare(b.time || '');
+        if (textField === 'num')  return dir * (reportNum(a) - reportNum(b));
+        // Text columns: case-insensitive, with numbers in numeric order so
+        // "2x T-72" sorts before "10x T-72".
+        return dir * String(a[textField] || '').localeCompare(String(b[textField] || ''), undefined, { numeric: true, sensitivity: 'base' });
     });
 
     const timeFmt = timeDisplayMode === 'local' ? toLocalTimeString : toZuluTimeString;
@@ -679,10 +686,12 @@ const updateProfilePreview = () => {
 };
 
 const updateSortIcons = () => {
-    el.log.sortIdIcon.textContent   = currentSortMode==='numAsc' ? '▲' : currentSortMode==='numDesc' ? '▼' : '⊙';
-    el.log.sortTimeIcon.textContent = currentSortMode==='timeAsc' ? '▲' : currentSortMode==='timeDesc' ? '▼' : '⇅';
-    el.log.sortIdIcon.classList.toggle('active',   ['numAsc','numDesc','recent'].includes(currentSortMode));
-    el.log.sortTimeIcon.classList.toggle('active', ['timeAsc','timeDesc'].includes(currentSortMode));
+    el.log.sortHeaders.forEach(th => {
+        const active = (SORT_MODES[th.dataset.sort] || []).includes(currentSortMode);
+        const icon   = th.querySelector('.sort-icon');
+        icon.textContent = !active ? '⇅' : currentSortMode === 'recent' ? '⊙' : currentSortMode.endsWith('Asc') ? '▲' : '▼';
+        icon.classList.toggle('active', active);
+    });
 };
 
 const updateSelectionUI = () => {
@@ -2131,14 +2140,13 @@ el.log.search.addEventListener('keydown', e => {
     }
 });
 
-el.log.sortIdTh.addEventListener('click', () => {
-    currentSortMode = currentSortMode==='recent' ? 'numAsc' : currentSortMode==='numAsc' ? 'numDesc' : 'recent';
+// A click on a sortable header steps through that column's modes; a column
+// that isn't the current sort starts at its first.
+el.log.sortHeaders.forEach(th => th.addEventListener('click', () => {
+    const modes = SORT_MODES[th.dataset.sort];
+    currentSortMode = modes[(modes.indexOf(currentSortMode) + 1) % modes.length];
     writeStored('salt_sort_mode', currentSortMode); updateSortIcons(); renderLog(el.log.search.value.toLowerCase());
-});
-el.log.sortTimeTh.addEventListener('click', () => {
-    currentSortMode = currentSortMode==='timeAsc' ? 'timeDesc' : 'timeAsc';
-    writeStored('salt_sort_mode', currentSortMode); updateSortIcons(); renderLog(el.log.search.value.toLowerCase());
-});
+}));
 
 // Config / ATO — shared logic for Set button and history dropdown
 async function applyAtoConfig() {

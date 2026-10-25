@@ -215,7 +215,7 @@
                         <li><strong>(Updated) tag</strong> under the ID means the report has been changed at least once.</li>
                         <li><strong>Checkboxes</strong> select rows; the <strong>Delete</strong> button appears at the top once anything is checked. Works on top-level reports AND individual history rows. <kbd>Esc</kbd> deselects everything at once. After a delete, the message at the bottom carries an <strong>Undo</strong> button for ten seconds that puts everything back (except a <em>Not saved</em> change, which is discarded for good).</li>
                         <li><strong>Dense cells stay compact</strong>: Size, Activity, Location, and Analysis are each capped at two lines. When content overflows (several MGRS grids, a wordy analysis), that cell turns clickable; click to expand it in place, click again to collapse. Cells whose content already fits stay plain and are not clickable. Hovering shows the full content as a tooltip, and it works on history rows too.</li>
-                        <li><strong>Sort</strong> by clicking the Identifier header (cycles numeric asc / desc / recently-modified) or the Time header (toggles asc / desc).</li>
+                        <li><strong>Sort</strong> by clicking a column header. Identifier cycles number ascending / descending / most recently changed (the default); Time, Size, Activity, and Location each toggle ascending / descending. Text columns sort with numbers in order, so <code>2x T-72</code> comes before <code>10x T-72</code>.</li>
                         <li><strong>Select All / Deselect All</strong> in the ellipsis menu hit every visible checkbox at once.</li>
                     </ul>
                     <p class="manual-modes"><strong>Locally:</strong> Sort, history toggle, copy, row selection, and clicking-to-edit all run entirely in your browser.</p>
@@ -534,11 +534,11 @@
                                     <tr>
                                         <th class="col-action">Action</th>
                                         <th class="col-by reporter-col">By</th>
-                                        <th id="sort-id-th" class="col-id sortable-th">Identifier <span id="sort-id-icon" class="sort-icon">&#8645;</span></th>
-                                        <th class="col-size">Size</th>
-                                        <th class="col-activity">Activity</th>
-                                        <th class="col-location">Location</th>
-                                        <th id="sort-time-th" class="col-time sortable-th"><span id="time-header">Time (Z)</span> <span id="sort-time-icon" class="sort-icon">&#8645;</span></th>
+                                        <th class="col-id sortable-th" data-sort="id" title="Sort by number, or most recently changed">Identifier <span class="sort-icon">&#8645;</span></th>
+                                        <th class="col-size sortable-th" data-sort="size" title="Sort by size">Size <span class="sort-icon">&#8645;</span></th>
+                                        <th class="col-activity sortable-th" data-sort="activity" title="Sort by activity">Activity <span class="sort-icon">&#8645;</span></th>
+                                        <th class="col-location sortable-th" data-sort="location" title="Sort by location">Location <span class="sort-icon">&#8645;</span></th>
+                                        <th class="col-time sortable-th" data-sort="time" title="Sort by time"><span id="time-header">Time (Z)</span> <span class="sort-icon">&#8645;</span></th>
                                         <th class="col-analysis">Analysis</th>
                                     </tr>
                                 </thead>
