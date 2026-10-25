@@ -83,6 +83,20 @@ const typedTime = (text, local, now = new Date()) => {
     return d.toISOString();
 };
 
+// The timestamp for a submitted form. Blank means now. Editing a report
+// refills its time box with the clock part only, so a typed time that still
+// matches the report's own keeps the original timestamp (and its date);
+// anything else is placed by typedTime. Null for an invalid time.
+const submittedTime = (typed, local, origIso, now = new Date()) => {
+    const t = String(typed || '').trim();
+    if (!t) return now.toISOString();
+    if (origIso) {
+        const d = new Date(origIso);
+        if (!isNaN(d.getTime()) && clockValue(d, local) === t.padStart(5, '0')) return origIso;
+    }
+    return typedTime(t, local, now);
+};
+
 // A time from a spreadsheet cell as an ISO timestamp, or null when it can't be
 // read. Accepts ISO 8601; "YYYY-MM-DD HH:MM[:SS]" in the active mode; "HH:MM",
 // "HHMM", with an optional Z or L suffix forcing the mode (today's date, via
@@ -439,7 +453,7 @@ const withUnsaved = (serverReps, unsavedReps) => {
 };
 
 const SaltCore = {
-    pad2, dateFields, clockValue, fileStamp, toTimeString, autoColon, parseFilterTime, typedTime, parseCsvTime,
+    pad2, dateFields, clockValue, fileStamp, toTimeString, autoColon, parseFilterTime, typedTime, submittedTime, parseCsvTime,
     escapeHtml, safeColor, safeFilename,
     atoPrefix, reportNum, formatFullId, reportText, normalizeLocation,
     BDA_EFFECTS, bdaElements, bdaSummary, bdaRollup,

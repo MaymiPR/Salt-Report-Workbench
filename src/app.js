@@ -1846,15 +1846,12 @@ async function handleFormSubmit(mode) {
     let reports = [...localReports];
     const idToUpdate = el.form.reportId.value;
     const timeValue  = el.form.time.value.trim();
-    let finalTime;
-
-    if (timeValue) {
-        // Today's date, or yesterday's when the time is more than an hour ahead.
-        finalTime = SaltCore.typedTime(timeValue, timeDisplayMode === 'local');
-        if (!finalTime) { showToast('Invalid time. Use HH:MM (24-hour).', true); return; }
-    } else {
-        finalTime = new Date().toISOString();
-    }
+    // An edited report whose time box was left alone keeps its timestamp;
+    // a typed time gets today's date, or yesterday's when it is more than an
+    // hour ahead.
+    const editing   = idToUpdate ? reports.find(r => r.id === idToUpdate) : null;
+    const finalTime = SaltCore.submittedTime(timeValue, timeDisplayMode === 'local', editing ? editing.time : null);
+    if (!finalTime) { showToast('Invalid time. Use HH:MM (24-hour).', true); return; }
 
     const now  = Date.now();
     const data = { size:el.form.size.value, activity:el.form.activity.value, location:normalizeLocation(el.form.location.value), time:finalTime, yourAnalysis:el.form.analysis.value, custom:collectCustomValues() };
