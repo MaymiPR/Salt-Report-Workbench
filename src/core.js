@@ -65,6 +65,54 @@ const parseFilterTime = (dateStr, timeStr, isEnd, local) => {
     return isNaN(ms) ? null : ms;
 };
 
+// A typed "HH:MM" as an ISO timestamp on today's date, in local time or Zulu.
+// A time more than an hour ahead of now is taken to be yesterday's: the Zulu
+// day rolls over during a US evening, so "23:50" typed at 00:30Z means forty
+// minutes ago, not twenty-three hours from now. Null for anything that isn't
+// a time.
+const typedTime = (text, local, now = new Date()) => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(text || '').trim());
+    if (!m) return null;
+    const h = +m[1], mi = +m[2];
+    if (h > 23 || mi > 59) return null;
+    const d = new Date(now.getTime());
+    if (local) d.setHours(h, mi, 0, 0); else d.setUTCHours(h, mi, 0, 0);
+    if (d.getTime() - now.getTime() > 60 * 60 * 1000) {
+        if (local) d.setDate(d.getDate() - 1); else d.setUTCDate(d.getUTCDate() - 1);
+    }
+    return d.toISOString();
+};
+
+// A time from a spreadsheet cell as an ISO timestamp, or null when it can't be
+// read. Accepts ISO 8601; "YYYY-MM-DD HH:MM[:SS]" in the active mode; "HH:MM",
+// "HHMM", with an optional Z or L suffix forcing the mode (today's date, via
+// typedTime); and a DTG such as "241430Z", "241430ZOCT26" or "24 1430Z OCT 2026"
+// (missing month or year means the current one).
+const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+const parseCsvTime = (text, local, now = new Date()) => {
+    const s = String(text || '').trim();
+    if (!s) return null;
+    const valid = d => (isNaN(d.getTime()) ? null : d.toISOString());
+    let m;
+    // Date and time, ISO or with a space. Without a zone, the active mode applies.
+    if ((m = /^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2})(\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i.exec(s))) {
+        const zone = m[6] || (local ? '' : 'Z');
+        return valid(new Date(`${m[1]}T${m[2].padStart(2, '0')}:${m[3]}:${m[4] || '00'}${m[5] || ''}${zone}`));
+    }
+    if ((m = /^(\d{1,2}):?(\d{2})\s*([ZL])?$/i.exec(s))) {
+        const mode = m[3] ? m[3].toUpperCase() === 'L' : local;
+        return typedTime(`${m[1]}:${m[2]}`, mode, now);
+    }
+    if ((m = /^(\d{2})\s?(\d{2})(\d{2})\s*Z?\s*([A-Z]{3})?\s*(\d{2}|\d{4})?$/i.exec(s))) {
+        const month = m[4] ? MONTHS.indexOf(m[4].toUpperCase()) : now.getUTCMonth();
+        if (month < 0) return null;
+        let year = m[5] ? +m[5] : now.getUTCFullYear();
+        if (year < 100) year += 2000;
+        return valid(new Date(Date.UTC(year, month, +m[1], +m[2], +m[3])));
+    }
+    return null;
+};
+
 // --- Text safety ---
 
 const escapeHtml = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -375,7 +423,7 @@ const withUnsaved = (serverReps, unsavedReps) => {
 };
 
 const SaltCore = {
-    pad2, dateFields, clockValue, fileStamp, toTimeString, autoColon, parseFilterTime,
+    pad2, dateFields, clockValue, fileStamp, toTimeString, autoColon, parseFilterTime, typedTime, parseCsvTime,
     escapeHtml, safeColor, safeFilename,
     atoPrefix, reportNum, formatFullId, reportText, normalizeLocation,
     BDA_EFFECTS, bdaElements, bdaSummary,

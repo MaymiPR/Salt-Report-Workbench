@@ -56,6 +56,42 @@ test('filter bounds default to the whole day and ignore bad times', () => {
     assert.equal(core.parseFilterTime('', '10:00', false, false), null);
 });
 
+test('a typed time more than an hour ahead belongs to yesterday', () => {
+    const now = new Date('2026-10-25T00:30:00Z');  // a US evening: the Zulu day just rolled over
+    assert.equal(core.typedTime('23:50', false, now), '2026-10-24T23:50:00.000Z', 'forty minutes ago');
+    assert.equal(core.typedTime('00:10', false, now), '2026-10-25T00:10:00.000Z');
+    assert.equal(core.typedTime('1:15', false, now), '2026-10-25T01:15:00.000Z', 'within the hour: still today');
+    assert.equal(core.typedTime('02:00', false, now), '2026-10-24T02:00:00.000Z', 'ninety minutes ahead: yesterday');
+    assert.equal(core.typedTime('24:00', false, now), null);
+    assert.equal(core.typedTime('1430', false, now), null, 'autoColon runs first');
+    // Local mode: same rule on the local clock.
+    const local = core.typedTime('12:00', true, now);
+    const d = new Date(local);
+    assert.equal(`${d.getHours()}:${d.getMinutes()}`, '12:0');
+    assert.ok(d.getTime() - now.getTime() <= 3600_000);
+});
+
+test('spreadsheet times are read in the common forms', () => {
+    const now = new Date('2026-10-24T20:00:00Z');
+    const p = s => core.parseCsvTime(s, false, now);
+    assert.equal(p('2026-10-24T14:30:00Z'), '2026-10-24T14:30:00.000Z', 'ISO');
+    assert.equal(p('2026-10-24T14:30:00.500Z'), '2026-10-24T14:30:00.500Z');
+    assert.equal(p('2026-10-24 14:30'), '2026-10-24T14:30:00.000Z', 'date and time in the active mode');
+    assert.equal(p('2026-10-24 9:05:30'), '2026-10-24T09:05:30.000Z');
+    assert.equal(p('14:30'), '2026-10-24T14:30:00.000Z', 'time only: today');
+    assert.equal(p('1430'), '2026-10-24T14:30:00.000Z');
+    assert.equal(p('1430Z'), '2026-10-24T14:30:00.000Z');
+    assert.equal(p('241430Z'), '2026-10-24T14:30:00.000Z', 'DTG, this month');
+    assert.equal(p('241430ZOCT26'), '2026-10-24T14:30:00.000Z');
+    assert.equal(p('15 0900Z SEP 2026'), '2026-09-15T09:00:00.000Z');
+    assert.equal(p('yesterday'), null);
+    assert.equal(p('24/10/2026'), null);
+    assert.equal(p(''), null);
+    assert.equal(p('2026-13-45 10:00'), null, 'nonsense dates are not guessed');
+    const l = core.parseCsvTime('2026-10-24 14:30', true, now);
+    assert.equal(new Date(l).getHours(), 14, 'local mode reads the clock as local');
+});
+
 // --- Text safety ---
 
 test('HTML, colors, and filenames are made safe', () => {
