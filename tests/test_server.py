@@ -310,7 +310,7 @@ class AccessCodeTests(unittest.TestCase):
         addrs = [[(None, None, None, None, ("10.0.0.5", 0))]]
         with (
             mock.patch.object(srv.socket, "getaddrinfo", side_effect=lambda *a: addrs[0]),
-            mock.patch.object(srv, "get_local_ip", return_value="10.0.0.5"),
+            mock.patch.object(srv, "get_local_ip", return_value="127.0.0.1"),
             mock.patch.object(srv, "_local_ips_cache", None),
         ):
             self.assertTrue(srv._is_localhost("10.0.0.5"))
