@@ -229,7 +229,7 @@ pre-commit install                       # lint on every commit
 On macOS and Linux, `make help` lists shortcuts for the same commands, and
 `make check` runs everything CI runs.
 
-CI runs lint, the test suite on Python 3.10–3.13 (Ubuntu) and 3.13 (Windows), and
+CI runs lint, the test suite on Python 3.10–3.15 (Ubuntu) and 3.13 and 3.15 (Windows), and
 a build that starts the bundled server and checks the editor page, the viewer
 port, and that writes to the viewer are refused.
 
