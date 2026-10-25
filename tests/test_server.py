@@ -640,6 +640,29 @@ class HttpApiTests(unittest.TestCase):
         text = (Path(srv.BACKUP_DIR) / "ALPHA_Patrol.txt").read_text("utf-8")
         self.assertNotIn("BRAVO", srv._extract_json_from_file(text)["workspaces"])
 
+    def test_dated_snapshots_are_kept_hourly_and_pruned(self):
+        self.post("/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol"}})
+        snap_dir = Path(srv.BACKUP_DIR) / srv.SNAPSHOT_DIR_NAME
+        with (
+            mock.patch.object(srv, "SNAPSHOT_KEEP", 2),
+            mock.patch.object(srv, "_last_snapshot_at", None),
+        ):
+            for n in range(3):
+                self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report(size=f"v{n}")]})
+                srv.flush_pending_save()
+                # The first save of a session always snapshots; later ones wait an hour.
+                self.assertEqual(len(list(snap_dir.glob("*.txt"))), 1, n)
+                srv._last_snapshot_at -= srv.SNAPSHOT_INTERVAL_SECONDS
+            # Three snapshots were due; only the newest two remain.
+            snaps = sorted(snap_dir.glob("*.txt"))
+        self.assertEqual([s.name.endswith("_ALPHA_Patrol.txt") for s in snaps], [True, True])
+        newest = srv._extract_json_from_file(snaps[-1].read_text("utf-8"))
+        self.assertEqual(newest["workspaces"]["ALPHA"][0]["size"], "v2")
+        # Snapshots live in a subfolder, which the boot loader does not read.
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(srv.workspace_sources, {"ALPHA": "ALPHA_Patrol.txt"})
+
     def test_disk_write_does_not_hold_the_data_lock(self):
         # Regression: the whole save used to run under data_lock, freezing every
         # request handler for the duration of the disk I/O.

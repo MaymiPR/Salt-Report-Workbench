@@ -46,6 +46,13 @@ MAX_BODY_BYTES: int = 16 * 1024 * 1024
 # error reply (see SaltSyncHandler._discard_body); larger ones just close.
 MAX_DRAIN_BYTES: int = 2 * MAX_BODY_BYTES
 SAVE_DEBOUNCE_SECONDS: float = 0.5  # coalesce rapid mutations into one disk write
+# The backup file is rewritten within half a second of every change, so a bad
+# import or a wrong delete replaces the only copy at once. A dated copy goes to
+# BACKUP_DIR/snapshots/ at most once an hour (and on every start), and the
+# oldest are pruned past SNAPSHOT_KEEP, so two days of hourly history is kept.
+SNAPSHOT_DIR_NAME = 'snapshots'
+SNAPSHOT_INTERVAL_SECONDS: float = 3600.0
+SNAPSHOT_KEEP: int = 48
 
 # The bundled page sits beside the server in a built `dist/` folder; when run
 # straight from `server/` during development, fall back to `../dist/`.
@@ -805,6 +812,31 @@ def render_backup(
 # Serializes writers so a slower, older snapshot can never land on disk after a
 # newer one. Separate from data_lock so disk I/O never blocks request handlers.
 _disk_lock = threading.Lock()
+# When the last dated copy was taken; None means the next save takes one.
+_last_snapshot_at: float | None = None
+
+
+def write_snapshot(filename: str, content: str, now: datetime | None = None) -> str:
+    """Keep a dated copy of a backup in ``BACKUP_DIR/snapshots/`` and prune old ones.
+
+    Snapshot names start with the UTC time so a directory listing is
+    chronological. Returns the path written. Caller holds ``_disk_lock``.
+    """
+    snap_dir = os.path.join(BACKUP_DIR, SNAPSHOT_DIR_NAME)
+    os.makedirs(snap_dir, exist_ok=True)
+    stamp = f'{(now or datetime.now(timezone.utc)):%Y%m%d_%H%M%S}Z'
+    base = os.path.join(snap_dir, f'{stamp}_{filename}')
+    path, n = base, 1
+    while os.path.exists(path):  # several saves in one second
+        n += 1
+        path = base[: -len('.txt')] + f'_{n}.txt'
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
+    snaps = sorted(f for f in os.listdir(snap_dir) if f.endswith('.txt'))
+    for old in snaps[: max(0, len(snaps) - SNAPSHOT_KEEP)]:
+        with contextlib.suppress(OSError):
+            os.unlink(os.path.join(snap_dir, old))
+    return path
 
 
 def save_data_to_disk() -> None:
@@ -816,6 +848,7 @@ def save_data_to_disk() -> None:
     the disk I/O, which is noticeable on the USB sticks and network shares
     this often runs from.
     """
+    global _last_snapshot_at
     with _disk_lock:
         with data_lock:
             rendered = render_backup(
@@ -838,6 +871,15 @@ def save_data_to_disk() -> None:
             with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
             safe_print(f'[!] Error saving to disk: {exc}')
+            return
+        now = time.monotonic()
+        if _last_snapshot_at is None or now - _last_snapshot_at >= SNAPSHOT_INTERVAL_SECONDS:
+            try:
+                write_snapshot(filename, content)
+                _last_snapshot_at = now
+            except Exception as exc:
+                # The live backup is already safe; a missed snapshot is worth a line, not a crash.
+                safe_print(f'[!] Error writing snapshot: {exc}')
 
 
 # =============================================================================

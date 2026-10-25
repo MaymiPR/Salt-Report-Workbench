@@ -125,6 +125,13 @@ Concurrency is handled in two steps:
    blocked on the disk and readers never see a partial file. A separate
    `_disk_lock` keeps writes in order.
 
+The live file is the only copy and it is replaced on every change, so
+`write_snapshot` also stores a dated copy under `snapshots/` on the first save
+after boot and then at most once an hour (`SNAPSHOT_INTERVAL_SECONDS`), pruning
+past `SNAPSHOT_KEEP`. Snapshot names begin with the UTC time, so a listing is
+chronological. `load_data_from_disk` reads only the top level of the backup
+folder, so snapshots never load on their own; restoring one is a manual copy.
+
 > **Known limitation.** Each backup file currently contains every loaded
 > workspace, named after whichever one was active. Files duplicate each other,
 > and an unloaded workspace reappears on restart from an older file. That
