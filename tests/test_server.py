@@ -647,21 +647,33 @@ class HttpApiTests(unittest.TestCase):
             mock.patch.object(srv, "SNAPSHOT_KEEP", 2),
             mock.patch.object(srv, "_last_snapshot_at", None),
         ):
-            for n in range(3):
-                self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report(size=f"v{n}")]})
+
+            def save(size):
+                self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report(size=size)]})
                 srv.flush_pending_save()
-                # The first save of a session always snapshots; later ones wait an hour.
-                self.assertEqual(len(list(snap_dir.glob("*.txt"))), 1, n)
-                srv._last_snapshot_at -= srv.SNAPSHOT_INTERVAL_SECONDS
+                return len(list(snap_dir.glob("*.txt")))
+
+            # The first save of a session snapshots; the next one, minutes later, doesn't.
+            self.assertEqual(save("v0"), 1)
+            self.assertEqual(save("v0 again"), 1)
+            for n in (1, 2):
+                srv._last_snapshot_at -= srv.SNAPSHOT_INTERVAL_SECONDS  # an hour passes
+                save(f"v{n}")
             # Three snapshots were due; only the newest two remain.
             snaps = sorted(snap_dir.glob("*.txt"))
-        self.assertEqual([s.name.endswith("_ALPHA_Patrol.txt") for s in snaps], [True, True])
+        self.assertEqual(len(snaps), 2)
+        for s in (
+            snaps
+        ):  # UTC stamp first, so a listing is chronological; same-second copies are numbered
+            self.assertRegex(s.name, r"^\d{8}_\d{6}Z_ALPHA_Patrol(_\d+)?\.txt$")
         newest = srv._extract_json_from_file(snaps[-1].read_text("utf-8"))
         self.assertEqual(newest["workspaces"]["ALPHA"][0]["size"], "v2")
         # Snapshots live in a subfolder, which the boot loader does not read.
         reset_state()
         srv.load_data_from_disk()
-        self.assertEqual(srv.workspace_sources, {"ALPHA": "ALPHA_Patrol.txt"})
+        self.assertEqual(srv.workspace_sources["ALPHA"], "ALPHA_Patrol.txt")
+        for source in srv.workspace_sources.values():
+            self.assertNotRegex(source, r"^\d{8}_\d{6}Z_", "a snapshot was loaded")
 
     def test_disk_write_does_not_hold_the_data_lock(self):
         # Regression: the whole save used to run under data_lock, freezing every
