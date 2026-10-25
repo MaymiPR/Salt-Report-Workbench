@@ -1,5 +1,6 @@
 # The app has no runtime dependencies; the only third-party code is the
-# GitHub Actions used by CI. Keep those current.
+# GitHub Actions used by CI. Keep those current. They are pinned to commit
+# SHAs (with the version in a comment); Dependabot updates both together.
 version: 2
 updates:
   - package-ecosystem: github-actions
