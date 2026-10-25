@@ -39,6 +39,7 @@ def reset_state() -> None:
     srv.client_initials.clear()
     srv._rate_buckets.clear()
     srv.invalidate_sync_cache()
+    srv._dirty_atos = None
 
 
 def cancel_pending_save() -> None:
@@ -657,6 +658,68 @@ class HttpApiTests(unittest.TestCase):
         srv.flush_pending_save()
         text = (Path(srv.BACKUP_DIR) / "ALPHA_Patrol.txt").read_text("utf-8")
         self.assertNotIn("BRAVO", srv._extract_json_from_file(text)["workspaces"])
+        # Unload is "from view": the workspace's own file stays for the next start.
+        self.assertTrue((Path(srv.BACKUP_DIR) / "BRAVO_Patrol.txt").exists())
+
+    def test_each_workspace_has_its_own_file(self):
+        self.post("/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol"}})
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        self.post(
+            "/api/save_reports",
+            {"ato": "BRAVO", "reports": [report("b1", "BRAVO001", title="Screen")]},
+        )
+        srv.flush_pending_save()
+        folder = Path(srv.BACKUP_DIR)
+        alpha = srv._extract_json_from_file((folder / "ALPHA_Patrol.txt").read_text("utf-8"))
+        bravo = srv._extract_json_from_file((folder / "BRAVO_Screen.txt").read_text("utf-8"))
+        self.assertEqual(list(alpha["workspaces"]), ["ALPHA"])
+        self.assertEqual(list(bravo["workspaces"]), ["BRAVO"])
+        # Both carry the shared config, so a restart restores the active workspace.
+        self.assertEqual(bravo["config"], {"ato": "ALPHA", "title": "Patrol"})
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(srv.DATA_STORE["config"]["ato"], "ALPHA")
+        self.assertEqual(srv.workspace_sources["BRAVO"], "BRAVO_Screen.txt")
+
+    def test_only_changed_workspaces_are_rewritten(self):
+        import time
+
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        self.post("/api/save_reports", {"ato": "BRAVO", "reports": [report("b1", "BRAVO001")]})
+        srv.flush_pending_save()
+        alpha = Path(srv.BACKUP_DIR) / "ALPHA_Patrol.txt"
+        before = alpha.stat().st_mtime_ns
+        time.sleep(0.05)
+        self.post("/api/save_reports", {"ato": "BRAVO", "reports": [report("b2", "BRAVO002")]})
+        srv.flush_pending_save()
+        self.assertEqual(
+            alpha.stat().st_mtime_ns, before, "ALPHA was untouched, so its file is too"
+        )
+        bravo = srv._extract_json_from_file(
+            (Path(srv.BACKUP_DIR) / "BRAVO_Patrol.txt").read_text("utf-8")
+        )
+        self.assertEqual(len(bravo["workspaces"]["BRAVO"]), 2)
+
+    def test_a_combined_file_from_an_older_version_is_split_on_the_first_save(self):
+        # Before 2.4 one file held every workspace, named after the active one.
+        combined = {"ALPHA": [report()], "BRAVO": [report("b1", "BRAVO001", title="Screen")]}
+        _, text = srv.render_backup(combined, {"ato": "ALPHA", "title": "Patrol"}, {}, {})
+        folder = Path(srv.BACKUP_DIR)
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "ALPHA_Patrol.txt").write_text(text, encoding="utf-8")
+        srv.load_data_from_disk()
+        self.assertEqual(sorted(srv.DATA_STORE["workspaces"]), ["ALPHA", "BRAVO"])
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report("r2", "ALPHA002")]})
+        srv.flush_pending_save()
+        alpha = srv._extract_json_from_file((folder / "ALPHA_Patrol.txt").read_text("utf-8"))
+        self.assertEqual(
+            list(alpha["workspaces"]), ["ALPHA"], "the combined file became ALPHA's own"
+        )
+        self.assertTrue((folder / "BRAVO_Screen.txt").exists(), "BRAVO got its own file")
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(sorted(srv.DATA_STORE["workspaces"]), ["ALPHA", "BRAVO"])
+        self.assertEqual(len(srv.DATA_STORE["workspaces"]["ALPHA"]), 2)
 
     def test_every_accepted_write_is_audited_with_its_operator(self):
         log = Path(srv.BACKUP_DIR) / srv.AUDIT_LOG_NAME
@@ -682,6 +745,7 @@ class HttpApiTests(unittest.TestCase):
     def test_dated_snapshots_are_kept_hourly_and_pruned(self):
         self.post("/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol"}})
         snap_dir = Path(srv.BACKUP_DIR) / srv.SNAPSHOT_DIR_NAME
+        shutil.rmtree(snap_dir, ignore_errors=True)  # other tests in this class snapshot too
         with (
             mock.patch.object(srv, "SNAPSHOT_KEEP", 2),
             mock.patch.object(srv, "_last_snapshot_at", None),

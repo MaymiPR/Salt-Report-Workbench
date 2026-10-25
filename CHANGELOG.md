@@ -18,6 +18,16 @@ All notable changes to this project are documented here. The format follows
   keeps its free pass on the LAN URL after a DHCP change instead of being
   asked for the code until a restart.
 
+### Changed
+
+- Each workspace is saved to its own backup file, `{ATO}_{Title}.txt`, and
+  only the workspace that changed is rewritten. One file used to hold every
+  loaded workspace, named after the active one, so files duplicated each
+  other and a stale copy of a workspace could win on reload. Files from
+  earlier versions still load, and the first save after upgrading gives each
+  workspace its own file. Unloading a workspace leaves its file in place, as
+  before.
+
 ## [2.3.0] - 2026-10-24
 
 ### Fixed
