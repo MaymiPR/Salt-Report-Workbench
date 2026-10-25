@@ -184,6 +184,12 @@ then at most one an hour, the newest 48 kept. To go back to an earlier state,
 stop the server, copy the snapshot you want over the live file, and start it
 again. The snapshots folder itself is never loaded.
 
+`Auto Backups/audit.log` records every accepted write as one line: when, who
+(the operator's initials and address), and what, such as
+`save_reports ALPHA: 1 report(s)` or `delete_history ALPHA: 2 entries`, plus
+server starts and stops. It answers "who changed this, and when" after the
+fact; nothing reads it.
+
 > [!IMPORTANT]
 > Backups contain your actual reports. `Auto Backups/` is git-ignored; keep it
 > that way, and handle the folder according to your unit's data-handling rules.
@@ -242,7 +248,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and conventions.
 - **BDA roll-up** above the table (assessed, destroyed, unassessed) with
   click-to-filter, for the commander watching the viewer port.
 - **Sortable Size, Activity, and Location columns.**
-- **An audit log** of edits and deletions, kept by the server.
 - **Browser tests** for the DOM layer in `app.js`; its pure logic is already
   covered through `core.js`.
 
