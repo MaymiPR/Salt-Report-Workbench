@@ -1661,16 +1661,28 @@ async function pushWorkspace(ato, reports, source) {
 
 // Push the active workspace. `source` is an optional hint ('backup' | 'csv')
 // for server-side logging. Resolves false when the change is still queued.
+// Pulls wait for pushes. A pull that landed while a push was in flight
+// replaced the table with the server's copy from before the push, so a
+// just-logged report blinked out until the push's own broadcast brought it
+// back. The deferred pull runs when the last push settles.
+let pushesInFlight = 0;
+let pullDeferred   = false;
 async function pushToServer(source) {
     if (!activeAto) return true;
-    const result = await pushWorkspace(activeAto, localReports || [], source);
-    offlinePendingPush = result === 'queued';
-    writeStored('salt_offline_push', String(offlinePendingPush));
-    setConnectionStatus(!offlinePendingPush);
-    return !offlinePendingPush;
+    pushesInFlight++;
+    try {
+        const result = await pushWorkspace(activeAto, localReports || [], source);
+        offlinePendingPush = result === 'queued';
+        writeStored('salt_offline_push', String(offlinePendingPush));
+        setConnectionStatus(!offlinePendingPush);
+        return !offlinePendingPush;
+    } finally {
+        if (--pushesInFlight === 0 && pullDeferred) { pullDeferred = false; syncWithServer(); }
+    }
 }
 
 async function syncWithServer() {
+    if (pushesInFlight > 0) { pullDeferred = true; return; }
     try {
         // Never pull over local changes the server hasn't accepted yet: the
         // pull replaces local state, so they would be lost.
