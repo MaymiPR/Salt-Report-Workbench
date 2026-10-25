@@ -1703,6 +1703,9 @@ function initSSE() {
         const evtSource = new EventSource('/api/events');
         evtSource.onmessage = () => { backoff = 1000; syncWithServer(); };
         evtSource.onopen    = () => { backoff = 1000; setConnectionStatus(true); };
+        // The server announces a Ctrl+C before it closes, so the dot turns
+        // red now instead of at the next failed heartbeat.
+        evtSource.addEventListener('shutdown', () => { setConnectionStatus(false); showToast('The server is stopping.', true); });
         evtSource.onerror   = () => {
             setConnectionStatus(false);
             try { evtSource.close(); } catch (e) {}
