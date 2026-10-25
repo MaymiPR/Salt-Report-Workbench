@@ -176,6 +176,11 @@ button:hover { opacity: 0.85; }
     color: var(--text-primary);
     transform: scale(0.96);
     transition: transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    /* Quick Start chips make the dialog taller than a small laptop screen;
+       without this the Get Started button could sit off-screen, unreachable. */
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    box-sizing: border-box;
 }
 .startup-overlay.show .startup-modal { transform: scale(1); }
 
