@@ -100,6 +100,11 @@ async function handleFormSubmit(mode) {
 
     localReports = reports;
     reportsByAto[activeAto] = localReports;
+    // Copy and clear now, while the click is fresh (clipboard access needs
+    // it) and before the upload: an operator who starts the next report while
+    // this one is still being sent must not have the fields wiped under them.
+    copyToClipboard(generateReportText(finalReport));
+    resetForm();
 
     // Edit mode also hits the dedicated server route so the server can apply a
     // surgical overwrite (no history mutation) and broadcast SSE to peers. The
@@ -131,8 +136,6 @@ async function handleFormSubmit(mode) {
     // Await the push so a stale broadcast from another client can't clobber the
     // just-logged report between the local mutation and the server confirming it.
     await saveLocalAndSync(reportsByAto);
-    copyToClipboard(generateReportText(finalReport));
-    resetForm();
     } catch (err) {
         // Surface ANY error so it's never silent.
         showToast('Log error: ' + (err && err.message ? err.message : String(err)), true);
