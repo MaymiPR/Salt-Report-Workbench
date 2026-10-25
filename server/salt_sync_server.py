@@ -187,6 +187,20 @@ def invalidate_sync_cache() -> None:
     _sync_cache_prefix = None
 
 
+# Workspaces changed since the last disk write; None means every workspace
+# (at boot, so the first save writes each one its own file). Protected by data_lock.
+_dirty_atos: set | None = None
+
+
+def mark_dirty(ato: str | None = None) -> None:
+    """Note that ``ato`` (or, with None, every workspace) needs writing. Caller holds data_lock."""
+    global _dirty_atos
+    if ato is None:
+        _dirty_atos = None
+    elif _dirty_atos is not None:
+        _dirty_atos.add(ato)
+
+
 def schedule_save() -> None:
     """Debounced disk write — coalesces bursts within SAVE_DEBOUNCE_SECONDS."""
     global _save_timer
@@ -750,27 +764,35 @@ def load_data_from_disk() -> None:
 
 
 def render_backup(
-    workspaces: dict, config: dict, profiles: dict, formats: dict
+    workspaces: dict,
+    config: dict,
+    profiles: dict,
+    formats: dict,
+    label: tuple[str, str] | None = None,
 ) -> tuple[str, str] | None:
     """Return ``(filename, text)`` for a backup of the given state, or None if empty.
 
     Pure: no I/O, no globals. The text is a human-readable report summary
     followed by a machine-readable JSON block that ``_extract_json_from_file``
-    reads back on the next boot.
+    reads back on the next boot. ``label`` is the ``(ato, title)`` the file is
+    named after and headed with; without it, the config decides.
     """
     # Nothing loaded — don't emit an empty placeholder file.
     if not workspaces:
         return None
 
-    # Unloading the active workspace clears config; fall back to a real
-    # workspace name so we never create a stray "ATO_SALT.txt".
-    ato = config.get('ato', '').strip()
-    title = config.get('title', '').strip()
-    if not ato:
-        ato = sorted(workspaces)[0]
-        if not title:
-            first = next((r for r in workspaces.get(ato, []) if r.get('title')), None)
-            title = first.get('title') if first else 'SALT'
+    if label:
+        ato, title = label
+    else:
+        # Unloading the active workspace clears config; fall back to a real
+        # workspace name so we never create a stray "ATO_SALT.txt".
+        ato = config.get('ato', '').strip()
+        title = config.get('title', '').strip()
+        if not ato:
+            ato = sorted(workspaces)[0]
+            if not title:
+                first = next((r for r in workspaces.get(ato, []) if r.get('title')), None)
+                title = first.get('title') if first else 'SALT'
     title = title or 'SALT'
 
     def _safe(s: str) -> str:
@@ -863,6 +885,49 @@ def render_backup(
     return filename, '\n'.join(lines)
 
 
+def workspace_title(ato: str, reports: list, config: dict) -> str:
+    """The title a workspace's file is named after.
+
+    The config's title while the workspace is active (that is what new
+    reports carry), else the title of its most recently changed live report,
+    else 'SALT'.
+    """
+    if (config.get('ato') or '').strip().upper() == ato and (config.get('title') or '').strip():
+        return config['title'].strip()
+    titled = [r for r in reports if r.get('title') and not r.get('deleted')] or [
+        r for r in reports if r.get('title')
+    ]
+    if titled:
+        return max(titled, key=lambda r: r.get('lastModified', 0))['title']
+    return 'SALT'
+
+
+def render_workspace_backups(
+    workspaces: dict, config: dict, profiles: dict, formats: dict, only: set | None = None
+) -> list[tuple[str, str, str]]:
+    """One ``(ato, filename, text)`` per workspace, for those in ``only`` (None: all).
+
+    Each file holds a single workspace with its format, plus the shared
+    config and profiles, so on boot every file contributes its workspace and
+    the newest file decides the active one. Pure, like ``render_backup``.
+    """
+    out = []
+    for ato in sorted(workspaces):
+        if only is not None and ato not in only:
+            continue
+        reports = workspaces[ato]
+        rendered = render_backup(
+            {ato: reports},
+            config,
+            profiles,
+            {ato: formats[ato]} if ato in formats else {},
+            label=(ato, workspace_title(ato, reports, config)),
+        )
+        if rendered is not None:
+            out.append((ato, *rendered))
+    return out
+
+
 # Serializes writers so a slower, older snapshot can never land on disk after a
 # newer one. Separate from data_lock so disk I/O never blocks request handlers.
 _disk_lock = threading.Lock()
@@ -893,46 +958,64 @@ def write_snapshot(filename: str, content: str, now: datetime | None = None) -> 
     return path
 
 
-def save_data_to_disk() -> None:
-    """Persist DATA_STORE atomically to ``{ATO}_{Title}.txt``.
+def _write_atomically(dest: str, content: str) -> None:
+    """Write ``content`` to ``dest`` via a temporary file, so readers never see a partial file."""
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(dest), suffix='.tmp')
+    try:
+        with open(tmp_fd, 'w', encoding='utf-8') as tmp_f:
+            tmp_f.write(content)
+        os.replace(tmp_path, dest)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
 
-    The backup text is rendered while holding ``data_lock`` (a consistent,
+
+def save_data_to_disk() -> None:
+    """Persist each changed workspace atomically to its own ``{ATO}_{Title}.txt``.
+
+    The backup texts are rendered while holding ``data_lock`` (a consistent,
     CPU-only snapshot), then written after releasing it. Holding the lock
     across the write used to stall every sync and POST for the duration of
     the disk I/O, which is noticeable on the USB sticks and network shares
-    this often runs from.
+    this often runs from. Only workspaces marked dirty since the last save
+    are rewritten, except when a dated snapshot is due, which covers all.
     """
-    global _last_snapshot_at
+    global _last_snapshot_at, _dirty_atos
     with _disk_lock:
+        now = time.monotonic()
+        snapshot_due = (
+            _last_snapshot_at is None or now - _last_snapshot_at >= SNAPSHOT_INTERVAL_SECONDS
+        )
         with data_lock:
-            rendered = render_backup(
+            only = None if (snapshot_due or _dirty_atos is None) else set(_dirty_atos)
+            _dirty_atos = set()
+            files = render_workspace_backups(
                 DATA_STORE.get('workspaces', {}),
                 DATA_STORE.get('config', {}),
                 DATA_STORE.get('profiles', {}),
                 DATA_STORE.get('formats', {}),
+                only,
             )
-        if rendered is None:
+        if not files:
             return
-        filename, content = rendered
         os.makedirs(BACKUP_DIR, exist_ok=True)
-        dest = os.path.join(BACKUP_DIR, filename)
-        tmp_fd, tmp_path = tempfile.mkstemp(dir=BACKUP_DIR, suffix='.tmp')
-        try:
-            with open(tmp_fd, 'w', encoding='utf-8') as tmp_f:
-                tmp_f.write(content)
-            os.replace(tmp_path, dest)  # atomic: readers never see a partial file
-        except Exception as exc:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp_path)
-            safe_print(f'[!] Error saving to disk: {exc}')
-            return
-        now = time.monotonic()
-        if _last_snapshot_at is None or now - _last_snapshot_at >= SNAPSHOT_INTERVAL_SECONDS:
+        written = []
+        for ato, filename, content in files:
             try:
-                write_snapshot(filename, content)
+                _write_atomically(os.path.join(BACKUP_DIR, filename), content)
+                written.append((filename, content))
+            except Exception as exc:
+                safe_print(f'[!] Error saving {filename}: {exc}')
+                with data_lock:
+                    mark_dirty(ato)  # try again on the next save
+        if snapshot_due and written:
+            try:
+                for filename, content in written:
+                    write_snapshot(filename, content)
                 _last_snapshot_at = now
             except Exception as exc:
-                # The live backup is already safe; a missed snapshot is worth a line, not a crash.
+                # The live backups are already safe; a missed snapshot is worth a line, not a crash.
                 safe_print(f'[!] Error writing snapshot: {exc}')
 
 
@@ -1220,6 +1303,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             elif is_new:
                 workspace_sources[ato] = 'In-session'
             invalidate_sync_cache()
+            mark_dirty(ato)
         if source in ('backup', 'csv'):
             # Console bulk-import notification (browser shows full state).
             label = 'Backup (.txt)' if source == 'backup' else 'CSV (.csv)'
@@ -1257,6 +1341,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             if (cfg.get('ato') or '').strip().upper() == ato:
                 DATA_STORE['config'] = {}
             invalidate_sync_cache()
+            # Every file carries the config, and the unloaded workspace's own
+            # file stays on disk (unload is "from view"; a restart reloads it).
+            mark_dirty()
         # Persisted like any write: an unload that lived only in memory came
         # back on the next server restart.
         self._commit(f'unload_ato {ato}', message='ATO unloaded.')
@@ -1291,6 +1378,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 break
             if found:
                 invalidate_sync_cache()
+                mark_dirty(ato)
         if not found:
             self._send_json({'status': 'error', 'message': 'Report not found.'}, 404)
             return
@@ -1323,6 +1411,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                     r['lastModified'] = now_ms
             if removed > 0:
                 invalidate_sync_cache()
+                mark_dirty(ato)
         self._commit(f'delete_history {ato}: {removed} entries', removed=removed)
 
     def _post_save_config(self, data: dict) -> None:
@@ -1335,6 +1424,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             with data_lock:
                 DATA_STORE['config'] = clean
                 invalidate_sync_cache()
+                mark_dirty()  # the config rides in every file
             self._commit(f'save_config {clean["ato"]} / {clean["title"]}')
             return
         self._commit('save_config (unchanged)')
@@ -1348,6 +1438,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         with data_lock:
             DATA_STORE.setdefault('formats', {})[ato] = fmt
             invalidate_sync_cache()
+            mark_dirty(ato)
         self._commit(f'save_format {ato}')
 
     def _post_save_profile(self, data: dict) -> None:
@@ -1362,6 +1453,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         with data_lock:
             DATA_STORE['profiles'][ini] = clean
             invalidate_sync_cache()
+            mark_dirty()  # profiles ride in every file
         # IP -> initials so /api/sync includes them and /api/edit_report can server-stamp.
         with sse_lock:
             client_initials[self.client_address[0]] = ini

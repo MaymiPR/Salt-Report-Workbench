@@ -110,20 +110,27 @@ The server is the meeting point, not the authority over content.
 
 ## Persistence
 
-`save_data_to_disk` writes `{ATO}_{Title}.txt` into the backup folder, which
-defaults to `Auto Backups/` beside the server. Writes are debounced by 0.5
-seconds so a burst of edits becomes one write.
+`save_data_to_disk` writes one `{ATO}_{Title}.txt` per workspace into the
+backup folder, which defaults to `Auto Backups/` beside the server. Writes are
+debounced by 0.5 seconds so a burst of edits becomes one write, and every
+mutation marks its workspace dirty (`mark_dirty`) so only changed workspaces
+are rewritten. Config and profiles ride in every file; a change to either
+marks all workspaces dirty.
 
 A backup file has two parts: a readable summary of every report for a person
 to skim, then a JSON block between `##SALT_BACKUP##` and `##SALT_BACKUP_END##`
 that the server parses on boot. On startup, `load_data_from_disk` reads every
-`.txt` file in the folder, oldest first, and merges them.
+`.txt` file in the folder, oldest first, and merges them: each file
+contributes its workspace, reports merge by `lastModified` when two files hold
+the same one, and the newest file's config decides the active workspace. That
+is also how files from before 2.4, which held every workspace, still load;
+the first save afterwards gives each workspace its own file.
 
 Concurrency is handled in two steps:
 
-1. `render_backup`, a pure function, builds the file text while `data_lock` is
-   held, giving a consistent snapshot without any I/O.
-2. The text is written to a temporary file and moved into place with
+1. `render_workspace_backups`, a pure function, builds the file texts while
+   `data_lock` is held, giving a consistent snapshot without any I/O.
+2. Each text is written to a temporary file and moved into place with
    `os.replace` after the lock is released, so request handlers are never
    blocked on the disk and readers never see a partial file. A separate
    `_disk_lock` keeps writes in order.
@@ -140,11 +147,9 @@ Every accepted write passes through `_commit`, which also appends a line to
 that address (`AB@10.0.0.12`), and what changed. Server start and stop are
 logged the same way. The log is append-only and nothing reads it.
 
-> **Known limitation.** Each backup file currently contains every loaded
-> workspace, named after whichever one was active. Files duplicate each other,
-> and an unloaded workspace reappears on restart from an older file. That
-> reload is documented behavior, but the duplication is not ideal; moving to one
-> file per workspace is on the roadmap.
+Unloading a workspace removes it from memory and leaves its file in place:
+unload is "from view", and a restart reloads the file. That is documented
+behavior, not a limitation.
 
 ## Access control
 

@@ -173,10 +173,13 @@ config files, so there is no `.env` to manage.
 
 ### Data and backups
 
-Every change is written, debounced, to `{ATO}_{Title}.txt` in the backup folder:
-a readable summary of each report on top, and a machine-readable JSON block
-below that the server reloads on the next start. Writes are atomic, so a crash
-never leaves a half-written file.
+Every change is written, debounced, to the changed workspace's own file,
+`{ATO}_{Title}.txt`, in the backup folder: a readable summary of each report
+on top, and a machine-readable JSON block below that the server reloads on the
+next start. Writes are atomic, so a crash never leaves a half-written file.
+Unloading a workspace leaves its file in place, so a restart brings it back.
+(Before 2.4 one file held every loaded workspace; such files still load, and
+the first save after upgrading gives each workspace its own file.)
 
 Because that file is replaced within half a second of every change, the server
 also keeps dated copies in `Auto Backups/snapshots/`: one on every start and
@@ -243,8 +246,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and conventions.
 
 ## Roadmap
 
-- **One backup file per workspace.** Today each file holds every workspace, so
-  data is duplicated and the newest file wins on reload.
 - **Browser tests** for the DOM layer in `app.js`; its pure logic is already
   covered through `core.js`.
 
