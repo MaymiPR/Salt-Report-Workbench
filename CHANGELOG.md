@@ -6,6 +6,34 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A browser whose storage is full keeps working. Every browser mirrors every
+  workspace, with history, into the ~5 MB a browser allows, and when that
+  ran out the client went silently offline. It now says so once and carries
+  on from memory.
+- Starting the server a second time on Windows failed to fail: both copies
+  printed the banner and split the traffic between them. The second start now
+  stops with "port already in use".
+- Report ids are escaped wherever they land in the page, and the server
+  accepts only the characters the app generates, so a tampered backup file
+  can't carry markup into everyone's browser.
+- The client reacts to the server's own shutdown notice, instead of waiting
+  for the next failed heartbeat.
+
+### Added
+
+- Dated backup snapshots in `Auto Backups/snapshots/`: one at every start,
+  then at most one an hour, the newest 48 kept. The live backup is replaced
+  within half a second of every change, so this is the way back from a bad
+  import or a wrong delete.
+
+### Changed
+
+- Viewers (the read-only port) no longer keep a copy of the reports in browser
+  storage, and clear any copy an earlier version left. The page comes from the
+  server, so the copy was of no use without it.
+
 ## [2.2.0] - 2026-10-24
 
 ### Fixed
