@@ -40,6 +40,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Sync downloads are compressed. Every browser downloads the whole state after
+  every change, and a month of reports is megabytes of JSON; it now travels
+  five to eight times smaller, and one compression serves every client.
 - Viewers (the read-only port) no longer keep a copy of the reports in browser
   storage, and clear any copy an earlier version left. The page comes from the
   server, so the copy was of no use without it.
