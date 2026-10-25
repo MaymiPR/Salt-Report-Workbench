@@ -21,7 +21,7 @@ Three constraints drive almost every decision:
 ## Components
 
 ```text
-        src/index.html + styles.css + core.js + app.js
+        src/index.html + styles.css + core.js + app/*.js
                           │  scripts/build.py (inline CSS + JS)
                           ▼
    dist/index.html ◄──── served by ────► dist/salt_sync_server.py
@@ -38,7 +38,11 @@ Three constraints drive almost every decision:
 `core.js` holds the pure logic: date and time formatting, identifiers, copy
 text, MGRS clean-up, BDA pairing, backup and CSV generation, and parsing. It
 touches no DOM, storage, or network, so it loads in the page as
-`window.SaltCore` and in Node for `tests/js/`. `app.js` holds the whole application state in a handful of module-level
+`window.SaltCore` and in Node for `tests/js/`. The rest of the page is
+`src/app/`, seven top-level scripts loaded in order (state, rendering, form,
+import/export, sync, handlers, startup) that share one global scope, so a
+name declared in an earlier file is visible in the later ones. Together they
+hold the whole application state in a handful of top-level
 variables, with `reportsByAto` (every workspace's reports) as the core. Every
 change is applied locally first and mirrored to `localStorage`, so the UI never
 waits on the network. Rendering is one function per surface, such as `renderLog`
@@ -189,7 +193,8 @@ left, and a timeout means it's time to send a heartbeat. Broadcasts copy the cli
 ## Build
 
 `scripts/build.py` replaces the page's single `<link rel="stylesheet">` and
-`<script src>` with inline copies of `styles.css` and `app.js`, writes
+`<script src>` tags with inline copies of `styles.css`, `core.js` and the
+`src/app/` scripts, in page order, writes
 `dist/index.html`, and copies the server and the Windows launcher beside it.
 The launcher is written with CRLF line endings whatever the checkout used,
 because cmd.exe misparses batch files with bare LF endings. The build fails if

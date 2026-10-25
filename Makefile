@@ -25,7 +25,7 @@ lint:  ## Lint Python and syntax-check the JavaScript
 	ruff check .
 	ruff format --check .
 	node --check src/core.js
-	node --check src/app.js
+	for f in src/app/*.js; do node --check $$f; done
 
 format:  ## Auto-format Python
 	ruff format .

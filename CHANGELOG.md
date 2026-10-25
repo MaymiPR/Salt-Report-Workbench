@@ -27,6 +27,10 @@ All notable changes to this project are documented here. The format follows
   earlier versions still load, and the first save after upgrading gives each
   workspace its own file. Unloading a workspace leaves its file in place, as
   before.
+- For contributors: the page's code is split from one 2,700-line `app.js`
+  into seven ordered scripts under `src/app/` (state, rendering, form,
+  import/export, sync, handlers, startup). Same code, same scope; the build
+  inlines them in order.
 
 ## [2.3.0] - 2026-10-24
 

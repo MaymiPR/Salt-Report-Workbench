@@ -5,7 +5,7 @@ r"""Build a self-contained, ready-to-run distribution of the workbench.
 Reads the frontend sources in ``src/`` and inlines the stylesheet and scripts
 into a single ``index.html``, then copies the sync server next to it::
 
-    src/index.html  styles.css  core.js  app.js    server/salt_sync_server.py
+    src/index.html  styles.css  core.js  app/*.js  server/salt_sync_server.py
                 \         |        |       /                  |
                   inline CSS + JS into one HTML               copy
                                \                              /

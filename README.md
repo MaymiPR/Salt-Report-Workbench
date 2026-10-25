@@ -205,7 +205,14 @@ fact; nothing reads it.
 │   ├── index.html            Markup and the built-in user manual
 │   ├── styles.css
 │   ├── core.js               Pure logic (formatting, parsing, exports); unit-tested
-│   └── app.js                DOM, state, and sync
+│   └── app/                  DOM, state, and sync: ordered scripts sharing one scope
+│       ├── 10-state.js       Elements, state, helpers, toasts
+│       ├── 20-render.js      The report table, BDA panel and roll-up
+│       ├── 30-form.js        Entry, editing, restore, undo
+│       ├── 40-io.js          Workspaces panel, builder, export, import
+│       ├── 50-sync.js        Push, pull, SSE, offline queue
+│       ├── 60-handlers.js    Event wiring
+│       └── 70-startup.js     Restore saved state, then connect
 ├── server/
 │   ├── salt_sync_server.py   Standard-library HTTP + SSE sync server
 │   └── Start SALT Workbench.bat  Windows double-click launcher
@@ -246,7 +253,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and conventions.
 
 ## Roadmap
 
-- **Browser tests** for the DOM layer in `app.js`; its pure logic is already
+- **Browser tests** for the DOM layer in `src/app/`; its pure logic is already
   covered through `core.js`.
 
 ## Security
