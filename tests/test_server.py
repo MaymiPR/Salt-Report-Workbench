@@ -330,6 +330,24 @@ class ErrorReportingTests(unittest.TestCase):
         self.assertIn("boom", calls[0].args[0])
 
 
+class ListenerTests(unittest.TestCase):
+    def test_a_second_server_on_the_same_port_is_refused(self):
+        # Regression (Windows): SO_REUSEADDR let a second launch bind a port
+        # that was already listening, and both copies reported success.
+        first = srv.SaltSyncServer(("127.0.0.1", 0), srv.SaltSyncHandler)
+        try:
+            with self.assertRaises(OSError):
+                srv.SaltSyncServer(first.server_address, srv.SaltSyncHandler).server_close()
+        finally:
+            first.server_close()
+
+    def test_a_closed_port_can_be_reused_at_once(self):
+        first = srv.SaltSyncServer(("127.0.0.1", 0), srv.SaltSyncHandler)
+        addr = first.server_address
+        first.server_close()
+        srv.SaltSyncServer(addr, srv.SaltSyncHandler).server_close()
+
+
 # --------------------------------------------------------------------------- #
 # HTTP behaviour against a live server
 # --------------------------------------------------------------------------- #
