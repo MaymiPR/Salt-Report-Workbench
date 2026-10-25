@@ -94,8 +94,8 @@ workspace_sources: dict = {}
 sse_lock = threading.Lock()
 sse_clients: list = []
 
-# IP -> initials. Powers the deduped /api/sync connected list and server-stamped
-# attribution on /api/edit_report. Pruned on SSE disconnect. Protected by sse_lock.
+# Machine (see _machine) -> initials. Powers the deduped /api/sync connected list
+# and server-stamped attribution on /api/edit_report. Pruned on SSE disconnect. Protected by sse_lock.
 client_initials: dict = {}
 
 # --- Debounced disk-write state ---
@@ -302,6 +302,13 @@ def _is_localhost(ip: str) -> bool:
     if ip.startswith('127.'):
         return True
     return ip in _local_ips()
+
+
+def _machine(ip: str) -> str:
+    """The key that identifies one machine: every address of this host is 127.0.0.1.
+    The launcher opens the LAN URL, so a host with a localhost tab too would
+    otherwise count as two operators and hold two initials entries."""
+    return '127.0.0.1' if _is_localhost(ip) else ip
 
 
 def _check_access_code(headers, view_only: bool, client_ip: str) -> bool:
@@ -1116,8 +1123,8 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             prefix = _sync_cache_prefix
         # Dynamic tail: connected count + deduped initials (no IPs).
         with sse_lock:
-            # Unique users, not tabs — multiple tabs from one machine share an IP
-            # and would otherwise inflate the count.
+            # Unique machines, not tabs: tabs from one machine share a key (the
+            # host's localhost and LAN tabs included) and would otherwise inflate the count.
             connected = len({c.ip for c in sse_clients})
             seen: set = set()
             initials_list: list = []
@@ -1158,7 +1165,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         self.send_header('Connection', 'keep-alive')
         self.end_headers()
 
-        client = SSEClient(self.wfile, self.client_address[0])
+        client = SSEClient(self.wfile, _machine(self.client_address[0]))
         with sse_lock:
             sse_clients.append(client)
 
@@ -1269,8 +1276,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
     def _actor(self) -> str:
         """Who is behind this connection, for the audit log: ``AB@10.0.0.12`` or the address."""
         ip = self.client_address[0]
+        machine = _machine(ip)
         with sse_lock:
-            ini = client_initials.get(ip, '')
+            ini = client_initials.get(machine, '')
         return f'{ini}@{ip}' if ini else ip
 
     def _commit(self, what: str, **extra) -> None:
@@ -1317,8 +1325,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             for r in incoming:
                 ini = ((r.get('user') or {}).get('initials') or '').strip()
                 if ini:
+                    machine = _machine(self.client_address[0])
                     with sse_lock:
-                        client_initials[self.client_address[0]] = ini
+                        client_initials[machine] = ini
                     break
         deleted = sum(1 for r in incoming if r.get('deleted'))
         what = f'save_reports {ato}: {len(incoming)} report(s)'
@@ -1357,8 +1366,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             return
         # Server-stamped attribution: override client `user` with our IP->initials->profile lookup.
         # Falls back to client claim for brand-new IPs.
+        machine = _machine(self.client_address[0])
         with sse_lock:
-            known_initials = client_initials.get(self.client_address[0], '')
+            known_initials = client_initials.get(machine, '')
         if known_initials:
             with data_lock:
                 known_profile = DATA_STORE['profiles'].get(known_initials)
@@ -1455,8 +1465,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             invalidate_sync_cache()
             mark_dirty()  # profiles ride in every file
         # IP -> initials so /api/sync includes them and /api/edit_report can server-stamp.
+        machine = _machine(self.client_address[0])
         with sse_lock:
-            client_initials[self.client_address[0]] = ini
+            client_initials[machine] = ini
         self._commit(f'save_profile {ini}')
 
     _POST_ROUTES: ClassVar[dict] = {
