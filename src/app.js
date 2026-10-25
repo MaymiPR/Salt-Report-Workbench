@@ -39,6 +39,7 @@ const el = {
         selectAll:   document.getElementById('selectAllBtn'),
         deselectAll: document.getElementById('deselectAllBtn'),
         view:        document.getElementById('logView'),
+        bdaRollup:   document.getElementById('bdaRollup'),
         sortHeaders: document.querySelectorAll('#reportLogTable thead .sortable-th[data-sort]'),
     },
     status: {
@@ -292,6 +293,8 @@ const currentFormat  = () => {
 // report under `bda: []` and sync like everything else.
 let bdaMode = localStorage.getItem('salt_bda_mode') === 'on';
 document.body.classList.toggle('bda-mode', bdaMode);
+// Chip picked in the roll-up strip: an effect name, 'unassessed', or null.
+let bdaFilter = null;
 const openBdaRows = new Set();
 const openHistoryRows = new Set();
 let isExportViewActive = false;
@@ -537,12 +540,33 @@ const deleteBdaEntry = (reportId, lm) => {
 
 // `filterText` defaults to the current search-bar value so every repaint
 // preserves the active filter without the caller having to pass it.
+// The BDA roll-up strip: totals for the whole workspace as chips. Clicking a
+// chip shows only the reports with that outcome (Unassessed: reports with
+// elements still to assess); clicking it again clears the filter.
+const renderBdaRollup = (live) => {
+    const box = el.log.bdaRollup;
+    if (!box) return;
+    if (!bdaMode) { box.innerHTML = ''; return; }
+    const roll = SaltCore.bdaRollup(live);
+    const chip = (key, label, n, cls) =>
+        `<button type="button" class="bda-chip bda-eff-${cls}${bdaFilter === key ? ' active' : ''}${n ? '' : ' empty'}" data-bda-filter="${escapeHtml(key)}" title="${bdaFilter === key ? 'Show every report' : 'Show only these reports'}">${escapeHtml(label)} <strong>${n}</strong></button>`;
+    box.innerHTML = `<span class="bda-rollup-total" title="Elements assessed, out of every element in this workspace's reports">BDA <strong>${roll.done}</strong> / ${roll.total}</span>`
+        + BDA_EFFECTS.map(e => chip(e.name, e.name, roll.byEffect[e.name], e.cls)).join('')
+        + chip('unassessed', 'Unassessed', roll.unassessed, 'none');
+};
+const matchesBdaFilter = (r) => {
+    if (bdaFilter === 'unassessed') { const s = bdaSummary(r); return s.done < s.total; }
+    return (r.bda || []).some(b => (BDA_EFFECTS.some(e => e.name === b.effect) ? b.effect : 'Unknown') === bdaFilter);
+};
+
 const renderLog = (filterText = el.log.search.value.toLowerCase()) => {
     let rows = localReports.filter(r => !r.deleted);
     el.log.count.textContent = `${rows.length} unique reports`;
     // Total = each live report + its history entries. Deleted excluded.
     const totalReports = rows.reduce((sum, r) => sum + 1 + ((r.history && r.history.length) || 0), 0);
     el.log.totalCount.textContent = `${totalReports} total reports`;
+    renderBdaRollup(rows);
+    if (bdaMode && bdaFilter) rows = rows.filter(matchesBdaFilter);
 
     if (filterText) {
         const isDir = /^(n|ne|nw|s|se|sw|e|w)$/i.test(filterText.trim());
@@ -2029,6 +2053,13 @@ el.log.body.addEventListener('click', e => {
     }
 });
 
+if (el.log.bdaRollup) el.log.bdaRollup.addEventListener('click', e => {
+    const chip = e.target.closest('[data-bda-filter]');
+    if (!chip) return;
+    bdaFilter = bdaFilter === chip.dataset.bdaFilter ? null : chip.dataset.bdaFilter;
+    renderLog();
+});
+
 el.log.body.addEventListener('change', e => { if (e.target.classList.contains('row-selector') || e.target.classList.contains('history-selector')) updateSelectionUI(); });
 
 el.log.deleteBtn.addEventListener('click', () => {
@@ -2607,7 +2638,7 @@ el.menu.sepBtn.addEventListener('click', () => {
     if (bp && bp.style.display !== 'none') renderBuilderPreview();
     showToast(`ATO/Title separator: ${atoTitleSep}.`);
 });
-el.menu.bdaBtn.addEventListener('click', () => { bdaMode = !bdaMode; writeStored('salt_bda_mode', bdaMode ? 'on' : 'off'); document.body.classList.toggle('bda-mode', bdaMode); updateBdaBtnText(); renderLog(); el.menu.panel.style.display='none'; showToast(bdaMode ? 'BDA tracking shown.' : 'BDA tracking hidden.'); });
+el.menu.bdaBtn.addEventListener('click', () => { bdaMode = !bdaMode; bdaFilter = null; writeStored('salt_bda_mode', bdaMode ? 'on' : 'off'); document.body.classList.toggle('bda-mode', bdaMode); updateBdaBtnText(); renderLog(); el.menu.panel.style.display='none'; showToast(bdaMode ? 'BDA tracking shown.' : 'BDA tracking hidden.'); });
 
 // Menus
 setupMenuToggle(el.menu.btn, el.menu.panel);

@@ -235,6 +235,22 @@ const bdaSummary = (report) => {
     return { done, total, worstCls: worst > -1 ? BDA_EFFECTS[worst].cls : '' };
 };
 
+// Roll-up for a whole workspace: elements assessed out of every element in
+// its live reports, assessments by effect (an effect the app doesn't know
+// counts as Unknown), and how many elements have no assessment yet.
+const bdaRollup = (reps) => {
+    const byEffect = {};
+    BDA_EFFECTS.forEach(e => { byEffect[e.name] = 0; });
+    let done = 0, total = 0;
+    (reps || []).forEach(r => {
+        if (r.deleted) return;
+        const s = bdaSummary(r);
+        done += s.done; total += s.total;
+        (r.bda || []).forEach(b => { byEffect[b.effect in byEffect ? b.effect : 'Unknown']++; });
+    });
+    return { done, total, unassessed: total - done, byEffect };
+};
+
 // --- Backups ---
 
 const BACKUP_START = '##SALT_BACKUP##';
@@ -426,7 +442,7 @@ const SaltCore = {
     pad2, dateFields, clockValue, fileStamp, toTimeString, autoColon, parseFilterTime, typedTime, parseCsvTime,
     escapeHtml, safeColor, safeFilename,
     atoPrefix, reportNum, formatFullId, reportText, normalizeLocation,
-    BDA_EFFECTS, bdaElements, bdaSummary,
+    BDA_EFFECTS, bdaElements, bdaSummary, bdaRollup,
     backupFilename, backupText, allWorkspacesBackupText, parseBackup,
     parseCsv, reportsCsv, mtiCsvs,
     reportKey, knownVersions, changedReports, withUnsaved,
