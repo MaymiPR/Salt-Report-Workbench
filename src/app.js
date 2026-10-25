@@ -1456,7 +1456,8 @@ const confirmCsvImport = async () => {
     closeCsvImportView();
     let msg = `Imported ${imported} report(s) to ${dest}.`;
     if (skipped > 0) msg += ` ${skipped} row(s) skipped.`;
-    showToast(msg);
+    if (unreadTimes > 0) msg += ` ${unreadTimes} time(s) couldn't be read and got the import time.`;
+    showToast(msg, unreadTimes > 0);
     // Now push to the server and wait for the response. By awaiting here, any
     // SSE-triggered sync that fires afterwards is guaranteed to see our reports
     // already in the server's state — eliminating the race where a stale sync
@@ -1756,13 +1757,9 @@ async function handleFormSubmit(mode) {
     let finalTime;
 
     if (timeValue) {
-        if (!/^\d{1,2}:\d{2}$/.test(timeValue)) { showToast('Invalid time format. Use HH:MM.', true); return; }
-        let [h, m] = timeValue.split(':').map(Number);
-        if (isNaN(h)||isNaN(m)||h>23||m>59) { showToast('Invalid time value.', true); return; }
-        const d = new Date();
-        if (timeDisplayMode === 'local') d.setHours(h,m,0,0);
-        else                             d.setUTCHours(h,m,0,0);
-        finalTime = d.toISOString();
+        // Today's date, or yesterday's when the time is more than an hour ahead.
+        finalTime = SaltCore.typedTime(timeValue, timeDisplayMode === 'local');
+        if (!finalTime) { showToast('Invalid time. Use HH:MM (24-hour).', true); return; }
     } else {
         finalTime = new Date().toISOString();
     }
