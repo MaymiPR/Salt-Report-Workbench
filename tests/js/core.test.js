@@ -71,6 +71,17 @@ test('a typed time more than an hour ahead belongs to yesterday', () => {
     assert.ok(d.getTime() - now.getTime() <= 3600_000);
 });
 
+test('an edited report keeps its timestamp unless the time was actually changed', () => {
+    const now = new Date('2026-10-25T00:30:00Z');
+    const orig = '2026-10-21T14:30:00Z';  // four days old
+    assert.equal(core.submittedTime('14:30', false, orig, now), orig, 'untouched time box: same timestamp, same day');
+    assert.equal(core.submittedTime('14:31', false, orig, now), '2026-10-24T14:31:00.000Z', 'changed: placed by typedTime (14 h ahead, so yesterday)');
+    assert.equal(core.submittedTime('00:45', false, orig, now), '2026-10-25T00:45:00.000Z', 'changed, within the hour: today');
+    assert.equal(core.submittedTime('', false, orig, now), now.toISOString(), 'blank means now');
+    assert.equal(core.submittedTime('00:45', false, null, now), '2026-10-25T00:45:00.000Z', 'new report: today');
+    assert.equal(core.submittedTime('24:00', false, orig, now), null);
+});
+
 test('spreadsheet times are read in the common forms', () => {
     const now = new Date('2026-10-24T20:00:00Z');
     const p = s => core.parseCsvTime(s, false, now);
