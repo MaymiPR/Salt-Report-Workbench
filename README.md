@@ -178,6 +178,12 @@ a readable summary of each report on top, and a machine-readable JSON block
 below that the server reloads on the next start. Writes are atomic, so a crash
 never leaves a half-written file.
 
+Because that file is replaced within half a second of every change, the server
+also keeps dated copies in `Auto Backups/snapshots/`: one on every start and
+then at most one an hour, the newest 48 kept. To go back to an earlier state,
+stop the server, copy the snapshot you want over the live file, and start it
+again. The snapshots folder itself is never loaded.
+
 > [!IMPORTANT]
 > Backups contain your actual reports. `Auto Backups/` is git-ignored; keep it
 > that way, and handle the folder according to your unit's data-handling rules.
