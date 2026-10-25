@@ -314,6 +314,8 @@ _EDITABLE_FIELDS = (
 
 # ISO 8601 with optional fractional seconds, optional Z (tolerates hand-edited legacy backups).
 _ISO_TIME_RE = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$')
+# Report ids: UUIDs and displayIds, with room for other sane schemes.
+_ID_RE = re.compile(rf'[A-Za-z0-9_.:-]{{1,{MAX_ID_LEN}}}')
 # Three- or six-digit hex colors — matches the swatch values the UI emits.
 _COLOR_RE = re.compile(r'^#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3})?$')
 
@@ -388,6 +390,10 @@ def _validate_report(r, idx: int) -> str | None:
     has_did = _is_str(r.get('displayId'), MAX_ID_LEN) and r.get('displayId')
     if not has_id and not has_did:
         return f'reports[{idx}] missing id or displayId'
+    # Ids end up in the page's markup on every client, so they are kept to the
+    # characters the app itself generates (UUIDs, "ALPHA001").
+    if r.get('id') and not (isinstance(r['id'], str) and _ID_RE.fullmatch(r['id'])):
+        return f'reports[{idx}].id may only contain letters, digits, "-", "_", "." and ":"'
     if err := _validate_report_fields(r, f'reports[{idx}]'):
         return err
     h = r.get('history')

@@ -180,6 +180,17 @@ class ValidatorTests(unittest.TestCase):
             v, {"ato": "ALPHA", "reports": [report(history={})]}, "history must be a list"
         )
 
+    def test_report_ids_are_kept_to_markup_safe_characters(self):
+        # Ids are written into attributes on every client; a crafted backup
+        # could otherwise carry markup into everyone's page.
+        v = srv._v_save_reports
+        for ok in ("6f1d2c3a-1111-4222-8333-444455556666", "ALPHA001", "legacy.id:7"):
+            self.assertIsNone(v({"ato": "A", "reports": [report(rid=ok)]}), ok)
+        self.assertRejects(v, {"ato": "A", "reports": [report(rid='x" onclick="1')]}, ".id")
+        self.assertRejects(v, {"ato": "A", "reports": [report(rid="a b")]}, ".id")
+        # Rows that predate ids are still keyed by displayId alone.
+        self.assertIsNone(v({"ato": "A", "reports": [report(rid="")]}))
+
     def test_booleans_are_not_accepted_as_timestamps(self):
         # isinstance(True, int) is True in Python; the validator must not be fooled.
         self.assertRejects(
