@@ -322,6 +322,17 @@ class AccessCodeTests(unittest.TestCase):
                 self.assertTrue(srv._is_localhost("10.0.0.77"))
                 self.assertFalse(srv._is_localhost("10.0.0.5"), "the old address is gone")
 
+    def test_every_address_of_the_host_is_one_machine(self):
+        addrs = [(None, None, None, None, ("10.0.0.5", 0))]
+        with (
+            mock.patch.object(srv.socket, "getaddrinfo", return_value=addrs),
+            mock.patch.object(srv, "get_local_ip", return_value="10.0.0.5"),
+            mock.patch.object(srv, "_local_ips_cache", None),
+        ):
+            self.assertEqual(srv._machine("10.0.0.5"), "127.0.0.1")
+            self.assertEqual(srv._machine("127.0.0.1"), "127.0.0.1")
+            self.assertEqual(srv._machine("203.0.113.9"), "203.0.113.9")
+
     def test_blank_or_unsendable_access_code_overrides_are_refused(self):
         # Regression: --access-code " " became an empty code that an empty
         # cookie matched, silently opening the editor port.
@@ -872,6 +883,24 @@ class HttpApiTests(unittest.TestCase):
         resp.close()
         self.assertTrue(self.wait_until(lambda: not srv.sse_clients), "client pruned on close")
         self.assertNotIn("127.0.0.1", srv.client_initials, "its IP->initials entry went with it")
+
+    def test_the_host_counts_once_with_a_localhost_and_a_lan_tab(self):
+        # Regression: the launcher opens the LAN URL, so a host with a
+        # localhost tab too was counted as two operators.
+        host = {"127.0.0.1", "10.0.0.5"}
+        with mock.patch.object(srv, "_is_localhost", lambda ip: ip in host):
+            clients = [
+                srv.SSEClient(io.BytesIO(), srv._machine(ip))
+                for ip in ("10.0.0.5", "127.0.0.1", "203.0.113.9")
+            ]
+        with srv.sse_lock:
+            srv.sse_clients.extend(clients)
+        try:
+            self.assertEqual(self.sync()["connected_users"], 2)
+        finally:
+            with srv.sse_lock:
+                for c in clients:
+                    srv.sse_clients.remove(c)
 
     def test_graceful_drain_tells_clients_and_flushes_the_save(self):
         with contextlib.closing(self.open_events()) as resp:

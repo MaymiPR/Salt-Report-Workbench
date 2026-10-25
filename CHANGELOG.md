@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The connected-operators count no longer counts the host twice. The launcher
+  opens the LAN address, so a host that also had a `localhost` tab open showed
+  up as two operators. Every address of the host now counts as one machine.
+
 ## [2.4.0] - 2026-10-24
 
 ### Fixed
