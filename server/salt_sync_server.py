@@ -259,13 +259,18 @@ def _get_cookie(headers, name: str) -> str | None:
     return None
 
 
-_local_ips_cache: set | None = None
+# (when looked up, the addresses). Re-looked-up after LOCAL_IPS_TTL_SECONDS: the
+# host's address can change mid-operation (a DHCP lease, a new network), and a
+# cache fixed at boot made the host's own browser lose its free pass until a restart.
+_local_ips_cache: tuple[float, set] | None = None
+LOCAL_IPS_TTL_SECONDS: float = 60.0
 
 
 def _local_ips() -> set:
-    """All IPs bound to this machine — loopback + hostname-resolved + LAN. Cached."""
+    """All IPs bound to this machine — loopback + hostname-resolved + LAN. Cached briefly."""
     global _local_ips_cache
-    if _local_ips_cache is None:
+    now = time.monotonic()
+    if _local_ips_cache is None or now - _local_ips_cache[0] > LOCAL_IPS_TTL_SECONDS:
         ips: set = {'127.0.0.1', '::1'}
         try:
             for info in socket.getaddrinfo(socket.gethostname(), None):
@@ -274,8 +279,8 @@ def _local_ips() -> set:
             pass
         with contextlib.suppress(Exception):
             ips.add(get_local_ip())
-        _local_ips_cache = ips
-    return _local_ips_cache
+        _local_ips_cache = (now, ips)
+    return _local_ips_cache[1]
 
 
 def _is_localhost(ip: str) -> bool:

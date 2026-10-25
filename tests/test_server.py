@@ -304,6 +304,23 @@ class AccessCodeTests(unittest.TestCase):
                 srv._check_access_code({}, False, remote), "--no-access-code disables the gate"
             )
 
+    def test_the_machines_own_addresses_are_looked_up_again_after_a_while(self):
+        # Regression: cached once at boot, so after a DHCP change the host's own
+        # browser (on the LAN URL) was asked for the code until a restart.
+        addrs = [[(None, None, None, None, ("10.0.0.5", 0))]]
+        with (
+            mock.patch.object(srv.socket, "getaddrinfo", side_effect=lambda *a: addrs[0]),
+            mock.patch.object(srv, "get_local_ip", return_value="10.0.0.5"),
+            mock.patch.object(srv, "_local_ips_cache", None),
+        ):
+            self.assertTrue(srv._is_localhost("10.0.0.5"))
+            addrs[0] = [(None, None, None, None, ("10.0.0.77", 0))]
+            self.assertFalse(srv._is_localhost("10.0.0.77"), "still cached")
+            later = srv.time.monotonic() + srv.LOCAL_IPS_TTL_SECONDS + 1
+            with mock.patch.object(srv.time, "monotonic", return_value=later):
+                self.assertTrue(srv._is_localhost("10.0.0.77"))
+                self.assertFalse(srv._is_localhost("10.0.0.5"), "the old address is gone")
+
     def test_blank_or_unsendable_access_code_overrides_are_refused(self):
         # Regression: --access-code " " became an empty code that an empty
         # cookie matched, silently opening the editor port.
