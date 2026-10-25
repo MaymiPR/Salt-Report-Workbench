@@ -185,7 +185,7 @@
                         <li>Find the version you want to bring back.</li>
                         <li>Click the green <strong>Restore</strong> pill and confirm.</li>
                     </ol>
-                    <p class="manual-step-result">That historical version becomes the current state. <em>Destructive</em>: the current values and every history entry newer than the chosen one are discarded. Older entries are preserved.</p>
+                    <p class="manual-step-result">That historical version becomes the current state. <em>Destructive</em>: the current values and every history entry newer than the chosen one are discarded. Older entries are preserved. The confirmation message offers <strong>Undo</strong> for ten seconds, which brings the report back exactly as it was.</p>
 
                     <p style="margin-top:14px;"><strong>What the buttons do:</strong></p>
                     <ul>
@@ -213,7 +213,7 @@
                         <li><strong>Copy button</strong> on each row copies that report to clipboard in SALT format. If the report has been updated, the identifier line includes <em>(Updated)</em> so the recipient knows it&rsquo;s a revised entry, not the original.</li>
                         <li><strong>Chevron (&rsaquo;)</strong> next to a report expands its history below: every prior version with size, activity, location, time, and who saved it.</li>
                         <li><strong>(Updated) tag</strong> under the ID means the report has been changed at least once.</li>
-                        <li><strong>Checkboxes</strong> select rows; the <strong>Delete</strong> button appears at the top once anything is checked. Works on top-level reports AND individual history rows. <kbd>Esc</kbd> deselects everything at once.</li>
+                        <li><strong>Checkboxes</strong> select rows; the <strong>Delete</strong> button appears at the top once anything is checked. Works on top-level reports AND individual history rows. <kbd>Esc</kbd> deselects everything at once. After a delete, the message at the bottom carries an <strong>Undo</strong> button for ten seconds that puts everything back (except a <em>Not saved</em> change, which is discarded for good).</li>
                         <li><strong>Dense cells stay compact</strong>: Size, Activity, Location, and Analysis are each capped at two lines. When content overflows (several MGRS grids, a wordy analysis), that cell turns clickable; click to expand it in place, click again to collapse. Cells whose content already fits stay plain and are not clickable. Hovering shows the full content as a tooltip, and it works on history rows too.</li>
                         <li><strong>Sort</strong> by clicking the Identifier header (cycles numeric asc / desc / recently-modified) or the Time header (toggles asc / desc).</li>
                         <li><strong>Select All / Deselect All</strong> in the ellipsis menu hit every visible checkbox at once.</li>

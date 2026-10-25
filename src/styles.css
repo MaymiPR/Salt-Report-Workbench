@@ -562,6 +562,9 @@ body.local-mode .startup-access-divider { display: none; }
 /* Toast z-index sits above startup overlay (2000) so it renders over the blur. */
 .toast { visibility: hidden; min-width: 280px; background-color: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); color: #fff; text-align: center; border-radius: 16px; padding: 16px 20px; position: fixed; z-index: 2500; left: 50%; transform: translateX(-50%) translateY(20px); bottom: 40px; font-size: 0.95em; font-weight: 500; opacity: 0; transition: opacity 0.4s, transform 0.4s, visibility 0.4s; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
 .toast.show { visibility: visible; opacity: 1; transform: translateX(-50%) translateY(0); }
+/* Undo pill on the delete and restore toasts. */
+.toast .toast-undo { margin-left: 14px; padding: 4px 14px; border-radius: 100px; background-color: rgba(10, 132, 255, 0.22); color: var(--system-blue); font-size: 0.85em; font-weight: 600; vertical-align: middle; }
+.toast .toast-undo:hover { background-color: rgba(10, 132, 255, 0.35); opacity: 1; }
 .toast.confirm { bottom: 50vh; transform: translate(-50%, 50%) scale(0.9); }
 .toast.confirm.show { transform: translate(-50%, 50%) scale(1); }
 .toast.confirm #confirmButtons { display: flex; gap: 10px; margin-top: 16px; justify-content: center; }

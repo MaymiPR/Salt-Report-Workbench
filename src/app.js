@@ -358,14 +358,23 @@ const setupMenuToggle = (btn, menu) => btn.addEventListener('click', e => { e.st
 
 // --- 4. Notifications (toasts + confirmation dialog) ---
 let toastTimer = null;
-const showToast = (msg, isErr = false) => {
+// `ms` is how long the toast stays; `undo` adds an Undo button that runs it.
+const showToast = (msg, isErr = false, { ms = 4000, undo = null } = {}) => {
     el.toast.regular.textContent = msg;
+    if (undo) {
+        const btn = document.createElement('button');
+        btn.className = 'toast-undo';
+        btn.textContent = 'Undo';
+        btn.addEventListener('click', () => { clearTimeout(toastTimer); el.toast.regular.classList.remove('show'); undo(); });
+        el.toast.regular.appendChild(btn);
+    }
     el.toast.regular.style.backgroundColor = isErr ? 'rgba(255,69,58,0.9)' : 'rgba(28,28,30,0.85)';
     el.toast.regular.classList.add('show');
     // Restart the clock, so an earlier toast's timer can't hide this one early.
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.toast.regular.classList.remove('show'), 4000);
+    toastTimer = setTimeout(() => el.toast.regular.classList.remove('show'), ms);
 };
+const UNDO_MS = 10000;
 // One prompt at a time: a new prompt replaces an unanswered one and drops its
 // action, so Confirm only ever runs what the dialog is showing.
 let pendingConfirm = null;
@@ -854,6 +863,54 @@ const discardUnsaved = (ids, { confirm = true } = {}) => {
         : `Discard ${reps.length} unsaved changes?`, run);
 };
 
+// --- Undo ---
+// Delete and Restore offer an Undo button for a few seconds. Undo works on
+// the workspace it came from by report id, because a sync in the meantime
+// may have replaced the report objects (the server keeps soft-deleted
+// reports, so they are still there to find), and pushes with a new
+// lastModified so the server takes the restored copy.
+const pushUndone = async (ato, list) => {
+    if (ato === activeAto) { localReports = list; await saveLocalAndSync(reportsByAto); }
+    else { saveReportsByAtoToLocal(); renderLog(); await pushWorkspace(ato, list); }
+};
+
+// `undone` is what a Delete removed: soft-deleted ids, and history entries by report id.
+async function undoDeletion(ato, undone) {
+    const list = reportsByAto[ato];
+    if (!list) { showToast('That workspace is no longer loaded.', true); return; }
+    const now = Date.now();
+    let restored = 0;
+    list.forEach(r => {
+        let touched = false;
+        if (undone.ids.includes(r.id) && r.deleted) { delete r.deleted; touched = true; }
+        const entries = undone.history[r.id];
+        if (entries) {
+            const have = new Set((r.history || []).map(h => h.lastModified));
+            const back = entries.filter(h => !have.has(h.lastModified));
+            if (back.length) {
+                r.history = [...(r.history || []), ...back].sort((a, b) => a.lastModified - b.lastModified);
+                r.updated = true;
+                touched = true;
+            }
+        }
+        if (touched) { r.lastModified = now; restored++; }
+    });
+    if (!restored) { showToast('Nothing left to put back.', true); return; }
+    await pushUndone(ato, list);
+    showToast(`${restored} item(s) put back.`);
+}
+
+// `before` is the report as it was before a Restore.
+async function undoRestore(ato, before) {
+    const list = reportsByAto[ato];
+    const r = list && list.find(x => x.id === before.id);
+    if (!r) { showToast('That report is no longer here.', true); return; }
+    Object.keys(r).forEach(k => { if (!(k in before)) delete r[k]; });
+    Object.assign(r, before, { lastModified: Date.now() });
+    await pushUndone(ato, list);
+    showToast(`${formatFullId(r)} is back as it was.`);
+}
+
 // DESTRUCTIVE rollback: chosen history version becomes current; current
 // state and everything newer-than-chosen are discarded. Older history stays.
 const restoreHistoryVersion = (reportId, lastModified) => {
@@ -868,6 +925,8 @@ const restoreHistoryVersion = (reportId, lastModified) => {
         ? ` This will discard the current version and ${newerCount} newer update${newerCount === 1 ? '' : 's'}.`
         : ' This will discard the current version.';
     showConfirmation(`Restore this version as current for ${formatFullId(report)}?${dropMsg}`, async () => {
+        const ato = activeAto;
+        const before = JSON.parse(JSON.stringify(report));
         const now = Date.now();
         // Drop the chosen snapshot and everything newer; keep strictly older.
         report.history = (report.history || []).filter(h => h.lastModified < snapshot.lastModified);
@@ -885,7 +944,7 @@ const restoreHistoryVersion = (reportId, lastModified) => {
         if (userProfile) report.user = userProfile;
         reportsByAto[activeAto] = localReports;
         await saveLocalAndSync(reportsByAto);
-        showToast(`${formatFullId(report)} restored.`);
+        showToast(`${formatFullId(report)} restored.`, false, { ms: UNDO_MS, undo: () => undoRestore(ato, before) });
     });
 };
 
@@ -1985,10 +2044,13 @@ el.log.deleteBtn.addEventListener('click', () => {
             discardUnsaved(refusedIds, { confirm: false });
             refusedIds.forEach(id => mainIds.splice(mainIds.indexOf(id), 1));
         }
+        // What Undo has to put back. A discarded refused change is gone for good.
+        const ato = activeAto;
+        const undone = { ids: [], history: {} };
         // ── Main report deletions (soft-delete via the deleted flag) ─────────
         if (mainIds.length) {
             const deletedSet = new Set(mainIds);
-            localReports.forEach(r => { if (deletedSet.has(r.id)) { r.deleted = true; r.lastModified = Date.now(); } });
+            localReports.forEach(r => { if (deletedSet.has(r.id)) { r.deleted = true; r.lastModified = Date.now(); undone.ids.push(r.id); } });
             reportsByAto[activeAto] = localReports;
             // Prune the history-open Set so deleted report IDs don't linger in
             // memory across long sessions (no functional impact, just hygiene).
@@ -2001,6 +2063,8 @@ el.log.deleteBtn.addEventListener('click', () => {
             localReports.forEach(r => {
                 const lms = byReport[r.id];
                 if (lms && r.history && r.history.length) {
+                    const removed = r.history.filter(h => lms.has(h.lastModified));
+                    if (removed.length) undone.history[r.id] = removed;
                     r.history = r.history.filter(h => !lms.has(h.lastModified));
                     r.lastModified = Date.now(); // bump so server merge prefers our copy
                 }
@@ -2014,8 +2078,9 @@ el.log.deleteBtn.addEventListener('click', () => {
         // Persist locally + push (save_reports merges by lastModified, which we bumped above).
         await saveLocalAndSync(reportsByAto);
         resetForm();
-        showToast(`${total} item(s) deleted.`);
         el.log.deleteBtn.style.display = 'none';
+        const canUndo = undone.ids.length || Object.keys(undone.history).length;
+        showToast(`${total} item(s) deleted.`, false, canUndo ? { ms: UNDO_MS, undo: () => undoDeletion(ato, undone) } : {});
     });
 });
 
