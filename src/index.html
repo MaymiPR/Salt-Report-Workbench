@@ -383,6 +383,7 @@
                         <li>The editor-only ellipsis-menu items (Horizontal Layout, Select All / Deselect All, Clear Workspace) are hidden. Export still works: viewers can download backups and CSVs of what they&rsquo;re seeing.</li>
                         <li>Live updates flow normally: any edit by an editor appears in the viewer&rsquo;s table within a fraction of a second, and switching the active workspace on the editor side updates the A indicator on every viewer in real time.</li>
                         <li>The page is stamped read-only by the server before it even loads in the browser, so the editor UI never flashes on a viewer&rsquo;s refresh.</li>
+                        <li>Viewers keep <strong>no copy of the reports</strong> in browser storage. The page itself comes from the server, so a cached copy would be of no use without it, and it would leave every report at rest on a machine that only watches. Display settings (time mode, title separator) are still remembered.</li>
                     </ul>
                 </section>
 

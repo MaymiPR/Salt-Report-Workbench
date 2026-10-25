@@ -170,7 +170,12 @@ const writeStored = (key, value) => {
         return false;
     }
 };
-let reportsByAto  = readStored('salt_reports_by_ato', {});
+// Viewers keep no copy of the reports. The page comes from the server, so a
+// cached copy is useless without it, and it would leave every report at rest
+// on a machine that only watches. Whatever an earlier version left is cleared.
+const viewerAtLoad = document.body.classList.contains('read-only');
+if (viewerAtLoad) ['salt_reports_by_ato', 'salt_unsaved'].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+let reportsByAto  = viewerAtLoad ? {} : readStored('salt_reports_by_ato', {});
 let activeAto     = null;
 // Viewer-only: the workspace the viewer has clicked to look at locally.
 // `activeAto` always tracks the server's config.ato (the editor's choice);
@@ -299,6 +304,7 @@ const unsavedEntry = (ato, report) => ((unsaved[ato] || {})[SaltCore.reportKey(r
 // Dedupe localStorage writes — skip if the JSON hasn't actually changed.
 let lastSavedReportsJson = localStorage.getItem('salt_reports_by_ato') || '';
 const saveReportsByAtoToLocal = () => {
+    if (isReadOnly) return;
     const json = JSON.stringify(reportsByAto);
     // A write that fails is tried again on the next change, not forgotten.
     if (json !== lastSavedReportsJson && writeStored('salt_reports_by_ato', json)) {
