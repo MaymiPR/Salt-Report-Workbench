@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-10-25
+
 ### Fixed
 
 - The connected-operators count no longer counts the host twice. The launcher
@@ -234,7 +236,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Ruff, pre-commit, EditorConfig, and a Makefile.
 - README, architecture notes, and contributing, security, and conduct guides.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.1.1...v2.2.0
