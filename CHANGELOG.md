@@ -33,6 +33,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Undo** for Delete and Restore: a button on the message, for ten seconds.
+- **Sort by Size, Activity, or Location** by clicking the header, with numbers
+  in numeric order ("2x T-72" before "10x T-72").
+- **BDA roll-up** above the table: elements assessed out of every element in
+  the workspace, a count per outcome, and Unassessed; click a chip to show
+  only those reports. Viewers see it too.
+- An audit log, `Auto Backups/audit.log`: one line per accepted change with
+  the time, the operator (initials and address), and what changed, plus
+  server starts and stops.
 - Dated backup snapshots in `Auto Backups/snapshots/`: one at every start,
   then at most one an hour, the newest 48 kept. The live backup is replaced
   within half a second of every change, so this is the way back from a bad
