@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Updating or editing a report without touching its Time box keeps the
+  report's original timestamp. The box carries only the clock part, so the
+  report used to be re-dated to today, and that counted as a change worth a
+  history entry even when nothing else differed.
+- A just-logged report no longer blinks out of the table when another
+  operator's change arrives while it is still being sent.
+- The server re-checks its own addresses every minute, so the host's browser
+  keeps its free pass on the LAN URL after a DHCP change instead of being
+  asked for the code until a restart.
+
 ## [2.3.0] - 2026-10-24
 
 ### Fixed
