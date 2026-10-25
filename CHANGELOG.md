@@ -17,6 +17,12 @@ All notable changes to this project are documented here. The format follows
 - The server re-checks its own addresses every minute, so the host's browser
   keeps its free pass on the LAN URL after a DHCP change instead of being
   asked for the code until a restart.
+- Starting the next report while the previous one is still uploading no
+  longer wipes the fields: the form is cleared (and the report copied) as
+  soon as it is logged, not after the server confirms.
+- The first-run dialog scrolls when it is taller than the screen. With Quick
+  Start chips filled in, "Get Started" could sit below the edge of a small
+  laptop screen with no way to reach it.
 
 ### Changed
 
@@ -31,6 +37,10 @@ All notable changes to this project are documented here. The format follows
   into seven ordered scripts under `src/app/` (state, rendering, form,
   import/export, sync, handlers, startup). Same code, same scope; the build
   inlines them in order.
+- For contributors: browser tests. `tests/test_browser.py` drives the built
+  page in Chromium through Playwright (optional; skipped when it isn't
+  installed) and CI runs it: first-run setup, logging, live update on the
+  viewer, delete and undo, sorting, the BDA roll-up.
 
 ## [2.3.0] - 2026-10-24
 

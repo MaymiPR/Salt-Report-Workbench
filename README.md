@@ -240,21 +240,23 @@ node --test tests/js/core.test.js        # the page's logic: Node's built-in run
 pip install ruff==0.17.2 pre-commit      # optional tooling
 ruff check . && ruff format --check .
 pre-commit install                       # lint on every commit
+
+pip install playwright && playwright install chromium   # optional: browser tests
+python -m unittest tests.test_browser    # drives the built page in Chromium
 ```
+
+The browser tests are skipped when Playwright isn't installed, so the plain
+test command works anywhere Python does.
 
 On macOS and Linux, `make help` lists shortcuts for the same commands, and
 `make check` runs everything CI runs.
 
-CI runs lint, the test suite on Python 3.10–3.15 (Ubuntu) and 3.13 and 3.15 (Windows), and
-a build that starts the bundled server and checks the editor page, the viewer
-port, and that writes to the viewer are refused.
+CI runs lint, the test suite on Python 3.10–3.15 (Ubuntu) and 3.13 and 3.15 (Windows),
+the browser tests in Chromium, and a build that starts the bundled server and
+checks the editor page, the viewer port, and that writes to the viewer are
+refused.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and conventions.
-
-## Roadmap
-
-- **Browser tests** for the DOM layer in `src/app/`; its pure logic is already
-  covered through `core.js`.
 
 ## Security
 

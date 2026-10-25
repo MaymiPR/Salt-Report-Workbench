@@ -85,7 +85,11 @@ Common types: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `style`,
 Server, build, and launcher tests use the standard library's `unittest`, so
 they run anywhere Python does. The page's pure logic lives in `src/core.js`
 (no DOM, storage, or network) and is tested with Node's built-in runner in
-`tests/js/`; put new logic there when it can be, and test it. Add a test for
-any server behavior you change. For a bug fix, add a test that
-fails without your fix first. `tests/test_server.py` shows how to run real HTTP
+`tests/js/`; put new logic there when it can be, and test it. The DOM layer
+in `src/app/` is covered by `tests/test_browser.py`, which drives the built
+page in Chromium through Playwright (`pip install playwright && playwright
+install chromium`); it is skipped when Playwright isn't installed, and CI
+runs it. Add a test for any server behavior you change, and a browser test
+for a change in what the page does. For a bug fix, add a test that fails
+without your fix first. `tests/test_server.py` shows how to run real HTTP
 requests against a live server on an ephemeral port.

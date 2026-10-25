@@ -17,9 +17,13 @@ build:  ## Bundle src/ into a runnable dist/
 run: build  ## Build, then start the server
 	$(PY) dist/salt_sync_server.py
 
-test:  ## Run the test suites (Python, then JavaScript)
+test:  ## Run the test suites (Python, then JavaScript; browser tests if Playwright is installed)
 	$(PY) -m unittest discover -s tests
 	node --test tests/js/core.test.js
+
+setup-browser:  ## Install Playwright and a Chromium for the browser tests
+	$(PY) -m pip install playwright
+	$(PY) -m playwright install chromium
 
 lint:  ## Lint Python and syntax-check the JavaScript
 	ruff check .
