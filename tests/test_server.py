@@ -706,14 +706,80 @@ class HttpApiTests(unittest.TestCase):
             "keys from disk are normalized like request keys",
         )
 
+    def test_boot_takes_the_newest_file_as_authority_but_merges_every_report(self):
+        import os
+        import time
+
+        folder = Path(srv.BACKUP_DIR)
+        folder.mkdir(parents=True, exist_ok=True)
+        older = {"ALPHA": [report(lm=1, size="old"), report("r2", "ALPHA002", lm=1)]}
+        newer = {"ALPHA": [report(lm=2, size="new")]}
+        for name, ws, title, age in (
+            ("ALPHA_Day1.txt", older, "Day1", 100),
+            ("ALPHA_Day2.txt", newer, "Day2", 0),
+        ):
+            _, text = srv.render_backup(ws, {"ato": "ALPHA", "title": title}, {}, {})
+            path = folder / name
+            path.write_text(text, encoding="utf-8")
+            os.utime(path, (time.time() - age, time.time() - age))
+        srv.load_data_from_disk()
+        by_id = {r["id"]: r for r in srv.DATA_STORE["workspaces"]["ALPHA"]}
+        self.assertEqual(by_id["r1"]["size"], "new", "newest lastModified wins across files")
+        self.assertIn("r2", by_id, "a report only the older file holds is kept")
+        self.assertEqual(srv.DATA_STORE["config"]["title"], "Day2", "config from the newest file")
+        self.assertEqual(srv.workspace_sources["ALPHA"], "ALPHA_Day2.txt")
+
     # -- live updates -------------------------------------------------------- #
-    def test_event_stream_opens_with_an_update(self):
+    def open_events(self):
         req = urllib.request.Request(
             self.base + "/api/events", headers={"Cookie": f"salt_access={CODE}"}
         )
-        with contextlib.closing(urllib.request.urlopen(req, timeout=5)) as resp:
+        return urllib.request.urlopen(req, timeout=5)
+
+    def wait_until(self, predicate, timeout=3.0):
+        import time
+
+        deadline = time.monotonic() + timeout
+        while not predicate():
+            if time.monotonic() > deadline:
+                return False
+            time.sleep(0.02)
+        return True
+
+    def test_event_stream_opens_with_an_update(self):
+        with contextlib.closing(self.open_events()) as resp:
             self.assertEqual(resp.headers["Content-Type"], "text/event-stream")
             self.assertEqual(resp.readline(), b"data: update\n")
+
+    def test_heartbeats_flow_while_the_client_is_quiet(self):
+        with (
+            mock.patch.object(srv, "SSE_HEARTBEAT_SECONDS", 0.05),
+            contextlib.closing(self.open_events()) as resp,
+        ):
+            resp.readline()  # bootstrap update
+            resp.readline()  # blank line ending it
+            self.assertEqual(resp.readline(), b": heartbeat\n")
+
+    def test_a_client_that_leaves_is_pruned_with_its_initials(self):
+        self.post("/api/save_profile", {"profile": {"initials": "AB", "color": "#32d74b"}})
+        resp = self.open_events()
+        resp.readline()
+        self.assertTrue(self.wait_until(lambda: len(srv.sse_clients) == 1))
+        self.assertEqual(self.sync()["connected_initials"], ["AB"])
+        resp.close()
+        self.assertTrue(self.wait_until(lambda: not srv.sse_clients), "client pruned on close")
+        self.assertNotIn("127.0.0.1", srv.client_initials, "its IP->initials entry went with it")
+
+    def test_graceful_drain_tells_clients_and_flushes_the_save(self):
+        with contextlib.closing(self.open_events()) as resp:
+            resp.readline()
+            resp.readline()
+            self.assertTrue(self.wait_until(lambda: len(srv.sse_clients) == 1))
+            with mock.patch.object(srv, "flush_pending_save") as flush:
+                srv.graceful_drain()
+            flush.assert_called_once()
+            self.assertEqual(resp.readline(), b"event: shutdown\n")
+            self.assertEqual(resp.readline(), b"data: server-stopping\n")
 
 
 if __name__ == "__main__":

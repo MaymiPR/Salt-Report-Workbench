@@ -168,9 +168,9 @@ against.
 | `_save_timer_lock` | the debounce timer |
 | `_rate_lock` | rate-limit buckets |
 
-Each SSE connection holds a thread that waits in `select()` with a 15-second
-timeout: the socket becoming readable means the client left, and a timeout
-means it's time to send a heartbeat. Broadcasts copy the client list under
+Each SSE connection holds a thread that waits in `select()` with a timeout of
+`SSE_HEARTBEAT_SECONDS` (15): the socket becoming readable means the client
+left, and a timeout means it's time to send a heartbeat. Broadcasts copy the client list under
 `sse_lock` and write outside it, so one stalled client can't block the others.
 
 ## Build
