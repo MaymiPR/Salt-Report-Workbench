@@ -28,7 +28,7 @@ jobs:
       - name: Ruff format
         run: ruff format --check .
       - name: JavaScript syntax
-        run: node --check src/core.js && node --check src/app.js
+        run: for f in src/core.js src/app/*.js; do node --check "$f"; done
       # The page's pure logic (src/core.js), on Node's built-in test runner.
       - name: JavaScript tests
         run: node --test tests/js/core.test.js
