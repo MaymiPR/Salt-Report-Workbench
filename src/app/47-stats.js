@@ -119,11 +119,26 @@ const statsEls = () => ({
     toDate:   document.getElementById('stats-to-date'),   toTime:   document.getElementById('stats-to-time'),
 });
 
+// Set a window's From / To pickers to the last `hours` hours, or clear them
+// for all reports. Same as the export presets: relative to now, in the
+// active time mode. `w` holds the four inputs.
+const fillWindow = (w, hours) => {
+    if (!hours) { w.fromDate.value = w.fromTime.value = w.toDate.value = w.toTime.value = ''; return; }
+    const local = timeDisplayMode === 'local', now = new Date();
+    const parts = (d) => { const f = dateFields(d, local); return [`${f.y}-${f.mo}-${f.day}`, `${f.h}:${f.mi}`]; };
+    [w.fromDate.value, w.fromTime.value] = parts(new Date(now.getTime() - hours * 3600000));
+    [w.toDate.value, w.toTime.value] = parts(now);
+};
+// A window's bounds in ms (null for an open end).
+const windowBounds = (w) => ({
+    from: parseFilterTime(w.fromDate.value, w.fromTime.value, false),
+    to:   parseFilterTime(w.toDate.value, w.toTime.value, true),
+});
+
 // The reports in the chosen window, and a phrase saying what it is.
 const statsWindow = () => {
     const s = statsEls();
-    const fromMs = parseFilterTime(s.fromDate.value, s.fromTime.value, false);
-    const toMs   = parseFilterTime(s.toDate.value, s.toTime.value, true);
+    const { from: fromMs, to: toMs } = windowBounds(s);
     let reps = localReports.filter(r => !r.deleted);
     if (fromMs !== null) reps = reps.filter(r => r.time && new Date(r.time).getTime() >= fromMs);
     if (toMs !== null)   reps = reps.filter(r => r.time && new Date(r.time).getTime() <= toMs);
@@ -194,6 +209,7 @@ const renderStats = () => {
 
 const openStatsView = () => {
     if (isExportViewActive) closeExportView();
+    closeSummaryView();
     isStatsViewActive = true;
     el.log.view.style.display = 'none';
     statsEls().panel.style.display = 'flex';
@@ -299,19 +315,7 @@ const exportAllStats = async () => {
     [s.fromTime, s.toTime].forEach(n => n.addEventListener('blur', e => { if (autoColonTime(e.target)) renderStats(); }));
     s.panel.addEventListener('click', e => {
         const preset = e.target.closest('[data-stats-hours]');
-        if (preset) {
-            const h = +preset.dataset.statsHours;
-            if (!h) { s.fromDate.value = s.fromTime.value = s.toDate.value = s.toTime.value = ''; }
-            else {
-                // Same as the export presets: both pickers, relative to now.
-                const local = timeDisplayMode === 'local', now = new Date(), from = new Date(now.getTime() - h * 3600000);
-                const iso = (d) => { const f = dateFields(d, local); return [`${f.y}-${f.mo}-${f.day}`, `${f.h}:${f.mi}`]; };
-                [s.fromDate.value, s.fromTime.value] = iso(from);
-                [s.toDate.value, s.toTime.value] = iso(now);
-            }
-            renderStats();
-            return;
-        }
+        if (preset) { fillWindow(s, +preset.dataset.statsHours); renderStats(); return; }
         const sq = e.target.closest('[data-stats-squares]');
         if (sq) { statsSquareDigits = +sq.dataset.statsSquares; renderStats(); return; }
         const act = e.target.closest('[data-stats-act]');

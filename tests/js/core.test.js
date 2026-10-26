@@ -488,3 +488,72 @@ test('the statistics CSV has one section per chart', () => {
         { title: 'Activity, "tags"', items: [] },
     ]), '"Reports per NAI"\r\n"NAI 1",4\r\n\r\n"Activity, ""tags"""\r\n');
 });
+
+// --- Summary reports ---
+
+const SUMMARY_REPS = [
+    report({ id: 'a', displayId: 'ALPHA001', size: '2x T-72', activity: 'moving N', location: '38SMB4500082000', time: '2026-10-25T19:15:00Z' }),
+    report({ id: 'b', displayId: 'ALPHA002', size: '1x BTR-82A', activity: 'stationary', location: '38S MB 55000 82000, NAI 1', time: '2026-10-25T21:40:00Z' }),
+    report({ id: 'c', displayId: 'ALPHA003', size: '1x BMP-2', activity: 'engaging friendly OP', location: '38SMB5300088000', time: '2026-10-26T03:10:00Z',
+             bda: [{ effect: 'Destroyed', target: '1x BMP-2' }] }),
+    report({ id: 'd', displayId: 'ALPHA004', size: '2x BMP-2', activity: 'refueling', location: '38SMB4300093000', time: '2026-10-25T09:00:00Z' }),
+];
+const SUMMARY_OPTS = {
+    local: false, now: new Date('2026-10-26T06:00:00Z'), ato: 'ALPHA', title: 'Patrol', by: 'AB',
+    from: Date.parse('2026-10-25T18:00:00Z'), to: Date.parse('2026-10-26T06:00:00Z'),
+};
+const summary = (kind, extra = {}) => core.summaryReport(kind, SUMMARY_REPS, OVERLAYS, { ...SUMMARY_OPTS, ...extra }).split('\n');
+
+test('summaries are headed with the period as DTGs and who prepared them', () => {
+    assert.equal(core.dtg(Date.parse('2026-10-25T18:00:00Z'), false), '251800Z OCT 26');
+    assert.deepEqual(summary('rollup').slice(0, 3), [
+        'ROLLUP - ALPHA (Patrol)',
+        'PERIOD:   251800Z OCT 26 TO 260600Z OCT 26 (12 HRS)',
+        'PREPARED: 260600Z OCT 26 BY AB',
+    ]);
+    assert.equal(summary('rollup', { from: null, to: null })[1], 'PERIOD:   ALL REPORTS TO 260600Z OCT 26');
+});
+
+test('the rollup counts the period against the one before it', () => {
+    const text = summary('rollup');
+    assert.ok(text.includes('   3 reports (previous 12 hrs: 1). 3 with a grid; 3 in an NAI or OBJ.'), text.join('\n'));
+    assert.ok(text.some(l => /^ {3}NAI 1 {9}2 {3}\(prev 0\) {3}Moving 1 \(heading N 1\), Stationary 1$/.test(l)), 'by place, with activity');
+    assert.ok(text.includes('   260310Z  ALPHA003  1x BMP-2; engaging friendly OP; 38SMB5300088000'), 'firing is notable');
+    assert.ok(text.includes('   1 of 3 elements assessed: Destroyed 1.'));
+    assert.ok(text.includes('   ALPHA002: NAI 1 typed; grid is in NAI 2'));
+});
+
+test('most trafficked ranks places with their peak hour and main activity', () => {
+    const text = summary('trafficked');
+    assert.ok(text.includes('   NAI 1           2 reports   peak 1900Z (1)   mostly Moving (1)'), text.join('\n'));
+    assert.ok(text.includes('3. GRID SQUARES (1 KM)'));
+    assert.ok(text.some(l => l.startsWith('   38S MB 53 88    1 report') && l.endsWith('; in NAI 2')));
+});
+
+test('place activity lists every report there in order, across midnight', () => {
+    const text = summary('place', { place: 'NAI 1' });
+    assert.equal(text[0], 'NAI 1 ACTIVITY - ALPHA (Patrol)');
+    assert.deepEqual(text.slice(text.indexOf('DTG      REPORT    SIZE; ACTIVITY; LOCATION') + 1, -1), [
+        '251915Z  ALPHA001  2x T-72; moving N; 38SMB4500082000',
+        '252140Z  ALPHA002  1x BTR-82A; stationary; 38S MB 55000 82000, NAI 1',
+    ]);
+    assert.ok(summary('place', { place: '' }).includes('Pick an NAI, OBJ, or phase line.'));
+});
+
+test('the shift brief is the short handover', () => {
+    const text = summary('brief');
+    assert.equal(text[1], 'SHIFT:    251800Z OCT 26 TO 260600Z OCT 26 (12 HRS)');
+    assert.ok(text.includes('REPORTS:      3 (previous shift 1)'));
+    assert.ok(text.includes('LAST REPORT:  260310Z  ALPHA003  1x BMP-2; engaging friendly OP; 38SMB5300088000'));
+    assert.ok(text.includes('OPEN ITEMS:   1 check to look at; 2 BDA elements unassessed'));
+});
+
+test('the same reports always give the same words', () => {
+    assert.equal(core.summaryReport('rollup', SUMMARY_REPS, OVERLAYS, SUMMARY_OPTS),
+                 core.summaryReport('rollup', [...SUMMARY_REPS].reverse(), OVERLAYS, SUMMARY_OPTS));
+});
+
+test('places to summarize: every overlay, then whatever reports name', () => {
+    assert.deepEqual(core.summaryPlaces([report({ location: '38SMB4500082000, OBJ GOLD' })], OVERLAYS),
+        ['NAI 1', 'NAI 2', 'OBJ BRIDGE', 'OBJ GOLD', 'PL BLUE']);
+});

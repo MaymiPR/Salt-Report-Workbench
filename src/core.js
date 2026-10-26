@@ -818,6 +818,171 @@ const statsData = (reps, overlays, { local, squareDigits = 1 } = {}) => {
 const statsCsv = (sections) => sections.map(({ title, items }) =>
     [csvField(title), ...items.map(i => `${csvField(i.label)},${i.value}`)].join('\r\n')).join('\r\n\r\n') + '\r\n';
 
+// --- Summary reports ---
+
+// Written reports built from fixed templates and counting rules, so the same
+// reports always give the same text and nothing is made up. Plain text, for
+// chat, email, a .txt, or print.
+
+// "251800Z OCT 26" (a DTG), or "251800L OCT 26" in local time.
+const dtg = (ms, local) => {
+    const f = dateFields(new Date(ms), local);
+    return `${f.day}${f.h}${f.mi}${local ? 'L' : 'Z'} ${MONTHS[+f.mo - 1]} ${String(f.y).slice(2)}`;
+};
+// "251400Z": day and time, so a list crossing midnight still reads in order.
+const dayTime = (ms, local) => { const f = dateFields(new Date(ms), local); return `${f.day}${f.h}${f.mi}${local ? 'L' : 'Z'}`; };
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const countList = (items) => items.map(i => `${i.label} ${i.value}`).join(', ');
+
+// What the summaries need about each report, worked out once.
+const reportFacts = (r, overlays) => {
+    const a = analyzeLocation(r.location, overlays);
+    const act = classifyActivity(r.activity);
+    const near = a.nearestPl && a.nearestPl.metres <= PL_NEAR_METRES ? [a.nearestPl.key] : [];
+    return {
+        r, a, act, ms: new Date(r.time).getTime(),
+        places: [...a.nai.keys, ...a.obj.keys],
+        pls: [...new Set([...a.pl, ...near])],
+    };
+};
+const oneLine = (f) => `${f.r.size || '-'}; ${f.r.activity || '-'}; ${f.r.location || '-'}`;
+const reportLine = (f, local) => `${dayTime(f.ms, local)}  ${pad(f.r.displayId || f.r.id || '', 9)} ${oneLine(f)}`;
+const pad = (s, n) => String(s).padEnd(n);
+
+// The busiest hour among some reports: "0200Z (3)".
+const peakHour = (facts, local) => {
+    const hours = new Array(24).fill(0);
+    facts.forEach(f => { hours[+dateFields(new Date(f.ms), local).h]++; });
+    const h = hours.indexOf(Math.max(...hours));
+    return facts.length ? `${pad2(h)}00${local ? 'L' : 'Z'} (${hours[h]})` : '-';
+};
+// "Moving 7 (N 4, E 2), Stationary 3", the tags largest first.
+const activityLine = (facts) => {
+    const tags = new Map(), heads = new Map();
+    facts.forEach(f => {
+        f.act.tags.forEach(t => tags.set(t, (tags.get(t) || 0) + 1));
+        if (f.act.heading) { const h = HEADINGS_8[Math.round(f.act.headingDeg / 45) % 8]; heads.set(h, (heads.get(h) || 0) + 1); }
+    });
+    const desc = m => [...m].map(([label, value]) => ({ label, value })).sort((x, y) => y.value - x.value);
+    return desc(tags).map(t => t.label === 'Moving' && heads.size
+        ? `Moving ${t.value} (heading ${countList(desc(heads))})` : `${t.label} ${t.value}`).join(', ') || 'none tagged';
+};
+
+// The most common tag among some reports: "mostly Moving (3)".
+const topTag = (facts) => {
+    const tags = new Map();
+    facts.forEach(f => f.act.tags.forEach(t => tags.set(t, (tags.get(t) || 0) + 1)));
+    const best = [...tags].sort((x, y) => y[1] - x[1])[0];
+    return best ? `mostly ${best[0]} (${best[1]})` : '';
+};
+
+const SUMMARY_KINDS = {
+    rollup:     'ROLLUP',
+    trafficked: 'MOST TRAFFICKED',
+    place:      'ACTIVITY',
+    brief:      'SHIFT BRIEF',
+};
+
+// The written report of one kind ('rollup', 'trafficked', 'place', 'brief')
+// over the live reports between `from` and `to` (ms; null for open ends).
+// When both ends are set, the same length of time just before is the
+// "previous" period it compares with.
+//   opts: { local, from, to, now, ato, title, by, place, squareDigits }
+const summaryReport = (kind, reps, overlays, opts) => {
+    const { local, from = null, to = null, now = new Date(), ato = '', title = '', by = '', place = '', squareDigits = 2 } = opts;
+    const facts = (reps || []).filter(r => !r.deleted).map(r => reportFacts(r, overlays))
+        .filter(f => !isNaN(f.ms)).sort((x, y) => x.ms - y.ms);
+    const within = (lo, hi) => facts.filter(f => (lo === null || f.ms >= lo) && (hi === null || f.ms <= hi));
+    const cur = within(from, to);
+    const span = from !== null && to !== null ? to - from : null;
+    const prev = span !== null ? within(from - span, from - 1) : null;
+    const hrs = span !== null ? Math.round(span / 3600000) : null;
+    const prevNote = prev ? `previous ${hrs} hrs: ${prev.length}` : '';
+    const d = statsData(cur.map(f => f.r), overlays, { local, squareDigits });
+    const name = kind === 'place' ? `${place || 'PLACE'} ${SUMMARY_KINDS.place}` : SUMMARY_KINDS[kind];
+    const period = from === null && to === null ? `ALL REPORTS TO ${dtg(now.getTime(), local)}`
+        : `${from === null ? 'START' : dtg(from, local)} TO ${to === null ? dtg(now.getTime(), local) : dtg(to, local)}${hrs ? ` (${hrs} HRS)` : ''}`;
+    const out = [
+        `${name} - ${ato}${title ? ` (${title})` : ''}`,
+        `${pad(kind === 'brief' ? 'SHIFT:' : 'PERIOD:', 10)}${period}`,
+        `${pad('PREPARED:', 10)}${dtg(now.getTime(), local)}${by ? ` BY ${by}` : ''}`,
+        '',
+    ];
+    const placesTop = [...d.nai, ...d.obj].sort((x, y) => y.value - x.value);
+    const outside = cur.filter(f => !f.places.length).length;
+    const prevCount = (key) => prev ? prev.filter(f => f.places.includes(key) || f.pls.includes(key)).length : null;
+    const atPlace = (key) => cur.filter(f => f.places.includes(key) || f.pls.includes(key));
+    const unassessed = d.kpis.bdaTotal - d.kpis.bdaDone;
+
+    if (kind === 'rollup') {
+        out.push('1. SUMMARY',
+            `   ${plural(cur.length, 'report')}${prev ? ` (${prevNote})` : ''}. ${d.kpis.withGrid} with a grid; ${d.kpis.inPlace} in an NAI or OBJ.`);
+        if (placesTop.length) out.push(`   Busiest: ${placesTop.slice(0, 3).map(p => `${p.label} (${p.value})`).join(', ')}. Peak hour ${peakHour(cur, local)}.`);
+        out.push('', '2. BY PLACE');
+        if (!placesTop.length && !d.pl.length) out.push('   No NAI, OBJ, or phase line named or found by grid.');
+        [...placesTop, ...d.pl].forEach(p => {
+            const pc = prevCount(p.label);
+            out.push(`   ${pad(p.label, 14)}${pad(p.value, 4)}${pc !== null ? pad(`(prev ${pc})`, 11) : ''}${activityLine(atPlace(p.label))}`);
+        });
+        if (outside) out.push(`   ${pad('Elsewhere', 14)}${outside}`);
+        out.push('', '3. ACTIVITY', `   ${activityLine(cur)}`,
+            '', '4. REPORTED BY TYPE (from Size)', `   ${countList(d.equipment.slice(0, 12)) || 'none'}`);
+        const notable = cur.filter(f => f.act.tags.includes('Firing') || f.act.tags.includes('Emplacing'));
+        out.push('', '5. NOTABLE (firing or emplacing)');
+        out.push(...(notable.length ? notable.map(f => `   ${reportLine(f, local)}`) : ['   None.']));
+        out.push('', '6. BDA', d.kpis.bdaDone
+            ? `   ${d.kpis.bdaDone} of ${plural(d.kpis.bdaTotal, 'element')} assessed: ${countList(d.bda.filter(b => b.value && b.label !== 'Unassessed'))}.`
+            : '   None assessed.');
+        const checks = cur.filter(f => f.a.checks.length);
+        out.push('', '7. TO CHECK');
+        out.push(...(checks.length ? checks.map(f => `   ${f.r.displayId || f.r.id}: ${f.a.checks.join('; ')}`) : ['   Nothing.']));
+    } else if (kind === 'trafficked') {
+        const row = (label, list) => `   ${pad(label, 16)}${pad(plural(list.length, 'report'), 12)}peak ${pad(peakHour(list, local), 12)}${topTag(list)}`;
+        out.push('1. NAI AND OBJ');
+        out.push(...(placesTop.length ? placesTop.slice(0, 10).map(p => row(p.label, atPlace(p.label))) : ['   None named or found by grid.']));
+        out.push('', '2. PHASE LINES');
+        out.push(...(d.pl.length ? d.pl.slice(0, 10).map(p => row(p.label, atPlace(p.label))) : ['   None named or near a grid.']));
+        out.push('', `3. GRID SQUARES (${squareDigits === 1 ? '10 KM' : '1 KM'})`);
+        out.push(...(d.squares.length ? d.squares.slice(0, 10).map(s => {
+            const list = cur.filter(f => f.a.points.some(pt => gridSquare(pt.mgrs, squareDigits) === s.label));
+            const where = [...new Set(list.flatMap(f => f.places))].join(', ');
+            return `${row(s.label, list)}${where ? `; in ${where}` : ''}`;
+        }) : ['   No readable grids.']));
+        const hours = [...d.hours].sort((x, y) => y.value - x.value || x.label.localeCompare(y.label)).filter(h => h.value).slice(0, 3);
+        out.push('', '4. BUSIEST HOURS', `   ${hours.map(h => `${h.label}00-${h.label}59${local ? 'L' : 'Z'} (${h.value})`).join(', ') || 'none'}`);
+    } else if (kind === 'place') {
+        const list = place ? atPlace(place) : [];
+        if (!place) out.push('Pick an NAI, OBJ, or phase line.');
+        else {
+            const pc = prevCount(place);
+            out.push(`${plural(list.length, 'report')}${pc !== null ? ` (previous ${hrs} hrs: ${pc})` : ''}. ${activityLine(list)}.`);
+            if (list.length) out.push(`Busiest hour ${peakHour(list, local)}.`);
+            out.push('', 'DTG      REPORT    SIZE; ACTIVITY; LOCATION');
+            out.push(...(list.length ? list.map(f => reportLine(f, local)) : ['None in this period.']));
+        }
+    } else if (kind === 'brief') {
+        const last = cur[cur.length - 1];
+        out.push(
+            `REPORTS:      ${cur.length}${prev ? ` (previous shift ${prev.length})` : ''}`,
+            `MOST ACTIVE:  ${[...placesTop, ...d.pl].sort((x, y) => y.value - x.value).slice(0, 3).map(p => `${p.label} (${p.value})`).join(', ') || 'none named'}`,
+            `ACTIVITY:     ${activityLine(cur)}`,
+            `LAST REPORT:  ${last ? reportLine(last, local) : 'none'}`,
+            `OPEN ITEMS:   ${plural(cur.filter(f => f.a.checks.length).length, 'check')} to look at; ${plural(unassessed, 'BDA element')} unassessed`,
+            '', 'LAST 5 REPORTS',
+            ...(cur.length ? cur.slice(-5).reverse().map(f => `  ${reportLine(f, local)}`) : ['  None.']),
+        );
+    }
+    return out.join('\n') + '\n';
+};
+
+// Every place the summaries can be about: overlays, and whatever is named.
+const summaryPlaces = (reps, overlays) => {
+    const d = statsData(reps, overlays, {});
+    const keys = new Set([...(overlays || []).map(o => `${o.type} ${o.name}`), ...d.nai, ...d.obj, ...d.pl].map(x => x.label || x));
+    const order = { NAI: 0, OBJ: 1, PL: 2 };
+    return [...keys].sort((a, b) => order[a.split(' ')[0]] - order[b.split(' ')[0]] || a.localeCompare(b, undefined, { numeric: true }));
+};
+
 // --- Sync bookkeeping ---
 
 // Reports are matched the way the server merges them: by id, or by
@@ -865,6 +1030,7 @@ const SaltCore = {
     utmToLatLon, gridToLatLon, findGrids, findRefs, overlayRef, geometryContains, metresToGeometry,
     analyzeLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisCsv,
     sizeElements, gridSquare, statsData, statsCsv, PL_NEAR_METRES,
+    dtg, summaryReport, summaryPlaces,
     reportKey, knownVersions, changedReports, withUnsaved,
 };
 

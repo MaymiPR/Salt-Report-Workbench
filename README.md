@@ -102,6 +102,7 @@ in [CHANGELOG.md](CHANGELOG.md).
 | **Report builder** | Reorder lines, switch between SALT and SALT-U, and add custom fields (e.g. `W: Weather`) that get their own form box, table column, and copy-text line. Saved per workspace and synced to the team. |
 | **Overlays and ArcGIS** | Import NAIs, OBJs, and phase lines from KML, KMZ, or GeoJSON. Reports are placed in them by grid, with a check where a typed NAI disagrees. Export one point per grid, with activity tags and heading, for ArcGIS Pro heat maps. |
 | **Statistics** | Headline numbers and charts for any time window. Covers reports per NAI, OBJ and phase line, the busiest grid squares, the hour of day and day, activity and heading, what was reported by type, and BDA. Each chart exports as PNG, SVG, or CSV, or all at once. |
+| **Summary reports** | Written reports from one click: Rollup, Most Trafficked, Place Activity, and Shift Brief, over any time window. Copy, save as .txt, or print with charts. They are built from fixed templates, not AI, so nothing is made up. |
 | **BDA tracking** | Hidden until you need it. A checklist pre-pairs each element of a report with its grid, so a ten-target assessment is ten clicks. A roll-up above the table totals the workspace by outcome, click-to-filter. Revisable, searchable, exported. |
 | **Edit history** | *Update* snapshots the prior version; *Edit* corrects in place. Any prior version can be restored, and Delete and Restore both offer a ten-second Undo. |
 | **Workspaces** | Separate ATOs with their own reports and formats. Switch live, and the team switches with you. |
@@ -265,6 +266,7 @@ fact; nothing reads it.
 │       ├── 40-io.js          Workspaces panel, builder, export, import
 │       ├── 45-overlays.js    Overlay import (KML, KMZ, GeoJSON), Overlays tab, ArcGIS export
 │       ├── 47-stats.js       Statistics panel: charts, hover, tables, PNG / SVG / CSV export
+│       ├── 48-summary.js     Summary Reports panel: written reports, copy, .txt, print
 │       ├── 50-sync.js        Push, pull, SSE, offline queue
 │       ├── 60-handlers.js    Event wiring
 │       └── 70-startup.js     Restore saved state, then connect

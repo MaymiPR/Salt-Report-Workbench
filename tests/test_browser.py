@@ -355,6 +355,38 @@ class BrowserTests(unittest.TestCase):
         page.click("#statsViewToggleBtn")
         page.wait_for_selector(".stats-tile:has-text('Reports') .stats-tile-value:text-is('3')")
 
+    def test_summary_reports_write_copy_save_and_print(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x T-72", activity="moving N", location="38SMB4500082000")
+        self.log(page, "1x BMP-2", activity="engaging", location="38SMB5300088000")
+        page.click("#dataMgmtBtn")
+        page.click("#summaryViewToggleBtn")
+        # Opens on the last twelve hours, with the Rollup.
+        page.wait_for_selector("#summaryText:has-text('ROLLUP - ')")
+        text = page.inner_text("#summaryText")
+        self.assertIn("(12 HRS)", text)
+        self.assertIn("   2 reports (previous 12 hrs: 0)", text)
+        self.assertTrue(text.startswith(f"ROLLUP - {self.ato} (Patrol)"))
+        page.click("[data-summary-kind='place']")
+        self.assertEqual(
+            page.get_attribute("[data-summary-kind].active", "data-summary-kind"), "place"
+        )
+        page.select_option("#summaryPlace", "NAI 2")
+        page.wait_for_selector("#summaryText:has-text('NAI 2 ACTIVITY')")
+        self.assertIn("1x BMP-2; engaging; 38SMB5300088000", page.inner_text("#summaryText"))
+        with page.expect_download() as dl:
+            page.click("#summarySaveBtn")
+        self.assertIn("_place_NAI_2_", dl.value.suggested_filename)
+        saved = Path(dl.value.path()).read_bytes()
+        self.assertTrue(saved.startswith(b"NAI 2 ACTIVITY"))
+        self.assertIn(b"\r\n", saved, "CRLF, for Notepad")
+        # Print goes through a frame holding the text and its charts.
+        page.click("[data-summary-kind='rollup']")
+        self.assertEqual(page.evaluate("summaryCharts().map(c => c.id)"), ["nai", "hours", "tags"])
+        page.click("#summaryPrintBtn")
+        page.wait_for_function("() => !document.querySelector('iframe')")
+
     def test_geojson_from_arcgis_in_web_mercator_is_converted(self):
         page = self.open_editor()
         result = page.evaluate(
