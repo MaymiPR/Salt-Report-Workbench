@@ -77,8 +77,7 @@ const summaryCharts = () => {
     if (summaryKind === 'place') {
         reps = reps.filter(r => {
             const a = SaltCore.analyzeLocation(r.location, currentOverlays());
-            const near = a.nearestPl && a.nearestPl.metres <= SaltCore.PL_NEAR_METRES ? [a.nearestPl.key] : [];
-            return [...a.nai.keys, ...a.obj.keys, ...a.pl, ...near].includes(summaryPlace);
+            return [...a.nai.keys, ...a.obj.keys, ...a.pls].includes(summaryPlace);
         });
     }
     const d = SaltCore.statsData(reps, currentOverlays(), { local, squareDigits: 2 });

@@ -782,8 +782,9 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 /* Icon-only tab variant (Identity person glyph). */
 .ws-tab-icon { padding: 7px 12px; display: inline-flex; align-items: center; justify-content: center; }
 .ws-tab-icon svg { width: 16px; height: 16px; display: block; }
-/* Workspaces variant flexes for internal scroll; export keeps block flow. */
-.ws-tab-panel { display: block; }
+/* Every tab scrolls inside the panel when it outgrows it (a long overlay
+   list, the builder); the Workspaces tab flexes so only its list scrolls. */
+.ws-tab-panel { display: block; flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
 .ws-tab-panel[data-tab-panel="workspaces"] {
     display: flex;
     flex-direction: column;

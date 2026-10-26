@@ -77,10 +77,15 @@ const kmlFeatures = (text, fileName) => {
             if (n.localName === 'Folder' || n.localName === 'Document') folder = (child(n, 'name') || {}).textContent || '';
         }
         const geometry = combineGeometry({
-            polygons: all(pm, 'Polygon').map(poly => [
-                ...all(poly, 'outerBoundaryIs').map(b => coords(all(b, 'coordinates')[0])),
-                ...all(poly, 'innerBoundaryIs').map(b => coords(all(b, 'coordinates')[0])),
-            ]),
+            polygons: [
+                ...all(pm, 'Polygon').map(poly => [
+                    ...all(poly, 'outerBoundaryIs').map(b => coords(all(b, 'coordinates')[0])),
+                    ...all(poly, 'innerBoundaryIs').map(b => coords(all(b, 'coordinates')[0])),
+                ]),
+                // A ring on its own, outside any Polygon, is an area too.
+                ...all(pm, 'LinearRing').filter(r => !/BoundaryIs$/.test(r.parentElement.localName))
+                    .map(r => [coords(child(r, 'coordinates'))]),
+            ],
             lines:  all(pm, 'LineString').map(l => coords(child(l, 'coordinates'))),
             points: all(pm, 'Point').map(pt => coords(child(pt, 'coordinates'))[0]).filter(Boolean),
         });
@@ -151,7 +156,8 @@ const reviewOverlay = (row) => {
     if (!row.type) return null;
     const ref = SaltCore.overlayRef(row.label, row.type);
     const name = (ref ? ref.name : 'UNNAMED').slice(0, 40);
-    return { type: row.type, name, ...(row.label ? { label: row.label.slice(0, 100) } : {}), geometry: row.geometry };
+    const geometry = row.type === 'PL' ? row.geometry : SaltCore.asArea(row.geometry);
+    return { type: row.type, name, ...(row.label ? { label: row.label.slice(0, 100) } : {}), geometry };
 };
 
 const startOverlayImport = async (files) => {
@@ -232,7 +238,7 @@ const renderOverlays = () => {
                 <thead><tr><th>Name in file</th><th>Shape</th><th>Use as</th><th>Becomes</th></tr></thead>
                 <tbody>${rows.map((r, i) => {
                     const o = reviewOverlay(r);
-                    return `<tr><td>${escapeHtml(r.label || '(no name)')}</td><td>${SHAPE_LABEL[r.geometry.type]}</td>
+                    return `<tr><td>${escapeHtml(r.label || '(no name)')}</td><td>${SHAPE_LABEL[(o || r).geometry.type]}</td>
                         <td><select class="overlay-type-select" data-review-idx="${i}" aria-label="Use as">${opts(r.type)}</select></td>
                         <td>${o ? escapeHtml(`${o.type} ${o.name}`) : '<span class="overlays-muted">skipped</span>'}</td></tr>`;
                 }).join('')}</tbody>
@@ -246,11 +252,11 @@ const renderOverlays = () => {
 
     const list = currentOverlays();
     // How many of this workspace's live reports each place appears in, typed
-    // or by grid.
+    // or by grid (a phase line: typed, or a grid near it).
     const uses = {};
     localReports.filter(r => !r.deleted).forEach(r => {
         const a = locationInfo(r.location);
-        new Set([...a.nai.keys, ...a.obj.keys, ...a.pl]).forEach(k => { uses[k] = (uses[k] || 0) + 1; });
+        new Set([...a.nai.keys, ...a.obj.keys, ...a.pls]).forEach(k => { uses[k] = (uses[k] || 0) + 1; });
     });
     const n = t => list.filter(o => o.type === t).length;
     const order = { NAI: 0, OBJ: 1, PL: 2 };
@@ -311,8 +317,8 @@ if (overlaysBody && overlaysFileInput) {
 
 // --- ArcGIS export ---
 
-// One point per grid, with what the Location box and Activity say, as
-// GeoJSON (ArcGIS Pro: JSON To Features) or CSV (XY Table To Point).
+// One point per grid, with what the Location box and Activity say, as Esri
+// JSON or GeoJSON (ArcGIS Pro: JSON To Features) or CSV (XY Table To Point).
 const exportForArcgis = (kind) => {
     const reps = getExportFilteredReports();
     if (!reps.length) { showToast('No reports to export.', true); return; }
@@ -326,6 +332,7 @@ const exportForArcgis = (kind) => {
     if (!rows.length) { showToast(`None of the ${skipped} report${skipped === 1 ? '' : 's'} has a readable MGRS grid.`, true); return; }
     const base = `${getCsvFilename(shownAto() || 'ATO', localConfig.title || 'SALT')}_arcgis`;
     if (kind === 'csv') triggerDownload(`${base}.csv`, SaltCore.arcgisCsv(rows), 'text/csv;charset=utf-8;');
+    else if (kind === 'esri') triggerDownload(`${base}.json`, SaltCore.arcgisEsriJson(rows), 'application/json');
     else triggerDownload(`${base}.geojson`, SaltCore.arcgisGeoJson(rows), 'application/geo+json');
     const reportsOut = reps.length - skipped;
     showToast(`Exported ${rows.length} point${rows.length === 1 ? '' : 's'} from ${reportsOut} report${reportsOut === 1 ? '' : 's'}`

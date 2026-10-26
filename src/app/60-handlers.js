@@ -751,6 +751,9 @@ document.getElementById('exportPanelCsvBtn').addEventListener('click', () => {
     } catch(e) { showToast('Export error: '+e.message,true); }
 });
 
+document.getElementById('exportArcgisEsriBtn').addEventListener('click', () => {
+    try { exportForArcgis('esri'); } catch(e) { showToast('Export error: ' + e.message, true); }
+});
 document.getElementById('exportArcgisGeojsonBtn').addEventListener('click', () => {
     try { exportForArcgis('geojson'); } catch(e) { showToast('Export error: ' + e.message, true); }
 });
