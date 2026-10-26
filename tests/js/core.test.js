@@ -385,6 +385,26 @@ test('a typed NAI counts, and disagreeing with the grid is flagged', () => {
     assert.deepEqual([bare.obj, bare.pl, bare.nearestPl], [{ keys: ['OBJ GOLD'], from: 'typed' }, ['PL RED'], null]);
 });
 
+test('a grid within 1 km of a phase line is at that line', () => {
+    assert.deepEqual(core.analyzeLocation('38SMB4500085500', OVERLAYS).pls, ['PL BLUE'], '500 m away');
+    assert.deepEqual(core.analyzeLocation('38SMB4500082000', OVERLAYS).pls, [], '3 km away');
+    assert.deepEqual(core.analyzeLocation('38SMB4500082000, PL BLUE', OVERLAYS).pls, ['PL BLUE'], 'typed');
+    assert.deepEqual(core.analyzeLocation('PL RED', OVERLAYS).pls, ['PL RED'], 'typed, no grid');
+});
+
+test('an NAI or OBJ drawn as a path is still an area', () => {
+    const ring = OVERLAYS[2].geometry.coordinates[0];
+    const path = { type: 'LineString', coordinates: ring.slice(0, -1) };  // not closed
+    assert.deepEqual(core.asArea(path), { type: 'Polygon', coordinates: [ring] });
+    assert.deepEqual(core.asArea({ type: 'LineString', coordinates: ring }), { type: 'Polygon', coordinates: [ring] }, 'closed already');
+    const two = { type: 'LineString', coordinates: ring.slice(0, 2) };
+    assert.equal(core.asArea(two), two, 'two points stay a line');
+    assert.equal(core.asArea({ type: 'MultiLineString', coordinates: [ring, ring] }).type, 'MultiPolygon');
+    const ovs = [{ type: 'OBJ', name: 'BRIDGE', geometry: path }];
+    assert.deepEqual(core.analyzeLocation('38SMB4200092000', ovs).obj, { keys: ['OBJ BRIDGE'], from: 'grid' });
+    assert.deepEqual(core.analyzeLocation('38SMB4200092000', [{ ...ovs[0], type: 'PL' }]).obj.keys, [], 'a PL path is not an area');
+});
+
 test('activity lines are tagged, with a heading when one is given', () => {
     const cases = {
         '2x BMP moving N on MSR':        [['Moving'], 'N', 0],
@@ -420,11 +440,40 @@ test('the ArcGIS export has one point per grid, and leaves out reports without o
         ['Moving', 'N', 0, '1-1', '2026-10-24T04:12:00Z']);
     const fc = JSON.parse(core.arcgisGeoJson(rows));
     assert.deepEqual(fc.features[0].geometry.coordinates, [rows[0].lon, rows[0].lat]);
+    const esri = JSON.parse(core.arcgisEsriJson(rows));
+    assert.equal(esri.geometryType, 'esriGeometryPoint');
+    assert.deepEqual(esri.spatialReference.wkid, 4326);
+    const field = n => esri.fields.find(f => f.name === n);
+    assert.deepEqual(esri.fields[0], { name: 'OBJECTID', type: 'esriFieldTypeOID', alias: 'OBJECTID' });
+    assert.deepEqual([field('report_id').type, field('report_id').length], ['esriFieldTypeString', 1]);
+    assert.deepEqual([field('precision_m').type, field('heading_deg').type, field('lat').type],
+        ['esriFieldTypeInteger', 'esriFieldTypeInteger', 'esriFieldTypeDouble']);
+    assert.deepEqual(esri.features[1].attributes.OBJECTID, 2);
+    assert.deepEqual(esri.features[0].geometry, { x: rows[0].lon, y: rows[0].lat, spatialReference: { wkid: 4326 } });
     const csv = core.arcgisCsv(rows).split('\r\n');
     assert.ok(csv[0].startsWith('report_id,ato,title,time_utc,'));
     assert.ok(csv[0].endsWith(',c_unit_id,lat,lon'));
     assert.ok(csv[1].endsWith(`,"1-1",${rows[0].lat},${rows[0].lon}`), 'numbers unquoted');
     assert.equal(core.arcgisCsv([]), '');
+});
+
+test('the ArcGIS exports keep long text where they can, and every field one type', () => {
+    const long = 'x'.repeat(600);
+    const reps = [
+        report({ id: 'a', location: '38SMB4500082000', activity: 'parked', yourAnalysis: long }),
+        report({ id: 'b', location: '38SMB4500082000', activity: 'moving NE' }),
+    ];
+    const { rows } = core.arcgisRows(reps, OVERLAYS, { local: false, idOf: r => r.id });
+    const props = JSON.parse(core.arcgisGeoJson(rows)).features.map(f => f.properties);
+    assert.equal(props[0].analysis.length, 254, "GeoJSON text fits ArcGIS's 255");
+    assert.ok(props[0].analysis.endsWith('…'));
+    assert.equal(rows[0].analysis, long, 'the rows themselves are untouched');
+    const esri = JSON.parse(core.arcgisEsriJson(rows));
+    assert.equal(esri.fields.find(f => f.name === 'analysis').length, 600);
+    assert.equal(esri.features[0].attributes.analysis, long);
+    // heading_deg: null on one, 45 on the other: a number field, null kept.
+    assert.equal(esri.fields.find(f => f.name === 'heading_deg').type, 'esriFieldTypeInteger');
+    assert.deepEqual(esri.features.map(f => f.attributes.heading_deg), [null, 45]);
 });
 
 test("backups carry the workspace's overlays", () => {

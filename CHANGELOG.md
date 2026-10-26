@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Export for ArcGIS (.json)**: Esri JSON, the format ArcGIS Pro's *JSON To
+  Features* was made for. Every field's type and length is written in the
+  file, so Pro has nothing to guess.
+
+### Fixed
+
+- A grid within 1 km of a phase line now shows that line as a tag under the
+  Location, and counts toward it in the Overlays list. Before, phase lines
+  only showed up in Statistics and Summary Reports.
+- An NAI or OBJ drawn as a path (Google Earth's *Add Path*), or as a ring on
+  its own, is now an area, so grids inside it are placed in it. Overlays
+  already imported that way work without importing them again.
+- The Overlays list, and every other Workspaces tab, scrolls when it is
+  longer than the window. Before, overlays past the bottom couldn't be reached.
+- ArcGIS Pro could fail to load the .geojson export. Text longer than 254
+  characters (usually Analysis) is now cut to fit the 255-character text
+  fields Pro gives GeoJSON; the .json and .csv exports keep all of it.
+
 ## [2.7.1] - 2026-10-26
 
 ### Changed

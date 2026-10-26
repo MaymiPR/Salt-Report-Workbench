@@ -271,6 +271,7 @@ class BrowserTests(unittest.TestCase):
         self.log(page, "1x BTR", location="38SMB4500082000")
         self.log(page, "2x BMP", location="38S MB 55000 82000, NAI 1")
         self.log(page, "3x T-72", location="38SMB4200092000")
+        self.log(page, "4x BRDM", location="38SMB4500085200")  # about 250 m from PL BLUE
 
         def tags(p, size):
             row = f"#reportLogBody tr[data-id]:has(.col-size:has-text('{size}'))"
@@ -279,6 +280,7 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(tags(page, "1x BTR"), ["NAI 1"])
         self.assertEqual(tags(page, "2x BMP"), ["Check: NAI 1 typed; grid is in NAI 2"])
         self.assertEqual(tags(page, "3x T-72"), ["OBJ BRIDGE"])
+        self.assertEqual(tags(page, "4x BRDM"), ["NAI 1", "PL BLUE"])
         # Synced: the server holds them, and a viewer tags the same way
         # without keeping a copy.
         page.wait_for_function(
@@ -313,6 +315,33 @@ class BrowserTests(unittest.TestCase):
         self.assertIn(
             "1 without a readable grid", page.locator("#toast-notification").text_content()
         )
+        # Esri JSON: the same points, every field's type written out.
+        with page.expect_download() as dl:
+            page.click("#exportArcgisEsriBtn")
+        self.assertTrue(dl.value.suggested_filename.endswith("_arcgis.json"))
+        esri = json.loads(Path(dl.value.path()).read_text(encoding="utf-8"))
+        self.assertEqual(esri["geometryType"], "esriGeometryPoint")
+        self.assertEqual(
+            [f["attributes"]["mgrs"] for f in esri["features"]],
+            ["38S MB 45000 82000", "38S MB 55000 82000"],
+        )
+        self.assertAlmostEqual(esri["features"][0]["geometry"]["y"], 33.2759, places=3)
+
+    def test_a_long_overlay_list_scrolls(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        page.set_viewport_size({"width": 1280, "height": 480})
+        page.click("#dataMgmtBtn")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        panel = page.locator(".ws-tab-panel[data-tab-panel='overlays']")
+        self.assertGreater(
+            panel.evaluate("p => p.scrollHeight - p.clientHeight"), 0, "taller than its room"
+        )
+        last = page.locator("#overlaysBody tbody tr").last
+        last.scroll_into_view_if_needed()
+        box = last.bounding_box()
+        self.assertLessEqual(box["y"] + box["height"], 480, "the last overlay can be reached")
 
     def test_statistics_panel_charts_and_exports(self):
         page = self.open_editor()

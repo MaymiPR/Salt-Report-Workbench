@@ -594,11 +594,34 @@ const metresToGeometry = (g, lon, lat) =>
   : g.type === 'MultiLineString' ? Math.min(...g.coordinates.map(l => metresToLine(lon, lat, l)))
   : Infinity;
 
+// A grid this close to a phase line counts as a report at that line.
+const PL_NEAR_METRES = 1000;
+
+// An NAI or OBJ drawn as a path (Google Earth's Add Path, or a ring on its
+// own) is still an area: each path is closed back to its start. A path of
+// fewer than three points stays a line.
+const asArea = (g) => {
+    const ring = (line) => {
+        const r = line.slice(), a = r[0], b = r[r.length - 1];
+        if (a[0] !== b[0] || a[1] !== b[1]) r.push(a);
+        return r.length >= 4 ? [r] : null;
+    };
+    if (!g) return g;
+    if (g.type === 'LineString') { const p = ring(g.coordinates); return p ? { type: 'Polygon', coordinates: p } : g; }
+    if (g.type === 'MultiLineString') {
+        const ps = g.coordinates.map(ring).filter(Boolean);
+        return ps.length ? { type: 'MultiPolygon', coordinates: ps } : g;
+    }
+    return g;
+};
+
 // What a Location box says, read against the workspace's overlays:
 //   points  the grids, as lat/lon (a report can name several)
 //   nai/obj the places it's in: as typed, or (when none was typed) the
 //           overlays its grids fall inside, marked 'grid'
 //   pl      phase lines typed, and the nearest PL overlay with its distance
+//   pls     the phase lines it is at: typed, or the nearest within
+//           PL_NEAR_METRES of a grid
 //   checks  where a typed NAI or OBJ disagrees with the grid. The typed name
 //           still counts; the check is for a person to look at.
 const analyzeLocation = (text, overlays) => {
@@ -613,7 +636,8 @@ const analyzeLocation = (text, overlays) => {
     const checks = [];
     const place = (t) => {
         const keys  = typed(t);
-        const areas = ovs.filter(o => o.type === t && /Polygon/.test(o.geometry.type));
+        const areas = ovs.filter(o => o.type === t).map(o => ({ ...o, geometry: asArea(o.geometry) }))
+            .filter(o => /Polygon/.test(o.geometry.type));
         const inside = [...new Set(areas.filter(contains).map(keyOf))];
         if (!keys.length) return { keys: inside, from: inside.length ? 'grid' : '' };
         if (points.length) {
@@ -636,6 +660,7 @@ const analyzeLocation = (text, overlays) => {
     return {
         points: points.map(({ start, end, ...p }) => p),
         nai, obj, pl: typed('PL'), nearestPl, checks,
+        pls: [...new Set([...typed('PL'), ...(nearestPl && nearestPl.metres <= PL_NEAR_METRES ? [nearestPl.key] : [])])],
     };
 };
 
@@ -718,10 +743,50 @@ const arcgisRows = (reps, overlays, { local, customLabels = [], idOf }) => {
     return { rows, skipped };
 };
 
+// ArcGIS Pro guesses GeoJSON field types and gives text fields 255
+// characters, so a longer Analysis or Location fails the whole import. Text
+// is cut to fit here; the Esri JSON and CSV exports keep all of it.
+const GEOJSON_TEXT_MAX = 254;
 const arcgisGeoJson = (rows) => JSON.stringify({
     type: 'FeatureCollection',
-    features: rows.map(row => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [row.lon, row.lat] }, properties: row })),
+    features: rows.map(row => {
+        const properties = {};
+        Object.entries(row).forEach(([k, v]) => {
+            properties[k] = typeof v === 'string' && v.length > GEOJSON_TEXT_MAX ? v.slice(0, GEOJSON_TEXT_MAX - 1) + '…' : v;
+        });
+        return { type: 'Feature', geometry: { type: 'Point', coordinates: [row.lon, row.lat] }, properties };
+    }),
 });
+
+// Esri JSON: the format JSON To Features was made for. Every field's type
+// and length is written out, so ArcGIS Pro has nothing to guess.
+const arcgisEsriJson = (rows) => {
+    const cols = rows.length ? Object.keys(rows[0]) : [];
+    const fields = cols.map(name => {
+        const vals = rows.map(r => r[name]).filter(v => v !== null && v !== undefined && v !== '');
+        if (vals.length && vals.every(v => typeof v === 'number')) {
+            const type = vals.every(Number.isInteger) && !['lat', 'lon'].includes(name) ? 'esriFieldTypeInteger' : 'esriFieldTypeDouble';
+            return { name, type, alias: name };
+        }
+        const length = Math.max(1, ...vals.map(v => String(v).length));
+        return { name, type: 'esriFieldTypeString', alias: name, length };
+    });
+    const numeric = new Set(fields.filter(f => f.type !== 'esriFieldTypeString').map(f => f.name));
+    return JSON.stringify({
+        displayFieldName: 'report_id',
+        geometryType: 'esriGeometryPoint',
+        spatialReference: { wkid: 4326, latestWkid: 4326 },
+        fields: [{ name: 'OBJECTID', type: 'esriFieldTypeOID', alias: 'OBJECTID' }, ...fields],
+        features: rows.map((row, i) => {
+            const attributes = { OBJECTID: i + 1 };
+            cols.forEach(c => {
+                const v = row[c];
+                attributes[c] = numeric.has(c) ? (typeof v === 'number' ? v : null) : (v === null || v === undefined ? '' : String(v));
+            });
+            return { attributes, geometry: { x: row.lon, y: row.lat, spatialReference: { wkid: 4326 } } };
+        }),
+    });
+};
 
 const arcgisCsv = (rows) => {
     if (!rows.length) return '';
@@ -750,8 +815,6 @@ const gridSquare = (mgrs, digits) => {
     return `${zb} ${sq} ${e.slice(0, digits)} ${n.slice(0, digits)}`;
 };
 
-// A grid this close to a phase line counts as a report at that line.
-const PL_NEAR_METRES = 1000;
 const HEADINGS_8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 
 // Everything the Statistics panel draws, for the live reports given (already
@@ -772,8 +835,7 @@ const statsData = (reps, overlays, { local, squareDigits = 1 } = {}) => {
         if (a.checks.length) checks++;
         a.nai.keys.forEach(k => add(nai, k));
         a.obj.keys.forEach(k => add(obj, k));
-        const near = a.nearestPl && a.nearestPl.metres <= PL_NEAR_METRES ? [a.nearestPl.key] : [];
-        new Set([...a.pl, ...near]).forEach(k => add(pl, k));
+        a.pls.forEach(k => add(pl, k));
         const sq = new Set();
         a.points.forEach(p => { const s = gridSquare(p.mgrs, squareDigits); if (s) sq.add(s); else coarse++; });
         sq.forEach(s => add(squares, s));
@@ -838,11 +900,10 @@ const countList = (items) => items.map(i => `${i.label} ${i.value}`).join(', ');
 const reportFacts = (r, overlays) => {
     const a = analyzeLocation(r.location, overlays);
     const act = classifyActivity(r.activity);
-    const near = a.nearestPl && a.nearestPl.metres <= PL_NEAR_METRES ? [a.nearestPl.key] : [];
     return {
         r, a, act, ms: new Date(r.time).getTime(),
         places: [...a.nai.keys, ...a.obj.keys],
-        pls: [...new Set([...a.pl, ...near])],
+        pls: a.pls,
     };
 };
 const oneLine = (f) => `${f.r.size || '-'}; ${f.r.activity || '-'}; ${f.r.location || '-'}`;
@@ -1028,7 +1089,7 @@ const SaltCore = {
     backupFilename, backupText, allWorkspacesBackupText, parseBackup,
     parseCsv, reportsCsv, mtiCsvs,
     utmToLatLon, gridToLatLon, findGrids, findRefs, overlayRef, geometryContains, metresToGeometry,
-    analyzeLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisCsv,
+    asArea, analyzeLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisEsriJson, arcgisCsv,
     sizeElements, gridSquare, statsData, statsCsv, PL_NEAR_METRES,
     dtg, summaryReport, summaryPlaces,
     reportKey, knownVersions, changedReports, withUnsaved,

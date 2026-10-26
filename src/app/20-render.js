@@ -176,6 +176,10 @@ const locationTags = (text) => {
     [a.nai, a.obj].forEach(p => {
         if (p.from === 'grid') p.keys.forEach(k => tags.push(`<span class="loc-tag" title="The grid is inside ${escapeHtml(k)}">${escapeHtml(k)}</span>`));
     });
+    const near = a.nearestPl;
+    if (near && !a.pl.includes(near.key) && a.pls.includes(near.key)) {
+        tags.push(`<span class="loc-tag" title="The grid is ${Math.round(near.metres)} m from ${escapeHtml(near.key)}">${escapeHtml(near.key)}</span>`);
+    }
     a.checks.forEach(c => tags.push(`<span class="loc-tag warn" title="${escapeHtml(c)}">Check: ${escapeHtml(c)}</span>`));
     return tags.length ? `<div class="loc-tags">${tags.join('')}</div>` : '';
 };
