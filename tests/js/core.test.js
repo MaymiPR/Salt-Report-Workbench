@@ -316,3 +316,122 @@ test('refused changes stay over the server copy until superseded', () => {
     assert.deepEqual(superseded, ['b']);
     assert.equal(server[0].size, 'server', 'the server copy itself is not modified');
 });
+
+// --- Geography ---
+
+// The centre of each square, from the NGA's GeoTrans (the `mgrs` Python
+// package), across both hemispheres, every precision, band edges, the
+// equator, and Norway's and Svalbard's odd zones.
+const VECTORS = require('./mgrs-vectors.json');
+
+test('MGRS grids convert to the centre of their square, within a metre', () => {
+    const metres = (a, b) => Math.hypot((a.lat - b.lat) * 111320, (a.lon - b.lon) * 111320 * Math.cos(b.lat * Math.PI / 180));
+    for (const v of VECTORS) {
+        for (const text of [v.mgrs, v.spaced, v.spaced.toLowerCase()]) {
+            const g = core.findGrids(text);
+            assert.equal(g.length, 1, text);
+            assert.ok(metres(g[0], v) < 1, `${text}: ${metres(g[0], v).toFixed(2)} m off`);
+            assert.equal(g[0].precision, 10 ** (5 - v.p), text);
+        }
+    }
+});
+
+test('grids are found in free text, several at once, and typos are refused', () => {
+    const g = core.findGrids('2x BMP at 38S MB 45000 82000, 38SMB5500082000 and vic 18SUJ2348706483');
+    assert.deepEqual(g.map(x => x.mgrs), ['38S MB 45000 82000', '38S MB 55000 82000', '18S UJ 23487 06483']);
+    assert.deepEqual(core.findGrids('NAI 1 and OBJ 2, 10 km N of town'), [], 'I and O are never grid letters');
+    assert.deepEqual(core.findGrids('38S PL 12345 67890'), [], 'a 100 km square outside its latitude band');
+    assert.deepEqual(core.findGrids('38SMB123'), [], 'an odd number of digits');
+    assert.equal(core.findGrids('38S MB 1234 567')[0].mgrs, '38S MB 12 34', 'halves of different lengths');
+});
+
+test('NAI, OBJ and PL names read the way operators type them', () => {
+    assert.deepEqual(core.findRefs('38SMB4500082000, NAI 01; nai1; obj gold, Objective Silver, Phase Line Red, PL3, PLATOON')
+        .map(r => r.key), ['NAI 1', 'OBJ GOLD', 'OBJ SILVER', 'PL RED', 'PL 3']);
+    assert.deepEqual(core.overlayRef('NAI 03'), { type: 'NAI', name: '3', key: 'NAI 3' });
+    assert.equal(core.overlayRef('OBJ Gold (bridge)').key, 'OBJ GOLD');
+    assert.equal(core.overlayRef('Bridge', 'OBJ').key, 'OBJ BRIDGE', 'no prefix: the given type');
+    assert.equal(core.overlayRef('Bridge'), null);
+});
+
+// NAI 1 and NAI 2 side by side, OBJ BRIDGE north of NAI 1, PL BLUE across both NAIs.
+const ll = g => { const x = core.findGrids(g)[0]; return [x.lon, x.lat]; };
+const box = (...grids) => ({ type: 'Polygon', coordinates: [[...grids, grids[0]].map(ll)] });
+const OVERLAYS = [
+    { type: 'NAI', name: '1', geometry: box('38SMB4000080000', '38SMB5000080000', '38SMB5000090000', '38SMB4000090000') },
+    { type: 'NAI', name: '2', geometry: box('38SMB5000080000', '38SMB6000080000', '38SMB6000090000', '38SMB5000090000') },
+    { type: 'OBJ', name: 'BRIDGE', geometry: box('38SMB4000090000', '38SMB4500090000', '38SMB4500095000', '38SMB4000095000') },
+    { type: 'PL', name: 'BLUE', geometry: { type: 'LineString', coordinates: [ll('38SMB4000085000'), ll('38SMB6000085000')] } },
+];
+
+test('a grid places a report in the NAI or OBJ it falls inside', () => {
+    const a = core.analyzeLocation('38SMB4500082000', OVERLAYS);
+    assert.deepEqual(a.nai, { keys: ['NAI 1'], from: 'grid' });
+    assert.deepEqual(a.obj, { keys: [], from: '' });
+    assert.equal(a.nearestPl.key, 'PL BLUE');
+    assert.ok(Math.abs(a.nearestPl.metres - 3000) < 30, `${a.nearestPl.metres} m`);
+    assert.deepEqual(core.analyzeLocation('38SMB4200092000', OVERLAYS).obj, { keys: ['OBJ BRIDGE'], from: 'grid' });
+});
+
+test('a typed NAI counts, and disagreeing with the grid is flagged', () => {
+    const a = core.analyzeLocation('38S MB 55000 82000, NAI 1', OVERLAYS);
+    assert.deepEqual(a.nai, { keys: ['NAI 1'], from: 'typed' });
+    assert.deepEqual(a.checks, ['NAI 1 typed; grid is in NAI 2']);
+    assert.deepEqual(core.analyzeLocation('38S MB 45000 99000 nai1', OVERLAYS).checks, ['NAI 1 typed; grid is outside it']);
+    assert.deepEqual(core.analyzeLocation('38S MB 45000 82000, NAI 1', OVERLAYS).checks, [], 'agreeing: no check');
+    assert.deepEqual(core.analyzeLocation('NAI 7, no grid', OVERLAYS).checks, [], 'nothing to compare without a grid');
+    // No overlays at all: typed names still come through.
+    const bare = core.analyzeLocation('38SMB4500082000, OBJ GOLD, vic PL RED', []);
+    assert.deepEqual([bare.obj, bare.pl, bare.nearestPl], [{ keys: ['OBJ GOLD'], from: 'typed' }, ['PL RED'], null]);
+});
+
+test('activity lines are tagged, with a heading when one is given', () => {
+    const cases = {
+        '2x BMP moving N on MSR':        [['Moving'], 'N', 0],
+        'dismounted, heading 270':       [['Moving', 'Dismounted'], 'W', 270],
+        'convoy NB':                     [['Moving'], 'N', 0],
+        'moving towards the southeast':  [['Moving'], 'SE', 135],
+        'crossed PL BLUE westbound':     [['Moving'], 'W', 270],
+        'stationary':                    [['Stationary'], null, null],
+        'Parked; N of the bridge':       [['Stationary'], null, null],
+        'digging in vic treeline':       [['Emplacing'], null, null],
+        'engaging friendly OP':          [['Firing'], null, null],
+        'refueling at the LRP':          [['Resupplying'], null, null],
+        '':                              [[], null, null],
+    };
+    for (const [text, [tags, heading, deg]] of Object.entries(cases)) {
+        assert.deepEqual(core.classifyActivity(text), { tags, heading, headingDeg: deg }, text);
+    }
+});
+
+test('the ArcGIS export has one point per grid, and leaves out reports without one', () => {
+    const reps = [
+        report({ id: 'a', location: '38SMB4500082000 38SMB5500082000, OBJ GOLD', activity: 'moving N', custom: { 'Unit ID': '1-1' } }),
+        report({ id: 'b', location: 'vic the bridge' }),
+        report({ id: 'c', location: '38SMB4500082000', deleted: true }),
+    ];
+    const { rows, skipped } = core.arcgisRows(reps, OVERLAYS, { local: false, customLabels: ['Unit ID'], idOf: r => r.id });
+    assert.equal(skipped, 1, 'the deleted report is not counted either');
+    assert.deepEqual(rows.map(r => [r.report_id, r.mgrs, r.grid_n, r.nai, r.nai_from, r.obj, r.obj_from]), [
+        ['a', '38S MB 45000 82000', '1/2', 'NAI 1; NAI 2', 'grid', 'OBJ GOLD', 'typed'],
+        ['a', '38S MB 55000 82000', '2/2', 'NAI 1; NAI 2', 'grid', 'OBJ GOLD', 'typed'],
+    ]);
+    assert.deepEqual([rows[0].act_tags, rows[0].heading, rows[0].heading_deg, rows[0].c_unit_id, rows[0].time_utc],
+        ['Moving', 'N', 0, '1-1', '2026-10-24T04:12:00Z']);
+    const fc = JSON.parse(core.arcgisGeoJson(rows));
+    assert.deepEqual(fc.features[0].geometry.coordinates, [rows[0].lon, rows[0].lat]);
+    const csv = core.arcgisCsv(rows).split('\r\n');
+    assert.ok(csv[0].startsWith('report_id,ato,title,time_utc,'));
+    assert.ok(csv[0].endsWith(',c_unit_id,lat,lon'));
+    assert.ok(csv[1].endsWith(`,"1-1",${rows[0].lat},${rows[0].lon}`), 'numbers unquoted');
+    assert.equal(core.arcgisCsv([]), '');
+});
+
+test("backups carry the workspace's overlays", () => {
+    const ovs = { ALPHA: OVERLAYS, BRAVO: [] };
+    const one = core.parseBackup(core.backupText('ALPHA', [report()], 'Patrol', {}, {}, NOW, ovs)).data;
+    assert.deepEqual(Object.keys(one.overlays), ['ALPHA']);
+    assert.equal(one.overlays.ALPHA.length, 4);
+    const all = core.parseBackup(core.allWorkspacesBackupText({ ALPHA: [report()] }, 'ALPHA', 'Patrol', {}, {}, NOW, ovs)).data;
+    assert.deepEqual(Object.keys(all.overlays), ['ALPHA'], 'only the workspaces in the file');
+});
