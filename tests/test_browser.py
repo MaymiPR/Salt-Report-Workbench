@@ -204,6 +204,17 @@ class BrowserTests(unittest.TestCase):
         page.click("#bdaRollup [data-bda-filter='Destroyed']")
         self.assertEqual(len(self.sizes(page)), 2)
 
+    def test_typing_survives_a_sync(self):
+        # Regression: every sync re-laid the form out, which took the cursor
+        # out of the box being typed in; the rest of the word went nowhere.
+        page = self.open_editor()
+        page.click("#size")
+        page.keyboard.type("2x B")
+        page.evaluate("() => syncWithServer()")
+        page.wait_for_timeout(200)
+        page.keyboard.type("MP")
+        self.assertEqual(page.input_value("#size"), "2x BMP")
+
     # -- overlays and ArcGIS -------------------------------------------------- #
     def overlay_kmz(self) -> Path:
         """A KMZ as ArcGIS's Layer To KML writes one: NAI 1 and NAI 2 side by

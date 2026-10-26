@@ -38,6 +38,14 @@ All notable changes to this project are documented here. The format follows
   nothing. If anything fails, it deletes nothing. An upgrade keeps `Auto
   Backups` and the launcher's `PYTHON_EXE` path. The v2.4.1 release carries one.
 
+### Fixed
+
+- Typing a report no longer loses the cursor when a teammate's change
+  arrives. Every sync re-laid the form out, which took the cursor out of the
+  box being typed in, so the rest of the word went nowhere. The form is now
+  only re-laid when the workspace's format changes, and the cursor stays put
+  even then.
+
 ## [2.4.1] - 2026-10-25
 
 ### Fixed

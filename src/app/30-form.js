@@ -19,10 +19,31 @@ const applyFormFieldOrder = () => {
         location: el.form.location.closest('.input-group'),
         time:     el.form.time.closest('.input-group'),
     };
+    const fmt = currentFormat();
+    // Every sync lands here. Moving or re-creating the box someone is typing
+    // in takes their cursor out of it mid-word, so the boxes are only touched
+    // when the layout actually changed, and focus is put back when they are.
+    const layout = JSON.stringify(fmt.lines.filter(l => groupFor[l.type] || l.type === 'custom')
+        .map(l => l.type === 'custom' ? [l.label, l.name || ''] : l.type));
+    if (fields.dataset.layout !== layout) {
+        fields.dataset.layout = layout;
+        rebuildFormFields(fields, groupFor, fmt);
+    }
+    // Analysis is format-controlled: hidden unless its line is in the format.
+    const hasAnalysis = fmt.lines.some(l => l.type === 'analysis');
+    const analysisBox = document.getElementById('analysis-field');
+    if (analysisBox) analysisBox.style.display = hasAnalysis ? '' : 'none';
+    const logTable = document.getElementById('reportLogTable');
+    if (logTable) logTable.classList.toggle('hide-analysis', !hasAnalysis);
+};
+
+const rebuildFormFields = (fields, groupFor, fmt) => {
+    const active = document.activeElement;
+    const focusKey = active && fields.contains(active) ? (active.id || `custom:${active.dataset.customLabel}`) : null;
+    const caret = focusKey ? [active.selectionStart, active.selectionEnd] : null;
     const prevVals = {};
     fields.querySelectorAll('[data-custom-label]').forEach(i => { prevVals[i.dataset.customLabel] = i.value; });
     fields.querySelectorAll('.custom-input-group').forEach(n => n.remove());
-    const fmt = currentFormat();
     fmt.lines.forEach(line => {
         if (groupFor[line.type]) {
             fields.appendChild(groupFor[line.type]);
@@ -40,12 +61,15 @@ const applyFormFieldOrder = () => {
             fields.appendChild(g);
         }
     });
-    // Analysis is format-controlled: hidden unless its line is in the format.
-    const hasAnalysis = fmt.lines.some(l => l.type === 'analysis');
-    const analysisBox = document.getElementById('analysis-field');
-    if (analysisBox) analysisBox.style.display = hasAnalysis ? '' : 'none';
-    const logTable = document.getElementById('reportLogTable');
-    if (logTable) logTable.classList.toggle('hide-analysis', !hasAnalysis);
+    if (focusKey) {
+        const again = focusKey.startsWith('custom:')
+            ? [...fields.querySelectorAll('[data-custom-label]')].find(i => `custom:${i.dataset.customLabel}` === focusKey)
+            : document.getElementById(focusKey);
+        if (again) {
+            again.focus();
+            try { again.setSelectionRange(caret[0], caret[1]); } catch (e) { /* not a text box */ }
+        }
+    }
 };
 
 // Non-empty custom-field values keyed by label.
