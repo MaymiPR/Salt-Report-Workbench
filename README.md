@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.6.0-0A84FF" alt="Version 2.6.0">
+  <img src="https://img.shields.io/badge/version-2.7.0-0A84FF" alt="Version 2.7.0">
   <a href="https://github.com/MaymiPR/SaltReportWorkbench/actions/workflows/ci.yml"><img src="https://github.com/MaymiPR/SaltReportWorkbench/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-0A84FF" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/dependencies-none-32D74B" alt="No dependencies">
@@ -61,7 +61,7 @@ launcher, the license, and a short `README.txt`.
   ask your security office before sending it this way.
 
   ```bat
-  python "SALT-Workbench-v2.6.0.txt"
+  python "SALT-Workbench-v2.7.0.txt"
   ```
 
 **Verify a download.** The release also carries `SHA256SUMS.txt`, one file holding
