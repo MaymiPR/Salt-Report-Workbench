@@ -133,7 +133,16 @@ class BrowserTests(unittest.TestCase):
         page.fill("#activity", activity)
         page.fill("#location", location)
         page.click("#logButton")
-        page.wait_for_selector(f"#reportLogBody .col-size:has-text('{size}')")
+        try:
+            page.wait_for_selector(f"#reportLogBody .col-size:has-text('{size}')", timeout=15000)
+        except Exception as exc:
+            # Say what the page showed instead, for a failure seen only on CI.
+            state = page.evaluate(
+                """() => ({ toast: document.querySelector('#toast-notification').textContent,
+                           rows: [...document.querySelectorAll('#reportLogBody .col-size')].map(e => e.textContent),
+                           form: [size.value, activity.value, location.value] })"""
+            )
+            raise AssertionError(f"{size!r} never appeared: {state}") from exc
 
     @staticmethod
     def sizes(page):
