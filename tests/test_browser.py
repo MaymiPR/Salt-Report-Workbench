@@ -615,7 +615,17 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-map-zoom='out']")
         page.wait_for_function(f"() => Math.abs(mapView.mpp - {before}) < 1e-6")
 
-    def test_the_basemap_is_shared_and_asked_for_the_graphics_only(self):
+    def add_basemap(self, page, name, kind, url, layers=""):
+        if not page.locator("#mapBasemapForm").is_visible():
+            page.click("#mapBaseEdit")
+        page.fill("#mapBaseName", name)
+        page.select_option("#mapBaseKind", kind)
+        page.fill("#mapBaseUrl", url)
+        page.fill("#mapBaseLayers", layers)
+        page.click("#mapBaseAdd")
+        page.wait_for_selector(f"#toast-notification:has-text('{name} added')")
+
+    def test_basemaps_are_shared_switchable_and_asked_for_the_graphics_only(self):
         page = self.open_editor()
         self.import_overlays(page)
         asked = []
@@ -626,42 +636,52 @@ class BrowserTests(unittest.TestCase):
 
         self.context.route("http://basemap.test/**", serve)
         self.open_map(page)
-        page.click("#mapBaseEdit")
-        page.select_option("#mapBaseKind", "wms")
-        page.fill("#mapBaseUrl", "http://basemap.test/wms?map=ops")
-        page.fill("#mapBaseLayers", "imagery")
-        page.click("#mapBaseSave")
+        self.add_basemap(page, "Imagery", "wms", "http://basemap.test/wms?map=ops", "imagery")
         page.wait_for_function("() => document.querySelectorAll('#mapBase image').length === 1")
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemap.kind === 'wms')"
-        )
         url = asked[-1]
-        self.assertIn("REQUEST=GetMap", url)
-        self.assertIn("LAYERS=imagery", url)
-        self.assertIn("CRS=EPSG:3857", url)
-        self.assertIn("map=ops", url)
-        # The box asked for lies inside the graphics' area (plus a little room).
+        for part in ("REQUEST=GetMap", "LAYERS=imagery", "CRS=EPSG:3857", "map=ops"):
+            self.assertIn(part, url)
+        # The box asked for lies inside the map's area.
         x0, y0, x1, y1 = map(float, url.split("BBOX=")[1].split("&")[0].split(","))
         self.assertLess(x1 - x0, 40000)
         self.assertLess(y1 - y0, 40000)
-        # Tiles instead: only those over the graphics.
+        # A second service: added, and shown at once; the picker switches between them.
         asked.clear()
-        page.click("#mapBaseEdit")
-        page.select_option("#mapBaseKind", "tiles")
-        page.fill("#mapBaseUrl", "http://basemap.test/tiles/{z}/{x}/{y}.png")
-        page.click("#mapBaseSave")
-        page.wait_for_function("() => document.querySelectorAll('#mapBase image').length > 0")
-        page.wait_for_timeout(300)
+        self.add_basemap(page, "Topo", "tiles", "http://basemap.test/tiles/{z}/{x}/{y}.png")
+        page.wait_for_function(
+            "() => [...document.querySelectorAll('#mapBase image')].some(i => i.dataset.url.includes('/tiles/'))"
+        )
         self.assertTrue(asked and len(asked) < 100, len(asked))
         self.assertTrue(all("/tiles/" in u for u in asked))
-        # Viewers see it, and can't change it.
+        options = page.locator("#mapBaseSelect option").all_text_contents()
+        self.assertEqual(options, ["No basemap", "Imagery", "Topo"])
+        page.select_option("#mapBaseSelect", "Imagery")
+        page.wait_for_function(
+            "() => [...document.querySelectorAll('#mapBase image')].some(i => i.dataset.url.includes('/wms'))"
+        )
+        page.select_option("#mapBaseSelect", "off")
+        page.wait_for_function("() => document.querySelectorAll('#mapBase image').length === 0")
+        page.wait_for_function(
+            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.map(b => b.name).join() === 'Imagery,Topo')"
+        )
+        # Viewers get the same list to pick from, and can't change it.
         viewer = self.open_viewer()
         viewer.click("#exportViewToggleBtn")
         viewer.click(".ws-tab[data-tab='overlays']")
         viewer.click("[data-overlay-view='map']")
-        viewer.wait_for_function("() => document.querySelectorAll('#mapBase image').length > 0")
+        viewer.wait_for_function(
+            "() => document.querySelectorAll('#mapBaseSelect option').length === 3"
+        )
         self.assertFalse(viewer.locator("#mapBaseEdit").is_visible())
-        page.evaluate("saveBasemap({})")
+        viewer.select_option("#mapBaseSelect", "Topo")
+        viewer.wait_for_function("() => document.querySelectorAll('#mapBase image').length > 0")
+        # Removing one takes it out for everyone.
+        page.click("[data-base-remove='0']")
+        page.wait_for_selector("#toast-notification:has-text('Imagery removed')")
+        self.assertEqual(
+            page.locator("#mapBaseSelect option").all_text_contents(), ["No basemap", "Topo"]
+        )
+        page.evaluate("saveBasemaps([])")
 
     def test_tracks_export_and_latest_only_csv(self):
         page = self.open_editor()

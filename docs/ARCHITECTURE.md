@@ -94,7 +94,7 @@ handler's `_POST_ROUTES` table, paired with a schema validator in
 | `/api/save_profile` | POST | Register an operator's initials and color. |
 | `/api/save_format` | POST | Save a workspace's report format (Builder). |
 | `/api/save_overlays` | POST | Replace the shared NAI / OBJ / PL overlays (GeoJSON geometries, longitude/latitude). An empty list clears them. |
-| `/api/save_basemap` | POST | Set the map's basemap: `{}` for none, or `{kind: wms \| tiles, url, layers?}` (http/https only). Shared like the overlays and kept in every backup file. |
+| `/api/save_basemaps` | POST | Replace the map's basemap services: `[{name, kind: wms \| tiles, url, layers?}]` (at most 20, names unique, http/https only). Shared like the overlays and kept in every backup file; each browser picks which to show. |
 
 ### Overlays and geography
 
@@ -125,7 +125,8 @@ from `reportTracks` and `heatPoints` in `core.js` (each report once, at its
 latest grid for heat; its versions in reported order for tracks), and the
 basemap is requested only for the part of the view inside the map's area
 (`tilesFor`, `wmsUrl`). The browser fetches it straight from the service; the
-server only stores its address.
+server only stores the list of services, and which one is shown is kept per
+browser.
 
 The one place a report's text is changed for it: on Log and Update,
 `locationPlan` lists the places its grids are in that the box doesn't name,

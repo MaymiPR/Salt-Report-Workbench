@@ -109,7 +109,7 @@ in [CHANGELOG.md](CHANGELOG.md).
 | **Edit history** | *Update* snapshots the prior version; *Edit* corrects in place. Any prior version can be restored, and Delete and Restore both offer a ten-second Undo. |
 | **Workspaces** | Separate ATOs with their own reports and formats. Switch live, and the team switches with you. |
 | **View-only port** | Observers watch live on a second port that rejects every write, with no code required. |
-| **Map** | The overlays on a map (NAI green, OBJ blue, PL black), over an optional WMS or tile basemap fetched only for that area, with a heat map (each report once) or a track map (each report's path, first to latest, with its direction). Viewers see it too. |
+| **Map** | The overlays on a map (NAI green, OBJ blue, PL black), over WMS or tile basemaps you switch between, fetched only for that area, with a heat map (each report once) or a track map (each report's path, first to latest, with its direction). Viewers see it too. |
 | **Exports** | Human-readable backups that re-import losslessly, CSV (including history and BDA rows, or the latest version only), ArcGIS points and tracks, and MTI tracked/wheeled splits. |
 | **Hardened server** | Per-endpoint schema validation, per-IP rate limiting, server-stamped attribution that clients can't forge, atomic writes, and a 16 MB body cap. |
 

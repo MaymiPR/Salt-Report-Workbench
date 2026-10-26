@@ -16,9 +16,10 @@ All notable changes to this project are documented here. The format follows
     updates to its latest, with an arrow for the way it went;
   - a window (All, 24, 12, 6 hours), zoom and pan within the area of the
     overlays and reports, and hover details for each track.
-- **Basemap**: a WMS or tile (WMTS, ArcGIS, XYZ) service under the map,
-  requested only for the map's area. Set once by an editor and shared with
-  everyone, viewers included; each browser can hide it.
+- **Basemaps**: any number of named WMS or tile (WMTS, ArcGIS, XYZ) services
+  under the map, requested only for the map's area. Editors add and remove
+  them for everyone; a picker on the map switches between them (or none),
+  kept per browser, viewers included.
 - **ArcGIS tracks** export (Esri JSON or GeoJSON): one line per report that
   moved, first grid to latest, with its direction, length and times, for an
   arrow symbol in ArcGIS Pro.

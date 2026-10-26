@@ -1126,7 +1126,14 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 10px; }
 .map-tools .filter-presets { margin: 0; }
 .map-tools #mapBaseEdit { margin: 0 0 0 auto; width: auto; padding: 7px 14px; font-size: 0.82em; }
-.map-base-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82em; color: var(--text-secondary); cursor: pointer; }
+.map-base-select { width: auto; min-width: 150px; margin: 0; padding: 7px 34px 7px 12px; font-size: 0.85em; border-radius: 10px; }
+.map-base-select[hidden] { display: none; }
+.map-base-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+.map-base-row { display: grid; grid-template-columns: minmax(80px, auto) 52px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 4px 6px; border-bottom: 1px solid var(--divider); font-size: 0.85em; }
+.map-base-name { font-weight: 600; }
+.map-base-kind { color: var(--text-secondary); }
+.map-base-url { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, Consolas, monospace; font-size: 0.92em; }
+.map-form-row #mapBaseName { flex: 0 1 170px; }
 .map-basemap-form { background: var(--input-bg); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
 .map-form-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .map-form-row select { width: auto; min-width: 150px; margin: 0; padding: 9px 34px 9px 12px; font-size: 0.88em; }

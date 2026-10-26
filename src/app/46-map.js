@@ -11,7 +11,10 @@ const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', track: '#ff9
 let mapMode = localStorage.getItem('salt_map_mode') === 'tracks' ? 'tracks' : 'heat';
 let mapHours = 0;              // the window, in hours back from now; 0 for all
 let mapView = null;            // { cx, cy, mpp }: centre (Web Mercator metres) and metres per pixel
-let mapShowBase = localStorage.getItem('salt_map_base') !== 'off';
+// The basemap this browser shows, by name: 'off' for none, '' for the first.
+let mapBaseChoice = localStorage.getItem('salt_map_base') || '';
+const activeBasemap = () => (mapBaseChoice === 'off' ? null
+    : sharedBasemaps.find(b => b.name === mapBaseChoice) || sharedBasemaps[0] || null);
 let mapBaseFailed = false;
 let mapWmsTimer = null;
 let mapFrame = 0;
@@ -232,8 +235,8 @@ const mapLegend = (reps, tracks) => {
 // Images are kept by address and only moved as the view changes, so panning
 // doesn't fetch again. Only the part of the view inside the extent is asked for.
 const drawBasemap = (m, ext, view, w, h) => {
-    const b = sharedBasemap;
-    if (!mapShowBase || !b || !b.kind || !b.url) { m.base.innerHTML = ''; return; }
+    const b = activeBasemap();
+    if (!b) { m.base.innerHTML = ''; return; }
     const { cx, cy, mpp } = mapView;
     const place = (img, box) => {
         img.setAttribute('x', ((box[0] - cx) / mpp + w / 2).toFixed(1));
@@ -290,39 +293,52 @@ const drawBasemap = (m, ext, view, w, h) => {
     }, 300);
 };
 
-const basemapForm = () => {
-    const b = sharedBasemap || {};
-    return `<div class="map-basemap-form editor-only" id="mapBasemapForm" hidden>
+// Editors keep the list of services: each row can be removed; the last row adds one.
+const basemapForm = () => `<div class="map-basemap-form editor-only" id="mapBasemapForm" hidden>
+        <div class="map-base-list">${sharedBasemaps.map((b, i) => `
+            <div class="map-base-row">
+                <span class="map-base-name">${escapeHtml(b.name)}</span>
+                <span class="map-base-kind">${b.kind === 'wms' ? 'WMS' : 'Tiles'}</span>
+                <span class="map-base-url" title="${escapeHtml(b.url)}">${escapeHtml(b.url)}${b.layers ? ` &middot; ${escapeHtml(b.layers)}` : ''}</span>
+                <button type="button" class="overlay-remove" data-base-remove="${i}" title="Remove ${escapeHtml(b.name)}" aria-label="Remove ${escapeHtml(b.name)}">&times;</button>
+            </div>`).join('') || '<div class="overlays-muted">No services yet.</div>'}</div>
         <div class="map-form-row">
-            <select id="mapBaseKind" aria-label="Basemap service">
-                <option value=""${!b.kind ? ' selected' : ''}>No basemap</option>
-                <option value="wms"${b.kind === 'wms' ? ' selected' : ''}>WMS</option>
-                <option value="tiles"${b.kind === 'tiles' ? ' selected' : ''}>Tiles (WMTS, ArcGIS, XYZ)</option>
+            <input type="text" id="mapBaseName" placeholder="Name, e.g. Imagery" maxlength="60" spellcheck="false">
+            <select id="mapBaseKind" aria-label="Kind of service">
+                <option value="wms">WMS</option>
+                <option value="tiles">Tiles (WMTS, ArcGIS, XYZ)</option>
             </select>
-            <input type="text" id="mapBaseUrl" placeholder="Service address" value="${escapeHtml(b.url || '')}" maxlength="2000" spellcheck="false">
-            <input type="text" id="mapBaseLayers" placeholder="Layers (WMS)" value="${escapeHtml(b.layers || '')}" maxlength="300" spellcheck="false">
-            <button type="button" id="mapBaseSave" class="set-btn">Save</button>
+            <input type="text" id="mapBaseUrl" placeholder="Service address" maxlength="2000" spellcheck="false">
+            <input type="text" id="mapBaseLayers" placeholder="Layers (WMS)" maxlength="300" spellcheck="false">
+            <button type="button" id="mapBaseAdd" class="set-btn">Add</button>
         </div>
         <div class="overlays-note">WMS: the service's address and its layer names; it is asked for EPSG:3857 images. Tiles: an address with {z}, {x} and {y}
             (or WMTS's {TileMatrix}, {TileRow} and {TileCol}) in Web Mercator (GoogleMapsCompatible), such as an ArcGIS tile service's
-            <code>.../MapServer/tile/{z}/{y}/{x}</code>. Only the area of your graphics is requested. Shared with everyone.</div>
+            <code>.../MapServer/tile/{z}/{y}/{x}</code>. Only the area of your graphics is requested. The list is shared with everyone;
+            each person picks which one to show.</div>
     </div>`;
-};
 
-const saveBasemap = async (basemap) => {
-    sharedBasemap = basemap;
+const saveBasemaps = async (list, said) => {
+    sharedBasemaps = list;
     mapBaseFailed = false;
-    storeBasemap();
-    drawMap();
+    storeBasemaps();
+    renderOverlays();
     if (isLocalFile) return;
     try {
-        const res = await postJson('/api/save_basemap', { basemap });
+        const res = await postJson('/api/save_basemaps', { basemaps: list });
         if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) {
             const body = await res.json().catch(() => ({}));
-            showToast(`The server refused the basemap: ${body.message || res.status}`, true, { ms: 8000 });
-        } else showToast(basemap.kind ? 'Basemap saved for everyone.' : 'Basemap removed.');
+            showToast(`The server refused the basemaps: ${body.message || res.status}`, true, { ms: 8000 });
+        } else if (said) showToast(said);
     } catch (e) { showToast('Saved in this browser only: the server could not be reached.', true); }
+};
+
+// The picker above the map: none, or one of the services.
+const basemapOptions = () => {
+    const on = activeBasemap();
+    return `<option value="off"${on ? '' : ' selected'}>No basemap</option>`
+        + sharedBasemaps.map(b => `<option value="${escapeHtml(b.name)}"${on && on.name === b.name ? ' selected' : ''}>${escapeHtml(b.name)}</option>`).join('');
 };
 
 // --- The map view in the Overlays tab ---
@@ -341,10 +357,10 @@ const renderOverlayMap = (box, header) => {
                     <span class="filter-presets-label">Window</span>
                     ${hours.map(([v, t]) => `<button type="button" class="filter-preset-btn" data-map-hours="${v}">${t}</button>`).join('')}
                 </div>
-                <label class="map-base-toggle" id="mapBaseToggleWrap"><input type="checkbox" id="mapBaseToggle"> Basemap</label>
-                <button type="button" id="mapBaseEdit" class="cancel-btn editor-only">Basemap&hellip;</button>
+                <select id="mapBaseSelect" class="map-base-select" aria-label="Basemap"></select>
+                <button type="button" id="mapBaseEdit" class="cancel-btn editor-only">Basemaps&hellip;</button>
             </div>
-            ${basemapForm()}
+            <div id="mapBaseFormSlot"></div>
             <div class="map-box" id="mapBox">
                 <svg class="map-base" aria-hidden="true"><g id="mapBase"></g></svg>
                 <svg id="mapSvg" class="map-svg" role="img" aria-label="Map of the overlays and reports"></svg>
@@ -364,9 +380,17 @@ const renderOverlayMap = (box, header) => {
     }
     box.querySelectorAll('[data-map-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mapMode === mapMode)));
     box.querySelectorAll('[data-map-hours]').forEach(b => b.classList.toggle('active', +b.dataset.mapHours === mapHours));
-    const hasBase = !!(sharedBasemap && sharedBasemap.kind);
-    document.getElementById('mapBaseToggleWrap').hidden = !hasBase;
-    document.getElementById('mapBaseToggle').checked = mapShowBase;
+    const pick = document.getElementById('mapBaseSelect');
+    pick.innerHTML = basemapOptions();
+    pick.hidden = !sharedBasemaps.length;
+    // The form is rebuilt from the list, keeping whether it was open and what was being typed.
+    const slot = document.getElementById('mapBaseFormSlot'), old = document.getElementById('mapBasemapForm');
+    const keep = old ? { open: !old.hidden, ...Object.fromEntries(['mapBaseName', 'mapBaseKind', 'mapBaseUrl', 'mapBaseLayers'].map(id => [id, document.getElementById(id).value])) } : null;
+    slot.innerHTML = basemapForm();
+    if (keep) {
+        document.getElementById('mapBasemapForm').hidden = !keep.open;
+        ['mapBaseName', 'mapBaseKind', 'mapBaseUrl', 'mapBaseLayers'].forEach(id => { document.getElementById(id).value = keep[id]; });
+    }
     redrawMap();
 };
 
@@ -406,20 +430,33 @@ if (mapBody) {
             f.hidden = !f.hidden;
             return;
         }
-        if (e.target.closest('#mapBaseSave')) {
+        const rm = e.target.closest('[data-base-remove]');
+        if (rm) {
+            const gone = sharedBasemaps[+rm.dataset.baseRemove];
+            if (gone) saveBasemaps(sharedBasemaps.filter(b => b !== gone), `${gone.name} removed.`);
+            return;
+        }
+        if (e.target.closest('#mapBaseAdd')) {
+            const name = document.getElementById('mapBaseName').value.trim();
             const kind = document.getElementById('mapBaseKind').value;
             const url = document.getElementById('mapBaseUrl').value.trim();
             const layers = document.getElementById('mapBaseLayers').value.trim();
-            if (kind && !/^https?:\/\//i.test(url)) { showToast('The basemap address must start with http:// or https://.', true); return; }
+            if (!name) { showToast('Give the service a name.', true); return; }
+            if (sharedBasemaps.some(b => b.name.toLowerCase() === name.toLowerCase())) { showToast(`There is already a service called ${name}.`, true); return; }
+            if (!/^https?:\/\//i.test(url)) { showToast('The address must start with http:// or https://.', true); return; }
             if (kind === 'tiles' && !/\{(z|TileMatrix)\}/i.test(url)) { showToast('A tile address needs {z}, {x} and {y} (or {TileMatrix}, {TileCol}, {TileRow}).', true); return; }
-            document.getElementById('mapBasemapForm').hidden = true;
-            saveBasemap(kind ? { kind, url, ...(layers && kind === 'wms' ? { layers } : {}) } : {});
+            ['mapBaseName', 'mapBaseUrl', 'mapBaseLayers'].forEach(id => { document.getElementById(id).value = ''; });
+            // The new one is shown here at once.
+            mapBaseChoice = name;
+            try { localStorage.setItem('salt_map_base', name); } catch (err) { /* this session only */ }
+            saveBasemaps([...sharedBasemaps, { name, kind, url, ...(layers && kind === 'wms' ? { layers } : {}) }], `${name} added for everyone.`);
         }
     });
     mapBody.addEventListener('change', e => {
-        if (e.target.id === 'mapBaseToggle') {
-            mapShowBase = e.target.checked;
-            try { localStorage.setItem('salt_map_base', mapShowBase ? 'on' : 'off'); } catch (err) { /* this session only */ }
+        if (e.target.id === 'mapBaseSelect') {
+            mapBaseChoice = e.target.value;
+            mapBaseFailed = false;
+            try { localStorage.setItem('salt_map_base', mapBaseChoice); } catch (err) { /* this session only */ }
             redrawMap();
         }
     });
