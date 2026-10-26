@@ -57,9 +57,21 @@ class PackTests(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in folder.glob("*.part")), [], "no leftovers")
 
     def test_the_packed_file_is_short_lined_ascii(self):
-        self.source.encode("ascii")  # raises if not
-        self.assertLessEqual(max(len(line) for line in self.source.splitlines()), 1100)
-        self.assertNotIn("base64", self.source)
+        for source in (self.source, pack.pack(BLOBS, "9.9.9", plain=True)):
+            source.encode("ascii")  # raises if not
+            self.assertLessEqual(max(len(line) for line in source.splitlines()), 1100)
+
+    def test_compressed_by_default_and_much_smaller(self):
+        plain = pack.pack({**BLOBS, "index.html": BLOBS["index.html"] * 200}, "9.9.9", plain=True)
+        packed = pack.pack({**BLOBS, "index.html": BLOBS["index.html"] * 200}, "9.9.9")
+        self.assertIn("PAYLOAD.extend([", packed)
+        self.assertNotIn("PAYLOAD.extend([", plain)
+        self.assertLess(len(packed), len(plain) / 4)
+
+    def test_the_plain_form_unpacks_the_same(self):
+        path = self.place(self.tmp, pack.pack(BLOBS, "9.9.9", plain=True))
+        self.assertEqual(self.run_packed(path).returncode, 0)
+        self.assert_unpacked(self.tmp / "SALT Report Workbench")
 
     def test_it_unpacks_byte_for_byte_and_deletes_itself(self):
         path = self.place(self.tmp)
@@ -86,14 +98,18 @@ class PackTests(unittest.TestCase):
         self.assertTrue(path.exists())
 
     def test_a_damaged_packed_file_changes_nothing(self):
-        damaged = self.source.replace("print('server')", "print('servxr')")
-        self.assertNotEqual(damaged, self.source)
-        path = self.place(self.tmp, damaged)
-        result = self.run_packed(path)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("damaged", result.stdout)
-        self.assertTrue(path.exists(), "the packed file is kept")
-        self.assertFalse((self.tmp / "SALT Report Workbench").exists(), "nothing written")
+        lines = self.source.splitlines(keepends=True)
+        i = lines.index("PAYLOAD.extend([\n") + 2  # a line inside the data
+        lines[i] = lines[i][:10] + ("A" if lines[i][10] != "A" else "B") + lines[i][11:]
+        plain = pack.pack(BLOBS, "9.9.9", plain=True)
+        for damaged in ("".join(lines), plain.replace("print('server')", "print('servxr')")):
+            self.assertNotIn(damaged, (self.source, plain))
+            path = self.place(self.tmp, damaged)
+            result = self.run_packed(path)
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("damaged", result.stdout)
+            self.assertTrue(path.exists(), "the packed file is kept")
+            self.assertFalse((self.tmp / "SALT Report Workbench").exists(), "nothing written")
 
     def test_a_failed_write_keeps_the_packed_file(self):
         (self.tmp / "SALT Report Workbench").write_text("in the way", encoding="utf-8")

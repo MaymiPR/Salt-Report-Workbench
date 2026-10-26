@@ -3,9 +3,11 @@
 r"""Pack a release zip into one plain-text file that unpacks itself.
 
 For transfer systems that refuse archives and scripts: the result is a single
-ASCII text file, ``SALT-Workbench-v<version>.txt``, holding every file of the
-zip as escaped string literals (no compression, no base64), plus a short
-unpacker at the top. Anyone can open it in Notepad and read all of it.
+ASCII text file, ``SALT-Workbench-v<version>.txt``, with a short unpacker at
+the top that anyone can read in Notepad, each file's SHA-256, and the files
+themselves: compressed with LZMA and written as Base85 text in short lines
+(about a quarter the size), or with ``--plain`` as escaped string literals that
+can be read line by line (four times larger).
 
 On the other end, Python runs it whatever its extension::
 
@@ -16,13 +18,16 @@ file against the SHA-256 recorded at pack time, and deletes the packed file.
 It starts nothing. If anything fails, the packed file stays. See UNPACKER for
 the option and the upgrade behavior.
 
-Usage:  python scripts/pack.py SaltReportWorkbench-v2.4.1.zip [-o OUT_DIR]
+Usage:  python scripts/pack.py SaltReportWorkbench-v2.4.1.zip [-o OUT_DIR] [--plain]
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
+import json
+import lzma
 import re
 import sys
 import zipfile
@@ -54,8 +59,8 @@ UNPACKER = '''\
 #
 #     --keep       keep this packed file after unpacking
 #
-# Everything it unpacks is below, as plain text: each line of each file is an
-# escaped string. Source: https://github.com/MaymiPR/SaltReportWorkbench
+# @STORAGE@
+# Source: https://github.com/MaymiPR/SaltReportWorkbench
 
 import hashlib
 import os
@@ -68,6 +73,27 @@ FOLDER = 'SALT Report Workbench'
 LAUNCHER = 'Start SALT Workbench.bat'
 FILES = {}  # name -> text
 SHA256 = {}  # name -> SHA-256 of the text as UTF-8
+PAYLOAD = []  # the files compressed, as Base85 lines (empty when stored as text)
+
+
+def load():
+    """Fill FILES from PAYLOAD when the files are stored compressed."""
+    if not PAYLOAD:
+        return
+    import base64
+    import json
+    try:
+        import lzma
+    except ImportError:
+        raise RuntimeError('this Python has no lzma module; use the zip download instead.') from None
+    try:
+        blob = lzma.decompress(base64.b85decode(''.join(PAYLOAD)))
+        size = int.from_bytes(blob[:4], 'big')
+        data = blob[4 + size:]
+        for name, (start, length) in json.loads(blob[4:4 + size]).items():
+            FILES[name] = data[start:start + length].decode('utf-8')
+    except (ValueError, lzma.LZMAError):
+        raise RuntimeError('the packed data is damaged.') from None
 
 
 def keep_python_exe(text, old_launcher):
@@ -84,6 +110,9 @@ def keep_python_exe(text, old_launcher):
 
 def unpack(here):
     """Check every file, then write and re-read each one. Returns the folder."""
+    load()
+    if set(FILES) != set(SHA256):
+        raise RuntimeError('the packed data is damaged.')
     for name, text in FILES.items():
         if hashlib.sha256(text.encode('utf-8')).hexdigest() != SHA256[name]:
             raise RuntimeError(f'{name} is damaged inside the packed file.')
@@ -143,16 +172,48 @@ def _literal_lines(text: str) -> list[str]:
     return [ascii(p) for p in pieces] or ["''"]
 
 
-def pack(files: dict[str, bytes], version: str) -> str:
-    """The packed file's source for ``files`` (name -> UTF-8 text bytes)."""
-    out = [UNPACKER.replace("@VERSION@", version)]
+STORAGE = {
+    "lzma": "The files are below, compressed (LZMA) and written as Base85 text, with each\n"
+    "# one's SHA-256; unpacking checks every file against it.",
+    "plain": "Everything it unpacks is below, as plain text: each line of each file is an\n"
+    "# escaped string.",
+}
+
+
+def _payload(files: dict[str, bytes]) -> list[str]:
+    """Every file in one LZMA stream (an index, then the bytes), as Base85 lines."""
+    index, offset = {}, 0
+    for name in sorted(files):
+        index[name] = [offset, len(files[name])]
+        offset += len(files[name])
+    head = json.dumps(index, separators=(",", ":")).encode("ascii")
+    blob = len(head).to_bytes(4, "big") + head + b"".join(files[n] for n in sorted(files))
+    text = base64.b85encode(lzma.compress(blob, preset=9 | lzma.PRESET_EXTREME)).decode("ascii")
+    return [text[i : i + CHUNK] for i in range(0, len(text), CHUNK)]
+
+
+def pack(files: dict[str, bytes], version: str, plain: bool = False) -> str:
+    """The packed file's source for ``files`` (name -> UTF-8 text bytes).
+
+    Compressed unless ``plain``; either way it unpacks to the same bytes.
+    Base85 has no quote or backslash, so its lines are literals as they are.
+    """
+    head = UNPACKER.replace("@VERSION@", version).replace(
+        "@STORAGE@", STORAGE["plain" if plain else "lzma"]
+    )
+    out = [head]
     for name in sorted(files):
         data = files[name]
-        text = data.decode("utf-8")  # every release file is text
+        data.decode("utf-8")  # every release file is text
         out.append(f"\nSHA256[{name!r}] = {hashlib.sha256(data).hexdigest()!r}\n")
-        out.append(f"FILES[{name!r}] = (\n")
-        out.extend(f"    {lit}\n" for lit in _literal_lines(text))
-        out.append(")\n")
+        if plain:
+            out.append(f"FILES[{name!r}] = (\n")
+            out.extend(f"    {lit}\n" for lit in _literal_lines(data.decode("utf-8")))
+            out.append(")\n")
+    if not plain:
+        out.append("\nPAYLOAD.extend([\n")
+        out.extend(f"    '{line}',\n" for line in _payload(files))
+        out.append("])\n")
     out.append(ENTRY)
     return "".join(out)
 
@@ -173,6 +234,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "-o", "--out", type=Path, default=None, help="output folder (default: beside the zip)"
     )
+    p.add_argument(
+        "--plain", action="store_true", help="store the files as readable text, uncompressed"
+    )
     args = p.parse_args(argv)
     m = _ZIP_NAME_RE.fullmatch(args.zip.name)
     if not m:
@@ -181,7 +245,9 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = args.out or args.zip.parent
     out_dir.mkdir(parents=True, exist_ok=True)
     dest = out_dir / f"SALT-Workbench-v{version}.txt"
-    dest.write_text(pack(files_from_zip(args.zip), version), encoding="ascii", newline="\n")
+    dest.write_text(
+        pack(files_from_zip(args.zip), version, plain=args.plain), encoding="ascii", newline="\n"
+    )
     digest = hashlib.sha256(dest.read_bytes()).hexdigest()
     # LF explicitly: `sha256sum -c` on Linux/macOS rejects a CRLF checksum file.
     (out_dir / f"{dest.name}.sha256").write_text(
