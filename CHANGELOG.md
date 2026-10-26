@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Each release carries one checksum file, `SaltReportWorkbench-v<version>.sha256`,
+  for both the zip and the one-file `.txt`, in place of one per download.
+  `python scripts/release.py <version>` builds all three in one go. The README
+  has a PowerShell line that checks them.
+
 ## [2.6.0] - 2026-10-26
 
 ### Added
