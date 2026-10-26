@@ -17,9 +17,9 @@ const generateReportText = (report) => SaltCore.reportText(report, currentFormat
 const getCsvFilename = (ato, title) => `${SaltCore.backupFilename(ato, title)}_${fileStamp(new Date(), timeDisplayMode === 'local')}`;
 
 const generateBackupText = (ato, reps, title, profiles) =>
-    SaltCore.backupText(ato, reps, title, profiles, workspaceFormats);
+    SaltCore.backupText(ato, reps, title, profiles, workspaceFormats, new Date(), workspaceOverlays);
 const generateAllAtosBackupText = (workspaces, activeAto, title, profiles) =>
-    SaltCore.allWorkspacesBackupText(workspaces, activeAto, title, profiles, workspaceFormats);
+    SaltCore.allWorkspacesBackupText(workspaces, activeAto, title, profiles, workspaceFormats, new Date(), workspaceOverlays);
 
 const triggerDownload = (filename, content, type = 'text/plain;charset=utf-8') => {
     const blob = new Blob([content], { type }), a = document.createElement('a');
@@ -142,6 +142,8 @@ async function unloadWorkspace(ato) {
         try { await postJson('/api/unload_ato', { ato }); } catch(e){}
         delete reportsByAto[ato];
         delete workspaceSources[ato];
+        delete workspaceOverlays[ato];
+        writeStored('salt_ws_overlays', JSON.stringify(workspaceOverlays));
         saveReportsByAtoToLocal();
         if (wasActive) {
             activeAto    = '';
@@ -170,10 +172,10 @@ const clearExportFilter = () => {
     renderExportPreview();
 };
 
-// Workspaces panel tabs: 'export' (default) | 'workspaces' | 'identity'.
+// Workspaces panel tabs: 'export' (default) | 'workspaces' | 'builder' | 'overlays' | 'identity'.
 // Persisted in localStorage. Viewer mode forces 'export' since the
 // workspaces list lives in the sidebar and the identity tab is hidden.
-const VALID_TABS = ['export', 'workspaces', 'identity', 'builder'];
+const VALID_TABS = ['export', 'workspaces', 'identity', 'builder', 'overlays'];
 const switchWorkspacesTab = (tabName) => {
     if (!VALID_TABS.includes(tabName)) tabName = 'export';
     if (isReadOnly) tabName = 'export';
@@ -190,6 +192,7 @@ const switchWorkspacesTab = (tabName) => {
     if (tabName === 'export')          renderExportPreview();
     else if (tabName === 'workspaces') renderWorkspacesList();
     else if (tabName === 'builder')    renderBuilder();
+    else if (tabName === 'overlays')   renderOverlays();
 };
 
 // ─── Report Builder ──────────────────────────────────────────────────────
@@ -366,6 +369,14 @@ function processJsonImport(rawText) {
                 writeStored('salt_ws_formats', JSON.stringify(workspaceFormats));
                 for (const [fAto, fFmt] of Object.entries(imp.formats)) {
                     try { await postJson('/api/save_format', { ato: fAto, format: fFmt }); } catch(e){}
+                }
+            }
+            // And their overlays (NAI / OBJ / PL).
+            if (imp.overlays && typeof imp.overlays === 'object') {
+                workspaceOverlays = { ...workspaceOverlays, ...imp.overlays };
+                writeStored('salt_ws_overlays', JSON.stringify(workspaceOverlays));
+                for (const [oAto, list] of Object.entries(imp.overlays)) {
+                    if (!isLocalFile) { try { await postJson('/api/save_overlays', { ato: oAto, overlays: list }); } catch(e){} }
                 }
             }
             await saveLocalAndSync(all, 'backup');

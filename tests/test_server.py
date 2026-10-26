@@ -28,12 +28,35 @@ sys.path.insert(0, str(ROOT / "server"))
 
 import salt_sync_server as srv  # noqa: E402
 
+NAI1 = {
+    "type": "NAI",
+    "name": "1",
+    "label": "NAI 1 (bridge)",
+    "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+            [[44.35, 33.25], [44.46, 33.25], [44.46, 33.34], [44.35, 33.34], [44.35, 33.25]]
+        ],
+    },
+}
+PL_BLUE = {
+    "type": "PL",
+    "name": "BLUE",
+    "geometry": {"type": "LineString", "coordinates": [[44.35, 33.30], [44.57, 33.30]]},
+}
+
 
 def reset_state() -> None:
     """Return every piece of module-level server state to a fresh boot."""
     srv.DATA_STORE.clear()
     srv.DATA_STORE.update(
-        {"workspaces": {}, "config": {"ato": "", "title": ""}, "profiles": {}, "formats": {}}
+        {
+            "workspaces": {},
+            "config": {"ato": "", "title": ""},
+            "profiles": {},
+            "formats": {},
+            "overlays": {},
+        }
     )
     srv.workspace_sources.clear()
     srv.client_initials.clear()
@@ -229,6 +252,28 @@ class ValidatorTests(unittest.TestCase):
         self.assertRejects(v, {"ato": "A", "format": {"lines": []}}, "non-empty")
         self.assertRejects(v, {"ato": "A", "format": {"lines": [{"type": "nope"}]}}, "type")
         self.assertRejects(v, {"ato": "A", "format": {"lines": [{"type": "custom"}]}}, "label")
+
+    def test_overlay_validation(self):
+        v = srv._v_save_overlays
+        self.assertIsNone(v({"ato": "A", "overlays": [NAI1, PL_BLUE]}))
+        self.assertIsNone(v({"ato": "A", "overlays": []}), "an empty list clears")
+        self.assertRejects(v, {"ato": "A", "overlays": {}}, "list")
+        self.assertRejects(v, {"ato": "A", "overlays": [{**NAI1, "type": "AO"}]}, "NAI, OBJ or PL")
+        self.assertRejects(v, {"ato": "A", "overlays": [{**NAI1, "name": ""}]}, "name")
+        self.assertRejects(v, {"ato": "A", "overlays": [{**NAI1, "name": "N" * 41}]}, "name")
+        bad_geoms = [
+            {"type": "Circle", "coordinates": [44, 33]},
+            {"type": "Point", "coordinates": [181, 33]},
+            {"type": "Point", "coordinates": [44, True]},
+            {"type": "LineString", "coordinates": [44, 33]},
+            {"type": "Polygon", "coordinates": []},
+        ]
+        for g in bad_geoms:
+            self.assertRejects(v, {"ato": "A", "overlays": [{**NAI1, "geometry": g}]}, "geometry")
+        with mock.patch.object(srv, "MAX_OVERLAY_POINTS", 6):
+            self.assertRejects(v, {"ato": "A", "overlays": [NAI1, PL_BLUE]}, "too many points")
+        with mock.patch.object(srv, "MAX_OVERLAYS", 1):
+            self.assertRejects(v, {"ato": "A", "overlays": [NAI1, PL_BLUE]}, "too many overlays")
 
     def test_profile_validation(self):
         self.assertIsNone(srv._v_save_profile({"profile": {"initials": "AB", "color": "#32d74b"}}))
@@ -640,6 +685,39 @@ class HttpApiTests(unittest.TestCase):
         fmt = {"preset": "salt-u", "lines": [{"type": "size"}, {"type": "id"}]}
         self.assertEqual(self.post("/api/save_format", {"ato": "alpha", "format": fmt})[0], 200)
         self.assertEqual(self.sync()["formats"], {"ALPHA": fmt})
+
+    def test_overlays_sync_and_clear(self):
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        extra = {**PL_BLUE, "colour": "red", "geometry": {**PL_BLUE["geometry"], "x": 1}}
+        status, _ = self.post("/api/save_overlays", {"ato": "alpha", "overlays": [NAI1, extra]})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.sync()["overlays"], {"ALPHA": [NAI1, PL_BLUE]}, "known fields only")
+        # Cleared: an empty list, so clients that merge what they get see it.
+        self.post("/api/save_overlays", {"ato": "ALPHA", "overlays": []})
+        self.assertEqual(self.sync()["overlays"], {"ALPHA": []})
+        status, _ = self.post(
+            "/api/save_overlays", {"ato": "ALPHA", "overlays": [NAI1]}, base=self.viewer_base
+        )
+        self.assertEqual(status, 405, "viewers cannot change overlays")
+
+    def test_overlays_go_with_their_workspace(self):
+        self.post("/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol"}})
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        self.post("/api/save_reports", {"ato": "BRAVO", "reports": [report(id="b1")]})
+        self.post("/api/save_overlays", {"ato": "ALPHA", "overlays": [NAI1, PL_BLUE]})
+        srv.flush_pending_save()
+        # In ALPHA's own file only, and back after a restart.
+        texts = {f.name: f.read_text("utf-8") for f in self.backup_files()}
+        alpha = srv._extract_json_from_file(texts["ALPHA_Patrol.txt"])
+        self.assertEqual(alpha["overlays"], {"ALPHA": [NAI1, PL_BLUE]})
+        bravo = next(t for n, t in texts.items() if n.startswith("BRAVO"))
+        self.assertEqual(srv._extract_json_from_file(bravo)["overlays"], {})
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(self.sync()["overlays"], {"ALPHA": [NAI1, PL_BLUE]})
+        # Unloading the workspace takes its overlays out of view too.
+        self.post("/api/unload_ato", {"ato": "ALPHA"})
+        self.assertEqual(self.sync()["overlays"], {})
 
     # -- persistence --------------------------------------------------------- #
     def backup_files(self):

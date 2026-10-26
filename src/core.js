@@ -299,15 +299,16 @@ const backupMachineData = (payload) =>
 
 // One workspace's backup file. `reps` is exported as-is in the machine data
 // (deleted flags included); only live reports are listed for reading.
-const backupText = (ato, reps, title, profiles, formats, now = new Date()) => {
+const backupText = (ato, reps, title, profiles, formats, now = new Date(), overlays = {}) => {
     const active = reps.filter(r => !r.deleted);
     return `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH — ATO BACKUP\n ATO Designator : ${ato}\n Report Title   : ${title}\n Total Reports  : ${active.length}\n Exported       : ${backupStamp(now)}\n${BACKUP_DIV}\n\n`
         + backupReportBlocks(active)
-        + backupMachineData({ workspaces: { [ato]: reps }, config: { ato, title }, profiles: profiles||{}, formats: formats[ato] ? { [ato]: formats[ato] } : {} });
+        + backupMachineData({ workspaces: { [ato]: reps }, config: { ato, title }, profiles: profiles||{},
+            formats: formats[ato] ? { [ato]: formats[ato] } : {}, overlays: overlays[ato] ? { [ato]: overlays[ato] } : {} });
 };
 
 // Every given workspace in one file.
-const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats, now = new Date()) => {
+const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats, now = new Date(), overlays = {}) => {
     const atoKeys   = Object.keys(workspaces);
     const totalReps = atoKeys.reduce((n, k) => n + (workspaces[k]||[]).filter(r => !r.deleted).length, 0);
     let out = `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH — FULL BACKUP (ALL ATOs)\n ATOs Included  : ${atoKeys.join(', ')}\n Total Reports  : ${totalReps}\n Exported       : ${backupStamp(now)}\n${BACKUP_DIV}\n\n`;
@@ -317,7 +318,9 @@ const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats
         out += `${BACKUP_DIV}\n ATO: ${ato}  —  ${atoTitle}  (${active.length} report${active.length !== 1 ? 's' : ''})\n${BACKUP_DIV}\n\n`;
         out += backupReportBlocks(active);
     });
-    return out + backupMachineData({ workspaces, config: { ato: activeAto, title }, profiles: profiles||{}, formats });
+    const ovs = {};
+    atoKeys.forEach(ato => { if (overlays[ato]) ovs[ato] = overlays[ato]; });
+    return out + backupMachineData({ workspaces, config: { ato: activeAto, title }, profiles: profiles||{}, formats, overlays: ovs });
 };
 
 // Read a backup file's payload. Returns { data } or { error } with a message
@@ -415,6 +418,318 @@ const mtiCsvs = (reps, { local, idOf }) => {
     return out;
 };
 
+// --- Geography: MGRS, overlays, and what a Location box says ---
+
+// UTM to latitude/longitude on WGS84, by Krüger's series (Karney 2011), which
+// stays sub-millimetre well beyond a zone's edge (Norway's and Svalbard's wide
+// zones included).
+const WGS84_A = 6378137, WGS84_F = 1 / 298.257223563, UTM_K0 = 0.9996;
+const KRUGER = (() => {
+    const n = WGS84_F / (2 - WGS84_F), n2 = n*n, n3 = n2*n, n4 = n3*n, n5 = n4*n, n6 = n5*n;
+    return {
+        A: WGS84_A / (1 + n) * (1 + n2/4 + n4/64 + n6/256),
+        beta: [
+            n/2 - 2*n2/3 + 37*n3/96 - n4/360 - 81*n5/512 + 96199*n6/604800,
+            n2/48 + n3/15 - 437*n4/1440 + 46*n5/105 - 1118711*n6/3870720,
+            17*n3/480 - 37*n4/840 - 209*n5/4480 + 5569*n6/90720,
+            4397*n4/161280 - 11*n5/504 - 830251*n6/7257600,
+            4583*n5/161280 - 108847*n6/3991680,
+            20648693*n6/638668800,
+        ],
+    };
+})();
+const utmToLatLon = (zone, south, easting, northing) => {
+    const e = Math.sqrt(WGS84_F * (2 - WGS84_F));
+    const xi  = (south ? northing - 10000000 : northing) / (UTM_K0 * KRUGER.A);
+    const eta = (easting - 500000) / (UTM_K0 * KRUGER.A);
+    let xi1 = xi, eta1 = eta;
+    KRUGER.beta.forEach((b, i) => {
+        const j = 2 * (i + 1);
+        xi1  -= b * Math.sin(j*xi) * Math.cosh(j*eta);
+        eta1 -= b * Math.cos(j*xi) * Math.sinh(j*eta);
+    });
+    const tau1 = Math.sin(xi1) / Math.sqrt(Math.sinh(eta1)**2 + Math.cos(xi1)**2);
+    let tau = tau1;
+    for (let k = 0; k < 10; k++) {  // Newton on the conformal latitude; converges in 2-3
+        const sigma = Math.sinh(e * Math.atanh(e * tau / Math.sqrt(1 + tau*tau)));
+        const taui  = tau * Math.sqrt(1 + sigma*sigma) - sigma * Math.sqrt(1 + tau*tau);
+        const d = (tau1 - taui) / Math.sqrt(1 + taui*taui)
+            * (1 + (1 - e*e) * tau*tau) / ((1 - e*e) * Math.sqrt(1 + tau*tau));
+        tau += d;
+        if (Math.abs(d) < 1e-12) break;
+    }
+    const lon0 = (zone - 1) * 6 - 177;
+    return {
+        lat: Math.atan(tau) * 180 / Math.PI,
+        lon: lon0 + Math.atan2(Math.sinh(eta1), Math.cos(xi1)) * 180 / Math.PI,
+    };
+};
+
+const MGRS_BANDS = 'CDEFGHJKLMNPQRSTUVWX';
+const MGRS_COLS  = ['ABCDEFGH', 'JKLMNPQR', 'STUVWXYZ'];
+const MGRS_ROWS  = 'ABCDEFGHJKLMNPQRSTUV';
+
+// One MGRS grid (zone, band, 100 km square, digits) as the centre of the
+// square it names: "38SMB4488" is a 1 km square, and the point is its middle.
+// The 100 km row letters repeat every 2,000 km, so of the northings they
+// allow, the one that lands inside the latitude band is the grid's. Null when
+// the letters can't belong together (a typo).
+const gridToLatLon = (zone, band, col, row, digits) => {
+    band = band.toUpperCase(); col = col.toUpperCase(); row = row.toUpperCase();
+    const bandIdx = MGRS_BANDS.indexOf(band);
+    if (zone < 1 || zone > 60 || bandIdx < 0 || digits.length % 2 || digits.length < 2 || digits.length > 10) return null;
+    const set    = zone % 6 || 6;
+    const colIdx = MGRS_COLS[(set - 1) % 3].indexOf(col);
+    const rowIdx = MGRS_ROWS.indexOf(row);
+    if (colIdx < 0 || rowIdx < 0) return null;
+    const p    = digits.length / 2;
+    const cell = 10 ** (5 - p);
+    const easting = (colIdx + 1) * 100000 + Number(digits.slice(0, p)) * cell + cell / 2;
+    const north   = ((rowIdx - (set % 2 ? 0 : 5) + 20) % 20) * 100000 + Number(digits.slice(p)) * cell + cell / 2;
+    const south   = bandIdx < MGRS_BANDS.indexOf('N');
+    const minLat  = -80 + 8 * bandIdx, maxLat = band === 'X' ? 84 : minLat + 8;
+    let best = null;
+    for (let n = north; n < 10000000; n += 2000000) {
+        const ll  = utmToLatLon(zone, south, easting, n);
+        const off = ll.lat < minLat ? minLat - ll.lat : ll.lat > maxLat ? ll.lat - maxLat : 0;
+        if (off < 0.6 && (!best || off < best.off)) best = { ...ll, off };
+    }
+    if (!best) return null;
+    const e = digits.slice(0, p), n = digits.slice(p);
+    return { lat: best.lat, lon: best.lon, precision: cell, mgrs: `${zone}${band} ${col}${row} ${e} ${n}` };
+};
+
+// Every MGRS grid in a piece of text, with where it sits in the text. Takes
+// "38S MB 12345 67890", "38SMB1234567890" and "38smb 1234 5678"; a grid's two
+// halves typed apart must be the same length. I and O are never grid letters,
+// so "NAI 1" and "OBJ 2" can't be mistaken for one.
+const GRID_RE = /(^|[^0-9A-Za-z])(\d{1,2})\s*([C-HJ-NP-X])\s*([A-HJ-NP-Z])\s*([A-HJ-NP-V])\s*(\d{1,10})(?:\s+(\d{1,5}))?(?![0-9A-Za-z])/gi;
+const findGrids = (text) => {
+    const s = String(text || ''), out = [];
+    const re = new RegExp(GRID_RE.source, 'gid');
+    let m;
+    while ((m = re.exec(s))) {
+        let digits = m[6], end = m.indices[0][1];
+        if (m[7] !== undefined) {
+            // Halves of different lengths: the second number isn't part of
+            // this grid, and may start the next thing.
+            if (m[6].length === m[7].length) digits = m[6] + m[7];
+            else re.lastIndex = end = m.indices[6][1];
+        }
+        const ll = gridToLatLon(Number(m[2]), m[3], m[4], m[5], digits);
+        if (ll) out.push({ ...ll, start: m.indices[2][0], end });
+    }
+    return out;
+};
+
+// Named places as operators type them: "NAI 1", "nai01", "OBJ GOLD",
+// "Objective Gold", "PL BLUE", "Phase Line Blue". Numbers lose leading zeros,
+// so NAI 01 and NAI 1 are one place. A bare "PL" glued to letters ("PLATOON")
+// is not a phase line; "PL3" is.
+const REF_TYPES = { NAI: 'NAI', OBJ: 'OBJ', OBJECTIVE: 'OBJ', PL: 'PL', 'PHASE LINE': 'PL' };
+const REF_RE = /(^|[^A-Za-z0-9])(NAI|OBJECTIVE|OBJ|PHASE\s+LINE|PL)(?:\s*[-#:.]\s*|\s+|(?=\d))([A-Za-z0-9]+)/gi;
+const refName = (name) => { const n = String(name).toUpperCase(); return /^\d+$/.test(n) ? String(Number(n)) : n; };
+const findRefs = (text) => {
+    const out = [], seen = new Set();
+    const re = new RegExp(REF_RE.source, 'gi');
+    let m;
+    const s = String(text || '');
+    while ((m = re.exec(s))) {
+        const type = REF_TYPES[m[2].toUpperCase().replace(/\s+/g, ' ')];
+        // "38S PL 12345": the 100 km square of a grid that didn't read as one
+        // (a typo), not a phase line.
+        if (type === 'PL' && /\d{1,2}\s*[C-HJ-NP-X]\s*$/i.test(s.slice(0, m.index + m[1].length))) continue;
+        const name = refName(m[3]);
+        const key  = `${type} ${name}`;
+        if (!seen.has(key)) { seen.add(key); out.push({ type, name, key }); }
+    }
+    return out;
+};
+
+// An overlay's name ("NAI 3", "OBJ Gold (bridge)", "Gold") as a place
+// reference. The name is its first word after the prefix, as when typed.
+// Without a prefix, `fallbackType` decides; null when neither does.
+const overlayRef = (rawName, fallbackType) => {
+    const s = String(rawName || '').trim();
+    const m = /^(NAI|OBJECTIVE|OBJ|PHASE\s+LINE|PL)(?:\s*[-#:.]\s*|\s+|(?=\d))([A-Za-z0-9]+)/i.exec(s);
+    const type = m ? REF_TYPES[m[1].toUpperCase().replace(/\s+/g, ' ')] : fallbackType;
+    const word = m ? m[2] : (/[A-Za-z0-9]+/.exec(s) || [])[0];
+    if (!type || !word) return null;
+    const name = refName(word);
+    return { type, name, key: `${type} ${name}` };
+};
+
+// Ray casting in longitude/latitude: exact enough for areas a few tens of
+// kilometres across. Holes (inner rings) exclude.
+const inRing = (lon, lat, ring) => {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i], [xj, yj] = ring[j];
+        if ((yi > lat) !== (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+};
+const inPolygon = (lon, lat, rings) => rings.length > 0 && inRing(lon, lat, rings[0]) && !rings.slice(1).some(h => inRing(lon, lat, h));
+const geometryContains = (g, lon, lat) =>
+    g.type === 'Polygon' ? inPolygon(lon, lat, g.coordinates)
+  : g.type === 'MultiPolygon' ? g.coordinates.some(p => inPolygon(lon, lat, p))
+  : false;
+
+// Metres from a point to a line, on a flat projection centred on the point:
+// within a fraction of a percent over the tens of kilometres that matter here.
+const metresToLine = (lon, lat, line) => {
+    const kx = 111320 * Math.cos(lat * Math.PI / 180), ky = 110574;
+    let best = Infinity;
+    for (let i = 1; i < line.length; i++) {
+        const ax = (line[i-1][0] - lon) * kx, ay = (line[i-1][1] - lat) * ky;
+        const bx = (line[i][0]   - lon) * kx, by = (line[i][1]   - lat) * ky;
+        const dx = bx - ax, dy = by - ay, len2 = dx*dx + dy*dy;
+        const t  = len2 ? Math.max(0, Math.min(1, -(ax*dx + ay*dy) / len2)) : 0;
+        best = Math.min(best, Math.hypot(ax + t*dx, ay + t*dy));
+    }
+    return best;
+};
+const metresToGeometry = (g, lon, lat) =>
+    g.type === 'LineString' ? metresToLine(lon, lat, g.coordinates)
+  : g.type === 'MultiLineString' ? Math.min(...g.coordinates.map(l => metresToLine(lon, lat, l)))
+  : Infinity;
+
+// What a Location box says, read against the workspace's overlays:
+//   points  the grids, as lat/lon (a report can name several)
+//   nai/obj the places it's in: as typed, or (when none was typed) the
+//           overlays its grids fall inside, marked 'grid'
+//   pl      phase lines typed, and the nearest PL overlay with its distance
+//   checks  where a typed NAI or OBJ disagrees with the grid. The typed name
+//           still counts; the check is for a person to look at.
+const analyzeLocation = (text, overlays) => {
+    const points = findGrids(text);
+    let rest = String(text || '');
+    points.forEach(p => { rest = rest.slice(0, p.start) + ' '.repeat(p.end - p.start) + rest.slice(p.end); });
+    const refs = findRefs(rest);
+    const typed = t => refs.filter(r => r.type === t).map(r => r.key);
+    const ovs = (overlays || []).filter(o => o && o.geometry);
+    const keyOf = o => `${o.type} ${o.name}`;
+    const contains = (o) => points.some(p => geometryContains(o.geometry, p.lon, p.lat));
+    const checks = [];
+    const place = (t) => {
+        const keys  = typed(t);
+        const areas = ovs.filter(o => o.type === t && /Polygon/.test(o.geometry.type));
+        const inside = [...new Set(areas.filter(contains).map(keyOf))];
+        if (!keys.length) return { keys: inside, from: inside.length ? 'grid' : '' };
+        if (points.length) {
+            keys.forEach(k => {
+                const own = areas.filter(o => keyOf(o) === k);
+                if (own.length && !own.some(contains)) {
+                    const other = inside.filter(i => !keys.includes(i));
+                    checks.push(other.length ? `${k} typed; grid is in ${other.join(', ')}` : `${k} typed; grid is outside it`);
+                }
+            });
+        }
+        return { keys, from: 'typed' };
+    };
+    const nai = place('NAI'), obj = place('OBJ');
+    let nearestPl = null;
+    ovs.filter(o => o.type === 'PL').forEach(o => points.forEach(p => {
+        const d = metresToGeometry(o.geometry, p.lon, p.lat);
+        if (isFinite(d) && (!nearestPl || d < nearestPl.metres)) nearestPl = { key: keyOf(o), metres: d };
+    }));
+    return {
+        points: points.map(({ start, end, ...p }) => p),
+        nai, obj, pl: typed('PL'), nearestPl, checks,
+    };
+};
+
+// --- Activity ---
+
+// Tags for what an Activity line describes, in a fixed order, and the
+// heading when one is given ("moving N", "heading 270", "NB", "westbound").
+// A report can carry several tags ("dismounted, moving N"); a heading implies
+// Moving. Plain keyword rules, so the same words always give the same tags.
+const ACTIVITY_TAGS = [
+    ['Moving',      /\b(mov(e|es|ed|ing)|mvg|mvmt|movement|travel{1,2}(s|ed|ing)?|driv(e|es|ing)|advanc(e|es|ed|ing)|withdraw(s|n|ing)?|retreat(s|ed|ing)?|convoy|en ?route|head(s|ed|ing)|transit(s|ing)?|maneuver(s|ing)?|proceed(s|ing)?|cross(es|ed|ing)|fly(ing)?|flight|[nsew]b|(north|south|east|west)bound)\b/i],
+    ['Stationary',  /\b(stationary|static|parked|halt(s|ed)?|stopped|idl(e|ing)|sitting|occupy(ing)?|occupied|holding|loiter(s|ing)?|in position|dug in)\b/i],
+    ['Dismounted',  /\b(dismount(s|ed|ing)?|on foot|foot patrol|walking)\b/i],
+    ['Emplacing',   /\b(dig(s|ging)?|dug in|emplac(e|es|ed|ing)|entrench(es|ed|ing)?|construct(s|ed|ing)?|build(s|ing)?|fortif(y|ies|ied|ying)|laying (mines?|wire)|obstacles?)\b/i],
+    ['Firing',      /\b(fir(e|es|ed|ing)|engag(e|es|ed|ing)|shoot(s|ing)?|launch(es|ed|ing)?|shelling)\b/i],
+    ['Observing',   /\b(observ(e|es|ed|ing)|recon(naissance)?|surveil(s|ling|lance)?|scouting)\b/i],
+    ['Resupplying', /\b(resuppl(y|ies|ying)|refuel(s|ing|ling)?|rearm(s|ing)?|loading|unloading)\b/i],
+];
+const COMPASS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+const DIR_WORDS = {
+    NORTH: 'N', SOUTH: 'S', EAST: 'E', WEST: 'W',
+    NORTHEAST: 'NE', NORTHWEST: 'NW', SOUTHEAST: 'SE', SOUTHWEST: 'SW',
+};
+const MOVE_BEFORE_DIR = /\b(?:mov(?:e|es|ed|ing)|mvg|head(?:s|ed|ing)?|travel{1,2}(?:s|ed|ing)?|driv(?:e|es|ing)|advanc(?:e|es|ed|ing)|withdraw(?:s|n|ing)?|retreat(?:s|ed|ing)?|toward(?:s)?|to the|en ?route|transit(?:s|ing)?|proceed(?:s|ing)?|fly(?:ing)?|bearing|brg|az)\s+(?:[a-z]+\s+){0,2}?(north[- ]?(?:east|west)?|south[- ]?(?:east|west)?|east|west|[NSEW]{1,3}|\d{3})(?:°|\s*deg(?:rees)?)?\b/i;
+const classifyActivity = (text) => {
+    const s = String(text || '');
+    const tags = ACTIVITY_TAGS.filter(([, re]) => re.test(s)).map(([t]) => t);
+    let heading = null, headingDeg = null, m;
+    if ((m = MOVE_BEFORE_DIR.exec(s))) {
+        const d = m[1].toUpperCase().replace(/[- ]/g, '');
+        if (/^\d{3}$/.test(d)) {
+            if (+d < 360) { headingDeg = +d; heading = COMPASS[Math.round(headingDeg / 22.5) % 16]; }
+        } else if (DIR_WORDS[d] || COMPASS.includes(d)) {
+            heading = DIR_WORDS[d] || d; headingDeg = COMPASS.indexOf(heading) * 22.5;
+        }
+    } else if ((m = /\b(?:([NSEW])B|(north|south|east|west)bound)\b/i.exec(s))) {
+        heading = m[1] ? m[1].toUpperCase() : DIR_WORDS[m[2].toUpperCase()];
+        headingDeg = COMPASS.indexOf(heading) * 22.5;
+    }
+    if (heading && !tags.includes('Moving')) tags.unshift('Moving');
+    return { tags, heading, headingDeg };
+};
+
+// --- ArcGIS export ---
+
+// One row per grid of each live report: a report naming three grids becomes
+// three points. Reports with no readable grid are counted, not exported.
+// Field names avoid SQL reserved words (TIME, CHECK), which some geodatabases
+// refuse or rename.
+const arcgisRows = (reps, overlays, { local, customLabels = [], idOf }) => {
+    const rows = []; let skipped = 0;
+    const field = l => 'c_' + String(l).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    for (const r of reps) {
+        if (r.deleted) continue;
+        const a = analyzeLocation(r.location, overlays);
+        if (!a.points.length) { skipped++; continue; }
+        const act = classifyActivity(r.activity);
+        const bda = (r.bda || []).map(b => `${b.effect || 'Unknown'} - ${b.target || ''}`).join('; ');
+        a.points.forEach((p, i) => {
+            const row = {
+                report_id: idOf(r), ato: r.ato || '', title: r.title || '',
+                time_utc: r.time ? new Date(r.time).toISOString().replace(/\.\d{3}Z$/, 'Z') : '',
+                time_disp: r.time ? toTimeString(r.time, local) : '',
+                size: r.size || '', activity: r.activity || '',
+                act_tags: act.tags.join('; '), heading: act.heading || '', heading_deg: act.headingDeg,
+                location: r.location || '', mgrs: p.mgrs, grid_n: `${i + 1}/${a.points.length}`,
+                precision_m: p.precision,
+                nai: a.nai.keys.join('; '), nai_from: a.nai.from, obj: a.obj.keys.join('; '), obj_from: a.obj.from,
+                pl: a.pl.join('; '), pl_near: a.nearestPl ? a.nearestPl.key : '',
+                pl_dist_m: a.nearestPl ? Math.round(a.nearestPl.metres) : null,
+                loc_check: a.checks.join('; '), analysis: r.yourAnalysis || '',
+                reporter: (r.user && r.user.initials) || '', bda, updated: r.updated ? 'yes' : 'no',
+            };
+            customLabels.forEach(l => { row[field(l)] = (r.custom || {})[l] || ''; });
+            row.lat = Math.round(p.lat * 1e7) / 1e7;
+            row.lon = Math.round(p.lon * 1e7) / 1e7;
+            rows.push(row);
+        });
+    }
+    return { rows, skipped };
+};
+
+const arcgisGeoJson = (rows) => JSON.stringify({
+    type: 'FeatureCollection',
+    features: rows.map(row => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [row.lon, row.lat] }, properties: row })),
+});
+
+const arcgisCsv = (rows) => {
+    if (!rows.length) return '';
+    const cols = Object.keys(rows[0]);
+    const cell = v => (v === null || v === undefined) ? '' : typeof v === 'number' ? String(v) : csvField(v);
+    return cols.join(',') + '\r\n' + rows.map(r => cols.map(c => cell(r[c])).join(',')).join('\r\n') + '\r\n';
+};
+
 // --- Sync bookkeeping ---
 
 // Reports are matched the way the server merges them: by id, or by
@@ -459,6 +774,8 @@ const SaltCore = {
     BDA_EFFECTS, bdaElements, bdaSummary, bdaRollup,
     backupFilename, backupText, allWorkspacesBackupText, parseBackup,
     parseCsv, reportsCsv, mtiCsvs,
+    utmToLatLon, gridToLatLon, findGrids, findRefs, overlayRef, geometryContains, metresToGeometry,
+    analyzeLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisCsv,
     reportKey, knownVersions, changedReports, withUnsaved,
 };
 

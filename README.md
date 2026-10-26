@@ -58,6 +58,7 @@ in [CHANGELOG.md](CHANGELOG.md).
 | **Real-time sync** | Server-Sent Events push every change to every browser within a second. Last-modified-wins merging resolves concurrent edits. |
 | **Offline-first** | Full functionality from local storage; queued changes replay automatically on reconnect. Each change uploads only the reports it touched, and a report the server refuses stays visible as *Not saved* until it's fixed or discarded. |
 | **Report builder** | Reorder lines, switch between SALT and SALT-U, and add custom fields (e.g. `W: Weather`) that get their own form box, table column, and copy-text line. Saved per workspace and synced to the team. |
+| **Overlays and ArcGIS** | Import NAIs, OBJs, and phase lines from KML, KMZ, or GeoJSON. Reports are placed in them by grid, with a check where a typed NAI disagrees. Export one point per grid, with activity tags and heading, for ArcGIS Pro heat maps. |
 | **BDA tracking** | Hidden until you need it. A checklist pre-pairs each element of a report with its grid, so a ten-target assessment is ten clicks. A roll-up above the table totals the workspace by outcome, click-to-filter. Revisable, searchable, exported. |
 | **Edit history** | *Update* snapshots the prior version; *Edit* corrects in place. Any prior version can be restored, and Delete and Restore both offer a ten-second Undo. |
 | **Workspaces** | Separate ATOs with their own reports and formats. Switch live, and the team switches with you. |
@@ -233,6 +234,7 @@ fact; nothing reads it.
 │       ├── 20-render.js      The report table, BDA panel and roll-up
 │       ├── 30-form.js        Entry, editing, restore, undo
 │       ├── 40-io.js          Workspaces panel, builder, export, import
+│       ├── 45-overlays.js    Overlay import (KML, KMZ, GeoJSON), Overlays tab, ArcGIS export
 │       ├── 50-sync.js        Push, pull, SSE, offline queue
 │       ├── 60-handlers.js    Event wiring
 │       └── 70-startup.js     Restore saved state, then connect

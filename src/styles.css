@@ -1062,6 +1062,29 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
     margin: 0;
 }
 
+/* --- Overlays tab --- */
+.overlays-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.overlays-actions button { margin: 0; padding: 9px 16px; font-size: 0.85em; width: auto; }
+.overlays-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+.overlays-note { font-size: 0.85em; color: var(--text-secondary); margin: 0 0 12px; line-height: 1.45; }
+.overlays-muted { color: var(--text-secondary); font-size: 0.9em; }
+.overlays-table { width: 100%; border-collapse: collapse; font-size: 0.85em; margin-bottom: 12px; }
+.overlays-table th { text-align: left; font-weight: 600; color: var(--text-secondary); padding: 6px 8px; border-bottom: 1px solid var(--divider); }
+.overlays-table td { padding: 6px 8px; border-bottom: 1px solid var(--divider); vertical-align: middle; overflow-wrap: anywhere; }
+.overlays-table select { padding: 5px 30px 5px 10px; min-width: 96px; font-size: 0.95em; margin: 0; width: auto; background-position: right 10px center; }
+.overlay-type { display: inline-block; min-width: 30px; text-align: center; font-size: 0.78em; font-weight: 700; padding: 1px 6px; border-radius: 6px; margin-right: 4px; }
+.overlay-nai { background: rgba(10, 132, 255, 0.16); color: var(--system-blue); }
+.overlay-obj { background: rgba(255, 159, 10, 0.16); color: var(--system-orange); }
+.overlay-pl  { background: rgba(50, 215, 75, 0.16); color: var(--system-green); }
+.overlay-remove { background: none; border: none; color: var(--text-secondary); font-size: 1.2em; line-height: 1; padding: 2px 6px; margin: 0; width: auto; cursor: pointer; }
+.overlay-remove:hover { color: var(--system-red); }
+body.read-only .editor-only { display: none !important; }
+
+/* Under a report's Location: the place its grid puts it in, and checks. */
+.loc-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.loc-tag { font-size: 0.72em; font-weight: 600; padding: 1px 7px; border-radius: 100px; background: rgba(10, 132, 255, 0.12); color: var(--system-blue); white-space: nowrap; }
+.loc-tag.warn { background: rgba(255, 159, 10, 0.14); color: var(--system-orange); white-space: normal; border-radius: 6px; }
+
 /* --- BDA (hidden until ellipsis toggle) --- */
 /* Roll-up strip between the header and the table: one chip per outcome,
    click to filter. Effect colors come from the shared .bda-eff-* classes. */

@@ -751,6 +751,13 @@ document.getElementById('exportPanelCsvBtn').addEventListener('click', () => {
     } catch(e) { showToast('Export error: '+e.message,true); }
 });
 
+document.getElementById('exportArcgisGeojsonBtn').addEventListener('click', () => {
+    try { exportForArcgis('geojson'); } catch(e) { showToast('Export error: ' + e.message, true); }
+});
+document.getElementById('exportArcgisCsvBtn').addEventListener('click', () => {
+    try { exportForArcgis('csv'); } catch(e) { showToast('Export error: ' + e.message, true); }
+});
+
 el.menu.exportBtn.addEventListener('click', () => isExportViewActive ? closeExportView() : openExportView());
 document.getElementById('closeExportViewBtn').addEventListener('click', closeExportView);
 

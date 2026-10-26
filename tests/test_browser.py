@@ -14,6 +14,7 @@ Without Playwright the whole module is skipped, so the plain
 
 from __future__ import annotations
 
+import json
 import shutil
 import socket
 import subprocess
@@ -22,6 +23,7 @@ import tempfile
 import time
 import unittest
 import urllib.request
+import zipfile
 from pathlib import Path
 
 try:
@@ -131,7 +133,16 @@ class BrowserTests(unittest.TestCase):
         page.fill("#activity", activity)
         page.fill("#location", location)
         page.click("#logButton")
-        page.wait_for_selector(f"#reportLogBody .col-size:has-text('{size}')")
+        try:
+            page.wait_for_selector(f"#reportLogBody .col-size:has-text('{size}')", timeout=15000)
+        except Exception as exc:
+            # Say what the page showed instead, for a failure seen only on CI.
+            state = page.evaluate(
+                """() => ({ toast: document.querySelector('#toast-notification').textContent,
+                           rows: [...document.querySelectorAll('#reportLogBody .col-size')].map(e => e.textContent),
+                           form: [size.value, activity.value, location.value] })"""
+            )
+            raise AssertionError(f"{size!r} never appeared: {state}") from exc
 
     @staticmethod
     def sizes(page):
@@ -192,6 +203,135 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(self.sizes(page), ["4x T-72, 2x BMP-2"])
         page.click("#bdaRollup [data-bda-filter='Destroyed']")
         self.assertEqual(len(self.sizes(page)), 2)
+
+    def test_typing_survives_a_sync(self):
+        # Regression: every sync re-laid the form out, which took the cursor
+        # out of the box being typed in; the rest of the word went nowhere.
+        page = self.open_editor()
+        page.click("#size")
+        page.keyboard.type("2x B")
+        page.evaluate("() => syncWithServer()")
+        page.wait_for_timeout(200)
+        page.keyboard.type("MP")
+        self.assertEqual(page.input_value("#size"), "2x BMP")
+
+    # -- overlays and ArcGIS -------------------------------------------------- #
+    def overlay_kmz(self) -> Path:
+        """A KMZ as ArcGIS's Layer To KML writes one: NAI 1 and NAI 2 side by
+        side, an untyped area, and a phase line across both NAIs (near 38S MB)."""
+        c = {
+            "a": "44.355845,33.257333", "b": "44.463201,33.257843", "c": "44.570559,33.25826",
+            "d": "44.355182,33.347527", "e": "44.462648,33.348039", "f": "44.570116,33.348457",
+            "g": "44.408914,33.347794", "h": "44.408609,33.392891", "i": "44.354849,33.392623",
+            "p1": "44.355514,33.30243", "p2": "44.570338,33.303359",
+        }  # fmt: skip
+
+        def area(name, *corners):
+            ring = " ".join(c[k] for k in (*corners, corners[0]))
+            return (
+                f"<Placemark><name>{name}</name><Polygon><outerBoundaryIs><LinearRing>"
+                f"<coordinates>{ring}</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>"
+            )
+
+        kml = (
+            '<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2">'
+            "<Document><name>ops</name><Folder><name>NAIs</name>"
+            + area("NAI 1", "a", "b", "e", "d")
+            + area("2", "b", "c", "f", "e")
+            + "</Folder>"
+            + area("Bridge", "d", "g", "h", "i")
+            + "<Folder><name>Phase Lines</name><Placemark><name>BLUE</name><LineString>"
+            f"<coordinates>{c['p1']} {c['p2']}</coordinates></LineString></Placemark></Folder>"
+            "</Document></kml>"
+        )
+        path = self.tmp / f"{self._testMethodName}.kmz"
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("doc.kml", kml)
+        return path
+
+    def import_overlays(self, page):
+        page.click("#dataMgmtBtn")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.set_input_files("#overlaysFileInput", str(self.overlay_kmz()))
+        page.wait_for_selector("#overlaysBody .overlay-type-select")
+        # Typed by name, folder, and folder; the untyped area waits for a choice.
+        self.assertEqual(
+            page.locator("#overlaysBody tbody td:nth-child(4)").all_text_contents(),
+            ["NAI 1", "NAI 2", "skipped", "PL BLUE"],
+        )
+        page.select_option("[data-review-idx='2']", "OBJ")
+        page.click("#overlaysReviewAddBtn")
+        page.wait_for_selector("#toast-notification:has-text('Imported 4 overlays')")
+        page.click("#closeExportViewBtn")
+
+    def test_overlays_place_reports_and_reach_viewers(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "1x BTR", location="38SMB4500082000")
+        self.log(page, "2x BMP", location="38S MB 55000 82000, NAI 1")
+        self.log(page, "3x T-72", location="38SMB4200092000")
+
+        def tags(p, size):
+            row = f"#reportLogBody tr[data-id]:has(.col-size:has-text('{size}'))"
+            return p.locator(f"{row} .loc-tag").all_text_contents()
+
+        self.assertEqual(tags(page, "1x BTR"), ["NAI 1"])
+        self.assertEqual(tags(page, "2x BMP"), ["Check: NAI 1 typed; grid is in NAI 2"])
+        self.assertEqual(tags(page, "3x T-72"), ["OBJ BRIDGE"])
+        # Synced: the server holds them, and a viewer tags the same way
+        # without keeping a copy.
+        page.wait_for_function(
+            f"() => fetch('/api/sync').then(r => r.json()).then(s => (s.overlays['{self.ato}'] || []).length === 4)"
+        )
+        viewer = self.open_viewer()
+        viewer.wait_for_selector("#reportLogBody .loc-tag:has-text('OBJ BRIDGE')")
+        self.assertIsNone(viewer.evaluate("localStorage.getItem('salt_ws_overlays')"))
+
+    def test_export_for_arcgis(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000 38SMB5500082000")
+        self.log(page, "1x truck", activity="parked", location="vic the bridge")
+        page.click("#dataMgmtBtn")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")  # the panel reopens on the last tab used
+        with page.expect_download() as dl:
+            page.click("#exportArcgisGeojsonBtn")
+        self.assertTrue(dl.value.suggested_filename.endswith("_arcgis.geojson"))
+        data = json.loads(Path(dl.value.path()).read_text(encoding="utf-8"))
+        props = [f["properties"] for f in data["features"]]
+        # Two grids, two points; the report without a grid is left out.
+        self.assertEqual([p["mgrs"] for p in props], ["38S MB 45000 82000", "38S MB 55000 82000"])
+        self.assertEqual([p["nai"] for p in props], ["NAI 1; NAI 2"] * 2)
+        self.assertEqual(props[0]["nai_from"], "grid")
+        self.assertEqual((props[0]["heading"], props[0]["heading_deg"]), ("N", 0))
+        self.assertEqual(props[0]["pl_near"], "PL BLUE")
+        lon, lat = data["features"][0]["geometry"]["coordinates"]
+        self.assertAlmostEqual(lat, 33.2759, places=3)
+        self.assertAlmostEqual(lon, 44.4096, places=3)
+        self.assertIn(
+            "1 without a readable grid", page.locator("#toast-notification").text_content()
+        )
+
+    def test_geojson_from_arcgis_in_web_mercator_is_converted(self):
+        page = self.open_editor()
+        result = page.evaluate(
+            """() => {
+                const merc = { type: 'FeatureCollection', crs: { type: 'name', properties: { name: 'EPSG:3857' } },
+                    features: [{ type: 'Feature', properties: { Name: 'OBJ Gold' },
+                                 geometry: { type: 'Point', coordinates: [4937670.08, 3929510.64] } }] };
+                const ok = geojsonFeatures(merc, 'objs.geojson')[0];
+                let refused = '';
+                try { geojsonFeatures({ ...merc, crs: { type: 'name', properties: { name: 'EPSG:32638' } } }, 'x'); }
+                catch (e) { refused = e.message; }
+                return { label: ok.label, coords: ok.geometry.coordinates, refused };
+            }"""
+        )
+        self.assertEqual(result["label"], "OBJ Gold")
+        self.assertAlmostEqual(result["coords"][0], 44.355845, places=5)
+        self.assertAlmostEqual(result["coords"][1], 33.257333, places=5)
+        self.assertIn("Project to WGS 1984", result["refused"])
 
 
 if __name__ == "__main__":

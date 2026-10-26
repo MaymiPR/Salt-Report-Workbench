@@ -125,19 +125,29 @@ async function syncWithServer() {
         if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) throw new Error('Server unreachable');
         const state = await res.json();
-        applyServerUpdate(state.workspaces, state.config, state.profiles, state.connected_users, state.sources, state.connected_initials, state.read_only, state.formats);
+        applyServerUpdate(state.workspaces, state.config, state.profiles, state.connected_users, state.sources, state.connected_initials, state.read_only, state.formats, state.overlays);
         setConnectionStatus(true);
     } catch (err) {
         setConnectionStatus(false);
     }
 }
 
-function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources, connInitials, readOnly, formats) {
+function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources, connInitials, readOnly, formats, overlays) {
     // Per-workspace report formats — server keys win, locally-known formats
     // for workspaces the server hasn't seen survive.
     if (formats && typeof formats === 'object') {
         workspaceFormats = { ...workspaceFormats, ...formats };
         writeStored('salt_ws_formats', JSON.stringify(workspaceFormats));
+    }
+    // Overlays the same way. A cleared workspace arrives as an empty list.
+    // Unchanged lists keep their identity, so the location cache survives.
+    if (overlays && typeof overlays === 'object') {
+        const next = { ...workspaceOverlays };
+        Object.entries(overlays).forEach(([ato, list]) => {
+            if (JSON.stringify(list) !== JSON.stringify(next[ato])) next[ato] = list;
+        });
+        workspaceOverlays = next;
+        if (!readOnly) writeStored('salt_ws_overlays', JSON.stringify(workspaceOverlays));
     }
     if (connectedUsers != null) {
         el.status.userCount.textContent    = connectedUsers;
@@ -216,6 +226,9 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     // If the Builder tab is on screen, reflect format changes from peers.
     const builderPanel = document.querySelector('[data-tab-panel="builder"]');
     if (builderPanel && builderPanel.style.display !== 'none') renderBuilder();
+    // Same for the Overlays tab (a review in progress is kept).
+    const overlaysPanel = document.querySelector('[data-tab-panel="overlays"]');
+    if (overlaysPanel && overlaysPanel.style.display !== 'none') renderOverlays();
 }
 
 // Viewer-only: switch which workspace the viewer is LOOKING AT, locally.
