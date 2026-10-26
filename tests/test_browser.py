@@ -411,6 +411,27 @@ class BrowserTests(unittest.TestCase):
             "() => fetch('/api/sync').then(r => r.json()).then(s => s.overlays.map(o => o.type + ' ' + o.name).join() === 'NAI 1,NAI 2')"
         )
 
+    def test_statistics_across_every_ato(self):
+        page = self.open_editor(ato="SCOPEA")
+        self.log(page, "1x BTR")
+        self.log(page, "2x BMP")
+        page.click("#setAtoBtn")  # Change: unlocks the fields
+        page.fill("#atoDesignator", "SCOPEB")
+        page.click("#setAtoBtn")
+        page.wait_for_function("() => activeAto === 'SCOPEB'")
+        self.log(page, "3x T-72")
+        page.click("#statsViewToggleBtn")
+        page.click("[data-stats-scope='ato']")
+        self.assertEqual(page.locator(".stats-card[data-chart='ato']").count(), 0)
+        self.assertIn("SCOPEB", page.text_content("#stats-panel-subtitle"))
+        page.click("[data-stats-scope='all']")
+        page.wait_for_selector(".stats-card[data-chart='ato']")
+        self.assertIn("All ATOs", page.text_content("#stats-panel-subtitle"))
+        page.click(".stats-card[data-chart='ato'] [data-stats-act='table']")
+        rows = page.locator(".stats-card[data-chart='ato'] .stats-table tbody tr").all_inner_texts()
+        counts = dict(r.split("	") for r in rows)
+        self.assertEqual((counts.get("SCOPEA"), counts.get("SCOPEB")), ("2", "1"))
+
     def test_horizontal_layout_fits_the_window(self):
         page = self.open_editor()
         page.set_viewport_size({"width": 1280, "height": 800})
