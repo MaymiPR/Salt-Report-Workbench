@@ -79,6 +79,9 @@ DATA_STORE: dict = {
     # NAI / OBJ / PL features, imported from KML, KMZ, GeoJSON or shapefile.
     # One set shared by every workspace (graphics outlast a single ATO).
     'overlays': [],
+    # The map's background: {} for none, or {kind: 'wms' | 'tiles', url, layers?}.
+    # Shared like the overlays; the page fetches it straight from that service.
+    'basemap': {},
 }
 
 
@@ -401,6 +404,8 @@ MAX_BDA_NOTE = 500
 MAX_OVERLAYS = 500  # NAI / OBJ / PL features per workspace
 MAX_OVERLAY_NAME = 40
 MAX_OVERLAY_LABEL = 100
+MAX_BASEMAP_URL = 2000
+MAX_BASEMAP_LAYERS = 300
 MAX_OVERLAY_POINTS = 200_000  # coordinate pairs per workspace, all features together
 _FORMAT_LINE_TYPES = {'id', 'size', 'activity', 'location', 'time', 'analysis', 'custom'}
 # Report fields /api/edit_report may overwrite. History and BDA change through
@@ -703,6 +708,24 @@ def _v_save_overlays(data: dict) -> str | None:
     return None
 
 
+def _v_save_basemap(data: dict) -> str | None:
+    b = data.get('basemap')
+    if not isinstance(b, dict):
+        return 'basemap must be an object'
+    if not b:
+        return None  # none: a plain background
+    if b.get('kind') not in ('wms', 'tiles'):
+        return 'basemap.kind must be wms or tiles'
+    url = b.get('url')
+    if not _is_str(url, MAX_BASEMAP_URL) or not url.strip().lower().startswith(
+        ('http://', 'https://')
+    ):
+        return f'basemap.url must be an http(s) address ≤{MAX_BASEMAP_URL} chars'
+    if 'layers' in b and not _is_str(b['layers'], MAX_BASEMAP_LAYERS):
+        return f'basemap.layers must be a string ≤{MAX_BASEMAP_LAYERS} chars'
+    return None
+
+
 # Path -> validator. A new POST route needs an entry here and one in
 # SaltSyncHandler._POST_ROUTES.
 _VALIDATORS = {
@@ -714,6 +737,7 @@ _VALIDATORS = {
     '/api/save_profile': _v_save_profile,
     '/api/save_format': _v_save_format,
     '/api/save_overlays': _v_save_overlays,
+    '/api/save_basemap': _v_save_basemap,
 }
 
 
@@ -769,6 +793,7 @@ def _extract_json_from_file(raw_text: str) -> dict | None:
                     'formats': d.get('formats', {}),
                     # None when the file has no overlays at all (older than 2.5).
                     'overlays': d.get('overlays'),
+                    'basemap': d.get('basemap'),
                 }
             # Legacy marker format: single ATO inferred from config
             ato = d.get('config', {}).get('ato', '')
@@ -779,6 +804,7 @@ def _extract_json_from_file(raw_text: str) -> dict | None:
                 'profiles': d.get('profiles', {}),
                 'formats': {},
                 'overlays': None,
+                'basemap': None,
             }
         except (ValueError, KeyError):
             return None
@@ -831,6 +857,7 @@ def load_data_from_disk() -> None:
         # only when no file has the shared form yet.
         shared_overlays: list | None = None
         legacy_overlays: dict = {}
+        basemap: dict = {}
 
         for filepath in candidates:
             try:
@@ -856,6 +883,8 @@ def load_data_from_disk() -> None:
                             for k, v in (result.get('formats') or {}).items()
                         }
                     )
+                    if isinstance(result.get('basemap'), dict):
+                        basemap = result['basemap']  # the newest file's
                     ovs = result.get('overlays')
                     if isinstance(ovs, list):
                         shared_overlays = fold_overlays(ovs)
@@ -876,6 +905,7 @@ def load_data_from_disk() -> None:
             DATA_STORE['overlays'] = (
                 shared_overlays if shared_overlays is not None else list(legacy_overlays.values())
             )
+            DATA_STORE['basemap'] = basemap
             workspace_sources.clear()
             workspace_sources.update(source_by_ato)
             invalidate_sync_cache()
@@ -888,6 +918,7 @@ def render_backup(
     formats: dict,
     label: tuple[str, str] | None = None,
     overlays: list | None = None,
+    basemap: dict | None = None,
 ) -> tuple[str, str] | None:
     """Return ``(filename, text)`` for a backup of the given state, or None if empty.
 
@@ -993,6 +1024,7 @@ def render_backup(
             'profiles': profiles,
             'formats': formats,
             'overlays': overlays or [],
+            'basemap': basemap or {},
         },
         separators=(',', ':'),
         ensure_ascii=False,
@@ -1034,6 +1066,7 @@ def render_workspace_backups(
     formats: dict,
     only: set | None = None,
     overlays: list | None = None,
+    basemap: dict | None = None,
 ) -> list[tuple[str, str, str]]:
     """One ``(ato, filename, text)`` per workspace, for those in ``only`` (None: all).
 
@@ -1053,6 +1086,7 @@ def render_workspace_backups(
             {ato: formats[ato]} if ato in formats else {},
             label=(ato, workspace_title(ato, reports, config)),
             overlays=overlays or [],
+            basemap=basemap or {},
         )
         if rendered is not None:
             out.append((ato, *rendered))
@@ -1128,6 +1162,7 @@ def save_data_to_disk() -> None:
                 DATA_STORE.get('formats', {}),
                 only,
                 DATA_STORE.get('overlays', []),
+                DATA_STORE.get('basemap', {}),
             )
         if not files:
             return
@@ -1242,6 +1277,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                     'profiles': DATA_STORE['profiles'],
                     'formats': DATA_STORE.get('formats', {}),
                     'overlays': DATA_STORE.get('overlays', []),
+                    'basemap': DATA_STORE.get('basemap', {}),
                     'sources': workspace_sources,
                 }
                 full = json.dumps(data, separators=(',', ':'))
@@ -1598,6 +1634,23 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             mark_dirty()  # every workspace's backup carries the shared set
         self._commit(f'save_overlays: {len(clean)} overlay(s)')
 
+    def _post_save_basemap(self, data: dict) -> None:
+        b = data.get('basemap') or {}
+        clean = (
+            {
+                'kind': b['kind'],
+                'url': b['url'].strip(),
+                **({'layers': b['layers'].strip()} if b.get('layers') else {}),
+            }
+            if b
+            else {}
+        )
+        with data_lock:
+            DATA_STORE['basemap'] = clean
+            invalidate_sync_cache()
+            mark_dirty()  # every workspace's backup carries it
+        self._commit(f'save_basemap: {clean.get("kind") or "none"}')
+
     def _post_save_profile(self, data: dict) -> None:
         profile = data.get('profile')
         ini = ((profile or {}).get('initials') or '').strip()
@@ -1625,6 +1678,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         '/api/save_config': _post_save_config,
         '/api/save_format': _post_save_format,
         '/api/save_overlays': _post_save_overlays,
+        '/api/save_basemap': _post_save_basemap,
         '/api/save_profile': _post_save_profile,
     }
 

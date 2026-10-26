@@ -391,13 +391,16 @@ const historyRows = (r) => {
 // The CSV export: each report, then its history, then its BDA assessments.
 // Custom builder fields become extra columns after Analysis, so the first
 // seven stay index-stable for existing consumers.
-const reportsCsv = (reps, { local, customLabels, idOf }) => {
+// `latestOnly`: one row per report (its current version), so a platform that
+// plots every row puts each report on the map once.
+const reportsCsv = (reps, { local, customLabels, idOf, latestOnly = false }) => {
     const t = d => toTimeString(d, local);
     const cus = (o) => customLabels.map(c => csvField((o || {})[c] || ''));
     let csv = csvHeader(local, customLabels);
     for (const r of reps) {
         const id = idOf(r);
         csv += [csvField(id),csvField(r.updated?'Current Update':'Original'),csvField(r.size),csvField(r.activity),csvField(r.location),csvField(t(r.time)),csvField(r.yourAnalysis),...cus(r.custom)].join(',')+'\r\n';
+        if (latestOnly) continue;
         historyRows(r).forEach(([label, hh]) => {
             csv += [csvField(id),csvField(label),csvField(hh.size),csvField(hh.activity),csvField(hh.location),csvField(t(hh.time)),csvField(hh.yourAnalysis),...cus(hh.custom)].join(',')+'\r\n';
         });
@@ -880,6 +883,124 @@ const parseShapefile = (shp, dbf, prj, cpg) => {
     return { type: 'FeatureCollection', features };
 };
 
+// --- Tracks, heat, and the map ---
+
+// Where each report has been: the first grid of each version's Location, in
+// the order the versions were reported (their Time), the current one last.
+// A grid repeated in a row counts once. `moved` when it has two or more.
+//   points     [{ lon, lat, mgrs, time }]
+//   lengthM    along the track; bearingDeg from its start to its end
+const reportTracks = (reps) => (reps || []).filter(r => !r.deleted).map(r => {
+    const versions = [...(r.history || [])].sort((a, b) => (new Date(a.time) - new Date(b.time)) || (a.lastModified - b.lastModified));
+    const points = [];
+    [...versions, r].forEach(v => {
+        const g = findGrids(v.location)[0];
+        if (!g) return;
+        const last = points[points.length - 1];
+        if (last && last.mgrs === g.mgrs) { last.time = v.time; return; }
+        points.push({ lon: g.lon, lat: g.lat, mgrs: g.mgrs, time: v.time });
+    });
+    let lengthM = 0;
+    for (let i = 1; i < points.length; i++) lengthM += metresBetween(points[i - 1], points[i]);
+    const bearingDeg = points.length >= 2 ? bearingBetween(points[0], points[points.length - 1]) : null;
+    return { report: r, points, moved: points.length >= 2, lengthM, bearingDeg };
+}).filter(t => t.points.length);
+
+// Metres between two points, and the bearing from the first to the second
+// (degrees clockwise from north), on a sphere: plenty for tracks of a few km.
+const metresBetween = (a, b) => {
+    const R = 6371008.8, f1 = a.lat * Math.PI / 180, f2 = b.lat * Math.PI / 180;
+    const df = f2 - f1, dl = (b.lon - a.lon) * Math.PI / 180;
+    const h = Math.sin(df / 2) ** 2 + Math.cos(f1) * Math.cos(f2) * Math.sin(dl / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+};
+const bearingBetween = (a, b) => {
+    const f1 = a.lat * Math.PI / 180, f2 = b.lat * Math.PI / 180, dl = (b.lon - a.lon) * Math.PI / 180;
+    const y = Math.sin(dl) * Math.cos(f2), x = Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl);
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+};
+const compass16 = (deg) => COMPASS[Math.round(deg / 22.5) % 16];
+
+// One weight per unique report, at its latest Location (split evenly when it
+// names several grids), so a heat map counts each report once, however many
+// times it was updated.
+const heatPoints = (reps) => (reps || []).filter(r => !r.deleted).flatMap(r => {
+    const grids = findGrids(r.location);
+    return grids.map(g => ({ lon: g.lon, lat: g.lat, w: 1 / grids.length }));
+});
+
+// ArcGIS tracks: one line per report that moved, from its first grid to its
+// latest in the order reported, for an arrow symbol at the line's end.
+const arcgisTrackRows = (reps, { local, idOf }) => reportTracks(reps).filter(t => t.moved).map(t => {
+    const r = t.report, first = t.points[0], last = t.points[t.points.length - 1];
+    const act = classifyActivity(r.activity);
+    const iso = d => (d ? new Date(d).toISOString().replace(/\.\d{3}Z$/, 'Z') : '');
+    return {
+        report_id: idOf(r), ato: r.ato || '', title: r.title || '',
+        size: r.size || '', activity: r.activity || '', act_tags: act.tags.join('; '),
+        start_utc: iso(first.time), end_utc: iso(last.time),
+        start_disp: first.time ? toTimeString(first.time, local) : '', end_disp: last.time ? toTimeString(last.time, local) : '',
+        positions: t.points.length, length_m: Math.round(t.lengthM),
+        bearing_deg: Math.round(t.bearingDeg), direction: compass16(t.bearingDeg),
+        start_mgrs: first.mgrs, end_mgrs: last.mgrs,
+        reporter: (r.user && r.user.initials) || '',
+        path: t.points.map(p => [Math.round(p.lon * 1e7) / 1e7, Math.round(p.lat * 1e7) / 1e7]),
+    };
+});
+const attrsOf = (row) => { const { path, ...rest } = row; return rest; };
+const arcgisTracksGeoJson = (rows) => JSON.stringify({
+    type: 'FeatureCollection',
+    features: rows.map(row => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: row.path }, properties: attrsOf(row) })),
+});
+const arcgisTracksEsriJson = (rows) => esriJson(rows.map(attrsOf), 'esriGeometryPolyline', (row, i) => ({ paths: [rows[i].path] }));
+
+// Web Mercator (the tile services' projection), metres, and back.
+const MERC_R = 6378137;
+const lonLatToMerc = (lon, lat) => [lon * Math.PI / 180 * MERC_R, Math.log(Math.tan(Math.PI / 4 + Math.max(-85.0511, Math.min(85.0511, lat)) * Math.PI / 360)) * MERC_R];
+const MERC_WORLD = 2 * Math.PI * MERC_R;
+
+// The tiles (z/x/y, Google / OSM numbering, as WMTS GoogleMapsCompatible
+// and ArcGIS tile services use) covering a Web Mercator box, each with its
+// own box. At most `max` tiles; null when that's more.
+const tilesFor = ([x0, y0, x1, y1], z, max = 256) => {
+    const n = 2 ** z, size = MERC_WORLD / n;
+    const col = x => Math.floor((x + MERC_WORLD / 2) / size), row = y => Math.floor((MERC_WORLD / 2 - y) / size);
+    const c0 = Math.max(0, col(x0)), c1 = Math.min(n - 1, col(x1)), r0 = Math.max(0, row(y1)), r1 = Math.min(n - 1, row(y0));
+    if ((c1 - c0 + 1) * (r1 - r0 + 1) > max) return null;
+    const out = [];
+    for (let y = r0; y <= r1; y++) for (let x = c0; x <= c1; x++) {
+        const bx0 = x * size - MERC_WORLD / 2, by1 = MERC_WORLD / 2 - y * size;
+        out.push({ z, x, y, box: [bx0, by1 - size, bx0 + size, by1] });
+    }
+    return out;
+};
+// The zoom whose tiles show `metresPerPixel` (256-pixel tiles), rounded up for sharpness.
+const tileZoom = (metresPerPixel) => Math.max(0, Math.min(20, Math.ceil(Math.log2(MERC_WORLD / 256 / metresPerPixel))));
+
+// A tile's address from a template: {z} {x} {y} (or WMTS's {TileMatrix}
+// {TileCol} {TileRow}; {-y} counts rows from the south, as TMS does).
+const tileUrl = (template, { z, x, y }) => String(template)
+    .replace(/\{(z|TileMatrix)\}/gi, z).replace(/\{(x|TileCol)\}/gi, x)
+    .replace(/\{-y\}/gi, 2 ** z - 1 - y).replace(/\{(y|TileRow)\}/gi, y);
+
+// A WMS GetMap address for a Web Mercator box: the service's address (its
+// own parameters kept, ours replacing any of the same name), PNG, EPSG:3857.
+const wmsUrl = (base, layers, [x0, y0, x1, y1], width, height) => {
+    const [path, query = ''] = String(base).split('?');
+    const ours = {
+        SERVICE: 'WMS', VERSION: '1.3.0', REQUEST: 'GetMap', LAYERS: layers || '', STYLES: '',
+        CRS: 'EPSG:3857', BBOX: [x0, y0, x1, y1].map(v => v.toFixed(2)).join(','),
+        WIDTH: Math.round(width), HEIGHT: Math.round(height), FORMAT: 'image/png', TRANSPARENT: 'FALSE',
+    };
+    const keep = query.split('&').filter(kv => kv && !(kv.split('=')[0].toUpperCase() in ours) && kv.split('=')[0].toUpperCase() !== 'SRS');
+    if (!layers) {
+        const had = query.split('&').find(kv => kv.split('=')[0].toUpperCase() === 'LAYERS');
+        if (had) ours.LAYERS = decodeURIComponent(had.split('=').slice(1).join('='));
+    }
+    const enc = v => encodeURIComponent(v).replace(/%2C/gi, ',').replace(/%3A/gi, ':').replace(/%2F/gi, '/');
+    return `${path}?${[...keep, ...Object.entries(ours).map(([k, v]) => `${k}=${enc(v)}`)].join('&')}`;
+};
+
 // --- Activity ---
 
 // Tags for what an Activity line describes, in a fixed order, and the
@@ -975,8 +1096,9 @@ const arcgisGeoJson = (rows) => JSON.stringify({
 });
 
 // Esri JSON: the format JSON To Features was made for. Every field's type
-// and length is written out, so ArcGIS Pro has nothing to guess.
-const arcgisEsriJson = (rows) => {
+// and length is written out, so ArcGIS Pro has nothing to guess. `rows` are
+// the attributes; `geometryOf(row, i)` gives each feature's shape.
+const esriJson = (rows, geometryType, geometryOf) => {
     const cols = rows.length ? Object.keys(rows[0]) : [];
     const fields = cols.map(name => {
         const vals = rows.map(r => r[name]).filter(v => v !== null && v !== undefined && v !== '');
@@ -990,7 +1112,7 @@ const arcgisEsriJson = (rows) => {
     const numeric = new Set(fields.filter(f => f.type !== 'esriFieldTypeString').map(f => f.name));
     return JSON.stringify({
         displayFieldName: 'report_id',
-        geometryType: 'esriGeometryPoint',
+        geometryType,
         spatialReference: { wkid: 4326, latestWkid: 4326 },
         fields: [{ name: 'OBJECTID', type: 'esriFieldTypeOID', alias: 'OBJECTID' }, ...fields],
         features: rows.map((row, i) => {
@@ -999,10 +1121,11 @@ const arcgisEsriJson = (rows) => {
                 const v = row[c];
                 attributes[c] = numeric.has(c) ? (typeof v === 'number' ? v : null) : (v === null || v === undefined ? '' : String(v));
             });
-            return { attributes, geometry: { x: row.lon, y: row.lat, spatialReference: { wkid: 4326 } } };
+            return { attributes, geometry: { ...geometryOf(row, i), spatialReference: { wkid: 4326 } } };
         }),
     });
 };
+const arcgisEsriJson = (rows) => esriJson(rows, 'esriGeometryPoint', row => ({ x: row.lon, y: row.lat }));
 
 const arcgisCsv = (rows) => {
     if (!rows.length) return '';
@@ -1306,6 +1429,8 @@ const SaltCore = {
     parseCsv, reportsCsv, mtiCsvs,
     utmToLatLon, gridToLatLon, findGrids, findRefs, overlayRef, geometryContains, metresToGeometry,
     webMercatorToLonLat, readDbf, shapefileProjection, parseShapefile,
+    reportTracks, heatPoints, arcgisTrackRows, arcgisTracksGeoJson, arcgisTracksEsriJson,
+    lonLatToMerc, MERC_WORLD, compass16, tilesFor, tileZoom, tileUrl, wmsUrl, metresBetween, bearingBetween,
     asArea, analyzeLocation, locationPlan, editLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisEsriJson, arcgisCsv,
     sizeElements, gridSquare, statsData, statsCsv, PL_NEAR_METRES,
     dtg, summaryReport, summaryPlaces,

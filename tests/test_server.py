@@ -57,6 +57,7 @@ def reset_state() -> None:
             "profiles": {},
             "formats": {},
             "overlays": [],
+            "basemap": {},
         }
     )
     srv.workspace_sources.clear()
@@ -280,6 +281,20 @@ class ValidatorTests(unittest.TestCase):
         self.assertIsNone(srv._v_save_profile({"profile": {"initials": "AB", "color": "#32d74b"}}))
         self.assertRejects(srv._v_save_profile, {"profile": {"color": "#32d74b"}}, "initials")
         self.assertRejects(srv._v_save_profile, {"profile": {"initials": "ABCD"}}, "initials")
+
+    def test_basemap_validation(self):
+        v = srv._v_save_basemap
+        wms = {"kind": "wms", "url": "https://maps.example.mil/wms", "layers": "imagery"}
+        self.assertIsNone(v({"basemap": wms}))
+        self.assertIsNone(v({"basemap": {}}), "none: a plain background")
+        tiles = {"kind": "tiles", "url": "http://10.0.0.5/tiles/{z}/{y}/{x}.png"}
+        self.assertIsNone(v({"basemap": tiles}))
+        self.assertRejects(v, {"basemap": "x"}, "object")
+        self.assertRejects(v, {"basemap": {**wms, "kind": "wfs"}}, "wms or tiles")
+        self.assertRejects(v, {"basemap": {**wms, "url": "file:///c:/x"}}, "http(s)")
+        self.assertRejects(v, {"basemap": {**wms, "url": "javascript:alert(1)"}}, "http(s)")
+        self.assertRejects(v, {"basemap": {**wms, "url": "https://x/" + "a" * 2000}}, "http(s)")
+        self.assertRejects(v, {"basemap": {**wms, "layers": 5}}, "layers")
 
 
 # --------------------------------------------------------------------------- #
@@ -719,6 +734,22 @@ class HttpApiTests(unittest.TestCase):
         # Unloading a workspace leaves the shared set alone.
         self.post("/api/unload_ato", {"ato": "ALPHA"})
         self.assertEqual(self.sync()["overlays"], [NAI1, PL_BLUE])
+
+    def test_basemap_syncs_and_survives_a_restart(self):
+        shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        wms = {"kind": "wms", "url": " https://maps.example.mil/wms ", "layers": "imagery", "x": 1}
+        self.assertEqual(self.post("/api/save_basemap", {"basemap": wms})[0], 200)
+        clean = {"kind": "wms", "url": "https://maps.example.mil/wms", "layers": "imagery"}
+        self.assertEqual(self.sync()["basemap"], clean, "trimmed, known fields only")
+        srv.flush_pending_save()
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(self.sync()["basemap"], clean)
+        self.post("/api/save_basemap", {"basemap": {}})
+        self.assertEqual(self.sync()["basemap"], {})
+        status, _ = self.post("/api/save_basemap", {"basemap": clean}, base=self.viewer_base)
+        self.assertEqual(status, 405, "viewers cannot change it")
 
     def test_per_workspace_overlays_from_older_backups_are_pooled(self):
         nai2 = {**NAI1, "name": "2"}

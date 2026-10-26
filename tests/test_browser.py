@@ -569,6 +569,123 @@ class BrowserTests(unittest.TestCase):
         )
         page.evaluate("list => saveOverlays(list)", before)
 
+    PNG_1PX = bytes.fromhex(
+        "89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+        "1f15c4890000000d4944415478da63f8cfc0f01f0005000201a3f9b1e40000000049454e44ae426082"
+    )
+
+    def open_map(self, page):
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.click("[data-overlay-view='map']")
+        page.wait_for_selector("#mapSvg .map-overlays path")
+
+    def test_the_overlay_map_heat_and_tracks(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
+        # An update at a new grid makes a track (Update keeps the old one in history).
+        page.click("#reportLogBody tr[data-id] .col-size:has-text('2x BMP')")
+        page.fill("#location", "38SMB4500084000")
+        page.click("#updateButton")
+        page.wait_for_selector("#reportLogBody .col-location:has-text('38SMB4500084000')")
+        self.log(page, "1x truck", activity="parked", location="38SMB5500082000")
+        self.open_map(page)
+        # The graphics in their colours: NAI green, OBJ blue, PL black on white.
+        strokes = page.locator("#mapSvg .map-overlays path").evaluate_all(
+            "ps => ps.map(p => p.getAttribute('stroke'))"
+        )
+        self.assertIn("#32d74b", strokes)
+        self.assertIn("#0a84ff", strokes)
+        self.assertIn("#000000", strokes)
+        page.click("[data-map-mode='heat']")
+        page.wait_for_selector("#mapSvg image.map-heat")
+        self.assertIn("each once", page.text_content("#mapLegend"))
+        page.click("[data-map-mode='tracks']")
+        page.wait_for_selector("#mapSvg .map-track")
+        self.assertIn("1 moved, 1 at one grid", page.text_content("#mapLegend"))
+        page.hover("#mapSvg .map-track .map-hit >> nth=0")
+        page.wait_for_selector("#mapTip:not([hidden])")
+        self.assertIn("2 positions", page.text_content("#mapTip"))
+        # Zoom in, then Fit: the view can't go out past the graphics.
+        before = page.evaluate("mapView.mpp")
+        page.click("[data-map-zoom='in']")
+        page.wait_for_function(f"() => mapView.mpp < {before}")
+        page.click("[data-map-zoom='out']")
+        page.click("[data-map-zoom='out']")
+        page.wait_for_function(f"() => Math.abs(mapView.mpp - {before}) < 1e-6")
+
+    def test_the_basemap_is_shared_and_asked_for_the_graphics_only(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        asked = []
+
+        def serve(route):
+            asked.append(route.request.url)
+            route.fulfill(status=200, content_type="image/png", body=self.PNG_1PX)
+
+        self.context.route("http://basemap.test/**", serve)
+        self.open_map(page)
+        page.click("#mapBaseEdit")
+        page.select_option("#mapBaseKind", "wms")
+        page.fill("#mapBaseUrl", "http://basemap.test/wms?map=ops")
+        page.fill("#mapBaseLayers", "imagery")
+        page.click("#mapBaseSave")
+        page.wait_for_function("() => document.querySelectorAll('#mapBase image').length === 1")
+        page.wait_for_function(
+            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemap.kind === 'wms')"
+        )
+        url = asked[-1]
+        self.assertIn("REQUEST=GetMap", url)
+        self.assertIn("LAYERS=imagery", url)
+        self.assertIn("CRS=EPSG:3857", url)
+        self.assertIn("map=ops", url)
+        # The box asked for lies inside the graphics' area (plus a little room).
+        x0, y0, x1, y1 = map(float, url.split("BBOX=")[1].split("&")[0].split(","))
+        self.assertLess(x1 - x0, 40000)
+        self.assertLess(y1 - y0, 40000)
+        # Tiles instead: only those over the graphics.
+        asked.clear()
+        page.click("#mapBaseEdit")
+        page.select_option("#mapBaseKind", "tiles")
+        page.fill("#mapBaseUrl", "http://basemap.test/tiles/{z}/{x}/{y}.png")
+        page.click("#mapBaseSave")
+        page.wait_for_function("() => document.querySelectorAll('#mapBase image').length > 0")
+        page.wait_for_timeout(300)
+        self.assertTrue(asked and len(asked) < 100, len(asked))
+        self.assertTrue(all("/tiles/" in u for u in asked))
+        # Viewers see it, and can't change it.
+        viewer = self.open_viewer()
+        viewer.click("#exportViewToggleBtn")
+        viewer.click(".ws-tab[data-tab='overlays']")
+        viewer.click("[data-overlay-view='map']")
+        viewer.wait_for_function("() => document.querySelectorAll('#mapBase image').length > 0")
+        self.assertFalse(viewer.locator("#mapBaseEdit").is_visible())
+        page.evaluate("saveBasemap({})")
+
+    def test_tracks_export_and_latest_only_csv(self):
+        page = self.open_editor()
+        self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
+        page.click("#reportLogBody tr[data-id] .col-size:has-text('2x BMP')")
+        page.fill("#location", "38SMB4500084000")
+        page.click("#updateButton")
+        page.wait_for_selector("#reportLogBody .col-location:has-text('38SMB4500084000')")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        with page.expect_download() as dl:
+            self.run_io(page, "export", "tracks-esri")
+        self.assertTrue(dl.value.suggested_filename.endswith("_arcgis_tracks.json"))
+        esri = json.loads(Path(dl.value.path()).read_text(encoding="utf-8"))
+        self.assertEqual(esri["geometryType"], "esriGeometryPolyline")
+        self.assertEqual(len(esri["features"][0]["geometry"]["paths"][0]), 2)
+        self.assertEqual(esri["features"][0]["attributes"]["direction"], "N")
+        page.select_option("#ioFormatSelect", "csv")
+        page.check("#exportLatestOnlyToggle")
+        with page.expect_download() as dl:
+            page.click("#ioRunBtn")
+        lines = Path(dl.value.path()).read_text(encoding="utf-8-sig").strip().splitlines()
+        self.assertEqual(len(lines), 2, "a header and the one report, not its update")
+
     def test_a_long_overlay_list_scrolls(self):
         page = self.open_editor()
         self.import_overlays(page)

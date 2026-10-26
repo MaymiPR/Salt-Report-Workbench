@@ -723,3 +723,78 @@ test("a shapefile's coordinates come to longitude / latitude from its .prj", () 
         /NAD 1927 StatePlane California V/);
     assert.throws(() => core.parseShapefile(new ArrayBuffer(120), null, null), /not a shapefile/);
 });
+
+// --- Tracks, heat, and the map ---
+
+const moving = () => report({
+    id: 't', location: '38SMB4500082000, NAI 1', time: '2026-10-24T06:00:00Z', updated: true,
+    history: [
+        // Out of order on purpose: tracks follow the reported Time.
+        { location: '38SMB4500080000', time: '2026-10-24T05:00:00Z', lastModified: 2, size: '', activity: '' },
+        { location: '38SMB4500078000', time: '2026-10-24T04:00:00Z', lastModified: 1, size: '', activity: '' },
+        { location: '38SMB4500080000 again', time: '2026-10-24T05:30:00Z', lastModified: 3, size: '', activity: '' },
+        { location: 'no grid yet', time: '2026-10-24T03:00:00Z', lastModified: 0, size: '', activity: '' },
+    ],
+});
+
+test('a track follows a report from its first grid to its latest, in the order reported', () => {
+    const [t] = core.reportTracks([moving()]);
+    assert.deepEqual(t.points.map(p => p.mgrs), ['38S MB 45000 78000', '38S MB 45000 80000', '38S MB 45000 82000'],
+        'a repeated grid counts once; a version without a grid is skipped');
+    assert.equal(t.points[1].time, '2026-10-24T05:30:00Z', 'the repeat moves the time on');
+    assert.equal(t.moved, true);
+    assert.ok(Math.abs(t.lengthM - 4000) < 20, `${t.lengthM}`);
+    assert.ok(t.bearingDeg < 1 || t.bearingDeg > 359, `due north: ${t.bearingDeg}`);
+    const still = core.reportTracks([report({ location: '38SMB4500082000' }), report({ id: 'x', location: 'vic the bridge' })]);
+    assert.deepEqual(still.map(s => [s.moved, s.points.length, s.bearingDeg]), [[false, 1, null]], 'no grid: no track');
+});
+
+test('a heat map counts each report once, at its latest Location', () => {
+    const pts = core.heatPoints([moving(), report({ id: 'b', location: '38SMB4500082000 38SMB5500082000' }), report({ id: 'c', deleted: true })]);
+    assert.deepEqual(pts.map(p => p.w), [1, 0.5, 0.5]);
+    assert.equal(pts.reduce((n, p) => n + p.w, 0), 2, 'two reports, however many updates');
+});
+
+test('the ArcGIS tracks export is one line per report that moved', () => {
+    const rows = core.arcgisTrackRows([moving(), report({ id: 'still', location: '38SMB4500082000' })], { local: false, idOf: r => r.id });
+    assert.equal(rows.length, 1, 'a report that never moved is a point, not a line');
+    const r = rows[0];
+    assert.deepEqual([r.report_id, r.positions, r.direction, r.start_utc, r.end_utc, r.start_mgrs, r.end_mgrs],
+        ['t', 3, 'N', '2026-10-24T04:00:00Z', '2026-10-24T06:00:00Z', '38S MB 45000 78000', '38S MB 45000 82000']);
+    const gj = JSON.parse(core.arcgisTracksGeoJson(rows)).features[0];
+    assert.equal(gj.geometry.type, 'LineString');
+    assert.equal(gj.geometry.coordinates.length, 3);
+    assert.equal(gj.properties.path, undefined, 'the path is the geometry, not a field');
+    const esri = JSON.parse(core.arcgisTracksEsriJson(rows));
+    assert.equal(esri.geometryType, 'esriGeometryPolyline');
+    assert.deepEqual(esri.features[0].geometry.paths[0], r.path);
+    assert.ok(esri.fields.some(f => f.name === 'bearing_deg' && f.type === 'esriFieldTypeInteger'));
+    assert.ok(!esri.fields.some(f => f.name === 'path'));
+});
+
+test('the CSV can hold just the latest version of each report', () => {
+    const opts = { local: false, customLabels: [], idOf: r => r.id };
+    const rows = s => s.trim().split('\r\n').length - 1;
+    assert.equal(rows(core.reportsCsv([moving()], opts)), 5, 'the report and its four updates');
+    assert.equal(rows(core.reportsCsv([moving()], { ...opts, latestOnly: true })), 1);
+});
+
+test('map tiles and WMS requests cover the box asked for', () => {
+    const [x0, y0] = core.lonLatToMerc(44.35, 33.25), [x1, y1] = core.lonLatToMerc(44.57, 33.39);
+    const z = core.tileZoom(20);  // 20 m a pixel
+    assert.equal(z, 13);
+    const tiles = core.tilesFor([x0, y0, x1, y1], z);
+    assert.ok(tiles.length >= 4 && tiles.length <= 30, `${tiles.length}`);
+    const covers = tiles.some(t => t.box[0] <= x0 && t.box[2] >= x0 && t.box[1] <= y0 && t.box[3] >= y0);
+    assert.ok(covers, 'the south-west corner is in a tile');
+    assert.equal(core.tilesFor([x0, y0, x1, y1], 19, 50), null, 'too many to fetch');
+    // The south-west corner's tile by the usual OSM formula: x 5105, y 3292 at z13.
+    assert.ok(tiles.some(t => t.x === 5105 && t.y === 3292), JSON.stringify(tiles.map(t => [t.x, t.y])));
+    assert.equal(core.tileUrl('https://t/{z}/{y}/{x}.png', { z: 3, x: 5, y: 2 }), 'https://t/3/2/5.png');
+    assert.equal(core.tileUrl('https://t/wmts?TILEMATRIX={TileMatrix}&TILEROW={TileRow}&TILECOL={TileCol}', { z: 3, x: 5, y: 2 }),
+        'https://t/wmts?TILEMATRIX=3&TILEROW=2&TILECOL=5');
+    assert.equal(core.tileUrl('https://t/{z}/{x}/{-y}.png', { z: 3, x: 5, y: 2 }), 'https://t/3/5/5.png');
+    const url = core.wmsUrl('https://maps.example/wms?map=ops&layers=old&srs=EPSG:4326', 'imagery', [1, 2, 3, 4], 800, 600);
+    assert.equal(url, 'https://maps.example/wms?map=ops&SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=imagery&STYLES=&CRS=EPSG:3857&BBOX=1.00,2.00,3.00,4.00&WIDTH=800&HEIGHT=600&FORMAT=image/png&TRANSPARENT=FALSE');
+    assert.ok(core.wmsUrl('https://maps.example/wms?LAYERS=a,b', '', [1, 2, 3, 4], 10, 10).includes('LAYERS=a,b'), 'its own layers, when none given');
+});

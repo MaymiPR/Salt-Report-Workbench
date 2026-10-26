@@ -6,6 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The map** (Overlays tab, *Map*): the overlays drawn in their colours,
+  NAIs green, OBJs blue, phase lines black on a white edge, with:
+  - a **heat map** of where reports are thickest, counting each report once
+    at its latest grid however often it was updated;
+  - a **track map**: each report's path from its first position through its
+    updates to its latest, with an arrow for the way it went;
+  - a window (All, 24, 12, 6 hours), zoom and pan within the area of the
+    overlays and reports, and hover details for each track.
+- **Basemap**: a WMS or tile (WMTS, ArcGIS, XYZ) service under the map,
+  requested only for the map's area. Set once by an editor and shared with
+  everyone, viewers included; each browser can hide it.
+- **ArcGIS tracks** export (Esri JSON or GeoJSON): one line per report that
+  moved, first grid to latest, with its direction, length and times, for an
+  arrow symbol in ArcGIS Pro.
+- **Latest version only** on the CSV export: one row per report, for tools
+  that put every row on a map.
+- Viewers can open the Overlays tab, to see the list and the map.
+
+### Changed
+
+- The tags under a Location and in the Overlays list use the map's colours:
+  NAI green, OBJ blue, PL neutral.
+
 ## [2.8.0] - 2026-10-26
 
 ### Added

@@ -763,8 +763,9 @@ document.getElementById('exportPanelCsvBtn').addEventListener('click', () => {
                 ...currentFormat().lines.filter(l => l.type === 'custom').map(l => l.label),
                 ...reps.flatMap(r => Object.keys(r.custom || {})),
             ])];
-            triggerDownload(`${base}.csv`, SaltCore.reportsCsv(reps, { local, customLabels, idOf }), 'text/csv;charset=utf-8;');
-            showToast('CSV exported!');
+            const latestOnly = document.getElementById('exportLatestOnlyToggle').checked;
+            triggerDownload(`${base}${latestOnly ? '_latest' : ''}.csv`, SaltCore.reportsCsv(reps, { local, customLabels, idOf, latestOnly }), 'text/csv;charset=utf-8;');
+            showToast(latestOnly ? 'CSV exported: one row per report.' : 'CSV exported!');
             clearExportFilter();
         }
     } catch(e) { showToast('Export error: '+e.message,true); }
