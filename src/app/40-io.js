@@ -322,6 +322,7 @@ const initBuilderHandlers = () => {
 initBuilderHandlers();
 
 const openExportView = () => {
+    closeStatsView();
     isExportViewActive = true;
     el.log.view.style.display  = 'none';
     el.exp.panel.style.display = 'flex';
