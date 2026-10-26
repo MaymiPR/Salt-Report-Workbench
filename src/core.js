@@ -297,18 +297,33 @@ const backupReportBlocks = (reps) => [...reps].sort((a,b) => reportNum(a) - repo
 const backupMachineData = (payload) =>
     `\n${BACKUP_DIV}\n MACHINE DATA — DO NOT EDIT BELOW THIS LINE\n${BACKUP_DIV}\n${BACKUP_START}\n${JSON.stringify(payload)}\n${BACKUP_END}\n`;
 
+// The shared overlay list from what a backup or the server holds. A list is
+// the shared set as it is; a dict is the older per-workspace form (ato ->
+// list), folded into one, a later overlay replacing an earlier one of the
+// same type and name.
+const foldOverlays = (value) => {
+    if (Array.isArray(value)) return value.filter(o => o && typeof o === 'object');
+    if (!value || typeof value !== 'object') return [];
+    const byKey = new Map();
+    Object.values(value).forEach(list => (Array.isArray(list) ? list : []).forEach(o => {
+        if (o && typeof o === 'object') byKey.set(`${o.type} ${o.name}`, o);
+    }));
+    return [...byKey.values()];
+};
+
 // One workspace's backup file. `reps` is exported as-is in the machine data
-// (deleted flags included); only live reports are listed for reading.
-const backupText = (ato, reps, title, profiles, formats, now = new Date(), overlays = {}) => {
+// (deleted flags included); only live reports are listed for reading. The
+// shared overlays go in every file.
+const backupText = (ato, reps, title, profiles, formats, now = new Date(), overlays = []) => {
     const active = reps.filter(r => !r.deleted);
     return `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH — ATO BACKUP\n ATO Designator : ${ato}\n Report Title   : ${title}\n Total Reports  : ${active.length}\n Exported       : ${backupStamp(now)}\n${BACKUP_DIV}\n\n`
         + backupReportBlocks(active)
         + backupMachineData({ workspaces: { [ato]: reps }, config: { ato, title }, profiles: profiles||{},
-            formats: formats[ato] ? { [ato]: formats[ato] } : {}, overlays: overlays[ato] ? { [ato]: overlays[ato] } : {} });
+            formats: formats[ato] ? { [ato]: formats[ato] } : {}, overlays: foldOverlays(overlays) });
 };
 
 // Every given workspace in one file.
-const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats, now = new Date(), overlays = {}) => {
+const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats, now = new Date(), overlays = []) => {
     const atoKeys   = Object.keys(workspaces);
     const totalReps = atoKeys.reduce((n, k) => n + (workspaces[k]||[]).filter(r => !r.deleted).length, 0);
     let out = `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH — FULL BACKUP (ALL ATOs)\n ATOs Included  : ${atoKeys.join(', ')}\n Total Reports  : ${totalReps}\n Exported       : ${backupStamp(now)}\n${BACKUP_DIV}\n\n`;
@@ -318,9 +333,7 @@ const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats
         out += `${BACKUP_DIV}\n ATO: ${ato}  —  ${atoTitle}  (${active.length} report${active.length !== 1 ? 's' : ''})\n${BACKUP_DIV}\n\n`;
         out += backupReportBlocks(active);
     });
-    const ovs = {};
-    atoKeys.forEach(ato => { if (overlays[ato]) ovs[ato] = overlays[ato]; });
-    return out + backupMachineData({ workspaces, config: { ato: activeAto, title }, profiles: profiles||{}, formats, overlays: ovs });
+    return out + backupMachineData({ workspaces, config: { ato: activeAto, title }, profiles: profiles||{}, formats, overlays: foldOverlays(overlays) });
 };
 
 // Read a backup file's payload. Returns { data } or { error } with a message
@@ -1086,7 +1099,7 @@ const SaltCore = {
     escapeHtml, safeColor, safeFilename,
     atoPrefix, reportNum, formatFullId, reportText, normalizeLocation,
     BDA_EFFECTS, bdaElements, bdaSummary, bdaRollup,
-    backupFilename, backupText, allWorkspacesBackupText, parseBackup,
+    backupFilename, foldOverlays, backupText, allWorkspacesBackupText, parseBackup,
     parseCsv, reportsCsv, mtiCsvs,
     utmToLatLon, gridToLatLon, findGrids, findRefs, overlayRef, geometryContains, metresToGeometry,
     asArea, analyzeLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisEsriJson, arcgisCsv,

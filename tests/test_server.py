@@ -13,6 +13,7 @@ import gzip
 import http.client
 import io
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -55,7 +56,7 @@ def reset_state() -> None:
             "config": {"ato": "", "title": ""},
             "profiles": {},
             "formats": {},
-            "overlays": {},
+            "overlays": [],
         }
     )
     srv.workspace_sources.clear()
@@ -689,35 +690,64 @@ class HttpApiTests(unittest.TestCase):
     def test_overlays_sync_and_clear(self):
         self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
         extra = {**PL_BLUE, "colour": "red", "geometry": {**PL_BLUE["geometry"], "x": 1}}
-        status, _ = self.post("/api/save_overlays", {"ato": "alpha", "overlays": [NAI1, extra]})
+        status, _ = self.post("/api/save_overlays", {"overlays": [NAI1, extra]})
         self.assertEqual(status, 200)
-        self.assertEqual(self.sync()["overlays"], {"ALPHA": [NAI1, PL_BLUE]}, "known fields only")
-        # Cleared: an empty list, so clients that merge what they get see it.
-        self.post("/api/save_overlays", {"ato": "ALPHA", "overlays": []})
-        self.assertEqual(self.sync()["overlays"], {"ALPHA": []})
-        status, _ = self.post(
-            "/api/save_overlays", {"ato": "ALPHA", "overlays": [NAI1]}, base=self.viewer_base
-        )
+        self.assertEqual(self.sync()["overlays"], [NAI1, PL_BLUE], "known fields only")
+        # An older page still sends its ATO; the set is shared all the same.
+        self.post("/api/save_overlays", {"ato": "ALPHA", "overlays": [NAI1]})
+        self.assertEqual(self.sync()["overlays"], [NAI1])
+        self.post("/api/save_overlays", {"overlays": []})
+        self.assertEqual(self.sync()["overlays"], [])
+        status, _ = self.post("/api/save_overlays", {"overlays": [NAI1]}, base=self.viewer_base)
         self.assertEqual(status, 405, "viewers cannot change overlays")
 
-    def test_overlays_go_with_their_workspace(self):
+    def test_overlays_are_shared_by_every_workspace(self):
+        shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)  # only this test's files
         self.post("/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol"}})
         self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
         self.post("/api/save_reports", {"ato": "BRAVO", "reports": [report(id="b1")]})
-        self.post("/api/save_overlays", {"ato": "ALPHA", "overlays": [NAI1, PL_BLUE]})
         srv.flush_pending_save()
-        # In ALPHA's own file only, and back after a restart.
-        texts = {f.name: f.read_text("utf-8") for f in self.backup_files()}
-        alpha = srv._extract_json_from_file(texts["ALPHA_Patrol.txt"])
-        self.assertEqual(alpha["overlays"], {"ALPHA": [NAI1, PL_BLUE]})
-        bravo = next(t for n, t in texts.items() if n.startswith("BRAVO"))
-        self.assertEqual(srv._extract_json_from_file(bravo)["overlays"], {})
+        self.post("/api/save_overlays", {"overlays": [NAI1, PL_BLUE]})
+        srv.flush_pending_save()
+        # In every workspace's file, so any one of them restores the set.
+        for f in self.backup_files():
+            data = srv._extract_json_from_file(f.read_text("utf-8"))
+            self.assertEqual(data["overlays"], [NAI1, PL_BLUE], f.name)
         reset_state()
         srv.load_data_from_disk()
-        self.assertEqual(self.sync()["overlays"], {"ALPHA": [NAI1, PL_BLUE]})
-        # Unloading the workspace takes its overlays out of view too.
+        self.assertEqual(self.sync()["overlays"], [NAI1, PL_BLUE])
+        # Unloading a workspace leaves the shared set alone.
         self.post("/api/unload_ato", {"ato": "ALPHA"})
-        self.assertEqual(self.sync()["overlays"], {})
+        self.assertEqual(self.sync()["overlays"], [NAI1, PL_BLUE])
+
+    def test_per_workspace_overlays_from_older_backups_are_pooled(self):
+        nai2 = {**NAI1, "name": "2"}
+        old = {"ALPHA": [NAI1, PL_BLUE], "BRAVO": [nai2], "CHARLIE": []}
+        self.assertEqual(srv.fold_overlays(old), [NAI1, PL_BLUE, nai2])
+        self.assertEqual(srv.fold_overlays([NAI1]), [NAI1])
+        self.assertEqual(srv.fold_overlays(None), [])
+        # On boot: older files are pooled; a file in the shared form wins.
+        shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
+        os.makedirs(srv.BACKUP_DIR)
+
+        def write(name, overlays, when):
+            text = srv.render_backup({name: [report(id=name)]}, {}, {}, {}, label=(name, "T"))[1]
+            if overlays is not None:
+                data = srv._extract_json_from_file(text)
+                data["overlays"] = overlays
+                text = srv.BACKUP_START + json.dumps(data) + srv.BACKUP_END
+            path = Path(srv.BACKUP_DIR) / f"{name}_T.txt"
+            path.write_text(text, encoding="utf-8")
+            os.utime(path, (when, when))
+
+        write("ALPHA", {"ALPHA": [NAI1, PL_BLUE]}, 1000)
+        write("BRAVO", {"BRAVO": [nai2]}, 2000)
+        srv.load_data_from_disk()
+        self.assertEqual(self.sync()["overlays"], [NAI1, PL_BLUE, nai2])
+        write("CHARLIE", [nai2], 3000)
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(self.sync()["overlays"], [nai2])
 
     # -- persistence --------------------------------------------------------- #
     def backup_files(self):

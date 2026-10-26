@@ -476,13 +476,20 @@ test('the ArcGIS exports keep long text where they can, and every field one type
     assert.deepEqual(esri.features.map(f => f.attributes.heading_deg), [null, 45]);
 });
 
-test("backups carry the workspace's overlays", () => {
-    const ovs = { ALPHA: OVERLAYS, BRAVO: [] };
-    const one = core.parseBackup(core.backupText('ALPHA', [report()], 'Patrol', {}, {}, NOW, ovs)).data;
-    assert.deepEqual(Object.keys(one.overlays), ['ALPHA']);
-    assert.equal(one.overlays.ALPHA.length, 4);
-    const all = core.parseBackup(core.allWorkspacesBackupText({ ALPHA: [report()] }, 'ALPHA', 'Patrol', {}, {}, NOW, ovs)).data;
-    assert.deepEqual(Object.keys(all.overlays), ['ALPHA'], 'only the workspaces in the file');
+test('backups carry the shared overlays', () => {
+    const one = core.parseBackup(core.backupText('ALPHA', [report()], 'Patrol', {}, {}, NOW, OVERLAYS)).data;
+    assert.deepEqual(one.overlays, OVERLAYS);
+    const all = core.parseBackup(core.allWorkspacesBackupText({ ALPHA: [report()] }, 'ALPHA', 'Patrol', {}, {}, NOW, OVERLAYS)).data;
+    assert.deepEqual(all.overlays, OVERLAYS);
+});
+
+test('per-workspace overlays from older backups fold into one set', () => {
+    const nai1b = { ...OVERLAYS[0], label: 'newer' };
+    assert.deepEqual(core.foldOverlays({ ALPHA: OVERLAYS, BRAVO: [nai1b], CHARLIE: [] }),
+        [nai1b, ...OVERLAYS.slice(1)], 'same type and name: the later one, in the first one\'s place');
+    assert.deepEqual(core.foldOverlays(OVERLAYS), OVERLAYS);
+    assert.deepEqual(core.foldOverlays(undefined), []);
+    assert.deepEqual(core.foldOverlays('junk'), []);
 });
 
 // --- Statistics ---

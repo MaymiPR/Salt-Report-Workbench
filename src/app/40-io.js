@@ -17,9 +17,9 @@ const generateReportText = (report) => SaltCore.reportText(report, currentFormat
 const getCsvFilename = (ato, title) => `${SaltCore.backupFilename(ato, title)}_${fileStamp(new Date(), timeDisplayMode === 'local')}`;
 
 const generateBackupText = (ato, reps, title, profiles) =>
-    SaltCore.backupText(ato, reps, title, profiles, workspaceFormats, new Date(), workspaceOverlays);
+    SaltCore.backupText(ato, reps, title, profiles, workspaceFormats, new Date(), sharedOverlays);
 const generateAllAtosBackupText = (workspaces, activeAto, title, profiles) =>
-    SaltCore.allWorkspacesBackupText(workspaces, activeAto, title, profiles, workspaceFormats, new Date(), workspaceOverlays);
+    SaltCore.allWorkspacesBackupText(workspaces, activeAto, title, profiles, workspaceFormats, new Date(), sharedOverlays);
 
 const triggerDownload = (filename, content, type = 'text/plain;charset=utf-8') => {
     const blob = new Blob([content], { type }), a = document.createElement('a');
@@ -142,8 +142,6 @@ async function unloadWorkspace(ato) {
         try { await postJson('/api/unload_ato', { ato }); } catch(e){}
         delete reportsByAto[ato];
         delete workspaceSources[ato];
-        delete workspaceOverlays[ato];
-        writeStored('salt_ws_overlays', JSON.stringify(workspaceOverlays));
         saveReportsByAtoToLocal();
         if (wasActive) {
             activeAto    = '';
@@ -373,14 +371,10 @@ function processJsonImport(rawText) {
                     try { await postJson('/api/save_format', { ato: fAto, format: fFmt }); } catch(e){}
                 }
             }
-            // And their overlays (NAI / OBJ / PL).
-            if (imp.overlays && typeof imp.overlays === 'object') {
-                workspaceOverlays = { ...workspaceOverlays, ...imp.overlays };
-                writeStored('salt_ws_overlays', JSON.stringify(workspaceOverlays));
-                for (const [oAto, list] of Object.entries(imp.overlays)) {
-                    if (!isLocalFile) { try { await postJson('/api/save_overlays', { ato: oAto, overlays: list }); } catch(e){} }
-                }
-            }
+            // And the overlays (NAI / OBJ / PL): the file's replace any of the
+            // same type and name; the rest are kept.
+            const impOverlays = SaltCore.foldOverlays(imp.overlays);
+            if (impOverlays.length) await saveOverlays(mergeOverlays(sharedOverlays, impOverlays));
             await saveLocalAndSync(all, 'backup');
             // That pushed the active workspace only. Push the rest of the
             // file too: the sync below replaces local state with the server's,

@@ -291,13 +291,20 @@ const currentFormat  = () => {
 };
 
 // --- Overlays ---
-// NAI / OBJ / PL features per workspace, imported from KML or GeoJSON (the
-// Overlays tab) and synced like formats. Viewers keep none locally.
-if (viewerAtLoad) { try { localStorage.removeItem('salt_ws_overlays'); } catch (e) {} }
-let workspaceOverlays = viewerAtLoad ? {} : readStored('salt_ws_overlays', {});
+// NAI / OBJ / PL features, one set shared by every workspace: imported in the
+// Overlays tab and synced. Viewers keep none locally. Browsers from before
+// they were shared kept them per workspace ('salt_ws_overlays'); those are
+// folded into one set once.
+if (viewerAtLoad) { try { localStorage.removeItem('salt_ws_overlays'); localStorage.removeItem('salt_overlays'); } catch (e) {} }
+let sharedOverlays = viewerAtLoad ? [] : SaltCore.foldOverlays(readStored('salt_overlays', null) || readStored('salt_ws_overlays', []));
+const storeOverlays = () => {
+    if (isReadOnly || viewerAtLoad) return;
+    writeStored('salt_overlays', JSON.stringify(sharedOverlays));
+    try { localStorage.removeItem('salt_ws_overlays'); } catch (e) {}
+};
 // The workspace on screen: the editor's active one, or the viewer's pick.
 const shownAto        = () => (isReadOnly ? viewerShowingAto : activeAto) || '';
-const currentOverlays = () => workspaceOverlays[shownAto()] || [];
+const currentOverlays = () => sharedOverlays;
 // What each Location box says against the overlays (grids, NAI/OBJ, nearest
 // PL, checks). Cached by text; cleared whenever the overlays change.
 const locationCache = new Map();

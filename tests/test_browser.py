@@ -284,11 +284,11 @@ class BrowserTests(unittest.TestCase):
         # Synced: the server holds them, and a viewer tags the same way
         # without keeping a copy.
         page.wait_for_function(
-            f"() => fetch('/api/sync').then(r => r.json()).then(s => (s.overlays['{self.ato}'] || []).length === 4)"
+            "() => fetch('/api/sync').then(r => r.json()).then(s => s.overlays.length === 4)"
         )
         viewer = self.open_viewer()
         viewer.wait_for_selector("#reportLogBody .loc-tag:has-text('OBJ BRIDGE')")
-        self.assertIsNone(viewer.evaluate("localStorage.getItem('salt_ws_overlays')"))
+        self.assertIsNone(viewer.evaluate("localStorage.getItem('salt_overlays')"))
 
     def test_export_for_arcgis(self):
         page = self.open_editor()
@@ -326,6 +326,37 @@ class BrowserTests(unittest.TestCase):
             ["38S MB 45000 82000", "38S MB 55000 82000"],
         )
         self.assertAlmostEqual(esri["features"][0]["geometry"]["y"], 33.2759, places=3)
+
+    def test_overlays_are_shared_and_unload_by_group(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        # Another workspace has the same overlays, with nothing to import.
+        second = self.browser.new_context()  # another browser: storage of its own
+        self.addCleanup(second.close)
+        other = second.new_page()
+        other.on("pageerror", lambda exc: self.errors.append(str(exc)))
+        other.goto(self.editor + "/")
+        other.fill("#startup-initials", "CD")
+        other.fill("#startup-ato", "SHAREDTWO")
+        other.fill("#startup-title", "Patrol")
+        other.click("#startupContinueBtn")
+        other.wait_for_selector("#startupModal.show", state="hidden")
+        self.log(other, "1x BTR", location="38SMB4500082000")
+        other.wait_for_selector("#reportLogBody .loc-tag:has-text('NAI 1')")
+        page.click("#dataMgmtBtn")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        groups = page.locator(".overlay-group").evaluate_all(
+            "gs => gs.map(g => g.dataset.overlayGroup)"
+        )
+        self.assertEqual(groups, ["NAI", "OBJ", "PL"])
+        page.click("[data-unload-group='PL']")
+        page.click("#confirmActionBtn")
+        page.wait_for_selector(".overlay-group[data-overlay-group='PL']", state="detached")
+        page.click(".overlay-group[data-overlay-group='OBJ'] .overlay-remove")
+        page.wait_for_function(
+            "() => fetch('/api/sync').then(r => r.json()).then(s => s.overlays.map(o => o.type + ' ' + o.name).join() === 'NAI 1,NAI 2')"
+        )
 
     def test_a_long_overlay_list_scrolls(self):
         page = self.open_editor()
