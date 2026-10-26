@@ -392,6 +392,33 @@ test('a grid within 1 km of a phase line is at that line', () => {
     assert.deepEqual(core.analyzeLocation('PL RED', OVERLAYS).pls, ['PL RED'], 'typed, no grid');
 });
 
+test('Log adds the places a grid is in, and finds typed ones it disagrees with', () => {
+    assert.deepEqual(core.locationPlan('38SMB4500085500', OVERLAYS), { add: ['NAI 1', 'PL BLUE'], conflicts: [] });
+    assert.deepEqual(core.locationPlan('38SMB4500085500, NAI 1, PL BLUE', OVERLAYS), { add: [], conflicts: [] });
+    assert.deepEqual(core.locationPlan('38SMB4200092000', OVERLAYS).add, ['OBJ BRIDGE']);
+    const typedWrong = core.locationPlan('38S MB 55000 82000, NAI 1', OVERLAYS);
+    assert.deepEqual(typedWrong.add, [], 'nothing added for a type that was typed');
+    assert.deepEqual(typedWrong.conflicts, [{ type: 'NAI', typed: 'NAI 1', found: ['NAI 2'], message: 'NAI 1 typed; grid is in NAI 2' }]);
+    assert.deepEqual(core.locationPlan('38SMB4500099000, NAI 1', OVERLAYS).conflicts.map(c => [c.typed, c.found, c.message]),
+        [['NAI 1', [], 'NAI 1 typed; grid is outside it']]);
+    const farPl = core.locationPlan('38SMB4500082000, PL BLUE', OVERLAYS).conflicts;
+    assert.deepEqual(farPl.map(c => [c.typed, c.found, c.message]), [['PL BLUE', [], 'PL BLUE typed; grid is 3.0 km from it']]);
+    assert.deepEqual(core.locationPlan('38SMB4500082000, NAI 7, PL RED', OVERLAYS).conflicts, [], 'no overlay to check against');
+    assert.deepEqual(core.locationPlan('NAI 1 vic the bridge', OVERLAYS), { add: [], conflicts: [] }, 'no grid');
+    assert.deepEqual(core.locationPlan('38SMB4500085500', []), { add: [], conflicts: [] }, 'no overlays');
+});
+
+test('a Location is edited in place, and only what is named changes', () => {
+    const e = core.editLocation;
+    assert.equal(e('38SMB4500085500', { add: ['NAI 1', 'PL BLUE'] }), '38SMB4500085500, NAI 1, PL BLUE');
+    assert.equal(e('38SMB4500085500, nai1', { add: ['NAI 1'] }), '38SMB4500085500, nai1', 'already named');
+    assert.equal(e('38S MB 55000 82000, NAI 1, vic bridge', { replace: { 'NAI 1': 'NAI 2' } }), '38S MB 55000 82000, NAI 2, vic bridge');
+    assert.equal(e('NAI 1, 38SMB4500085500, PL RED', { replace: { 'NAI 1': '', 'PL RED': '' } }), '38SMB4500085500');
+    assert.equal(e('38S PL 12345 67890, PL RED', { replace: { 'PL RED': '' } }), '38S PL 12345 67890', "the grid's PL square is not a phase line");
+    assert.equal(e('', { add: ['NAI 1'] }), 'NAI 1');
+    assert.equal(e('vic the bridge;  ', {}), 'vic the bridge;  ', 'untouched when nothing changes');
+});
+
 test('an NAI or OBJ drawn as a path is still an area', () => {
     const ring = OVERLAYS[2].geometry.coordinates[0];
     const path = { type: 'LineString', coordinates: ring.slice(0, -1) };  // not closed

@@ -194,6 +194,7 @@ const saveOverlays = async (list) => {
     storeOverlays();
     renderOverlays();
     renderLog();
+    renderLocationHints();
     if (isLocalFile) return true;
     try {
         const res = await postJson('/api/save_overlays', { overlays: list });

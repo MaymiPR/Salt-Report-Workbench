@@ -21,6 +21,12 @@
              <button id="confirmActionBtn" class="confirm-btn">Confirm</button>
         </div>
     </div>
+    <!-- A question with several answers (askChoice in app/10-state.js), e.g. settling a Location. -->
+    <div id="choice-toast" class="toast confirm choice" role="dialog" aria-modal="true" aria-labelledby="choice-message">
+        <div id="choice-message" class="choice-message"></div>
+        <div id="choice-detail" class="choice-detail"></div>
+        <div id="choiceButtons" class="choice-buttons"></div>
+    </div>
 
     <!-- First-run setup modal — shown when Report ID, ATO, Title, or (editor port) access code is missing. -->
     <div id="startupModal" class="startup-overlay" aria-hidden="true">
@@ -510,6 +516,8 @@
                             </div>
                             <div class="input-group">
                                 <input type="text" id="location" placeholder="Location" maxlength="500">
+                                <!-- What Log / Update will add from the overlays, and what disagrees (app/30-form.js). -->
+                                <div id="locationHints" class="loc-hints" hidden></div>
                             </div>
                             <div class="input-group">
                                 <div class="time-control">

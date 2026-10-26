@@ -144,6 +144,7 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     if (Array.isArray(overlays) && JSON.stringify(overlays) !== JSON.stringify(sharedOverlays)) {
         sharedOverlays = overlays;
         if (!readOnly) storeOverlays();
+        renderLocationHints();
     }
     if (connectedUsers != null) {
         el.status.userCount.textContent    = connectedUsers;

@@ -677,6 +677,79 @@ const analyzeLocation = (text, overlays) => {
     };
 };
 
+// What Log or Update should do to a Location box, read against the overlays:
+//   add        places its grids are in (or, for a phase line, within
+//              PL_NEAR_METRES of) that the box doesn't name yet; added only
+//              for a type nothing was typed for
+//   conflicts  typed NAIs, OBJs and PLs the grids disagree with, each with
+//              what the grids say instead (`found`, may be empty), for the
+//              operator to settle
+// Nothing to do without a grid, or for a typed name with no overlay to check.
+const locationPlan = (text, overlays) => {
+    const a = analyzeLocation(text, overlays);
+    const plan = { add: [], conflicts: [] };
+    if (!a.points.length) return plan;
+    const ovs = (overlays || []).filter(o => o && o.geometry);
+    const keyOf = o => `${o.type} ${o.name}`;
+    ['NAI', 'OBJ'].forEach(t => {
+        const p = t === 'NAI' ? a.nai : a.obj;
+        if (p.from === 'grid') { plan.add.push(...p.keys); return; }
+        const areas = ovs.filter(o => o.type === t).map(o => ({ ...o, geometry: asArea(o.geometry) }))
+            .filter(o => /Polygon/.test(o.geometry.type));
+        const inside = o => a.points.some(pt => geometryContains(o.geometry, pt.lon, pt.lat));
+        const found = [...new Set(areas.filter(inside).map(keyOf))].filter(k => !p.keys.includes(k));
+        p.keys.forEach(k => {
+            const own = areas.filter(o => keyOf(o) === k);
+            if (own.length && !own.some(inside)) plan.conflicts.push({ type: t, typed: k, found,
+                message: found.length ? `${k} typed; grid is in ${found.join(', ')}` : `${k} typed; grid is outside it` });
+        });
+    });
+    const near = a.nearestPl && a.nearestPl.metres <= PL_NEAR_METRES ? a.nearestPl : null;
+    if (!a.pl.length) { if (near) plan.add.push(near.key); return plan; }
+    a.pl.forEach(k => {
+        const own = ovs.filter(o => o.type === 'PL' && keyOf(o) === k);
+        if (!own.length) return;
+        const d = Math.min(...own.flatMap(o => a.points.map(pt => metresToGeometry(o.geometry, pt.lon, pt.lat))));
+        if (d <= PL_NEAR_METRES) return;
+        const found = near && !a.pl.includes(near.key) ? [near.key] : [];
+        const km = (d / 1000).toFixed(1);
+        plan.conflicts.push({ type: 'PL', typed: k, found,
+            message: found.length ? `${k} typed; grid is ${km} km from it, ${Math.round(near.metres)} m from ${near.key}` : `${k} typed; grid is ${km} km from it` });
+    });
+    return plan;
+};
+
+// A Location box with typed places swapped (`replace`: key -> what to write
+// in its place, '' to take it out) and those in `add` appended (", NAI 1")
+// unless already named. Grids and everything else are left as they were.
+const editLocation = (text, { replace = {}, add = [] } = {}) => {
+    let s = String(text || '');
+    const blank = (str) => {
+        let out = str;
+        findGrids(str).forEach(p => { out = out.slice(0, p.start) + ' '.repeat(p.end - p.start) + out.slice(p.end); });
+        return out;
+    };
+    if (Object.keys(replace).length) {
+        const re = new RegExp(REF_RE.source, 'gid'), b = blank(s), spans = [];
+        let m;
+        while ((m = re.exec(b))) {
+            const type = REF_TYPES[m[2].toUpperCase().replace(/\s+/g, ' ')];
+            if (type === 'PL' && /\d{1,2}\s*[C-HJ-NP-X]\s*$/i.test(b.slice(0, m.index + m[1].length))) continue;
+            const key = `${type} ${refName(m[3])}`;
+            if (key in replace) spans.push([m.indices[2][0], m.indices[3][1], replace[key]]);
+        }
+        if (spans.length) {
+            spans.reverse().forEach(([x, y, to]) => { s = s.slice(0, x) + to + s.slice(y); });
+            s = s.replace(/\s*,(\s*,)+\s*/g, ', ').replace(/[ \t]{2,}/g, ' ').replace(/^[\s,;]+|[\s,;]+$/g, '');
+        }
+    }
+    const have = new Set(findRefs(blank(s)).map(r => r.key));
+    const extra = [...new Set(add)].filter(k => !have.has(k));
+    const head = s.replace(/[\s,;]+$/, '');
+    if (extra.length) s = (head ? head + ', ' : '') + extra.join(', ');
+    return s;
+};
+
 // --- Activity ---
 
 // Tags for what an Activity line describes, in a fixed order, and the
@@ -1102,7 +1175,7 @@ const SaltCore = {
     backupFilename, foldOverlays, backupText, allWorkspacesBackupText, parseBackup,
     parseCsv, reportsCsv, mtiCsvs,
     utmToLatLon, gridToLatLon, findGrids, findRefs, overlayRef, geometryContains, metresToGeometry,
-    asArea, analyzeLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisEsriJson, arcgisCsv,
+    asArea, analyzeLocation, locationPlan, editLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisEsriJson, arcgisCsv,
     sizeElements, gridSquare, statsData, statsCsv, PL_NEAR_METRES,
     dtg, summaryReport, summaryPlaces,
     reportKey, knownVersions, changedReports, withUnsaved,

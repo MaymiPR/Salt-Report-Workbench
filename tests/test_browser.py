@@ -128,11 +128,15 @@ class BrowserTests(unittest.TestCase):
         return page
 
     @staticmethod
-    def log(page, size, activity="Moving N", location="18SUJ1234"):
+    def log(page, size, activity="Moving N", location="18SUJ1234", choice=None):
+        """Log a report. ``choice``: the answer to pick when the Location's
+        typed place disagrees with its grid."""
         page.fill("#size", size)
         page.fill("#activity", activity)
         page.fill("#location", location)
         page.click("#logButton")
+        if choice:
+            page.click(f"#choiceButtons button:text-is('{choice}')")
         try:
             page.wait_for_selector(f"#reportLogBody .col-size:has-text('{size}')", timeout=15000)
         except Exception as exc:
@@ -269,26 +273,78 @@ class BrowserTests(unittest.TestCase):
         page = self.open_editor()
         self.import_overlays(page)
         self.log(page, "1x BTR", location="38SMB4500082000")
-        self.log(page, "2x BMP", location="38S MB 55000 82000, NAI 1")
+        self.log(page, "2x BMP", location="38S MB 55000 82000, NAI 1", choice="Keep NAI 1")
         self.log(page, "3x T-72", location="38SMB4200092000")
         self.log(page, "4x BRDM", location="38SMB4500085200")  # about 250 m from PL BLUE
 
-        def tags(p, size):
-            row = f"#reportLogBody tr[data-id]:has(.col-size:has-text('{size}'))"
-            return p.locator(f"{row} .loc-tag").all_text_contents()
+        def row(size):
+            return f"#reportLogBody tr[data-id]:has(.col-size:has-text('{size}'))"
 
-        self.assertEqual(tags(page, "1x BTR"), ["NAI 1"])
-        self.assertEqual(tags(page, "2x BMP"), ["Check: NAI 1 typed; grid is in NAI 2"])
-        self.assertEqual(tags(page, "3x T-72"), ["OBJ BRIDGE"])
-        self.assertEqual(tags(page, "4x BRDM"), ["NAI 1", "PL BLUE"])
+        def place(p, size):
+            loc = p.locator(f"{row(size)} .col-location")
+            return [
+                loc.evaluate("td => td.firstChild.textContent"),
+                loc.locator(".loc-tag").all_text_contents(),
+            ]
+
+        # Logging names the places the grid is in; the kept disagreement is tagged.
+        self.assertEqual(place(page, "1x BTR"), ["38SMB4500082000, NAI 1", []])
+        self.assertEqual(
+            place(page, "2x BMP"),
+            ["38S MB 55000 82000, NAI 1", ["Check: NAI 1 typed; grid is in NAI 2"]],
+        )
+        self.assertEqual(place(page, "3x T-72"), ["38SMB4200092000, OBJ BRIDGE", []])
+        self.assertEqual(place(page, "4x BRDM"), ["38SMB4500085200, NAI 1, PL BLUE", []])
         # Synced: the server holds them, and a viewer tags the same way
-        # without keeping a copy.
+        # without keeping a copy (and can't settle a check).
         page.wait_for_function(
             "() => fetch('/api/sync').then(r => r.json()).then(s => s.overlays.length === 4)"
         )
         viewer = self.open_viewer()
-        viewer.wait_for_selector("#reportLogBody .loc-tag:has-text('OBJ BRIDGE')")
+        viewer.wait_for_selector("#reportLogBody span.loc-tag.warn")
+        self.assertEqual(viewer.locator("#reportLogBody button.loc-tag").count(), 0)
         self.assertIsNone(viewer.evaluate("localStorage.getItem('salt_overlays')"))
+        # The editor settles the check from its tag: saved as an Update.
+        page.click(f"{row('2x BMP')} button.loc-tag.warn")
+        page.click("#choiceButtons button:text-is('Use NAI 2')")
+        page.wait_for_selector(f"{row('2x BMP')} .col-location:has-text('NAI 2')")
+        self.assertEqual(place(page, "2x BMP"), ["38S MB 55000 82000, NAI 2", []])
+        self.assertEqual(page.locator(f"{row('2x BMP')} .loc-tag").count(), 0)
+        self.assertIn("(Updated)", page.locator(f"{row('2x BMP')} .col-id").text_content())
+
+    def test_the_location_box_shows_what_logging_adds(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        page.fill("#location", "38SMB4500085200")
+        page.wait_for_selector("#locationHints:not([hidden])")
+        hints = [
+            " ".join(t.split())
+            for t in page.locator("#locationHints .loc-hint").all_text_contents()
+        ]
+        self.assertEqual(hints[0], "+ NAI 1")
+        self.assertRegex(hints[1], r"^\+ PL BLUE \d+ m$")
+        page.click("#locationHints [data-loc-add='PL BLUE']")
+        self.assertEqual(page.input_value("#location"), "38SMB4500085200, PL BLUE")
+        page.fill("#location", "38S MB 55000 82000, NAI 1")
+        page.wait_for_selector(
+            "#locationHints .loc-hint.warn:has-text('NAI 1 typed; grid is in NAI 2')"
+        )
+        # Cancel at the prompt: nothing is logged, and the box keeps what was typed.
+        page.fill("#size", "9x PAX")
+        page.fill("#activity", "dug in")
+        page.click("#logButton")
+        page.click("#choiceButtons button:text-is('Cancel')")
+        self.assertEqual(self.sizes(page), [])
+        self.assertEqual(page.input_value("#location"), "38S MB 55000 82000, NAI 1")
+        page.click("#logButton")
+        page.click("#choiceButtons button:text-is('Keep both')")
+        page.wait_for_selector("#reportLogBody .col-size:has-text('9x PAX')")
+        self.assertEqual(
+            page.locator("#reportLogBody .col-location").first.evaluate(
+                "td => td.firstChild.textContent"
+            ),
+            "38S MB 55000 82000, NAI 1, NAI 2",
+        )
 
     def test_export_for_arcgis(self):
         page = self.open_editor()
@@ -306,7 +362,7 @@ class BrowserTests(unittest.TestCase):
         # Two grids, two points; the report without a grid is left out.
         self.assertEqual([p["mgrs"] for p in props], ["38S MB 45000 82000", "38S MB 55000 82000"])
         self.assertEqual([p["nai"] for p in props], ["NAI 1; NAI 2"] * 2)
-        self.assertEqual(props[0]["nai_from"], "grid")
+        self.assertEqual(props[0]["nai_from"], "typed", "logging named them")
         self.assertEqual((props[0]["heading"], props[0]["heading_deg"]), ("N", 0))
         self.assertEqual(props[0]["pl_near"], "PL BLUE")
         lon, lat = data["features"][0]["geometry"]["coordinates"]
@@ -342,7 +398,7 @@ class BrowserTests(unittest.TestCase):
         other.click("#startupContinueBtn")
         other.wait_for_selector("#startupModal.show", state="hidden")
         self.log(other, "1x BTR", location="38SMB4500082000")
-        other.wait_for_selector("#reportLogBody .loc-tag:has-text('NAI 1')")
+        other.wait_for_selector("#reportLogBody .col-location:has-text('38SMB4500082000, NAI 1')")
         page.click("#dataMgmtBtn")
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='overlays']")
@@ -378,7 +434,13 @@ class BrowserTests(unittest.TestCase):
         page = self.open_editor()
         self.import_overlays(page)
         self.log(page, "2x T-72", activity="moving N", location="38SMB4500082000")
-        self.log(page, "1x BMP-2", activity="stationary", location="38S MB 55000 82000, NAI 1")
+        self.log(
+            page,
+            "1x BMP-2",
+            activity="stationary",
+            location="38S MB 55000 82000, NAI 1",
+            choice="Keep NAI 1",
+        )
         page.click("#dataMgmtBtn")
         page.click("#statsViewToggleBtn")
         page.wait_for_selector(".stats-card[data-chart='nai'] svg")

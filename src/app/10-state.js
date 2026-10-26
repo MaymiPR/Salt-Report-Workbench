@@ -417,6 +417,33 @@ const UNDO_MS = 10000;
 // action, so Confirm only ever runs what the dialog is showing.
 let pendingConfirm = null;
 const hideConfirmation = () => { el.toast.confirm.classList.remove('show'); pendingConfirm = null; };
+
+// A question with several answers: `options` are { label, value, primary? };
+// resolves to the value picked, or null for Cancel (or Escape). A new
+// question answers an open one with null.
+let pendingChoice = null;
+const askChoice = (message, detail, options) => {
+    if (pendingChoice) pendingChoice(null);
+    const box = document.getElementById('choice-toast');
+    document.getElementById('choice-message').textContent = message;
+    document.getElementById('choice-detail').textContent = detail || '';
+    const buttons = document.getElementById('choiceButtons');
+    buttons.innerHTML = '';
+    return new Promise(resolve => {
+        const done = (value) => { pendingChoice = null; box.classList.remove('show'); resolve(value); };
+        [...options, { label: 'Cancel', value: null, cancel: true }].forEach(o => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = o.cancel ? 'choice-cancel' : o.primary ? 'choice-primary' : 'choice-option';
+            b.textContent = o.label;
+            b.addEventListener('click', () => done(o.value));
+            buttons.appendChild(b);
+        });
+        pendingChoice = done;
+        box.classList.add('show');
+        (buttons.querySelector('.choice-primary') || buttons.firstChild).focus();
+    });
+};
 const showConfirmation = (msg, onConfirm) => {
     el.toast.message.textContent = msg;
     pendingConfirm = onConfirm;

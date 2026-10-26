@@ -1094,6 +1094,27 @@ body.read-only .editor-only { display: none !important; }
 .loc-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
 .loc-tag { font-size: 0.72em; font-weight: 600; padding: 1px 7px; border-radius: 100px; background: rgba(10, 132, 255, 0.12); color: var(--system-blue); white-space: nowrap; }
 .loc-tag.warn { background: rgba(255, 159, 10, 0.14); color: var(--system-orange); white-space: normal; border-radius: 6px; }
+button.loc-tag { border: none; margin: 0; width: auto; font-family: inherit; text-align: left; line-height: 1.5; cursor: pointer; }
+button.loc-tag.warn:hover { background: rgba(255, 159, 10, 0.26); }
+
+/* Under the Location box while typing: what Log / Update will add, and what disagrees. */
+.loc-hints { display: flex; flex-wrap: wrap; gap: 6px; margin: -6px 0 12px; }
+.loc-hints[hidden] { display: none; }
+.loc-hint { font-size: 0.78em; font-weight: 600; padding: 3px 10px; border-radius: 100px; border: none; margin: 0; width: auto; background: rgba(10, 132, 255, 0.14); color: var(--system-blue); cursor: pointer; font-family: inherit; line-height: 1.4; }
+.loc-hint:hover { background: rgba(10, 132, 255, 0.26); }
+.loc-hint-sub { font-weight: 500; opacity: 0.75; }
+.loc-hint.warn { background: rgba(255, 159, 10, 0.14); color: var(--system-orange); cursor: default; border-radius: 8px; }
+
+/* A question with several answers: an action sheet, one answer per row. */
+.toast.choice { width: min(360px, calc(100vw - 32px)); min-width: 0; padding: 18px 16px 14px; z-index: 2600; }
+.choice-message { font-weight: 600; font-size: 1em; margin-bottom: 4px; }
+.choice-detail { color: var(--text-secondary); font-size: 0.88em; font-weight: 400; margin-bottom: 14px; }
+.choice-buttons { display: flex; flex-direction: column; gap: 8px; }
+.choice-buttons button { width: 100%; margin: 0; padding: 11px; border-radius: 12px; font-size: 0.95em; font-weight: 600; border: none; cursor: pointer; }
+.choice-buttons .choice-primary { background: var(--system-blue); color: #fff; }
+.choice-buttons .choice-option { background: rgba(255, 255, 255, 0.1); color: var(--text-primary); }
+.choice-buttons .choice-cancel { background: none; color: var(--system-blue); font-weight: 500; }
+.choice-buttons button:hover { filter: brightness(1.12); }
 
 /* --- Statistics panel --- */
 #statsPanel { display: none; flex-direction: column; flex: 1; min-height: 0; }
