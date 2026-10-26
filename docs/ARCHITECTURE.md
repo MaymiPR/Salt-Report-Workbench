@@ -36,11 +36,14 @@ Three constraints drive almost every decision:
 ### Client (`src/`)
 
 `core.js` holds the pure logic: date and time formatting, identifiers, copy
-text, MGRS clean-up, BDA pairing, backup and CSV generation, and parsing. It
+text, MGRS clean-up, BDA pairing, backup and CSV generation, parsing, and the
+geography (MGRS to latitude/longitude, reading grids and NAI/OBJ/PL names out of
+a Location box, placing them in overlay areas, activity tags, the ArcGIS
+export). It
 touches no DOM, storage, or network, so it loads in the page as
 `window.SaltCore` and in Node for `tests/js/`. The rest of the page is
-`src/app/`, seven top-level scripts loaded in order (state, rendering, form,
-import/export, sync, handlers, startup) that share one global scope, so a
+`src/app/`, eight top-level scripts loaded in order (state, rendering, form,
+import/export, overlays, sync, handlers, startup) that share one global scope, so a
 name declared in an earlier file is visible in the later ones. Together they
 hold the whole application state in a handful of top-level
 variables, with `reportsByAto` (every workspace's reports) as the core. Every
@@ -80,7 +83,7 @@ handler's `_POST_ROUTES` table, paired with a schema validator in
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
 | `/`, `/index.html` | GET | The bundled page. On the viewer port it is stamped `read-only` before any script runs; for the host's own browser the access code is injected into a `<meta>` tag. |
-| `/api/sync` | GET | Full state: workspaces, config, profiles, formats, sources, connected users. |
+| `/api/sync` | GET | Full state: workspaces, config, profiles, formats, overlays, sources, connected users. |
 | `/api/events` | GET | Server-Sent Events stream. Each message just says "something changed"; clients then call `/api/sync`. |
 | `/api/save_reports` | POST | Merge a batch of reports into a workspace. |
 | `/api/edit_report` | POST | Overwrite fields of one report in place, without touching its history. |
@@ -89,6 +92,24 @@ handler's `_POST_ROUTES` table, paired with a schema validator in
 | `/api/save_config` | POST | Set the active ATO and title. |
 | `/api/save_profile` | POST | Register an operator's initials and color. |
 | `/api/save_format` | POST | Save a workspace's report format (Builder). |
+| `/api/save_overlays` | POST | Replace a workspace's NAI / OBJ / PL overlays (GeoJSON geometries, longitude/latitude). An empty list clears them. |
+
+### Overlays and geography
+
+Overlays are stored per workspace like formats: `{type: NAI|OBJ|PL, name,
+label?, geometry}`, with GeoJSON geometry in longitude/latitude. The page
+converts KML, KMZ (unzipped with the browser's `DecompressionStream`), and
+GeoJSON (Web Mercator converted, other projections refused) into that shape
+before saving, so the server only validates: types, name lengths, coordinate
+ranges, at most 500 features and 200,000 points per workspace.
+
+Nothing derived is stored. Each Location box is read on the fly by
+`analyzeLocation` in `core.js` (grids, typed names, the areas the grids fall
+in, the nearest phase line, and checks where the two disagree), cached in the
+page by text until the overlays change. MGRS uses Krüger's series for UTM and
+picks the northing that lands inside the latitude band, which also refuses
+typos; `tests/js/mgrs-vectors.json` holds reference points from the NGA's
+GeoTrans to check it against.
 
 ## Sync model
 
@@ -118,7 +139,8 @@ The server is the meeting point, not the authority over content.
 backup folder, which defaults to `Auto Backups/` beside the server. Writes are
 debounced by 0.5 seconds so a burst of edits becomes one write, and every
 mutation marks its workspace dirty (`mark_dirty`) so only changed workspaces
-are rewritten. Config and profiles ride in every file; a change to either
+are rewritten. A workspace's format and overlays ride in its own file; config
+and profiles ride in every file, and a change to either
 marks all workspaces dirty.
 
 A backup file has two parts: a readable summary of every report for a person

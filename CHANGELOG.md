@@ -8,6 +8,29 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Overlays.** A new Overlays tab imports NAIs, OBJs, and phase lines from
+  KML, KMZ, or GeoJSON as ArcGIS exports them. Each shape's type comes from
+  its name, folder, or file name. A review step lets you set or change any
+  of them before they are added. Overlays belong to a workspace, sync to
+  everyone, and are saved in its backup file.
+- **The Location box is read as typed** (`38S MB 12345 67890, NAI 1`): the
+  grids, and the NAI, OBJ, and PL names, in any spacing or case. When no NAI
+  or OBJ is typed and a grid falls inside one, the report is placed there,
+  shown by a tag under the Location. When a typed one disagrees with the grid,
+  the typed name still counts and a *Check* tag says what differs.
+- **Activity tags**: Moving, Stationary, Dismounted, Emplacing, Firing,
+  Observing, Resupplying, from the words in Activity, plus the heading when
+  one is given (`moving N`, `heading 270`, `NB`, `westbound`).
+- **Export for ArcGIS**, as GeoJSON (JSON To Features) or CSV (XY Table To
+  Point). Each MGRS grid becomes one point, at the centre of its square, and
+  carries:
+  - the report's fields
+  - its activity tags and heading
+  - its NAI and OBJ, each marked typed or by grid
+  - the nearest phase line and its distance
+  - any check, the BDA, and custom fields
+
+  The manual has the steps for a heat map in ArcGIS Pro.
 - `scripts/pack.py` packs a release zip into one self-unpacking, plain-text
   file, `SALT-Workbench-v<version>.txt`, for transfer systems that refuse zips
   and scripts. Run it with Python and it unpacks into a `SALT Report
