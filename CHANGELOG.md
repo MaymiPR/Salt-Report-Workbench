@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The one-file `SALT-Workbench-v<version>.txt` is a quarter of its old size
+  (about 170 KB instead of 670 KB), for networks where downloads are slow. The
+  files inside are compressed with LZMA and written as Base85 text. Unpacking
+  still checks every file against its SHA-256 and writes exactly what the zip
+  holds. The unpacker at the top can still be read in Notepad, but the files
+  themselves no longer can. `scripts/pack.py --plain` writes the old,
+  readable form.
+
 ## [2.7.0] - 2026-10-26
 
 ### Added

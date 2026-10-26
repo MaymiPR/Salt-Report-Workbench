@@ -53,12 +53,14 @@ launcher, the license, and a short `README.txt`.
 - **`SaltReportWorkbench-v<version>.zip`**: extract it. On Windows, double-click
   **`Start SALT Workbench.bat`**; anywhere else, run `python salt_sync_server.py` in
   that folder. Python 3.10+ and a browser are all it needs.
-- **`SALT-Workbench-v<version>.txt`**: the same files as one plain-text file with
-  no compression, for transfer systems that refuse zips or scripts. Run it with
-  Python, and it unpacks into a `SALT Report Workbench` folder beside itself, checks
-  every file, and deletes itself (`--keep` keeps it). It starts nothing. It is still
-  a program whatever its extension, so if your network blocks scripts on purpose,
-  ask your security office before sending it this way.
+- **`SALT-Workbench-v<version>.txt`**: the same files as one plain-text file, for
+  transfer systems that refuse zips or scripts. It is about the size of the zip,
+  because the files inside are compressed. Run it with Python, and it unpacks into
+  a `SALT Report Workbench` folder beside itself, checks every file against the
+  checksum written inside, and deletes itself (`--keep` keeps it). It starts
+  nothing. It is still a program whatever its extension, and some scanners treat
+  a script carrying an encoded block as suspicious. If your network blocks
+  scripts on purpose, ask your security office before sending it this way.
 
   ```bat
   python "SALT-Workbench-v2.7.0.txt"
@@ -150,9 +152,11 @@ also publishes `dist/` as a downloadable artifact.
 ### One file, for strict transfer systems
 
 Each release also carries the one-file `SALT-Workbench-v<version>.txt` (see
-[Download](#download) for using it). Each file inside is stored line by line as
-escaped text, with no compression and no base64, so all of it can be read in
-Notepad. `python scripts/release.py <version>` builds both downloads and their
+[Download](#download) for using it). The unpacker at the top and each file's
+SHA-256 can be read in Notepad. The files follow, compressed with LZMA and written
+as Base85 text in short lines, about a quarter of the size of storing them as
+text. `scripts/pack.py --plain` writes the larger form, where every line of every
+file can be read. `python scripts/release.py <version>` builds both downloads and their
 checksum file into `release/` in one go; `scripts/pack.py` packs an existing zip on
 its own.
 
