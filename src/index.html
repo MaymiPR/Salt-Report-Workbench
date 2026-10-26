@@ -108,7 +108,7 @@
         </div>
     </div>
 
-    <!-- User Manual modal: opened from the ellipsis menu. -->
+    <!-- User Manual modal: opened from the Settings (gear) menu. -->
     <div id="manualModal" class="startup-overlay manual-overlay" aria-hidden="true">
         <div class="startup-modal manual-modal" role="dialog" aria-modal="true" aria-labelledby="manualHeading">
             <div class="startup-header">
@@ -129,7 +129,7 @@
                     <ul>
                         <li>Set your <strong>Initials</strong> and <strong>Tag Color</strong> on first launch via the startup modal.</li>
                         <li>The startup modal opens with a compact <strong>Quick Start</strong> strip listing what it already knows as one-click presets, in three rows: <strong>Operator</strong> (known initials with their tag color), <strong>ATO</strong> (loaded workspaces), and <strong>Title</strong> (report titles seen before). The rows are independent, so you can pick a known operator and ATO but type a brand-new title. Picking an ATO also fills its usual title if you haven&rsquo;t typed one. Each row shows up to five entries, and the whole strip hides on a first-ever run when there&rsquo;s nothing to offer.</li>
-                        <li>To change them later: open the ellipsis menu &rarr; <strong>Workspaces</strong>, then click the <strong>person icon</strong> tab. Edit and press <em>Set Initials</em>.</li>
+                        <li>To change them later: click the <strong>Workspaces</strong> icon (the folder, top right of the report panel), then click the <strong>person icon</strong> tab. Edit and press <em>Set Initials</em>.</li>
                         <li>The Identity tab also shows the current <strong>Access Code</strong> with a one-click Copy button (handy for sharing with a teammate joining the session).</li>
                         <li>Each device or operator has its own identity stored per-browser.</li>
                     </ul>
@@ -222,7 +222,7 @@
                         <li><strong>Checkboxes</strong> select rows; the <strong>Delete</strong> button appears at the top once anything is checked. Works on top-level reports AND individual history rows. <kbd>Esc</kbd> deselects everything at once. After a delete, the message at the bottom carries an <strong>Undo</strong> button for ten seconds that puts everything back (except a <em>Not saved</em> change, which is discarded for good).</li>
                         <li><strong>Dense cells stay compact</strong>: Size, Activity, Location, and Analysis are each capped at two lines. When content overflows (several MGRS grids, a wordy analysis), that cell turns clickable; click to expand it in place, click again to collapse. Cells whose content already fits stay plain and are not clickable. Hovering shows the full content as a tooltip, and it works on history rows too.</li>
                         <li><strong>Sort</strong> by clicking a column header. Identifier cycles number ascending / descending / most recently changed (the default); Time, Size, Activity, and Location each toggle ascending / descending. Text columns sort with numbers in order, so <code>2x T-72</code> comes before <code>10x T-72</code>.</li>
-                        <li><strong>Select All / Deselect All</strong> in the ellipsis menu hit every visible checkbox at once.</li>
+                        <li><strong>Select All / Deselect All</strong> in the Settings (gear) menu hit every visible checkbox at once.</li>
                     </ul>
                     <p class="manual-modes"><strong>Locally:</strong> Sort, history toggle, copy, row selection, and clicking-to-edit all run entirely in your browser.</p>
                     <p class="manual-modes"><strong>With sync server:</strong> Deletions also remove the entries from the server&rsquo;s in-memory store and rewrite the backup file. Other connected browsers see the deletion within milliseconds.</p>
@@ -240,23 +240,35 @@
                 </section>
 
                 <section class="manual-section">
+                    <h3>The Four Icons</h3>
+                    <p>At the top right of the report panel, a square of four icons is there in every view:</p>
+                    <ul>
+                        <li><strong>Folder</strong>: Workspaces (import and export, loaded workspaces, the report builder, overlays, your identity).</li>
+                        <li><strong>Bar chart</strong>: Statistics. <strong>Page</strong>: Summary Reports.</li>
+                        <li><strong>Gear</strong>: Settings: layout, Zulu or Local time, the title separator, BDA, Select All / Deselect All, the User Manual, and Clear Workspace.</li>
+                        <li>The icon of the view on screen is blue; click it again to go back to the Report Log.</li>
+                    </ul>
+                </section>
+
+                <section class="manual-section">
                     <h3>Time &amp; Layout Toggles <span class="manual-tag local">Local only</span></h3>
                     <p>Layout and time-format choices are saved per-browser and never sync. Every operator can pick their own.</p>
                     <ul>
-                        <li><strong>Zulu / Local Time</strong> (in the ellipsis menu): flips every visible time stamp between UTC (Z) and your browser&rsquo;s local time (L). The column header shows which mode you&rsquo;re in. The actual stored times never change; only the display does.</li>
+                        <li><strong>Zulu / Local Time</strong> (in the Settings menu): flips every visible time stamp between UTC (Z) and your browser&rsquo;s local time (L). The column header shows which mode you&rsquo;re in. The actual stored times never change; only the display does.</li>
                         <li><strong>Vertical layout</strong> (default): form on the left, table on the right. The page itself doesn&rsquo;t scroll; only the table scrolls inside its panel.</li>
-                        <li><strong>Horizontal layout</strong>: form on top, table below. The page does scroll, but the table is capped in height so you&rsquo;re never forced to scroll past hundreds of rows to reach anything below it.</li>
-                        <li><strong>Title Separator</strong> (in the ellipsis menu): switches the character between the report title and the ATO designator everywhere the identifier is displayed: workspace lists, the table&rsquo;s Identifier column, and copied report text. Default is a dash (<code>Patrol Report - ALPHA001</code>); toggle to a plain space (<code>Patrol Report ALPHA001</code>). Display-only; stored report data never changes.</li>
+                        <li><strong>Horizontal layout</strong>: a compact form across the top (the fields and Log on one row, Analysis under them when your format has it) and the report panel filling the rest of the window. Only the table scrolls; on a short window the page scrolls instead of squeezing it.</li>
+                        <li><strong>Title Separator</strong> (in the Settings menu): switches the character between the report title and the ATO designator everywhere the identifier is displayed: workspace lists, the table&rsquo;s Identifier column, and copied report text. Default is a dash (<code>Patrol Report - ALPHA001</code>); toggle to a plain space (<code>Patrol Report ALPHA001</code>). Display-only; stored report data never changes.</li>
                         <li>On narrow screens the two panels stack vertically and the page scrolls; nothing is hidden or disabled, just rearranged.</li>
                     </ul>
                 </section>
 
                 <section class="manual-section">
                     <h3>The Workspaces Panel</h3>
-                    <p>Open from the ellipsis menu &rarr; <strong>Workspaces</strong>. The form panel is replaced by a tabbed surface with five tabs: Import / Export, Workspaces, Builder (see <em>Report Builder</em> below), Overlays (see <em>Overlays and ArcGIS</em> below), and Identity.</p>
+                    <p>Open with the <strong>Workspaces</strong> icon (the folder). The report panel shows five tabs: Import / Export, Workspaces, Builder (see <em>Report Builder</em> below), Overlays (see <em>Overlays and ArcGIS</em> below), and Identity.</p>
 
                     <p class="manual-step">Import / Export tab (default)</p>
                     <ul>
+                        <li>Pick <strong>Export</strong> or <strong>Import</strong>, pick what from the list (a line under it says what it is and how to use it), then press the one button. The time filter shows for exports; each option shows with the format it changes. Your last choice is remembered in this browser.</li>
                         <li><strong>Filter by Time Range</strong>: set From and/or To to narrow what gets exported. Leave both blank to include everything.</li>
                         <li><strong>Quick presets (12h / 6h / 1h)</strong>: one click fills both pickers relative to now, respecting your active Zulu/Local time mode.</li>
                         <li><strong>Filter stats</strong>: stacked counts beneath the picker show <em>N of M unique reports</em> + <em>N of M total reports</em> (the second line includes every saved history entry). Turns blue when a filter is active.</li>
@@ -287,7 +299,7 @@
 
                 <section class="manual-section">
                     <h3>Report Builder</h3>
-                    <p>Open from the ellipsis menu &rarr; <strong>Workspaces</strong>, then the <strong>Builder</strong> tab. It controls how reports are composed: the order of the form fields and the exact shape of the copied report text. The format is saved <strong>per workspace and synced to everyone</strong>, so the whole team writes reports the same way.</p>
+                    <p>Open the <strong>Workspaces</strong> icon (the folder), then the <strong>Builder</strong> tab. It controls how reports are composed: the order of the form fields and the exact shape of the copied report text. The format is saved <strong>per workspace and synced to everyone</strong>, so the whole team writes reports the same way.</p>
                     <ul>
                         <li>A format is an ordered list of lines. Drag a line (or use the arrow buttons) to move it; the &#10005; removes it.</li>
                         <li>The <strong>Identifier</strong> line is special: at the top it renders as the header (like it always has); anywhere lower it renders as a <code>U:</code> line. That is the whole difference between the two presets.</li>
@@ -307,7 +319,7 @@
 
                 <section class="manual-section">
                     <h3>BDA Tracking</h3>
-                    <p>Battle Damage Assessment lives on each report but stays <strong>completely hidden</strong> until you need it: flip <strong>Show BDA</strong> in the ellipsis menu to reveal it (per-browser; flip back to hide).</p>
+                    <p>Battle Damage Assessment lives on each report but stays <strong>completely hidden</strong> until you need it: flip <strong>Show BDA</strong> in the Settings (gear) menu to reveal it (per-browser; flip back to hide).</p>
                     <ul>
                         <li>With BDA shown, every report row gets a <strong>BDA</strong> pill in the Action column. Click it to expand the report&rsquo;s BDA panel, the same way history expands.</li>
                         <li><strong>The panel is a checklist, not a blank form.</strong> It lists the report&rsquo;s own elements already paired with their grids, one row each. Assess an element with a single click on <code>DEST</code>, <code>DMG</code>, <code>MOB</code>, <code>SUPP</code>, <code>NONE</code>, or <code>?</code>. A ten-item report is ten clicks, no typing.</li>
@@ -329,17 +341,20 @@
                     <p>Bring your NAIs, OBJs, and phase lines in from ArcGIS, and send your reports back out to it as points for heat maps and analysis.</p>
                     <p class="manual-step">Importing overlays (Workspaces &rarr; Overlays tab)</p>
                     <ul>
-                        <li>In ArcGIS Pro, export the layers as <strong>KMZ or KML</strong> (Layer To KML) or <strong>GeoJSON</strong> (Features To JSON with <em>Output to GeoJSON</em> and <em>Project to WGS 1984</em> checked). Then <strong>Import KML / KMZ / GeoJSON</strong> here. Several files at once are fine.</li>
+                        <li>In ArcGIS Pro, export the layers as <strong>KMZ or KML</strong> (Layer To KML), <strong>GeoJSON</strong> (Features To JSON with <em>Output to GeoJSON</em> and <em>Project to WGS 1984</em> checked), or a <strong>shapefile</strong>. Then <strong>Import KML / KMZ / GeoJSON / SHP</strong> here. Several files at once are fine.</li>
+                        <li><strong>Shapefiles</strong>: pick the zip ArcGIS makes, or the <code>.shp</code>, <code>.dbf</code> and <code>.prj</code> together. Names come from the attribute table (a NAME field), areas keep their holes. Coordinates in WGS 84 or NAD 83 latitude/longitude, Web Mercator, or a UTM zone are converted; another coordinate system is refused by name, so export it again in WGS 1984.</li>
                         <li>Each shape's type comes from its name (<code>NAI 1</code>, <code>OBJ GOLD</code>, <code>PL BLUE</code>), else from its folder, layer, or file name (<em>NAIs</em>, <em>Phase Lines</em>); lines with neither are phase lines. Review the list, set or change the type of any shape (or Skip it), then <strong>Add</strong>.</li>
                         <li>Areas are NAIs and OBJs; lines are phase lines; points are kept as labels only. An NAI or OBJ drawn as a path (Google Earth's <em>Add Path</em>) is closed back to its start and used as an area. Importing a shape with the same type and name again replaces it, so an updated overlay file just replaces the old one.</li>
-                        <li>Overlays belong to the workspace, sync to everyone, and are saved in its backup file. The tab lists them with how many reports name each one; the &times; removes one and <strong>Clear All</strong> removes them all. Reports themselves are never changed.</li>
+                        <li>Overlays are <strong>one set for every workspace</strong>: import them once and every ATO, editor and viewer uses them. They are saved in every workspace's backup file.</li>
+                        <li>The tab groups them as NAIs, Objectives and Phase lines, each with how many reports in the workspace on screen name it. <strong>Unload</strong> on a group removes that group; the &times; removes one; <strong>Unload All</strong> removes them all. When one changes, import the new file: it replaces the old one of the same type and name. Reports themselves are never changed by this.</li>
                     </ul>
                     <p class="manual-step">How the Location box is read</p>
                     <ul>
                         <li>Keep typing it the usual way, for example <code>38S MB 12345 67890, NAI 1</code>. The grid and the place are both picked out. Spacing and case don't matter, and <code>NAI 01</code>, <code>NAI1</code>, and <code>nai 1</code> are all NAI 1. Several grids in one box are several points.</li>
-                        <li><strong>No NAI or OBJ typed?</strong> If the grid falls inside one, the report is placed there, and a small tag under the Location shows it (for example <em>NAI 2</em>).</li>
-                        <li><strong>Typed one disagrees with the grid?</strong> The typed name still counts, and a <em>Check</em> tag says what differs (<em>NAI 1 typed; grid is in NAI 2</em>) so someone can look.</li>
-                        <li><strong>Near a phase line?</strong> Each grid is measured to the nearest one; within 1 km, a tag shows it (for example <em>PL BLUE</em>, with the distance when you hover) and the report counts at that line.</li>
+                        <li><strong>Named for you.</strong> While you type, blue chips under the Location box show the NAI or OBJ the grid is in, and a phase line within 1 km (with its distance). When you Log or Update, they are added to the Location, for example <code>11S NV 3921 0547, NAI 2, PL BLUE</code>. Click a chip to add it at once. Nothing is added for a type you typed yourself.</li>
+                        <li><strong>Typed one disagrees with the grid?</strong> An orange chip says so while you type, and Log asks you to settle it: use the grid's (<em>Use NAI 2</em>, written where you typed NAI 1), keep yours, or keep both. <em>Cancel</em> goes back to the box. When the grid is in none, you can keep yours or take it out. The same goes for a typed phase line more than 1 km from the grid.</li>
+                        <li><strong>Older reports</strong> that disagree carry an orange <em>Check</em> tag under the Location. Click it to settle it the same way; the change is saved as an Update, so the old Location stays in the history.</li>
+                        <li>Without a typed name, a report is still placed by its grid: a small tag shows the NAI, OBJ, or phase line (hover for the distance).</li>
                     </ul>
                     <p class="manual-step">Activity tags</p>
                     <ul>
@@ -351,14 +366,15 @@
                         <li>One point per grid, at the centre of the square the grid names. Each carries the report's identifier, time, Size, Activity, its tags and heading (<code>heading_deg</code>, for rotating arrow symbols), the MGRS, the NAI and OBJ (with <code>nai_from</code> / <code>obj_from</code>: <em>typed</em> or <em>grid</em>), the nearest phase line and its distance in metres, any <code>loc_check</code>, the BDA, and custom fields. Reports with no readable grid are left out, and the message says how many.</li>
                         <li><strong>Heat map</strong>: select the new layer, open <em>Symbology</em>, and choose <em>Heat Map</em>. For analysis, <em>Kernel Density</em> or <em>Optimized Hot Spot Analysis</em> run on the same layer.</li>
                     </ul>
-                    <p class="manual-modes"><strong>Locally:</strong> Overlays are kept in this browser and work the same way.</p>
+                    <p class="manual-modes"><strong>Locally:</strong> Overlays are kept in this browser, for every workspace in it, and work the same way.</p>
                     <p class="manual-modes"><strong>With sync server:</strong> Overlays sync to every editor and viewer and are restored on server restart. Viewers can export for ArcGIS but not change overlays.</p>
                 </section>
 
                 <section class="manual-section">
                     <h3>Statistics</h3>
-                    <p>Open from the ellipsis menu &rarr; <strong>Statistics</strong>. It covers the workspace on screen and follows the log live. Viewers get it too.</p>
+                    <p>Open with the <strong>Statistics</strong> icon (the bar chart). It follows the log live. Viewers get it too.</p>
                     <ul>
+                        <li><strong>Scope</strong>: <em>This ATO</em> (the workspace on screen) or <em>All ATOs</em> (every loaded workspace together). All ATOs adds a <strong>Reports per ATO</strong> chart, and its exports are named <code>All_ATOs</code>. Remembered in this browser.</li>
                         <li><strong>Window</strong>: All, the last 7 days, 24, 12, or 6 hours, or your own From / To (in your Zulu or Local mode). Every number and chart covers the same window.</li>
                         <li><strong>Headline numbers</strong>: reports, how many have a grid, how many are in an NAI or OBJ, how many have a <em>Check</em> to look at, and BDA assessed.</li>
                         <li><strong>Charts</strong>: reports per NAI, per OBJ, and at each phase line (typed, or a grid within 1 km of the line); the busiest grid squares (<strong>Squares</strong>: 10 km or 1 km); reports by hour of day and by day; activity tags; the heading of moving reports; what was reported by type, counted from Size (<code>2x T-72, 4 BMP-2</code>); and BDA outcomes. Each report counts once per place, square, or tag it names; history is not counted. Long lists show their top ten and an <em>Other</em> bar.</li>
@@ -369,7 +385,7 @@
 
                 <section class="manual-section">
                     <h3>Summary Reports</h3>
-                    <p>Open from the ellipsis menu &rarr; <strong>Summary Reports</strong>. Pick a report and a window, and it is written for you from the reports you already have. It updates live, and viewers can use it too.</p>
+                    <p>Open with the <strong>Summary Reports</strong> icon (the page). Pick a report and a window, and it is written for you from the reports you already have. It updates live, and viewers can use it too.</p>
                     <ul>
                         <li><strong>Rollup</strong>: totals and the change from the period before; each NAI, OBJ, and phase line with its count and activity; activity overall; what was reported by type; notable reports (firing or emplacing); BDA; and anything to check.</li>
                         <li><strong>Most Trafficked</strong>: the busiest NAIs and OBJs, phase lines, and 1 km grid squares, each with its count, peak hour, and most common activity, then the busiest hours. This is the written heat map.</li>
@@ -446,7 +462,7 @@
                             Hover either indicator for its full label. The <strong>A slot is always reserved</strong> on every row (invisible where the workspace isn&rsquo;t active), so the <strong>S</strong> indicator lands at the same horizontal coordinate on every row instead of shifting position.</li>
                         <li>The right side of each row shows <strong>unique reports</strong> and <strong>total reports</strong> counts in the same language the report-log header uses, so the numbers correspond when you switch between views.</li>
                         <li>The <strong>source filename</strong> (e.g. <code>XG_TEST.txt</code>, <code>Uploaded backup</code>, <code>In-session</code>) is hidden in the viewer sidebar. It&rsquo;s editor-only metadata about where a workspace came from, irrelevant to observers. The editor&rsquo;s Workspaces tab in the main report log still shows it.</li>
-                        <li>The editor-only ellipsis-menu items (Horizontal Layout, Select All / Deselect All, Clear Workspace) are hidden. Export still works: viewers can download backups and CSVs of what they&rsquo;re seeing.</li>
+                        <li>The editor-only Settings items (Horizontal Layout, Select All / Deselect All, Clear Workspace) are hidden, and Import / Export only exports. Export still works: viewers can download backups and CSVs of what they&rsquo;re seeing.</li>
                         <li>Live updates flow normally: any edit by an editor appears in the viewer&rsquo;s table within a fraction of a second, and switching the active workspace on the editor side updates the A indicator on every viewer in real time.</li>
                         <li>The page is stamped read-only by the server before it even loads in the browser, so the editor UI never flashes on a viewer&rsquo;s refresh.</li>
                         <li>Viewers keep <strong>no copy of the reports</strong> in browser storage. The page itself comes from the server, so a cached copy would be of no use without it, and it would leave every report at rest on a machine that only watches. Display settings (time mode, title separator) are still remembered.</li>
@@ -468,7 +484,7 @@
                     <p>A short thank you to the testers who put up with the bugs and kept the vibe coding going:</p>
                     <p class="manual-tester-list">You know who you are.</p>
                 </section>
-                <p class="manual-version-footer">Version 2.7 &middot; <a href="https://github.com/MaymiPR/SaltReportWorkbench" target="_blank" rel="noopener">Source code</a> (AGPL v3)</p>
+                <p class="manual-version-footer">Version 2.8 &middot; <a href="https://github.com/MaymiPR/SaltReportWorkbench" target="_blank" rel="noopener">Source code</a> (AGPL v3)</p>
             </div>
 
             <button type="button" id="manualCloseBtn" class="set-btn startup-continue-btn">Close</button>
