@@ -247,7 +247,7 @@
 
                 <section class="manual-section">
                     <h3>The Workspaces Panel</h3>
-                    <p>Open from the ellipsis menu &rarr; <strong>Workspaces</strong>. The form panel is replaced by a tabbed surface with four tabs: Import / Export, Workspaces, Builder (see <em>Report Builder</em> below), and Identity.</p>
+                    <p>Open from the ellipsis menu &rarr; <strong>Workspaces</strong>. The form panel is replaced by a tabbed surface with five tabs: Import / Export, Workspaces, Builder (see <em>Report Builder</em> below), Overlays (see <em>Overlays and ArcGIS</em> below), and Identity.</p>
 
                     <p class="manual-step">Import / Export tab (default)</p>
                     <ul>
@@ -257,6 +257,7 @@
                         <li><strong>Export Backup (.txt)</strong>: full snapshot with human-readable content at the top and machine-readable JSON at the bottom. Re-import to merge it back in.</li>
                         <li><strong>Export CSV</strong>: flat tabular export. The Identifier column matches the table (<code>Patrol - ALPHA001</code>, following the Title Separator). Current report appears first, then each history entry on its own row labeled <code>Update #N (Old)</code>, then each BDA assessment as a <code>BDA #N</code> row (target in Size, effect in Activity, coords in MGRS). Custom builder fields are appended as extra columns after Analysis.</li>
                         <li><strong>Export MTI CSV</strong>: splits into two files (<code>_tracked.csv</code> and <code>_wheeled.csv</code>) by scanning Size for vehicle counts written as <code>4 tracked</code>, <code>4x tracked</code>, or <code>4 x wheeled</code>. Covers history entries too.</li>
+                        <li><strong>Export for ArcGIS (.geojson / .csv)</strong>: one point per MGRS grid, ready for ArcGIS Pro. See <em>Overlays and ArcGIS</em> below.</li>
                         <li><strong>Export All ATOs</strong> toggle: bundles every loaded workspace into a single backup file instead of just the active one.</li>
                         <li><strong>CSV Import</strong>: maps incoming columns to SALT fields and imports the rows into the workspace you choose: the active one, another loaded workspace, or a staging workspace called <em>IMPORT</em>. From IMPORT, check the rows you want, pick a destination ATO from the dropdown that appears, and send them. A mapped Time column is read as ISO 8601, <code>YYYY-MM-DD HH:MM</code>, <code>HH:MM</code> or <code>HHMM</code> (today, in your time mode; a <code>Z</code> or <code>L</code> suffix overrides it), or a DTG such as <code>241430Z</code> or <code>241430ZOCT26</code>. Anything else gets the import time, and the result message says how many rows that happened to.</li>
                     </ul>
@@ -315,6 +316,37 @@
                         <li>BDA content is <strong>searchable</strong>: type <code>destroyed</code> or a grid into the search bar to find the reports carrying it.</li>
                         <li>Viewers on the read-only port can see assessments but cannot add or delete them.</li>
                     </ul>
+                </section>
+
+                <section class="manual-section">
+                    <h3>Overlays and ArcGIS</h3>
+                    <p>Bring your NAIs, OBJs, and phase lines in from ArcGIS, and send your reports back out to it as points for heat maps and analysis.</p>
+                    <p class="manual-step">Importing overlays (Workspaces &rarr; Overlays tab)</p>
+                    <ul>
+                        <li>In ArcGIS Pro, export the layers as <strong>KMZ or KML</strong> (Layer To KML) or <strong>GeoJSON</strong> (Features To JSON with <em>Output to GeoJSON</em> and <em>Project to WGS 1984</em> checked). Then <strong>Import KML / KMZ / GeoJSON</strong> here. Several files at once are fine.</li>
+                        <li>Each shape's type comes from its name (<code>NAI 1</code>, <code>OBJ GOLD</code>, <code>PL BLUE</code>), else from its folder, layer, or file name (<em>NAIs</em>, <em>Phase Lines</em>); lines with neither are phase lines. Review the list, set or change the type of any shape (or Skip it), then <strong>Add</strong>.</li>
+                        <li>Areas are NAIs and OBJs; lines are phase lines; points are kept as labels only. Importing a shape with the same type and name again replaces it, so an updated overlay file just replaces the old one.</li>
+                        <li>Overlays belong to the workspace, sync to everyone, and are saved in its backup file. The tab lists them with how many reports name each one; the &times; removes one and <strong>Clear All</strong> removes them all. Reports themselves are never changed.</li>
+                    </ul>
+                    <p class="manual-step">How the Location box is read</p>
+                    <ul>
+                        <li>Keep typing it the usual way, for example <code>38S MB 12345 67890, NAI 1</code>. The grid and the place are both picked out. Spacing and case don't matter, and <code>NAI 01</code>, <code>NAI1</code>, and <code>nai 1</code> are all NAI 1. Several grids in one box are several points.</li>
+                        <li><strong>No NAI or OBJ typed?</strong> If the grid falls inside one, the report is placed there, and a small tag under the Location shows it (for example <em>NAI 2</em>).</li>
+                        <li><strong>Typed one disagrees with the grid?</strong> The typed name still counts, and a <em>Check</em> tag says what differs (<em>NAI 1 typed; grid is in NAI 2</em>) so someone can look.</li>
+                        <li>Each grid is also measured to the nearest phase line.</li>
+                    </ul>
+                    <p class="manual-step">Activity tags</p>
+                    <ul>
+                        <li>The Activity text is tagged <em>Moving</em>, <em>Stationary</em>, <em>Dismounted</em>, <em>Emplacing</em>, <em>Firing</em>, <em>Observing</em>, or <em>Resupplying</em> from the words in it (a report can carry several), plus a heading when one is given: <code>moving N</code>, <code>heading 270</code>, <code>NB</code>, <code>westbound</code>.</li>
+                    </ul>
+                    <p class="manual-step">Export for ArcGIS (Import / Export tab)</p>
+                    <ul>
+                        <li><strong>.geojson</strong>: in ArcGIS Pro run <em>JSON To Features</em> on it. <strong>.csv</strong>: run <em>XY Table To Point</em> with <code>lon</code> as X and <code>lat</code> as Y (WGS 1984). Both hold the same rows; the time filter applies.</li>
+                        <li>One point per grid, at the centre of the square the grid names. Each carries the report's identifier, time, Size, Activity, its tags and heading (<code>heading_deg</code>, for rotating arrow symbols), the MGRS, the NAI and OBJ (with <code>nai_from</code> / <code>obj_from</code>: <em>typed</em> or <em>grid</em>), the nearest phase line and its distance in metres, any <code>loc_check</code>, the BDA, and custom fields. Reports with no readable grid are left out, and the message says how many.</li>
+                        <li><strong>Heat map</strong>: select the new layer, open <em>Symbology</em>, and choose <em>Heat Map</em>. For analysis, <em>Kernel Density</em> or <em>Optimized Hot Spot Analysis</em> run on the same layer.</li>
+                    </ul>
+                    <p class="manual-modes"><strong>Locally:</strong> Overlays are kept in this browser and work the same way.</p>
+                    <p class="manual-modes"><strong>With sync server:</strong> Overlays sync to every editor and viewer and are restored on server restart. Viewers can export for ArcGIS but not change overlays.</p>
                 </section>
 
                 <section class="manual-section">
@@ -573,6 +605,7 @@
                             <button type="button" class="ws-tab active" data-tab="export" role="tab" aria-selected="true">Import / Export</button>
                             <button type="button" class="ws-tab" data-tab="workspaces" role="tab" aria-selected="false">Workspaces</button>
                             <button type="button" class="ws-tab" data-tab="builder" role="tab" aria-selected="false">Builder</button>
+                            <button type="button" class="ws-tab" data-tab="overlays" role="tab" aria-selected="false">Overlays</button>
                             <button type="button" class="ws-tab ws-tab-icon" data-tab="identity" role="tab" aria-selected="false" title="Identity" aria-label="Identity">
                                 <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 12C14.2091 12 16 10.2091 16 8C16 5.79086 14.2091 4 12 4C9.79086 4 8 5.79086 8 8C8 10.2091 9.79086 12 12 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 21V19C20 16.7909 18.2091 15 16 15H8C5.79086 15 4 16.7909 4 19V21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                             </button>
@@ -657,6 +690,15 @@
                             </div>
                         </div>
 
+                        <!-- Tab: Overlays — NAI / OBJ / PL shapes for the workspace (rendered by app/45-overlays.js). -->
+                        <div class="ws-tab-panel" data-tab-panel="overlays" style="display:none;">
+                            <div class="export-block">
+                                <div class="export-block-label">Overlays <span id="overlaysScopeNote"></span></div>
+                                <div id="overlaysBody" class="overlays-body"></div>
+                                <input type="file" id="overlaysFileInput" class="file-input-wrapper" accept=".kml,.kmz,.geojson,.json" multiple>
+                            </div>
+                        </div>
+
                         <!-- Tab: Import / Export — action grid, time filter, options. -->
                         <div class="ws-tab-panel" data-tab-panel="export">
                             <div class="export-action-grid">
@@ -664,6 +706,8 @@
                                     <div class="export-action-col-label">Export</div>
                                     <button type="button" id="exportPanelBackupBtn" class="set-btn">Export Backup (.txt)</button>
                                     <button type="button" id="exportPanelCsvBtn" class="set-btn">Export CSV (.csv)</button>
+                                    <button type="button" id="exportArcgisGeojsonBtn" class="set-btn">Export for ArcGIS (.geojson)</button>
+                                    <button type="button" id="exportArcgisCsvBtn" class="set-btn">Export for ArcGIS (.csv)</button>
                                 </div>
                                 <div class="export-action-vdivider"></div>
                                 <div class="export-action-col">
@@ -790,6 +834,7 @@
     <script src="app/20-render.js"></script>
     <script src="app/30-form.js"></script>
     <script src="app/40-io.js"></script>
+    <script src="app/45-overlays.js"></script>
     <script src="app/50-sync.js"></script>
     <script src="app/60-handlers.js"></script>
     <script src="app/70-startup.js"></script>

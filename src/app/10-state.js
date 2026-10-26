@@ -290,6 +290,26 @@ const currentFormat  = () => {
     return (f && Array.isArray(f.lines) && f.lines.length) ? f : defaultFormat();
 };
 
+// --- Overlays ---
+// NAI / OBJ / PL features per workspace, imported from KML or GeoJSON (the
+// Overlays tab) and synced like formats. Viewers keep none locally.
+if (viewerAtLoad) { try { localStorage.removeItem('salt_ws_overlays'); } catch (e) {} }
+let workspaceOverlays = viewerAtLoad ? {} : readStored('salt_ws_overlays', {});
+// The workspace on screen: the editor's active one, or the viewer's pick.
+const shownAto        = () => (isReadOnly ? viewerShowingAto : activeAto) || '';
+const currentOverlays = () => workspaceOverlays[shownAto()] || [];
+// What each Location box says against the overlays (grids, NAI/OBJ, nearest
+// PL, checks). Cached by text; cleared whenever the overlays change.
+const locationCache = new Map();
+let locationCacheFor = null;
+const locationInfo = (text) => {
+    const ovs = currentOverlays();
+    if (locationCacheFor !== ovs) { locationCache.clear(); locationCacheFor = ovs; }
+    const key = String(text || '');
+    if (!locationCache.has(key)) locationCache.set(key, SaltCore.analyzeLocation(key, ovs));
+    return locationCache.get(key);
+};
+
 // --- BDA mode ---
 // Hidden until enabled from the ellipsis menu. Assessments live on each
 // report under `bda: []` and sync like everything else.
