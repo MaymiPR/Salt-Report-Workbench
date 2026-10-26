@@ -64,11 +64,17 @@ launcher, the license, and a short `README.txt`.
   python "SALT-Workbench-v2.6.0.txt"
   ```
 
-**Verify a download.** Each file has a `.sha256` beside it on the release. The zip is
-reproducible, so its checksum is stable. Check it with:
+**Verify a download.** The release also carries `SaltReportWorkbench-v<version>.sha256`,
+one file holding the checksums of both downloads. Builds are reproducible, so the
+checksums are stable. Put it beside what you downloaded, then:
 
-- PowerShell: `Get-FileHash SaltReportWorkbench-v2.6.0.zip`
-- macOS or Linux: `sha256sum -c SaltReportWorkbench-v2.6.0.zip.sha256`
+- PowerShell:
+  ```powershell
+  Get-Content SaltReportWorkbench-v2.6.0.sha256 | ForEach-Object { $h, $f = -split $_; if (-not (Test-Path $f)) { "--   $f (not here)" } elseif ((Get-FileHash $f).Hash -eq $h) { "OK   $f" } else { "BAD  $f" } }
+  ```
+- macOS or Linux: `sha256sum -c --ignore-missing SaltReportWorkbench-v2.6.0.sha256`
+
+Only the file you downloaded needs to say OK; the other shows as not here.
 
 **Upgrading.** Stop the server and drop the new files over the old ones, or run the
 new `.txt` from the folder that holds `SALT Report Workbench`. Keep the `Auto Backups`
@@ -145,11 +151,9 @@ also publishes `dist/` as a downloadable artifact.
 Each release also carries the one-file `SALT-Workbench-v<version>.txt` (see
 [Download](#download) for using it). Each file inside is stored line by line as
 escaped text, with no compression and no base64, so all of it can be read in
-Notepad. Build it from a release zip with:
-
-```bash
-python scripts/pack.py SaltReportWorkbench-v<version>.zip
-```
+Notepad. `python scripts/release.py <version>` builds both downloads and their
+checksum file into `release/` in one go; `scripts/pack.py` packs an existing zip on
+its own.
 
 ### Windows launcher
 
@@ -269,8 +273,9 @@ fact; nothing reads it.
 │   └── Start SALT Workbench.bat  Windows double-click launcher
 ├── scripts/
 │   ├── build.py              Bundles src/ into dist/index.html, copies the server and launcher
-│   └── pack.py               Packs a release zip into one self-unpacking text file
-├── tests/                    Python tests (server, HTTP API, build, pack, launcher); js/ for core.js
+│   ├── pack.py               Packs a release zip into one self-unpacking text file
+│   └── release.py            Builds a release: the zip, the one-file .txt, and one .sha256
+├── tests/                    Python tests (server, HTTP API, build, pack, release, launcher); js/ for core.js
 ├── assets/                   Logo, icon, banners, social preview (see BRAND.md)
 ├── docs/                     Architecture notes and screenshots
 └── dist/                     Build output (git-ignored)
