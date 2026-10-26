@@ -102,6 +102,29 @@ to watch.
 to any machine with Python and run the server; nothing else is needed. Every CI run
 also publishes `dist/` as a downloadable artifact.
 
+### One file, for strict transfer systems
+
+Some file-transfer systems refuse zips and scripts. Each release also carries
+**`SALT-Workbench-v<version>.txt`**: the whole release in one plain-text file,
+with no compression and no base64. Each file inside is stored line by line as
+escaped text, so it can be read in Notepad. Run it with Python on the other end:
+
+```bat
+python "SALT-Workbench-v2.4.1.txt"
+```
+
+It unpacks into a `SALT Report Workbench` folder beside itself, checks every file
+against the checksum recorded inside, and deletes itself. It starts nothing;
+double-click the launcher in that folder when you're ready. If anything fails,
+it deletes nothing. To upgrade, run a newer one from the same
+place: the app files are replaced, `Auto Backups` stays, and a `PYTHON_EXE` path
+set in the old launcher is kept. `--keep` keeps the packed file.
+
+It is still a program, whatever its extension. If your network blocks scripts on
+purpose, ask your security office before sending it this way.
+
+Build it from a release zip with `python scripts/pack.py SaltReportWorkbench-v<version>.zip`.
+
 ### Windows launcher
 
 `Start SALT Workbench.bat` starts the server with a double-click. It needs no
@@ -217,8 +240,9 @@ fact; nothing reads it.
 │   ├── salt_sync_server.py   Standard-library HTTP + SSE sync server
 │   └── Start SALT Workbench.bat  Windows double-click launcher
 ├── scripts/
-│   └── build.py              Bundles src/ into dist/index.html, copies the server and launcher
-├── tests/                    Python tests (server, HTTP API, build, launcher); js/ for core.js
+│   ├── build.py              Bundles src/ into dist/index.html, copies the server and launcher
+│   └── pack.py               Packs a release zip into one self-unpacking text file
+├── tests/                    Python tests (server, HTTP API, build, pack, launcher); js/ for core.js
 ├── assets/                   Logo, icon, banners, social preview (see BRAND.md)
 ├── docs/                     Architecture notes and screenshots
 └── dist/                     Build output (git-ignored)
