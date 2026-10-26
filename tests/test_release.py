@@ -37,7 +37,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_one_checksum_file_covers_both_downloads(self):
         out = self.tmp / "a"
-        sums = (out / f"{self.name}.sha256").read_bytes()
+        sums = (out / "SHA256SUMS.txt").read_bytes()
         self.assertNotIn(b"\r", sums, "LF only, or sha256sum -c refuses it")
         lines = sums.decode().splitlines()
         self.assertEqual(
