@@ -64,15 +64,15 @@ launcher, the license, and a short `README.txt`.
   python "SALT-Workbench-v2.6.0.txt"
   ```
 
-**Verify a download.** The release also carries `SaltReportWorkbench-v<version>.sha256`,
-one file holding the checksums of both downloads. Builds are reproducible, so the
+**Verify a download.** The release also carries `SHA256SUMS.txt`, one file holding
+the checksums of both downloads. Builds are reproducible, so the
 checksums are stable. Put it beside what you downloaded, then:
 
 - PowerShell:
   ```powershell
-  Get-Content SaltReportWorkbench-v2.6.0.sha256 | ForEach-Object { $h, $f = -split $_; if (-not (Test-Path $f)) { "--   $f (not here)" } elseif ((Get-FileHash $f).Hash -eq $h) { "OK   $f" } else { "BAD  $f" } }
+  Get-Content SHA256SUMS.txt | ForEach-Object { $h, $f = -split $_; if (-not (Test-Path $f)) { "--   $f (not here)" } elseif ((Get-FileHash $f).Hash -eq $h) { "OK   $f" } else { "BAD  $f" } }
   ```
-- macOS or Linux: `sha256sum -c --ignore-missing SaltReportWorkbench-v2.6.0.sha256`
+- macOS or Linux: `sha256sum -c --ignore-missing SHA256SUMS.txt`
 
 Only the file you downloaded needs to say OK; the other shows as not here.
 
@@ -274,7 +274,7 @@ fact; nothing reads it.
 ├── scripts/
 │   ├── build.py              Bundles src/ into dist/index.html, copies the server and launcher
 │   ├── pack.py               Packs a release zip into one self-unpacking text file
-│   └── release.py            Builds a release: the zip, the one-file .txt, and one .sha256
+│   └── release.py            Builds a release: the zip, the one-file .txt, and SHA256SUMS.txt
 ├── tests/                    Python tests (server, HTTP API, build, pack, release, launcher); js/ for core.js
 ├── assets/                   Logo, icon, banners, social preview (see BRAND.md)
 ├── docs/                     Architecture notes and screenshots

@@ -8,7 +8,7 @@ Builds ``dist/``, then writes to OUT_DIR (default ``release/``):
 
     SaltReportWorkbench-v2.6.0.zip      the five files, in a folder
     SALT-Workbench-v2.6.0.txt           the same five, as one self-unpacking text file
-    SaltReportWorkbench-v2.6.0.sha256   both checksums: ``sha256sum -c`` checks both
+    SHA256SUMS.txt                      both checksums: ``sha256sum -c`` checks both
 
 Run it from a clean checkout of the release tag. Zip entries carry the
 commit's timestamp, so rebuilding a tag gives byte-identical files.
@@ -138,7 +138,8 @@ def main(argv: list[str] | None = None) -> int:
     sums = "".join(
         f"{hashlib.sha256(f.read_bytes()).hexdigest()}  {f.name}\n" for f in (zip_path, txt_path)
     )
-    sums_path = out / f"SaltReportWorkbench-v{args.version}.sha256"
+    # The conventional name (as in ChanSampler); .txt so Windows opens it in Notepad.
+    sums_path = out / "SHA256SUMS.txt"
     sums_path.write_text(sums, encoding="utf-8", newline="\n")
     for f in (zip_path, txt_path):
         print(f"{f.name}  {f.stat().st_size / 1024:.1f} KB")
