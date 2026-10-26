@@ -76,8 +76,30 @@ DATA_STORE: dict = {
     'config': {'ato': '', 'title': ''},
     'profiles': {},
     'formats': {},  # ato -> report-format dict (builder); synced to all clients
-    'overlays': {},  # ato -> [NAI / OBJ / PL features], imported from KML or GeoJSON
+    # NAI / OBJ / PL features, imported from KML, KMZ, GeoJSON or shapefile.
+    # One set shared by every workspace (graphics outlast a single ATO).
+    'overlays': [],
 }
+
+
+def fold_overlays(value) -> list:
+    """The shared overlay list from what a backup or request holds.
+
+    A list is the shared set as it is. A dict is the older per-workspace form
+    (ato -> list): its lists are folded into one, a later one replacing an
+    earlier overlay of the same type and name. Anything else is empty.
+    """
+    if isinstance(value, list):
+        return [o for o in value if isinstance(o, dict)]
+    if not isinstance(value, dict):
+        return []
+    by_key: dict = {}
+    for lst in value.values():
+        for o in lst if isinstance(lst, list) else []:
+            if isinstance(o, dict):
+                by_key[(o.get('type'), o.get('name'))] = o
+    return list(by_key.values())
+
 
 # Cached /api/sync prefix — all but the closing brace and connected_users count. Invalidated on every mutation.
 _sync_cache_prefix: bytes | None = None  # protected by data_lock
@@ -650,8 +672,7 @@ def _count_positions(coords, depth: int) -> int | None:
 
 
 def _v_save_overlays(data: dict) -> str | None:
-    if err := _check_ato(data):
-        return err
+    # The set is shared, so no ATO is needed; one sent by an older page is ignored.
     ovs = data.get('overlays')
     if not isinstance(ovs, list):
         return 'overlays must be a list'
@@ -746,7 +767,8 @@ def _extract_json_from_file(raw_text: str) -> dict | None:
                     'config': d.get('config', {'ato': '', 'title': ''}),
                     'profiles': d.get('profiles', {}),
                     'formats': d.get('formats', {}),
-                    'overlays': d.get('overlays', {}),
+                    # None when the file has no overlays at all (older than 2.5).
+                    'overlays': d.get('overlays'),
                 }
             # Legacy marker format: single ATO inferred from config
             ato = d.get('config', {}).get('ato', '')
@@ -756,7 +778,7 @@ def _extract_json_from_file(raw_text: str) -> dict | None:
                 'config': d.get('config', {'ato': '', 'title': ''}),
                 'profiles': d.get('profiles', {}),
                 'formats': {},
-                'overlays': {},
+                'overlays': None,
             }
         except (ValueError, KeyError):
             return None
@@ -804,7 +826,11 @@ def load_data_from_disk() -> None:
         latest_config = {'ato': '', 'title': ''}
         source_by_ato: dict = {}
         merged_formats: dict = {}
-        merged_overlays: dict = {}
+        # The newest file in the shared form decides the overlays. Files from
+        # before they were shared (per-workspace dicts) are pooled, and used
+        # only when no file has the shared form yet.
+        shared_overlays: list | None = None
+        legacy_overlays: dict = {}
 
         for filepath in candidates:
             try:
@@ -830,13 +856,13 @@ def load_data_from_disk() -> None:
                             for k, v in (result.get('formats') or {}).items()
                         }
                     )
-                    merged_overlays.update(
-                        {
-                            (k or '').strip().upper(): v
-                            for k, v in (result.get('overlays') or {}).items()
-                            if isinstance(v, list)
-                        }
-                    )
+                    ovs = result.get('overlays')
+                    if isinstance(ovs, list):
+                        shared_overlays = fold_overlays(ovs)
+                    elif isinstance(ovs, dict):
+                        legacy_overlays.update(
+                            {(o.get('type'), o.get('name')): o for o in fold_overlays(ovs)}
+                        )
                     latest_config = result.get('config', latest_config)
             except Exception:
                 # Skip unreadable / malformed files silently.
@@ -847,7 +873,9 @@ def load_data_from_disk() -> None:
             DATA_STORE['profiles'] = merged_profiles
             DATA_STORE['config'] = latest_config
             DATA_STORE['formats'] = merged_formats
-            DATA_STORE['overlays'] = merged_overlays
+            DATA_STORE['overlays'] = (
+                shared_overlays if shared_overlays is not None else list(legacy_overlays.values())
+            )
             workspace_sources.clear()
             workspace_sources.update(source_by_ato)
             invalidate_sync_cache()
@@ -859,7 +887,7 @@ def render_backup(
     profiles: dict,
     formats: dict,
     label: tuple[str, str] | None = None,
-    overlays: dict | None = None,
+    overlays: list | None = None,
 ) -> tuple[str, str] | None:
     """Return ``(filename, text)`` for a backup of the given state, or None if empty.
 
@@ -964,7 +992,7 @@ def render_backup(
             'config': config,
             'profiles': profiles,
             'formats': formats,
-            'overlays': overlays or {},
+            'overlays': overlays or [],
         },
         separators=(',', ':'),
         ensure_ascii=False,
@@ -1005,7 +1033,7 @@ def render_workspace_backups(
     profiles: dict,
     formats: dict,
     only: set | None = None,
-    overlays: dict | None = None,
+    overlays: list | None = None,
 ) -> list[tuple[str, str, str]]:
     """One ``(ato, filename, text)`` per workspace, for those in ``only`` (None: all).
 
@@ -1024,7 +1052,7 @@ def render_workspace_backups(
             profiles,
             {ato: formats[ato]} if ato in formats else {},
             label=(ato, workspace_title(ato, reports, config)),
-            overlays={ato: overlays[ato]} if overlays and ato in overlays else {},
+            overlays=overlays or [],
         )
         if rendered is not None:
             out.append((ato, *rendered))
@@ -1099,7 +1127,7 @@ def save_data_to_disk() -> None:
                 DATA_STORE.get('profiles', {}),
                 DATA_STORE.get('formats', {}),
                 only,
-                DATA_STORE.get('overlays', {}),
+                DATA_STORE.get('overlays', []),
             )
         if not files:
             return
@@ -1213,7 +1241,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                     'config': DATA_STORE['config'],
                     'profiles': DATA_STORE['profiles'],
                     'formats': DATA_STORE.get('formats', {}),
-                    'overlays': DATA_STORE.get('overlays', {}),
+                    'overlays': DATA_STORE.get('overlays', []),
                     'sources': workspace_sources,
                 }
                 full = json.dumps(data, separators=(',', ':'))
@@ -1443,7 +1471,6 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         with data_lock:
             DATA_STORE['workspaces'].pop(ato, None)
             DATA_STORE.get('formats', {}).pop(ato, None)
-            DATA_STORE.get('overlays', {}).pop(ato, None)
             workspace_sources.pop(ato, None)
             cfg = DATA_STORE.get('config') or {}
             if (cfg.get('ato') or '').strip().upper() == ato:
@@ -1551,7 +1578,6 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         self._commit(f'save_format {ato}')
 
     def _post_save_overlays(self, data: dict) -> None:
-        ato = (data.get('ato') or '').strip().upper()
         # Known fields only, like save_config. An empty list is kept (not
         # popped) so a clear reaches clients, which merge what the server sends.
         clean = [
@@ -1567,10 +1593,10 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             for o in data.get('overlays') or []
         ]
         with data_lock:
-            DATA_STORE.setdefault('overlays', {})[ato] = clean
+            DATA_STORE['overlays'] = clean
             invalidate_sync_cache()
-            mark_dirty(ato)
-        self._commit(f'save_overlays {ato}: {len(clean)} overlay(s)')
+            mark_dirty()  # every workspace's backup carries the shared set
+        self._commit(f'save_overlays: {len(clean)} overlay(s)')
 
     def _post_save_profile(self, data: dict) -> None:
         profile = data.get('profile')

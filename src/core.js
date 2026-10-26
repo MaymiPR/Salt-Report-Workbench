@@ -297,18 +297,33 @@ const backupReportBlocks = (reps) => [...reps].sort((a,b) => reportNum(a) - repo
 const backupMachineData = (payload) =>
     `\n${BACKUP_DIV}\n MACHINE DATA — DO NOT EDIT BELOW THIS LINE\n${BACKUP_DIV}\n${BACKUP_START}\n${JSON.stringify(payload)}\n${BACKUP_END}\n`;
 
+// The shared overlay list from what a backup or the server holds. A list is
+// the shared set as it is; a dict is the older per-workspace form (ato ->
+// list), folded into one, a later overlay replacing an earlier one of the
+// same type and name.
+const foldOverlays = (value) => {
+    if (Array.isArray(value)) return value.filter(o => o && typeof o === 'object');
+    if (!value || typeof value !== 'object') return [];
+    const byKey = new Map();
+    Object.values(value).forEach(list => (Array.isArray(list) ? list : []).forEach(o => {
+        if (o && typeof o === 'object') byKey.set(`${o.type} ${o.name}`, o);
+    }));
+    return [...byKey.values()];
+};
+
 // One workspace's backup file. `reps` is exported as-is in the machine data
-// (deleted flags included); only live reports are listed for reading.
-const backupText = (ato, reps, title, profiles, formats, now = new Date(), overlays = {}) => {
+// (deleted flags included); only live reports are listed for reading. The
+// shared overlays go in every file.
+const backupText = (ato, reps, title, profiles, formats, now = new Date(), overlays = []) => {
     const active = reps.filter(r => !r.deleted);
     return `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH — ATO BACKUP\n ATO Designator : ${ato}\n Report Title   : ${title}\n Total Reports  : ${active.length}\n Exported       : ${backupStamp(now)}\n${BACKUP_DIV}\n\n`
         + backupReportBlocks(active)
         + backupMachineData({ workspaces: { [ato]: reps }, config: { ato, title }, profiles: profiles||{},
-            formats: formats[ato] ? { [ato]: formats[ato] } : {}, overlays: overlays[ato] ? { [ato]: overlays[ato] } : {} });
+            formats: formats[ato] ? { [ato]: formats[ato] } : {}, overlays: foldOverlays(overlays) });
 };
 
 // Every given workspace in one file.
-const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats, now = new Date(), overlays = {}) => {
+const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats, now = new Date(), overlays = []) => {
     const atoKeys   = Object.keys(workspaces);
     const totalReps = atoKeys.reduce((n, k) => n + (workspaces[k]||[]).filter(r => !r.deleted).length, 0);
     let out = `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH — FULL BACKUP (ALL ATOs)\n ATOs Included  : ${atoKeys.join(', ')}\n Total Reports  : ${totalReps}\n Exported       : ${backupStamp(now)}\n${BACKUP_DIV}\n\n`;
@@ -318,9 +333,7 @@ const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats
         out += `${BACKUP_DIV}\n ATO: ${ato}  —  ${atoTitle}  (${active.length} report${active.length !== 1 ? 's' : ''})\n${BACKUP_DIV}\n\n`;
         out += backupReportBlocks(active);
     });
-    const ovs = {};
-    atoKeys.forEach(ato => { if (overlays[ato]) ovs[ato] = overlays[ato]; });
-    return out + backupMachineData({ workspaces, config: { ato: activeAto, title }, profiles: profiles||{}, formats, overlays: ovs });
+    return out + backupMachineData({ workspaces, config: { ato: activeAto, title }, profiles: profiles||{}, formats, overlays: foldOverlays(overlays) });
 };
 
 // Read a backup file's payload. Returns { data } or { error } with a message
@@ -662,6 +675,209 @@ const analyzeLocation = (text, overlays) => {
         nai, obj, pl: typed('PL'), nearestPl, checks,
         pls: [...new Set([...typed('PL'), ...(nearestPl && nearestPl.metres <= PL_NEAR_METRES ? [nearestPl.key] : [])])],
     };
+};
+
+// What Log or Update should do to a Location box, read against the overlays:
+//   add        places its grids are in (or, for a phase line, within
+//              PL_NEAR_METRES of) that the box doesn't name yet; added only
+//              for a type nothing was typed for
+//   conflicts  typed NAIs, OBJs and PLs the grids disagree with, each with
+//              what the grids say instead (`found`, may be empty), for the
+//              operator to settle
+// Nothing to do without a grid, or for a typed name with no overlay to check.
+const locationPlan = (text, overlays) => {
+    const a = analyzeLocation(text, overlays);
+    const plan = { add: [], conflicts: [] };
+    if (!a.points.length) return plan;
+    const ovs = (overlays || []).filter(o => o && o.geometry);
+    const keyOf = o => `${o.type} ${o.name}`;
+    ['NAI', 'OBJ'].forEach(t => {
+        const p = t === 'NAI' ? a.nai : a.obj;
+        if (p.from === 'grid') { plan.add.push(...p.keys); return; }
+        const areas = ovs.filter(o => o.type === t).map(o => ({ ...o, geometry: asArea(o.geometry) }))
+            .filter(o => /Polygon/.test(o.geometry.type));
+        const inside = o => a.points.some(pt => geometryContains(o.geometry, pt.lon, pt.lat));
+        const found = [...new Set(areas.filter(inside).map(keyOf))].filter(k => !p.keys.includes(k));
+        p.keys.forEach(k => {
+            const own = areas.filter(o => keyOf(o) === k);
+            if (own.length && !own.some(inside)) plan.conflicts.push({ type: t, typed: k, found,
+                message: found.length ? `${k} typed; grid is in ${found.join(', ')}` : `${k} typed; grid is outside it` });
+        });
+    });
+    const near = a.nearestPl && a.nearestPl.metres <= PL_NEAR_METRES ? a.nearestPl : null;
+    if (!a.pl.length) { if (near) plan.add.push(near.key); return plan; }
+    a.pl.forEach(k => {
+        const own = ovs.filter(o => o.type === 'PL' && keyOf(o) === k);
+        if (!own.length) return;
+        const d = Math.min(...own.flatMap(o => a.points.map(pt => metresToGeometry(o.geometry, pt.lon, pt.lat))));
+        if (d <= PL_NEAR_METRES) return;
+        const found = near && !a.pl.includes(near.key) ? [near.key] : [];
+        const km = (d / 1000).toFixed(1);
+        plan.conflicts.push({ type: 'PL', typed: k, found,
+            message: found.length ? `${k} typed; grid is ${km} km from it, ${Math.round(near.metres)} m from ${near.key}` : `${k} typed; grid is ${km} km from it` });
+    });
+    return plan;
+};
+
+// A Location box with typed places swapped (`replace`: key -> what to write
+// in its place, '' to take it out) and those in `add` appended (", NAI 1")
+// unless already named. Grids and everything else are left as they were.
+const editLocation = (text, { replace = {}, add = [] } = {}) => {
+    let s = String(text || '');
+    const blank = (str) => {
+        let out = str;
+        findGrids(str).forEach(p => { out = out.slice(0, p.start) + ' '.repeat(p.end - p.start) + out.slice(p.end); });
+        return out;
+    };
+    if (Object.keys(replace).length) {
+        const re = new RegExp(REF_RE.source, 'gid'), b = blank(s), spans = [];
+        let m;
+        while ((m = re.exec(b))) {
+            const type = REF_TYPES[m[2].toUpperCase().replace(/\s+/g, ' ')];
+            if (type === 'PL' && /\d{1,2}\s*[C-HJ-NP-X]\s*$/i.test(b.slice(0, m.index + m[1].length))) continue;
+            const key = `${type} ${refName(m[3])}`;
+            if (key in replace) spans.push([m.indices[2][0], m.indices[3][1], replace[key]]);
+        }
+        if (spans.length) {
+            spans.reverse().forEach(([x, y, to]) => { s = s.slice(0, x) + to + s.slice(y); });
+            s = s.replace(/\s*,(\s*,)+\s*/g, ', ').replace(/[ \t]{2,}/g, ' ').replace(/^[\s,;]+|[\s,;]+$/g, '');
+        }
+    }
+    const have = new Set(findRefs(blank(s)).map(r => r.key));
+    const extra = [...new Set(add)].filter(k => !have.has(k));
+    const head = s.replace(/[\s,;]+$/, '');
+    if (extra.length) s = (head ? head + ', ' : '') + extra.join(', ');
+    return s;
+};
+
+// --- Shapefiles ---
+
+// Web Mercator (ArcGIS's default for web layers) to longitude / latitude.
+const webMercatorToLonLat = ([x, y]) => [x / 6378137 * 180 / Math.PI, (2 * Math.atan(Math.exp(y / 6378137)) - Math.PI / 2) * 180 / Math.PI];
+
+// What a .prj (WKT, as ArcGIS writes it) says the coordinates are, as
+// { name, toLonLat }: geographic (WGS 84, NAD 83), Web Mercator, or a UTM zone
+// on WGS 84 or NAD 83 (a metre or so apart, well inside a grid square). Any
+// other system is refused by name. Null without a .prj.
+const shapefileProjection = (wkt) => {
+    const s = String(wkt || '').trim();
+    if (!s) return null;
+    const name = ((/^(?:PROJCS|PROJCRS|GEOGCS|GEOGCRS)\s*\[\s*"([^"]*)"/i.exec(s) || [])[1] || 'an unknown coordinate system').replace(/_/g, ' ');
+    if (/^GEOG(CS|CRS)\b/i.test(s)) return { name, toLonLat: c => c };
+    if (/Mercator_Auxiliary_Sphere|Pseudo[-_ ]Mercator|Popular_Visuali[sz]ation|\b(3857|102100|102113|900913)\b/i.test(s)) {
+        return { name, toLonLat: webMercatorToLonLat };
+    }
+    const param = (k) => { const m = new RegExp(`PARAMETER\\s*\\[\\s*"${k}"\\s*,\\s*(-?[\\d.]+)`, 'i').exec(s); return m ? Number(m[1]) : null; };
+    const datum = /WGS[ _]?(19)?84|NAD[ _]?(19)?83|North[ _]American[ _]1983/i.test(s);
+    if (datum && /Transverse[ _]Mercator/i.test(s) && param('scale_factor') === 0.9996 && param('false_easting') === 500000) {
+        const fn = param('false_northing') || 0;
+        const zone = (param('central_meridian') + 183) / 6;
+        if (Number.isInteger(zone) && zone >= 1 && zone <= 60 && (fn === 0 || fn === 10000000)) {
+            const south = fn === 10000000;
+            return { name, toLonLat: ([x, y]) => { const ll = utmToLatLon(zone, south, x, y); return [ll.lon, ll.lat]; } };
+        }
+    }
+    throw new Error(`its coordinates are in ${name}. Export it again in WGS 1984 (or as KML)`);
+};
+
+// The rows of a .dbf (dBASE) attribute table, one object per record, in the
+// order of the shapes. Text is UTF-8 when the .cpg says so or it reads as
+// UTF-8, else Windows-1252 (what ArcGIS writes for older layers).
+const readDbf = (buf, cpg) => {
+    const dv = new DataView(buf), bytes = new Uint8Array(buf);
+    if (buf.byteLength < 32) return [];
+    const n = dv.getUint32(4, true), headLen = dv.getUint16(8, true), recLen = dv.getUint16(10, true);
+    const fields = [];
+    for (let o = 32; o + 32 <= headLen && bytes[o] !== 0x0d; o += 32) {
+        let name = '';
+        for (let k = 0; k < 11 && bytes[o + k]; k++) name += String.fromCharCode(bytes[o + k]);
+        fields.push({ name, type: String.fromCharCode(bytes[o + 11]).toUpperCase(), len: bytes[o + 16] });
+    }
+    const utf8 = new TextDecoder('utf-8', { fatal: true });
+    const latin = new TextDecoder('windows-1252');
+    const wantUtf8 = /utf-?8|65001/i.test(cpg || '');
+    const text = (b) => {
+        if (wantUtf8 || !cpg) { try { return utf8.decode(b); } catch (e) { if (wantUtf8) return new TextDecoder('utf-8').decode(b); } }
+        return latin.decode(b);
+    };
+    const rows = [];
+    for (let r = 0; r < n; r++) {
+        const at = headLen + r * recLen;
+        if (at + recLen > buf.byteLength) break;
+        const row = {};
+        let o = at + 1;  // after the deletion flag
+        fields.forEach(f => {
+            const v = text(bytes.subarray(o, o + f.len)).trim();
+            o += f.len;
+            row[f.name] = (f.type === 'N' || f.type === 'F') && v !== '' && isFinite(Number(v)) ? Number(v) : v;
+        });
+        rows.push(row);
+    }
+    return rows;
+};
+
+// Twice a ring's signed area: negative when it runs clockwise, which in a
+// shapefile marks an outer ring (holes run the other way).
+const ringArea2 = (r) => r.reduce((a, p, i) => { const q = r[(i + 1) % r.length]; return a + p[0] * q[1] - q[0] * p[1]; }, 0);
+const inRingXY = (x, y, ring) => {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i], [xj, yj] = ring[j];
+        if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+};
+
+// A shapefile as a GeoJSON FeatureCollection in longitude / latitude, with
+// each shape's attributes as its properties: points, lines (PolyLine), and
+// areas (Polygon, holes kept), with or without Z and M. Throws a message for
+// the user when it can't be read.
+const parseShapefile = (shp, dbf, prj, cpg) => {
+    const dv = new DataView(shp);
+    if (shp.byteLength < 100 || dv.getInt32(0) !== 9994) throw new Error('it is not a shapefile (.shp)');
+    const proj = shapefileProjection(prj);
+    const rows = dbf ? readDbf(dbf, cpg) : [];
+    const features = [];
+    for (let p = 100, i = 0; p + 12 <= shp.byteLength; i++) {
+        const start = p + 8, end = start + dv.getInt32(p + 4) * 2;
+        p = end;
+        if (end > shp.byteLength) break;
+        const type = dv.getInt32(start, true);
+        const kind = type === 31 ? 0 : type % 10;  // 1 point, 3 line, 5 area, 8 multipoint (Z, M alike); 31 multipatch
+        const xy = (at) => [dv.getFloat64(at, true), dv.getFloat64(at + 8, true)];
+        let geometry = null;
+        if (kind === 1) geometry = { type: 'Point', coordinates: xy(start + 4) };
+        else if (kind === 8) {
+            const n = dv.getInt32(start + 36, true);
+            geometry = { type: 'MultiPoint', coordinates: Array.from({ length: n }, (_, k) => xy(start + 40 + 16 * k)) };
+        } else if (kind === 3 || kind === 5) {
+            const nParts = dv.getInt32(start + 36, true), nPts = dv.getInt32(start + 40, true);
+            const parts = Array.from({ length: nParts }, (_, k) => dv.getInt32(start + 44 + 4 * k, true));
+            const at0 = start + 44 + 4 * nParts;
+            const paths = parts.map((s, k) => Array.from({ length: (k + 1 < nParts ? parts[k + 1] : nPts) - s }, (_, m) => xy(at0 + 16 * (s + m))))
+                .filter(path => path.length >= 2);
+            if (kind === 3) {
+                if (paths.length) geometry = paths.length === 1 ? { type: 'LineString', coordinates: paths[0] } : { type: 'MultiLineString', coordinates: paths };
+            } else {
+                // Each hole goes with the outer ring around it.
+                const polys = paths.filter(r => ringArea2(r) < 0).map(r => [r]);
+                paths.filter(r => ringArea2(r) >= 0).forEach(h => {
+                    const host = polys.find(poly => inRingXY(h[0][0], h[0][1], poly[0])) || null;
+                    if (host) host.push(h); else polys.push([h]);  // no outer around it: an area of its own
+                });
+                if (polys.length) geometry = polys.length === 1 ? { type: 'Polygon', coordinates: polys[0] } : { type: 'MultiPolygon', coordinates: polys };
+            }
+        }
+        features.push({ type: 'Feature', geometry, properties: rows[i] || {} });
+    }
+    const project = (v) => typeof v[0] === 'number' ? proj.toLonLat(v) : v.map(project);
+    if (proj) features.forEach(f => { if (f.geometry) f.geometry.coordinates = project(f.geometry.coordinates); });
+    const flat = (v) => typeof v[0] === 'number' ? [v] : v.flatMap(flat);
+    const all = features.flatMap(f => f.geometry ? flat(f.geometry.coordinates) : []);
+    if (all.some(c => !isFinite(c[0]) || !isFinite(c[1]) || Math.abs(c[0]) > 180 || Math.abs(c[1]) > 90)) {
+        throw new Error(proj ? 'some of its coordinates are out of range' : 'it has no .prj file, and its coordinates are not longitude/latitude. Include the .prj (or zip the shapefile)');
+    }
+    return { type: 'FeatureCollection', features };
 };
 
 // --- Activity ---
@@ -1086,10 +1302,11 @@ const SaltCore = {
     escapeHtml, safeColor, safeFilename,
     atoPrefix, reportNum, formatFullId, reportText, normalizeLocation,
     BDA_EFFECTS, bdaElements, bdaSummary, bdaRollup,
-    backupFilename, backupText, allWorkspacesBackupText, parseBackup,
+    backupFilename, foldOverlays, backupText, allWorkspacesBackupText, parseBackup,
     parseCsv, reportsCsv, mtiCsvs,
     utmToLatLon, gridToLatLon, findGrids, findRefs, overlayRef, geometryContains, metresToGeometry,
-    asArea, analyzeLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisEsriJson, arcgisCsv,
+    webMercatorToLonLat, readDbf, shapefileProjection, parseShapefile,
+    asArea, analyzeLocation, locationPlan, editLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisEsriJson, arcgisCsv,
     sizeElements, gridSquare, statsData, statsCsv, PL_NEAR_METRES,
     dtg, summaryReport, summaryPlaces,
     reportKey, knownVersions, changedReports, withUnsaved,

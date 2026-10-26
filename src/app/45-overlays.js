@@ -1,21 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Overlays: NAI / OBJ / PL features imported from KML, KMZ or GeoJSON (as
-// ArcGIS exports them), reviewed, then saved per workspace and synced.
+// Overlays: NAI / OBJ / PL features imported from KML, KMZ, GeoJSON or a
+// shapefile (as ArcGIS exports them), reviewed, then saved as one set shared by every
+// workspace, and synced.
 // One of the ordered scripts that make up the page (see src/app/); they
 // share one top-level scope, so names declared earlier are visible here.
 
 // --- Reading files ---
 
-// The KML inside a KMZ (a zip): doc.kml, or else the first .kml. Read with
-// the browser's own inflater, so no library is needed.
-const kmlFromKmz = async (buf) => {
+// The files in a zip, read with the browser's own inflater, so no library
+// is needed: [{ name, method, size, offset }], and one file's bytes.
+const zipEntries = (buf) => {
     const dv = new DataView(buf);
     let eocd = -1;
     for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 65557); i--) {
         if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
     }
-    if (eocd < 0) throw new Error('it is not a KMZ (zip) file');
+    if (eocd < 0) throw new Error('it is not a zip (or KMZ) file');
     const entries = [];
     let p = dv.getUint32(eocd + 16, true);
     for (let k = dv.getUint16(eocd + 10, true); k > 0 && dv.getUint32(p, true) === 0x02014b50; k--) {
@@ -28,14 +29,23 @@ const kmlFromKmz = async (buf) => {
         });
         p += 46 + nameLen + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
     }
+    return entries;
+};
+const zipData = async (buf, entry) => {
+    const dv = new DataView(buf);
+    const start = entry.offset + 30 + dv.getUint16(entry.offset + 26, true) + dv.getUint16(entry.offset + 28, true);
+    const data  = new Uint8Array(buf, start, entry.size);
+    if (entry.method === 0) return data.slice().buffer;
+    if (entry.method !== 8) throw new Error('it uses a compression this browser cannot read');
+    return new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
+};
+
+// The KML inside a KMZ: doc.kml, or else the first .kml.
+const kmlFromKmz = async (buf) => {
+    const entries = zipEntries(buf);
     const kml = entries.find(e => /(^|\/)doc\.kml$/i.test(e.name)) || entries.find(e => /\.kml$/i.test(e.name));
     if (!kml) throw new Error('the KMZ holds no .kml file');
-    const start = kml.offset + 30 + dv.getUint16(kml.offset + 26, true) + dv.getUint16(kml.offset + 28, true);
-    const data  = new Uint8Array(buf, start, kml.size);
-    if (kml.method === 0) return new TextDecoder().decode(data);
-    if (kml.method !== 8) throw new Error('the KMZ uses a compression this browser cannot read');
-    const out = await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
-    return new TextDecoder().decode(out);
+    return new TextDecoder().decode(await zipData(buf, kml));
 };
 
 // Coordinates rounded to six decimals (about 10 cm), repeats dropped.
@@ -95,7 +105,6 @@ const kmlFeatures = (text, fileName) => {
 
 // GeoJSON must be longitude/latitude. ArcGIS writes Web Mercator unless told
 // to project to WGS 1984; that one is converted, any other projection refused.
-const fromWebMercator = ([x, y]) => [x / 6378137 * 180 / Math.PI, (2 * Math.atan(Math.exp(y / 6378137)) - Math.PI / 2) * 180 / Math.PI];
 const geojsonFeatures = (obj, fileName) => {
     const crs = String((((obj || {}).crs || {}).properties || {}).name || '');
     const mercator = /3857|900913|102100|102113/.test(crs);
@@ -119,7 +128,7 @@ const geojsonFeatures = (obj, fileName) => {
             case 'GeometryCollection': (g.geometries || []).forEach(x => walk(x, into)); break;
         }
     };
-    const project = (v) => typeof v[0] === 'number' ? (mercator ? fromWebMercator(v) : v) : v.map(project);
+    const project = (v) => typeof v[0] === 'number' ? (mercator ? SaltCore.webMercatorToLonLat(v) : v) : v.map(project);
     const out = feats.map(f => {
         const into = { polygons: [], lines: [], points: [] };
         walk(f.geometry, into);
@@ -136,19 +145,53 @@ const geojsonFeatures = (obj, fileName) => {
     return out;
 };
 
+// A shapefile is several files: the shapes (.shp), their attributes (.dbf),
+// the coordinate system (.prj) and the text encoding (.cpg). ArcGIS zips them,
+// or they can be picked together.
+const SHP_PART = /\.(shp|shx|dbf|prj|cpg|sbn|sbx|xml)$/i;
+const stemOf = n => n.replace(/\.[^./\\]+$/, '').toLowerCase();
+const shapefileFeatures = (parts, name) =>
+    geojsonFeatures(SaltCore.parseShapefile(parts.shp, parts.dbf || null, parts.prj || null, parts.cpg || null), name);
+
+// Every shapefile in a zip (a KML in it, if there is no shapefile).
+const readOverlayZip = async (buf, name) => {
+    const entries = zipEntries(buf);
+    const shps = entries.filter(e => /\.shp$/i.test(e.name));
+    if (!shps.length) {
+        const kml = entries.find(e => /\.kml$/i.test(e.name));
+        if (kml) return kmlFeatures(new TextDecoder().decode(await zipData(buf, kml)), name);
+        throw new Error('the zip holds no shapefile (.shp) or KML');
+    }
+    const out = [];
+    for (const shp of shps) {
+        const stem = stemOf(shp.name);
+        const part = async ext => {
+            const e = entries.find(x => stemOf(x.name) === stem && x.name.toLowerCase().endsWith(`.${ext}`));
+            return e ? zipData(buf, e) : null;
+        };
+        const text = b => (b ? new TextDecoder().decode(b) : null);
+        try {
+            out.push(...shapefileFeatures({ shp: await zipData(buf, shp), dbf: await part('dbf'), prj: text(await part('prj')), cpg: text(await part('cpg')) },
+                shp.name.split('/').pop()));
+        } catch (e) { throw new Error(`${shp.name.split('/').pop()}: ${e.message}`); }
+    }
+    return out;
+};
+
 const readOverlayFile = async (file) => {
     const name = file.name || '';
     if (/\.kmz$/i.test(name)) return kmlFeatures(await kmlFromKmz(await file.arrayBuffer()), name);
+    if (/\.zip$/i.test(name)) return readOverlayZip(await file.arrayBuffer(), name);
     const text = await file.text();
     if (/\.kml$/i.test(name) || /^\s*</.test(text)) return kmlFeatures(text, name);
     let obj;
-    try { obj = JSON.parse(text); } catch (e) { throw new Error('it is not KML, KMZ, or GeoJSON'); }
+    try { obj = JSON.parse(text); } catch (e) { throw new Error('it is not KML, KMZ, GeoJSON, or a shapefile'); }
     return geojsonFeatures(obj, name);
 };
 
 // --- Review, then save ---
 
-const SHAPE_LABEL = { Polygon: 'Area', MultiPolygon: 'Area', LineString: 'Line', MultiLineString: 'Line', Point: 'Point' };
+const SHAPE_LABEL = { Polygon: 'Area', MultiPolygon: 'Area', LineString: 'Line', MultiLineString: 'Line', Point: 'Point', MultiPoint: 'Point' };
 let overlayReview = null;  // { rows: [{ label, geometry, type }], files: [names] }
 
 // The overlay a review row becomes with the type picked for it.
@@ -162,9 +205,24 @@ const reviewOverlay = (row) => {
 
 const startOverlayImport = async (files) => {
     const rows = [], names = [], failed = [];
-    for (const f of files) {
+    // A shapefile picked as its parts (.shp with its .dbf, .prj ...) is one source.
+    const sources = [], parts = new Map();
+    files.forEach(f => {
+        if (!SHP_PART.test(f.name)) { sources.push({ name: f.name, read: () => readOverlayFile(f) }); return; }
+        const k = stemOf(f.name);
+        if (!parts.has(k)) parts.set(k, {});
+        parts.get(k)[f.name.split('.').pop().toLowerCase()] = f;
+    });
+    parts.forEach(g => {
+        if (!g.shp) { failed.push(`${Object.values(g)[0].name}: its .shp file wasn't picked with it`); return; }
+        sources.push({ name: g.shp.name, read: async () => shapefileFeatures({
+            shp: await g.shp.arrayBuffer(), dbf: g.dbf ? await g.dbf.arrayBuffer() : null,
+            prj: g.prj ? await g.prj.text() : null, cpg: g.cpg ? await g.cpg.text() : null,
+        }, g.shp.name) });
+    });
+    for (const f of sources) {
         try {
-            (await readOverlayFile(f)).forEach(ft => {
+            (await f.read()).forEach(ft => {
                 if (!ft.geometry) return;
                 // A prefix in the name ("NAI 3") wins; then the folder or file
                 // name; lines with neither are phase lines; areas need a choice.
@@ -181,14 +239,22 @@ const startOverlayImport = async (files) => {
     renderOverlays();
 };
 
-const saveOverlays = async (ato, list) => {
-    workspaceOverlays = { ...workspaceOverlays, [ato]: list };
-    if (!isReadOnly) writeStored('salt_ws_overlays', JSON.stringify(workspaceOverlays));
+// `incoming` replaces any overlay of the same type and name in `list`.
+const overlayKey = o => `${o.type} ${o.name}`;
+const mergeOverlays = (list, incoming) => {
+    const keys = new Set(incoming.map(overlayKey));
+    return [...list.filter(o => !keys.has(overlayKey(o))), ...incoming];
+};
+
+const saveOverlays = async (list) => {
+    sharedOverlays = list;
+    storeOverlays();
     renderOverlays();
     renderLog();
+    renderLocationHints();
     if (isLocalFile) return true;
     try {
-        const res = await postJson('/api/save_overlays', { ato, overlays: list });
+        const res = await postJson('/api/save_overlays', { overlays: list });
         if (res.status === 401) { handleUnauthorized(); return false; }
         if (!res.ok) {
             const body = await res.json().catch(() => ({}));
@@ -203,18 +269,17 @@ const saveOverlays = async (ato, list) => {
 };
 
 const finishOverlayImport = async () => {
-    const ato = shownAto();
-    if (!overlayReview || !ato) return;
+    if (!overlayReview) return;
     const added = overlayReview.rows.map(reviewOverlay).filter(Boolean);
     if (!added.length) { showToast('Pick a type for at least one shape, or Cancel.', true); return; }
     // Same type and name replaces: re-importing an updated NAI file updates it.
-    const keyOf = o => `${o.type} ${o.name}`;
-    const addedKeys = new Set(added.map(keyOf));
-    const list = [...currentOverlays().filter(o => !addedKeys.has(keyOf(o))), ...added];
+    const have = new Set(currentOverlays().map(overlayKey));
+    const replaced = added.filter(o => have.has(overlayKey(o))).length;
     overlayReview = null;
-    if (await saveOverlays(ato, list)) {
+    if (await saveOverlays(mergeOverlays(currentOverlays(), added))) {
         const n = t => added.filter(o => o.type === t).length;
-        showToast(`Imported ${added.length} overlay${added.length === 1 ? '' : 's'}: ${n('NAI')} NAI, ${n('OBJ')} OBJ, ${n('PL')} PL.`);
+        showToast(`Imported ${added.length} overlay${added.length === 1 ? '' : 's'}: ${n('NAI')} NAI, ${n('OBJ')} OBJ, ${n('PL')} PL`
+            + (replaced ? ` (${replaced} replaced an older one).` : '.'));
     }
 };
 
@@ -223,10 +288,8 @@ const finishOverlayImport = async () => {
 const renderOverlays = () => {
     const box = document.getElementById('overlaysBody');
     if (!box) return;
-    const ato = shownAto();
     const note = document.getElementById('overlaysScopeNote');
-    if (note) note.textContent = ato ? `for ${ato}` : '';
-    if (!ato) { box.innerHTML = '<div class="workspaces-empty">Set a workspace first.</div>'; return; }
+    if (note) note.textContent = 'shared by every workspace';
 
     if (overlayReview) {
         const rows = overlayReview.rows;
@@ -251,36 +314,47 @@ const renderOverlays = () => {
     }
 
     const list = currentOverlays();
-    // How many of this workspace's live reports each place appears in, typed
-    // or by grid (a phase line: typed, or a grid near it).
+    // How many of the shown workspace's live reports each place appears in,
+    // typed or by grid (a phase line: typed, or a grid near it).
     const uses = {};
     localReports.filter(r => !r.deleted).forEach(r => {
         const a = locationInfo(r.location);
         new Set([...a.nai.keys, ...a.obj.keys, ...a.pls]).forEach(k => { uses[k] = (uses[k] || 0) + 1; });
     });
-    const n = t => list.filter(o => o.type === t).length;
-    const order = { NAI: 0, OBJ: 1, PL: 2 };
-    const sorted = list.map((o, i) => ({ o, i }))
-        .sort((a, b) => order[a.o.type] - order[b.o.type] || a.o.name.localeCompare(b.o.name, undefined, { numeric: true }));
+    const GROUPS = [['NAI', 'NAIs'], ['OBJ', 'Objectives'], ['PL', 'Phase lines']];
+    const byName = (x, y) => x.o.name.localeCompare(y.o.name, undefined, { numeric: true });
+    const row = ({ o, i }) => {
+        const key = overlayKey(o);
+        // The name in the file, when it says more than the overlay's own name.
+        const said  = String(o.label || '').toUpperCase().replace(/\s+/g, ' ').trim();
+        const extra = said && said !== key && said !== o.name ? ` <span class="overlays-muted">${escapeHtml(o.label)}</span>` : '';
+        return `<tr><td><span class="overlay-type overlay-${o.type.toLowerCase()}">${o.type}</span> ${escapeHtml(o.name)}${extra}</td>
+            <td>${SHAPE_LABEL[o.geometry.type] || ''}</td><td>${uses[key] || 0}</td>
+            <td><button type="button" class="overlay-remove editor-only" data-remove-overlay="${i}" title="Unload ${escapeHtml(key)}" aria-label="Unload ${escapeHtml(key)}">&times;</button></td></tr>`;
+    };
+    const groups = GROUPS.map(([type, title]) => {
+        const members = list.map((o, i) => ({ o, i })).filter(x => x.o.type === type).sort(byName);
+        if (!members.length) return '';
+        return `<section class="overlay-group" data-overlay-group="${type}">
+            <div class="overlay-group-head">
+                <span class="overlay-group-title"><span class="overlay-type overlay-${type.toLowerCase()}">${type}</span> ${title}</span>
+                <span class="overlay-group-count">${members.length}</span>
+                <button type="button" class="overlay-group-unload editor-only" data-unload-group="${type}">Unload ${type === 'OBJ' ? 'OBJs' : type === 'PL' ? 'PLs' : 'NAIs'}</button>
+            </div>
+            <table class="overlays-table">
+                <thead><tr><th>Name</th><th>Shape</th><th>Reports${shownAto() ? ` in ${escapeHtml(shownAto())}` : ''}</th><th></th></tr></thead>
+                <tbody>${members.map(row).join('')}</tbody>
+            </table>
+        </section>`;
+    }).join('');
     box.innerHTML = `
         <div class="overlays-actions editor-only">
-            <button type="button" id="overlaysImportBtn" class="set-btn">Import KML / KMZ / GeoJSON</button>
-            ${list.length ? '<button type="button" id="overlaysClearBtn" class="cancel-btn">Clear All</button>' : ''}
+            <button type="button" id="overlaysImportBtn" class="set-btn">Import KML / KMZ / GeoJSON / SHP</button>
+            ${list.length ? '<button type="button" id="overlaysClearBtn" class="cancel-btn">Unload All</button>' : ''}
         </div>
         ${list.length ? `
-        <div class="overlays-note">${n('NAI')} NAI · ${n('OBJ')} OBJ · ${n('PL')} PL</div>
-        <table class="overlays-table">
-            <thead><tr><th>Overlay</th><th>Shape</th><th>Reports</th><th></th></tr></thead>
-            <tbody>${sorted.map(({ o, i }) => {
-                const key = `${o.type} ${o.name}`;
-                // The name in the file, when it says more than the overlay's own name.
-                const said  = String(o.label || '').toUpperCase().replace(/\s+/g, ' ').trim();
-                const extra = said && said !== key && said !== o.name ? ` <span class="overlays-muted">${escapeHtml(o.label)}</span>` : '';
-                return `<tr><td><span class="overlay-type overlay-${o.type.toLowerCase()}">${o.type}</span> ${escapeHtml(o.name)}${extra}</td>
-                    <td>${SHAPE_LABEL[o.geometry.type] || ''}</td><td>${uses[key] || 0}</td>
-                    <td><button type="button" class="overlay-remove editor-only" data-remove-overlay="${i}" title="Remove ${escapeHtml(key)}" aria-label="Remove ${escapeHtml(key)}">&times;</button></td></tr>`;
-            }).join('')}</tbody>
-        </table>` : `<div class="overlays-note">No overlays yet. Export your NAIs, OBJs and phase lines from ArcGIS as KML, KMZ or GeoJSON and import them here. Reports are then placed in NAIs and OBJs by their grid, and checked against what was typed.</div>`}`;
+        <div class="overlays-note">One set for every workspace. Importing a shape with the same type and name replaces the old one, so an updated NAI file just updates its NAIs.</div>
+        ${groups}` : `<div class="overlays-note">No overlays yet. Export your NAIs, OBJs and phase lines from ArcGIS as KML, KMZ, GeoJSON or a shapefile (zipped, or its .shp, .dbf and .prj picked together) and import them here. They apply to every workspace. Reports are then placed in NAIs and OBJs by their grid, and checked against what was typed.</div>`}`;
 };
 
 // Delegated: the tab's contents are re-rendered on every change.
@@ -292,15 +366,22 @@ if (overlaysBody && overlaysFileInput) {
         if (e.target.closest('#overlaysReviewAddBtn')) { finishOverlayImport(); return; }
         if (e.target.closest('#overlaysReviewCancelBtn')) { overlayReview = null; renderOverlays(); return; }
         if (e.target.closest('#overlaysClearBtn')) {
-            const ato = shownAto();
-            showConfirmation(`Remove every overlay from ${ato}? Reports are not changed.`, () => saveOverlays(ato, []));
+            showConfirmation('Unload every overlay, from every workspace? Reports are not changed.', () => saveOverlays([]));
+            return;
+        }
+        const group = e.target.closest('[data-unload-group]');
+        if (group) {
+            const type = group.dataset.unloadGroup;
+            const n = currentOverlays().filter(o => o.type === type).length;
+            showConfirmation(`Unload all ${n} ${type} overlay${n === 1 ? '' : 's'}? Reports are not changed.`,
+                () => saveOverlays(currentOverlays().filter(o => o.type !== type)));
             return;
         }
         const rm = e.target.closest('[data-remove-overlay]');
         if (rm) {
-            const ato = shownAto(), list = currentOverlays();
+            const list = currentOverlays();
             const victim = list[+rm.dataset.removeOverlay];
-            if (victim) saveOverlays(ato, list.filter(o => o !== victim));
+            if (victim) saveOverlays(list.filter(o => o !== victim));
         }
     });
     overlaysBody.addEventListener('change', e => {

@@ -29,6 +29,10 @@ async function handleFormSubmit(mode) {
         showToast('Please fill in: ' + missing.join(', '), true);
         return;
     }
+    // Name the NAI / OBJ / PL the grid is in, and settle any that disagree.
+    const settled = await settleLocation(el.form.location.value);
+    if (settled === null) { el.form.location.focus(); return; }
+    if (settled !== el.form.location.value) { el.form.location.value = settled; renderLocationHints(); }
 
     let reports = [...localReports];
     const idToUpdate = el.form.reportId.value;
@@ -153,8 +157,23 @@ el.form.nowBtn.addEventListener('click', () => { el.form.time.value = clockValue
 
 el.form.time.addEventListener('blur', e => autoColonTime(e.target));
 
+el.form.location.addEventListener('input', renderLocationHints);
+document.getElementById('locationHints').addEventListener('click', e => {
+    const chip = e.target.closest('[data-loc-add]');
+    if (!chip) return;
+    el.form.location.value = SaltCore.editLocation(el.form.location.value, { add: [chip.dataset.locAdd] });
+    renderLocationHints();
+    el.form.location.focus();
+});
+
 // Log body — unified event delegation (history toggle, copy, restore, row click)
 el.log.body.addEventListener('click', e => {
+    const fixLoc = e.target.closest('[data-fix-loc]');
+    if (fixLoc) {
+        e.stopPropagation();
+        fixReportLocation(fixLoc.dataset.fixLoc);
+        return;
+    }
     const histBtn = e.target.closest('[data-history-id]');
     if (histBtn) {
         const id = histBtn.dataset.historyId;
@@ -762,7 +781,18 @@ document.getElementById('exportArcgisCsvBtn').addEventListener('click', () => {
 });
 
 el.menu.exportBtn.addEventListener('click', () => isExportViewActive ? closeExportView() : openExportView());
-document.getElementById('closeExportViewBtn').addEventListener('click', closeExportView);
+
+document.querySelectorAll('[data-io-mode]').forEach(b => b.addEventListener('click', () => {
+    ioMode = b.dataset.ioMode;
+    try { localStorage.setItem('salt_io_mode', ioMode); } catch (e) { /* storage blocked: this session only */ }
+    renderIoPicker();
+}));
+el.ioPicker.select.addEventListener('change', () => {
+    try { localStorage.setItem(`salt_io_${ioMode}`, el.ioPicker.select.value); } catch (e) { /* this session only */ }
+    renderIoPicker();
+});
+el.ioPicker.run.addEventListener('click', runIoPicker);
+renderIoPicker();
 
 // Workspaces list: Unload buttons (editor only) AND viewer-mode whole-row
 // clicks are delegated through the list container so we don't have to
@@ -855,6 +885,7 @@ el.manual.modal.addEventListener('click', e => { if (e.target === el.manual.moda
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); el.log.search.focus(); el.log.search.select(); return; }
+    if (e.key==='Escape' && pendingChoice) { e.preventDefault(); pendingChoice(null); return; }
     if (e.key==='Escape' && el.manual.modal.classList.contains('show')) { e.preventDefault(); closeManual(); return; }
     if (e.key==='Escape' && el.form.cancelBtn.style.visibility==='visible') { e.preventDefault(); resetForm(); showToast('Editing cancelled.'); return; }
     // Escape clears any selected table rows (before the form-clear fallback).

@@ -169,7 +169,7 @@ const matchesBdaFilter = (r) => {
 
 // Under the Location: the NAI or OBJ a grid falls in when none was typed, and
 // a Check where a typed one disagrees with the grid. Only with overlays loaded.
-const locationTags = (text) => {
+const locationTags = (text, id) => {
     if (!currentOverlays().length) return '';
     const a = locationInfo(text);
     const tags = [];
@@ -180,7 +180,10 @@ const locationTags = (text) => {
     if (near && !a.pl.includes(near.key) && a.pls.includes(near.key)) {
         tags.push(`<span class="loc-tag" title="The grid is ${Math.round(near.metres)} m from ${escapeHtml(near.key)}">${escapeHtml(near.key)}</span>`);
     }
-    a.checks.forEach(c => tags.push(`<span class="loc-tag warn" title="${escapeHtml(c)}">Check: ${escapeHtml(c)}</span>`));
+    // An editor can click a check to settle it (saved as an Update).
+    a.checks.forEach(c => tags.push(id && !isReadOnly
+        ? `<button type="button" class="loc-tag warn" data-fix-loc="${escapeHtml(id)}" title="${escapeHtml(c)}. Click to settle it.">Check: ${escapeHtml(c)}</button>`
+        : `<span class="loc-tag warn" title="${escapeHtml(c)}">Check: ${escapeHtml(c)}</span>`));
     return tags.length ? `<div class="loc-tags">${tags.join('')}</div>` : '';
 };
 
@@ -277,7 +280,7 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
                         : `All ${done} assessed`;
             bdaBtn = `<button class="bda-btn ${state}${worstCls ? ' bda-worst-' + worstCls : ''}${openBdaRows.has(report.id) ? ' open' : ''}" data-bda-id="${escapeHtml(report.id)}" title="${tip}">${label}</button>`;
         }
-        row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${escapeHtml(report.id)}" title="Select"> ${histBtn} <button class="copy-btn" data-id="${escapeHtml(report.id)}">Copy</button>${discardBtn}${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${clampCell(report.size)}</td><td class="col-activity">${clampCell(report.activity)}</td><td class="col-location">${clampCell(report.location)}${locationTags(report.location)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}</td><td class="col-analysis">${clampCell(report.yourAnalysis)}</td>${cusCells(report.custom)}`;
+        row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${escapeHtml(report.id)}" title="Select"> ${histBtn} <button class="copy-btn" data-id="${escapeHtml(report.id)}">Copy</button>${discardBtn}${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${clampCell(report.size)}</td><td class="col-activity">${clampCell(report.activity)}</td><td class="col-location">${clampCell(report.location)}${locationTags(report.location, report.id)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}</td><td class="col-analysis">${clampCell(report.yourAnalysis)}</td>${cusCells(report.custom)}`;
         frag.appendChild(row);
 
         if (bdaMode && openBdaRows.has(report.id)) frag.appendChild(buildBdaRow(report));

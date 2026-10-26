@@ -139,15 +139,12 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
         workspaceFormats = { ...workspaceFormats, ...formats };
         writeStored('salt_ws_formats', JSON.stringify(workspaceFormats));
     }
-    // Overlays the same way. A cleared workspace arrives as an empty list.
-    // Unchanged lists keep their identity, so the location cache survives.
-    if (overlays && typeof overlays === 'object') {
-        const next = { ...workspaceOverlays };
-        Object.entries(overlays).forEach(([ato, list]) => {
-            if (JSON.stringify(list) !== JSON.stringify(next[ato])) next[ato] = list;
-        });
-        workspaceOverlays = next;
-        if (!readOnly) writeStored('salt_ws_overlays', JSON.stringify(workspaceOverlays));
+    // The shared overlays: the server's set wins. An unchanged set keeps its
+    // identity, so the location cache survives.
+    if (Array.isArray(overlays) && JSON.stringify(overlays) !== JSON.stringify(sharedOverlays)) {
+        sharedOverlays = overlays;
+        if (!readOnly) storeOverlays();
+        renderLocationHints();
     }
     if (connectedUsers != null) {
         el.status.userCount.textContent    = connectedUsers;

@@ -101,6 +101,8 @@ const chartSvg = (chart, themeName, header) => {
 
 let isStatsViewActive = false;
 let statsSquareDigits = 1;  // 1: 10 km squares, 2: 1 km
+// The workspace on screen, or every loaded one ('all'). Per browser.
+let statsScope = localStorage.getItem('salt_stats_scope') === 'all' ? 'all' : 'ato';
 let statsCharts = [];       // what is on screen, for hover and export
 
 const FOLD_AT = 10;  // longer lists show their top ten and an "Other" bar
@@ -139,7 +141,10 @@ const windowBounds = (w) => ({
 const statsWindow = () => {
     const s = statsEls();
     const { from: fromMs, to: toMs } = windowBounds(s);
-    let reps = localReports.filter(r => !r.deleted);
+    // Each report with the workspace it is in, for the per-ATO chart.
+    const atoOf = new Map();
+    const lists = statsScope === 'all' ? Object.entries(reportsByAto) : [[shownAto(), localReports]];
+    let reps = lists.flatMap(([ato, list]) => (list || []).filter(r => !r.deleted).map(r => { atoOf.set(r, ato); return r; }));
     if (fromMs !== null) reps = reps.filter(r => r.time && new Date(r.time).getTime() >= fromMs);
     if (toMs !== null)   reps = reps.filter(r => r.time && new Date(r.time).getTime() <= toMs);
     const local = timeDisplayMode === 'local';
@@ -147,22 +152,30 @@ const statsWindow = () => {
     const phrase = fromMs === null && toMs === null ? 'all reports'
         : fromMs !== null && toMs !== null ? `${when(fromMs)} to ${when(toMs)}`
         : fromMs !== null ? `from ${when(fromMs)}` : `up to ${when(toMs)}`;
-    return { reps, phrase };
+    return { reps, phrase, atoOf, atos: lists.length };
 };
 
 const renderStats = () => {
     const s = statsEls();
     if (!s.body || !isStatsViewActive) return;
     const ato = shownAto();
-    const { reps, phrase } = statsWindow();
+    const { reps, phrase, atoOf, atos } = statsWindow();
     const local = timeDisplayMode === 'local';
     const d = SaltCore.statsData(reps, currentOverlays(), { local, squareDigits: statsSquareDigits });
-    const context = `${ato || 'No workspace'} · ${phrase} · ${reps.length} report${reps.length === 1 ? '' : 's'}`;
+    const scope = statsScope === 'all' ? `All ATOs (${atos})` : (ato || 'No workspace');
+    const context = `${scope} · ${phrase} · ${reps.length} report${reps.length === 1 ? '' : 's'}`;
     s.subtitle.textContent = context;
     document.querySelectorAll('[data-stats-squares]').forEach(b => b.classList.toggle('active', +b.dataset.statsSquares === statsSquareDigits));
+    document.querySelectorAll('[data-stats-scope]').forEach(b => b.classList.toggle('active', b.dataset.statsScope === statsScope));
+    // Reports per ATO, largest first: only across every workspace.
+    const perAto = new Map();
+    reps.forEach(r => perAto.set(atoOf.get(r), (perAto.get(atoOf.get(r)) || 0) + 1));
+    const atoItems = [...perAto].map(([label, value]) => ({ label: label || 'ATO', value }))
+        .sort((x, y) => y.value - x.value || x.label.localeCompare(y.label, undefined, { numeric: true }));
     const km = statsSquareDigits === 1 ? 10 : 1;
     const ident = x => x;
     statsCharts = [
+        ...(statsScope === 'all' ? [{ id: 'ato', title: 'Reports per ATO', kind: 'bar', items: atoItems, empty: 'No reports.' }] : []),
         { id: 'nai', title: 'Reports per NAI', kind: 'bar', items: d.nai, empty: 'No NAI typed or found by grid.' },
         { id: 'obj', title: 'Reports per OBJ', kind: 'bar', items: d.obj, empty: 'No OBJ typed or found by grid.' },
         { id: 'pl', title: 'Reports at each phase line', kind: 'bar', items: d.pl, empty: 'No phase line typed or near a grid.',
@@ -211,6 +224,7 @@ const openStatsView = () => {
     if (isExportViewActive) closeExportView();
     closeSummaryView();
     isStatsViewActive = true;
+    setViewIcon('statsViewToggleBtn', true);
     el.log.view.style.display = 'none';
     statsEls().panel.style.display = 'flex';
     el.menu.panel.style.display = 'none';
@@ -220,6 +234,7 @@ const openStatsView = () => {
 const closeStatsView = () => {
     if (!isStatsViewActive) return;
     isStatsViewActive = false;
+    setViewIcon('statsViewToggleBtn', false);
     statsEls().panel.style.display = 'none';
     el.log.view.style.display = 'flex';
     writeStored('salt_view', 'log');
@@ -227,7 +242,7 @@ const closeStatsView = () => {
 
 // --- Export ---
 
-const statsFileBase = () => `${SaltCore.backupFilename(shownAto() || 'ATO', localConfig.title || 'SALT')}_stats_${fileStamp(new Date(), timeDisplayMode === 'local')}`;
+const statsFileBase = () => `${statsScope === 'all' ? 'All_ATOs' : SaltCore.backupFilename(shownAto() || 'ATO', localConfig.title || 'SALT')}_stats_${fileStamp(new Date(), timeDisplayMode === 'local')}`;
 const csvSection = (c) => ({ title: `${c.title} (${c.context})`, items: c.items.map(i => ({ label: c.tipX(i.label), value: i.value })) });
 const chartCsv = (c) => SaltCore.statsCsv([csvSection(c)]);
 
@@ -307,7 +322,6 @@ const exportAllStats = async () => {
     const s = statsEls();
     if (!s.panel) return;
     document.getElementById('statsViewToggleBtn').addEventListener('click', () => (isStatsViewActive ? closeStatsView() : openStatsView()));
-    document.getElementById('closeStatsViewBtn').addEventListener('click', closeStatsView);
     document.getElementById('statsExportAllBtn').addEventListener('click', () => {
         exportAllStats().catch(e => showToast('Export error: ' + e.message, true));
     });
@@ -316,6 +330,13 @@ const exportAllStats = async () => {
     s.panel.addEventListener('click', e => {
         const preset = e.target.closest('[data-stats-hours]');
         if (preset) { fillWindow(s, +preset.dataset.statsHours); renderStats(); return; }
+        const scope = e.target.closest('[data-stats-scope]');
+        if (scope) {
+            statsScope = scope.dataset.statsScope;
+            try { localStorage.setItem('salt_stats_scope', statsScope); } catch (err) { /* storage blocked: this session only */ }
+            renderStats();
+            return;
+        }
         const sq = e.target.closest('[data-stats-squares]');
         if (sq) { statsSquareDigits = +sq.dataset.statsSquares; renderStats(); return; }
         const act = e.target.closest('[data-stats-act]');

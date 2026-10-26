@@ -93,16 +93,22 @@ handler's `_POST_ROUTES` table, paired with a schema validator in
 | `/api/save_config` | POST | Set the active ATO and title. |
 | `/api/save_profile` | POST | Register an operator's initials and color. |
 | `/api/save_format` | POST | Save a workspace's report format (Builder). |
-| `/api/save_overlays` | POST | Replace a workspace's NAI / OBJ / PL overlays (GeoJSON geometries, longitude/latitude). An empty list clears them. |
+| `/api/save_overlays` | POST | Replace the shared NAI / OBJ / PL overlays (GeoJSON geometries, longitude/latitude). An empty list clears them. |
 
 ### Overlays and geography
 
-Overlays are stored per workspace like formats: `{type: NAI|OBJ|PL, name,
-label?, geometry}`, with GeoJSON geometry in longitude/latitude. The page
-converts KML, KMZ (unzipped with the browser's `DecompressionStream`), and
-GeoJSON (Web Mercator converted, other projections refused) into that shape
-before saving, so the server only validates: types, name lengths, coordinate
-ranges, at most 500 features and 200,000 points per workspace.
+Overlays are one list shared by every workspace (since 2.8; before, one per
+workspace): `{type: NAI|OBJ|PL, name, label?, geometry}`, with GeoJSON
+geometry in longitude/latitude. Every workspace's backup file carries the
+whole list, and on boot the newest file in that form wins; older files' per-
+workspace dicts are pooled (`fold_overlays` in the server, `foldOverlays` in
+`core.js`). The page converts KML, KMZ and zipped shapefiles (unzipped with
+the browser's `DecompressionStream`), loose shapefile parts, and GeoJSON (Web
+Mercator converted, other projections refused) into that shape before saving,
+so the server only validates: types, name lengths, coordinate ranges, at most
+500 features and 200,000 points. Shapefiles are read by `parseShapefile` in
+`core.js` (.shp geometry, .dbf attributes, .prj to longitude/latitude for
+geographic, Web Mercator and UTM).
 
 Nothing derived is stored. Each Location box is read on the fly by
 `analyzeLocation` in `core.js` (grids, typed names, the areas the grids fall
@@ -111,6 +117,12 @@ page by text until the overlays change. MGRS uses Krüger's series for UTM and
 picks the northing that lands inside the latitude band, which also refuses
 typos; `tests/js/mgrs-vectors.json` holds reference points from the NGA's
 GeoTrans to check it against.
+
+The one place a report's text is changed for it: on Log and Update,
+`locationPlan` lists the places its grids are in that the box doesn't name,
+and typed names the grids disagree with; the operator settles each of those
+(`askChoice`), and `editLocation` writes the result into the Location before
+it is saved, like anything else typed there.
 
 ## Sync model
 

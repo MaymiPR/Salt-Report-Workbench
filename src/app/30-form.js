@@ -114,6 +114,64 @@ const saveWorkspaceFormat = (format) => {
     postJson('/api/save_format', { ato: activeAto, format }).catch(() => {});
 };
 
+// --- Location against the overlays ---
+
+// Under the Location box: what Log / Update will add (click one to add it
+// now) and what disagrees with the grid.
+const renderLocationHints = () => {
+    const box = document.getElementById('locationHints');
+    if (!box) return;
+    const text = el.form.location.value;
+    const ovs = currentOverlays();
+    const plan = ovs.length && text.trim() ? SaltCore.locationPlan(text, ovs) : { add: [], conflicts: [] };
+    const near = plan.add.some(k => k.startsWith('PL ')) ? locationInfo(text).nearestPl : null;
+    const chips = [
+        ...plan.add.map(k => `<button type="button" class="loc-hint" data-loc-add="${escapeHtml(k)}" title="Added when you log. Click to add it now.">+ ${escapeHtml(k)}${near && near.key === k ? ` <span class="loc-hint-sub">${Math.round(near.metres)} m</span>` : ''}</button>`),
+        ...plan.conflicts.map(c => `<span class="loc-hint warn" title="When you log, you pick which to keep.">${escapeHtml(c.message)}</span>`),
+    ];
+    box.innerHTML = chips.join('');
+    box.hidden = !chips.length;
+};
+
+// The Location box with the places its grid is in added, and each typed
+// place the grid disagrees with settled by the operator. Null when they
+// cancel. Unchanged without overlays.
+const settleLocation = async (text) => {
+    const ovs = currentOverlays();
+    if (!ovs.length) return text;
+    const plan = SaltCore.locationPlan(text, ovs);
+    const replace = {}, add = [...plan.add];
+    for (const c of plan.conflicts) {
+        const opts = c.found.length
+            ? [{ label: `Use ${c.found.join(', ')}`, value: 'grid', primary: true }, { label: `Keep ${c.typed}`, value: 'typed' }, { label: 'Keep both', value: 'both' }]
+            : [{ label: `Keep ${c.typed}`, value: 'typed', primary: true }, { label: `Take out ${c.typed}`, value: 'grid' }];
+        const pick = await askChoice(`The grid and ${c.typed} disagree`, c.message + '.', opts);
+        if (pick === null) return null;
+        if (pick === 'grid') replace[c.typed] = c.found.join(', ');
+        if (pick === 'both') add.push(...c.found);
+    }
+    const out = SaltCore.editLocation(text, { replace, add });
+    return out.length <= 500 ? out : text;  // the server's per-field limit
+};
+
+// The orange Check tag on a logged report: settle it the same way, saved as
+// an Update (the old Location goes to its history).
+const fixReportLocation = async (id) => {
+    if (isReadOnly) return;
+    const r = localReports.find(x => x.id === id && !x.deleted);
+    if (!r) return;
+    const loc = await settleLocation(r.location);
+    if (loc === null || loc === r.location) return;
+    const now = Date.now();
+    const hist = [...(r.history || []), { size: r.size || '', activity: r.activity || '', location: r.location || '', time: r.time,
+        yourAnalysis: r.yourAnalysis || '', custom: r.custom || {}, user: r.user, lastModified: r.lastModified }];
+    const next = { ...r, location: loc, history: hist, updated: true, lastModified: now, user: userProfile };
+    localReports = localReports.map(x => x === r ? next : x);
+    reportsByAto[activeAto] = localReports;
+    showToast(`${formatFullId(next)} updated: ${loc}`);
+    await saveLocalAndSync(reportsByAto);
+};
+
 const resetForm = () => {
     el.form.root.reset();
     el.form.reportId.value = '';
@@ -127,6 +185,7 @@ const resetForm = () => {
     el.form.nowBtn.disabled = true;
     el.form.startNum.value = '';
     document.querySelectorAll('.selected-row').forEach(r => r.classList.remove('selected-row'));
+    renderLocationHints();
 };
 
 const loadReportForEditing = (reportId) => {
@@ -142,6 +201,7 @@ const loadReportForEditing = (reportId) => {
     el.form.size.value     = report.size;
     el.form.activity.value = report.activity;
     el.form.location.value = report.location;
+    renderLocationHints();
     el.form.analysis.value = report.yourAnalysis || '';
     document.querySelectorAll('#salt-fields [data-custom-label]').forEach(i => { i.value = (report.custom || {})[i.dataset.customLabel] || ''; });
     el.form.time.value = clockValue(new Date(report.time), timeDisplayMode === 'local');

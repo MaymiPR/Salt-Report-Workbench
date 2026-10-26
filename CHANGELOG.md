@@ -6,6 +6,50 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Shapefiles** in the Overlays tab: the zip ArcGIS writes, or the `.shp`,
+  `.dbf` and `.prj` picked together. Areas keep their holes; names and types
+  come from the attribute table. WGS 84 / NAD 83 latitude-longitude, Web
+  Mercator, and UTM zones are converted; any other coordinate system is
+  refused by name.
+- **Logging names the place.** On Log or Update, the NAI or OBJ a grid is in,
+  and a phase line within 1 km, are added to the Location
+  (`11S NV 3921 0547, NAI 2, PL BLUE`). Chips under the Location box show
+  them while you type; click one to add it at once.
+- **Settling disagreements.** When a typed NAI, OBJ, or phase line disagrees
+  with the grid, Log asks: use the grid's, keep yours, or keep both. The
+  orange *Check* tag on an older report settles the same way, saved as an
+  Update.
+- **Statistics for all ATOs.** *Scope* switches between the workspace on
+  screen and every loaded workspace, which adds a *Reports per ATO* chart.
+
+### Changed
+
+- **Overlays are shared by every workspace.** Import them once and every
+  ATO, editor, and viewer uses them. The Overlays tab groups them as NAIs,
+  Objectives, and Phase lines, each group with its own Unload, so an updated
+  set can be unloaded and imported again a group at a time. Overlays saved
+  per workspace by earlier versions are pooled into one set.
+- **Four icons replace the menu's view items.** Workspaces, Statistics, and
+  Summary Reports sit in a 2x2 square with a gear for Settings (what the
+  ellipsis menu held), at the top right of the report panel in every view.
+  The open view's icon is highlighted; click it again to go back to the
+  Report Log.
+- **Import / Export** is one picker: Export or Import, what (each with a line
+  saying how to use it), and one button. Import also offers Overlays.
+- **Horizontal layout reworked**: a compact form across the top, and the
+  report panel filling the rest of the window with its table scrolling
+  inside.
+
+### Fixed
+
+- In the horizontal layout, half the form stood empty when the format had no
+  Analysis, the menu ran off the bottom of the screen, and the page scrolled
+  to a table capped at 65% of the window.
+- The Settings menu no longer runs past the panel that holds it in a short
+  window; it scrolls instead.
+
 ## [2.7.2] - 2026-10-26
 
 ### Added

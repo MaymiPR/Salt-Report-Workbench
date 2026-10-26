@@ -76,6 +76,11 @@ const el = {
         exportBtn: document.getElementById('exportViewToggleBtn'),
         clearBtn:  document.getElementById('clearAllBtn'),
     },
+    ioPicker: {
+        select: document.getElementById('ioFormatSelect'),
+        run:    document.getElementById('ioRunBtn'),
+        desc:   document.getElementById('ioFormatDesc'),
+    },
     layout: { grid: document.getElementById('mainGrid') },
     toast: {
         regular:    document.getElementById('toast-notification'),
@@ -109,7 +114,7 @@ const el = {
     workspaces: {
         list:        document.getElementById('workspacesList'),
         sidebarList: document.getElementById('workspacesSidebarList'),
-        tabs:        document.querySelectorAll('#exportPanel .ws-tab'),
+        tabs:        document.querySelectorAll('#exportPanel .ws-tabs .ws-tab'),
         tabPanels:   document.querySelectorAll('#exportPanel .ws-tab-panel'),
     },
     csv: {
@@ -291,13 +296,20 @@ const currentFormat  = () => {
 };
 
 // --- Overlays ---
-// NAI / OBJ / PL features per workspace, imported from KML or GeoJSON (the
-// Overlays tab) and synced like formats. Viewers keep none locally.
-if (viewerAtLoad) { try { localStorage.removeItem('salt_ws_overlays'); } catch (e) {} }
-let workspaceOverlays = viewerAtLoad ? {} : readStored('salt_ws_overlays', {});
+// NAI / OBJ / PL features, one set shared by every workspace: imported in the
+// Overlays tab and synced. Viewers keep none locally. Browsers from before
+// they were shared kept them per workspace ('salt_ws_overlays'); those are
+// folded into one set once.
+if (viewerAtLoad) { try { localStorage.removeItem('salt_ws_overlays'); localStorage.removeItem('salt_overlays'); } catch (e) {} }
+let sharedOverlays = viewerAtLoad ? [] : SaltCore.foldOverlays(readStored('salt_overlays', null) || readStored('salt_ws_overlays', []));
+const storeOverlays = () => {
+    if (isReadOnly || viewerAtLoad) return;
+    writeStored('salt_overlays', JSON.stringify(sharedOverlays));
+    try { localStorage.removeItem('salt_ws_overlays'); } catch (e) {}
+};
 // The workspace on screen: the editor's active one, or the viewer's pick.
 const shownAto        = () => (isReadOnly ? viewerShowingAto : activeAto) || '';
-const currentOverlays = () => workspaceOverlays[shownAto()] || [];
+const currentOverlays = () => sharedOverlays;
 // What each Location box says against the overlays (grids, NAI/OBJ, nearest
 // PL, checks). Cached by text; cleared whenever the overlays change.
 const locationCache = new Map();
@@ -385,7 +397,27 @@ const copyToClipboard = (text) => {
 const postJson = (path, body) => fetch(path, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });
-const setupMenuToggle = (btn, menu) => btn.addEventListener('click', e => { e.stopPropagation(); menu.style.display = menu.style.display === 'block' ? 'none' : 'block'; });
+// A dropdown never runs past the bottom of the window or of the panel that
+// holds it (which clips it): it gets the room below its button, and scrolls
+// inside that if it needs more.
+const setupMenuToggle = (btn, menu) => btn.addEventListener('click', e => {
+    e.stopPropagation();
+    const open = menu.style.display !== 'block';
+    menu.style.display = open ? 'block' : 'none';
+    if (open) {
+        menu.style.maxHeight = '';
+        const panel = btn.closest('.report-section, .form-section');
+        const bottom = Math.min(window.innerHeight, panel ? panel.getBoundingClientRect().bottom : Infinity);
+        const room = bottom - menu.getBoundingClientRect().top - 12;
+        if (menu.scrollHeight > room) menu.style.maxHeight = `${Math.max(160, room)}px`;
+    }
+});
+
+// The view switcher's icons: the open view's is highlighted.
+const setViewIcon = (id, on) => {
+    const b = document.getElementById(id);
+    if (b) { b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); }
+};
 
 // --- 4. Notifications (toasts + confirmation dialog) ---
 let toastTimer = null;
@@ -410,6 +442,33 @@ const UNDO_MS = 10000;
 // action, so Confirm only ever runs what the dialog is showing.
 let pendingConfirm = null;
 const hideConfirmation = () => { el.toast.confirm.classList.remove('show'); pendingConfirm = null; };
+
+// A question with several answers: `options` are { label, value, primary? };
+// resolves to the value picked, or null for Cancel (or Escape). A new
+// question answers an open one with null.
+let pendingChoice = null;
+const askChoice = (message, detail, options) => {
+    if (pendingChoice) pendingChoice(null);
+    const box = document.getElementById('choice-toast');
+    document.getElementById('choice-message').textContent = message;
+    document.getElementById('choice-detail').textContent = detail || '';
+    const buttons = document.getElementById('choiceButtons');
+    buttons.innerHTML = '';
+    return new Promise(resolve => {
+        const done = (value) => { pendingChoice = null; box.classList.remove('show'); resolve(value); };
+        [...options, { label: 'Cancel', value: null, cancel: true }].forEach(o => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = o.cancel ? 'choice-cancel' : o.primary ? 'choice-primary' : 'choice-option';
+            b.textContent = o.label;
+            b.addEventListener('click', () => done(o.value));
+            buttons.appendChild(b);
+        });
+        pendingChoice = done;
+        box.classList.add('show');
+        (buttons.querySelector('.choice-primary') || buttons.firstChild).focus();
+    });
+};
 const showConfirmation = (msg, onConfirm) => {
     el.toast.message.textContent = msg;
     pendingConfirm = onConfirm;
