@@ -229,6 +229,8 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     // Same for the Overlays tab (a review in progress is kept).
     const overlaysPanel = document.querySelector('[data-tab-panel="overlays"]');
     if (overlaysPanel && overlaysPanel.style.display !== 'none') renderOverlays();
+    // And the Statistics panel, so the numbers follow the log.
+    renderStats();
 }
 
 // Viewer-only: switch which workspace the viewer is LOOKING AT, locally.

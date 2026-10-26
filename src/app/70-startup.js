@@ -45,6 +45,7 @@ if (!el.startup.overlay.classList.contains('show')) {
 
 renderLog();
 if (localStorage.getItem('salt_view')==='export') openExportView();
+else if (localStorage.getItem('salt_view')==='stats') openStatsView();
 
 syncWithServer().then(() => {
     initSSE();

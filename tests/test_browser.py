@@ -314,6 +314,47 @@ class BrowserTests(unittest.TestCase):
             "1 without a readable grid", page.locator("#toast-notification").text_content()
         )
 
+    def test_statistics_panel_charts_and_exports(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x T-72", activity="moving N", location="38SMB4500082000")
+        self.log(page, "1x BMP-2", activity="stationary", location="38S MB 55000 82000, NAI 1")
+        page.click("#dataMgmtBtn")
+        page.click("#statsViewToggleBtn")
+        page.wait_for_selector(".stats-card[data-chart='nai'] svg")
+        tiles = page.locator(".stats-tile").all_inner_texts()
+        self.assertEqual([" ".join(t.split()) for t in tiles][:4],
+                         ["Reports 2", "With a grid 2", "In an NAI or OBJ 2", "Checks to look at 1"])  # fmt: skip
+        # Hover readout: value first, then what it counts.
+        page.hover(".stats-card[data-chart='nai'] .stats-row[data-i='0'] .stats-hit")
+        self.assertEqual(
+            " ".join(page.locator(".stats-card[data-chart='nai'] .stats-tip").inner_text().split()),
+            "2 reports · NAI 1",
+        )
+        page.click(".stats-card[data-chart='equipment'] [data-stats-act='table']")
+        self.assertEqual(
+            page.locator(".stats-card[data-chart='equipment'] .stats-table td").all_text_contents(),
+            ["T-72", "2", "BMP-2", "1"],
+        )
+        with page.expect_download() as dl:
+            page.click(".stats-card[data-chart='nai'] [data-stats-act='png']")
+        self.assertTrue(Path(dl.value.path()).read_bytes().startswith(b"\x89PNG\r\n\x1a\n"))
+        with page.expect_download() as dl:
+            page.click("#statsExportAllBtn")
+        with zipfile.ZipFile(dl.value.path()) as zf:
+            self.assertIsNone(zf.testzip())
+            names = zf.namelist()
+            csv = zf.read("statistics.csv").decode("utf-8")
+        self.assertIn("nai.png", names)
+        self.assertIn("hours.svg", names)
+        self.assertIn('"NAI 1",2', csv)
+        # Live: a report logged from the form shows up without reopening.
+        page.click("#closeStatsViewBtn")
+        self.log(page, "1x truck", activity="parked", location="38SMB4500082100")
+        page.click("#dataMgmtBtn")
+        page.click("#statsViewToggleBtn")
+        page.wait_for_selector(".stats-tile:has-text('Reports') .stats-tile-value:text-is('3')")
+
     def test_geojson_from_arcgis_in_web_mercator_is_converted(self):
         page = self.open_editor()
         result = page.evaluate(

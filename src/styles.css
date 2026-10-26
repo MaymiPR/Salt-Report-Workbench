@@ -1085,6 +1085,46 @@ body.read-only .editor-only { display: none !important; }
 .loc-tag { font-size: 0.72em; font-weight: 600; padding: 1px 7px; border-radius: 100px; background: rgba(10, 132, 255, 0.12); color: var(--system-blue); white-space: nowrap; }
 .loc-tag.warn { background: rgba(255, 159, 10, 0.14); color: var(--system-orange); white-space: normal; border-radius: 6px; }
 
+/* --- Statistics panel --- */
+#statsPanel { display: none; flex-direction: column; flex: 1; min-height: 0; }
+.stats-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-bottom: 16px; }
+.stats-filters .filter-presets { margin: 0; }
+.stats-filters #statsExportAllBtn { margin: 0 0 0 auto; width: auto; padding: 8px 16px; font-size: 0.85em; }
+.stats-range { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.stats-range label { margin: 0 2px 0 4px; font-size: 0.8em; color: var(--text-secondary); }
+.stats-range input { width: auto; margin: 0; padding: 6px 8px; font-size: 0.85em; }
+.stats-range .filter-time { width: 64px; }
+.filter-preset-btn.active { background-color: rgba(10, 132, 255, 0.18); color: var(--system-blue); }
+.stats-body { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
+.stats-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.stats-tile { background: var(--input-bg); border-radius: 12px; padding: 10px 14px; }
+.stats-tile-label { font-size: 0.78em; color: var(--text-secondary); }
+.stats-tile-value { font-size: 1.6em; font-weight: 600; color: var(--text-primary); line-height: 1.2; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); gap: 14px; }
+.stats-card { border: 1px solid var(--divider); border-radius: 14px; padding: 14px 16px; min-width: 0; }
+.stats-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+.stats-card-head h4 { margin: 0; font-size: 0.92em; font-weight: 600; color: var(--text-primary); }
+.stats-note { font-size: 0.75em; color: var(--text-secondary); margin-top: 2px; }
+.stats-card-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.stats-card-actions button { margin: 0; width: auto; padding: 3px 8px; font-size: 0.72em; font-weight: 600; border-radius: 6px; background: var(--input-bg); color: var(--text-secondary); border: none; }
+.stats-card-actions button:hover:not(:disabled), .stats-card-actions button.active { color: var(--system-blue); }
+.stats-card-actions button:disabled { opacity: 0.35; cursor: not-allowed; }
+.stats-chart { position: relative; }
+.stats-chart svg { display: block; width: 100%; height: auto; }
+.stats-row:hover .stats-mark, .stats-row:focus-within .stats-mark { filter: brightness(1.25); }
+.stats-hit { cursor: default; outline: none; }
+.stats-hit:focus-visible { stroke: var(--system-blue); stroke-width: 1; }
+.stats-tip { position: absolute; pointer-events: none; background: var(--input-bg-hover); border: 1px solid var(--glass-border); border-radius: 8px; padding: 4px 9px; font-size: 0.8em; white-space: nowrap; display: flex; gap: 8px; align-items: baseline; z-index: 2; }
+.stats-tip[hidden] { display: none; }
+.stats-tip strong { color: var(--text-primary); }
+.stats-tip span { color: var(--text-secondary); }
+.stats-empty { font-size: 0.85em; color: var(--text-secondary); padding: 18px 0; }
+.stats-table { margin-top: 8px; max-height: 240px; overflow-y: auto; }
+.stats-table table { width: 100%; border-collapse: collapse; font-size: 0.82em; }
+.stats-table th { text-align: left; color: var(--text-secondary); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--divider); }
+.stats-table td { padding: 4px 6px; border-bottom: 1px solid var(--divider); color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.stats-table td:last-child, .stats-table th:last-child { text-align: right; }
+
 /* --- BDA (hidden until ellipsis toggle) --- */
 /* Roll-up strip between the header and the table: one chip per outcome,
    click to filter. Effect colors come from the shared .bda-eff-* classes. */
