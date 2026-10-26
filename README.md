@@ -114,11 +114,11 @@ python "SALT-Workbench-v2.4.1.txt"
 ```
 
 It unpacks into a `SALT Report Workbench` folder beside itself, checks every file
-against the checksum recorded inside, deletes itself, and starts the workbench.
-If anything fails, it deletes nothing. To upgrade, run a newer one from the same
+against the checksum recorded inside, and deletes itself. It starts nothing;
+double-click the launcher in that folder when you're ready. If anything fails,
+it deletes nothing. To upgrade, run a newer one from the same
 place: the app files are replaced, `Auto Backups` stays, and a `PYTHON_EXE` path
-set in the old launcher is kept. `--keep` keeps the packed file, and
-`--no-start` only unpacks.
+set in the old launcher is kept. `--keep` keeps the packed file.
 
 It is still a program, whatever its extension. If your network blocks scripts on
 purpose, ask your security office before sending it this way.

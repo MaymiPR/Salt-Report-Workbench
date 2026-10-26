@@ -12,9 +12,9 @@ On the other end, Python runs it whatever its extension::
     python "SALT-Workbench-v2.4.1.txt"
 
 It unpacks into a ``SALT Report Workbench`` folder beside itself, checks every
-file against the SHA-256 recorded at pack time, deletes the packed file, and
-starts the server. If anything fails, the packed file stays. See UNPACKER for
-the options and the upgrade behavior.
+file against the SHA-256 recorded at pack time, and deletes the packed file.
+It starts nothing. If anything fails, the packed file stays. See UNPACKER for
+the option and the upgrade behavior.
 
 Usage:  python scripts/pack.py SaltReportWorkbench-v2.4.1.zip [-o OUT_DIR]
 """
@@ -45,16 +45,14 @@ UNPACKER = '''\
 #     python "SALT-Workbench-v@VERSION@.txt"
 #
 # It unpacks the workbench into a "SALT Report Workbench" folder beside this
-# file, checks every file against the SHA-256 recorded here, deletes this
-# packed file, and starts the workbench. If anything fails, nothing is deleted.
+# file, checks every file against the SHA-256 recorded here, and deletes this
+# packed file. It starts nothing. If anything fails, nothing is deleted.
 #
 # To upgrade, run a newer packed file from the same place (or from inside the
 # folder). The app files are replaced, "Auto Backups" is left alone, and a
 # PYTHON_EXE path set in the old launcher is kept.
 #
 #     --keep       keep this packed file after unpacking
-#     --no-start   unpack only; don't start the workbench
-#     Anything else goes to the server, for example --port 9090.
 #
 # Everything it unpacks is below, as plain text: each line of each file is an
 # escaped string. Source: https://github.com/MaymiPR/SaltReportWorkbench
@@ -62,14 +60,12 @@ UNPACKER = '''\
 import hashlib
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
 VERSION = '@VERSION@'
 FOLDER = 'SALT Report Workbench'
 LAUNCHER = 'Start SALT Workbench.bat'
-SERVER = 'salt_sync_server.py'
 FILES = {}  # name -> text
 SHA256 = {}  # name -> SHA-256 of the text as UTF-8
 
@@ -114,8 +110,6 @@ def main(argv):
         print(' [!] The workbench needs Python 3.10 or newer. Nothing was changed.')
         return 1
     keep = '--keep' in argv
-    start = '--no-start' not in argv
-    server_args = [a for a in argv if a not in ('--keep', '--no-start')]
     here = Path(__file__).resolve()
     try:
         target = unpack(here)
@@ -130,14 +124,8 @@ def main(argv):
             print(f' [+] Deleted {here.name}.')
         except OSError as exc:
             print(f' [!] Could not delete {here.name} ({exc}); delete it by hand.')
-    if not start:
-        print(f' [+] To start the workbench, double-click "{LAUNCHER}" in that folder.')
-        return 0
-    print(f' [+] Starting it now. Next time, double-click "{LAUNCHER}" in that folder.')
-    try:
-        return subprocess.call([sys.executable, str(target / SERVER), *server_args], cwd=target)
-    except KeyboardInterrupt:
-        return 0
+    print(f' [+] To start the workbench, double-click "{LAUNCHER}" in that folder.')
+    return 0
 
 '''
 

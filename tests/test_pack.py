@@ -45,7 +45,7 @@ class PackTests(unittest.TestCase):
 
     def run_packed(self, path: Path, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [sys.executable, str(path), "--no-start", *args],
+            [sys.executable, str(path), *args],
             capture_output=True,
             text=True,
             timeout=60,
@@ -67,6 +67,12 @@ class PackTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assert_unpacked(self.tmp / "SALT Report Workbench")
         self.assertFalse(path.exists(), "the packed file deletes itself")
+        self.assertIn("double-click", result.stdout, "it says how to start, and starts nothing")
+        self.assertEqual(
+            sorted(p.name for p in (self.tmp / "SALT Report Workbench").iterdir()),
+            sorted(BLOBS),
+            "nothing ran: no Auto Backups folder",
+        )
 
     def test_line_endings_changed_in_transfer_do_not_matter(self):
         path = self.place(self.tmp)
