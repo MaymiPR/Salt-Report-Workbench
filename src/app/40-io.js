@@ -319,6 +319,60 @@ const initBuilderHandlers = () => {
 };
 initBuilderHandlers();
 
+// --- Import / Export picker ---
+// One list per direction; each entry presses one of the (hidden) action
+// buttons, or opens an overlay import. `needs` names the option it shows.
+const IO_FORMATS = {
+    export: [
+        { id: 'backup', label: 'Backup (.txt)', btn: 'exportPanelBackupBtn', needs: 'backup',
+          desc: 'Every report with its updates, BDA, report format and the overlays. Opens in Notepad; Import it on any workbench.' },
+        { id: 'csv', label: 'Reports for Excel (.csv)', btn: 'exportPanelCsvBtn', needs: 'csv',
+          desc: 'One row per report, and one per saved update, with the time filter below.' },
+        { id: 'arcgis-esri', label: 'ArcGIS points (.json, Esri JSON)', btn: 'exportArcgisEsriBtn',
+          desc: 'One point per grid for ArcGIS Pro: run JSON To Features on it. The surest way into Pro.' },
+        { id: 'arcgis-geojson', label: 'ArcGIS points (.geojson)', btn: 'exportArcgisGeojsonBtn',
+          desc: 'The same points as GeoJSON, for JSON To Features or other GIS. Text longer than 254 characters is cut.' },
+        { id: 'arcgis-csv', label: 'ArcGIS points (.csv)', btn: 'exportArcgisCsvBtn',
+          desc: 'The same points as a table: XY Table To Point, with lon as X and lat as Y (WGS 1984).' },
+    ],
+    import: [
+        { id: 'backup', label: 'Backup (.txt)', btn: 'importBackupBtnTrigger',
+          desc: 'Reports, report format and overlays from a workbench backup. Reports merge with what is here.' },
+        { id: 'csv', label: 'Another tool\'s CSV', btn: 'importCsvBtnTrigger',
+          desc: 'Match its columns to SALT fields, then import the rows into a workspace.' },
+        { id: 'overlays', label: 'Overlays (KML, KMZ, GeoJSON, SHP)', overlays: true,
+          desc: 'NAIs, OBJs and phase lines, shared by every workspace. Opens the Overlays tab to review them.' },
+    ],
+};
+let ioMode = localStorage.getItem('salt_io_mode') === 'import' && !isReadOnly ? 'import' : 'export';
+const ioFormat = () => IO_FORMATS[ioMode].find(f => f.id === el.ioPicker.select.value) || IO_FORMATS[ioMode][0];
+const renderIoPicker = () => {
+    const p = el.ioPicker;
+    if (!p.select) return;
+    if (isReadOnly) ioMode = 'export';
+    const remembered = localStorage.getItem(`salt_io_${ioMode}`);
+    p.select.innerHTML = IO_FORMATS[ioMode].map(f => `<option value="${f.id}">${escapeHtml(f.label)}</option>`).join('');
+    if (IO_FORMATS[ioMode].some(f => f.id === remembered)) p.select.value = remembered;
+    const f = ioFormat();
+    document.querySelectorAll('[data-io-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.ioMode === ioMode)));
+    p.run.textContent = ioMode === 'export' ? 'Export' : 'Import…';
+    p.desc.textContent = f.desc;
+    // The time filter is for exports; each option shows with the format it changes.
+    document.querySelectorAll('#exportPanel .io-export-only').forEach(n => { n.hidden = ioMode !== 'export'; });
+    const needs = ioMode === 'export' ? f.needs : null;
+    document.querySelectorAll('#exportPanel [data-io-for]').forEach(n => { n.hidden = n.dataset.ioFor !== needs; });
+    document.querySelectorAll('#exportPanel .io-options').forEach(n => { n.hidden = !needs; });
+};
+const runIoPicker = () => {
+    const f = ioFormat();
+    if (f.overlays) {
+        switchWorkspacesTab('overlays');
+        document.getElementById('overlaysFileInput').click();
+        return;
+    }
+    document.getElementById(f.btn).click();
+};
+
 const openExportView = () => {
     closeStatsView();
     closeSummaryView();
@@ -328,6 +382,7 @@ const openExportView = () => {
     setViewIcon('exportViewToggleBtn', true);
     el.menu.panel.style.display = 'none';
     writeStored('salt_view', 'export');
+    renderIoPicker();
     // Restore last-used tab; default 'export' for fresh sessions.
     switchWorkspacesTab(localStorage.getItem('salt_workspaces_tab') || 'export');
     renderExportPreview();

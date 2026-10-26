@@ -150,6 +150,13 @@ class BrowserTests(unittest.TestCase):
             raise AssertionError(f"{size!r} never appeared: {state}") from exc
 
     @staticmethod
+    def run_io(page, mode, what):
+        """Pick an export or import in the Import / Export tab and press its button."""
+        page.click(f"[data-io-mode='{mode}']")
+        page.select_option("#ioFormatSelect", what)
+        page.click("#ioRunBtn")
+
+    @staticmethod
     def sizes(page):
         return page.locator("#reportLogBody tr[data-id] .col-size").all_text_contents()
 
@@ -354,7 +361,7 @@ class BrowserTests(unittest.TestCase):
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='export']")  # the panel reopens on the last tab used
         with page.expect_download() as dl:
-            page.click("#exportArcgisGeojsonBtn")
+            self.run_io(page, "export", "arcgis-geojson")
         self.assertTrue(dl.value.suggested_filename.endswith("_arcgis.geojson"))
         data = json.loads(Path(dl.value.path()).read_text(encoding="utf-8"))
         props = [f["properties"] for f in data["features"]]
@@ -372,7 +379,7 @@ class BrowserTests(unittest.TestCase):
         )
         # Esri JSON: the same points, every field's type written out.
         with page.expect_download() as dl:
-            page.click("#exportArcgisEsriBtn")
+            self.run_io(page, "export", "arcgis-esri")
         self.assertTrue(dl.value.suggested_filename.endswith("_arcgis.json"))
         esri = json.loads(Path(dl.value.path()).read_text(encoding="utf-8"))
         self.assertEqual(esri["geometryType"], "esriGeometryPoint")
@@ -432,6 +439,38 @@ class BrowserTests(unittest.TestCase):
         rows = page.locator(".stats-card[data-chart='ato'] .stats-table tbody tr").all_inner_texts()
         counts = dict(r.split("	") for r in rows)
         self.assertEqual((counts.get("SCOPEA"), counts.get("SCOPEB")), ("2", "1"))
+
+    def test_import_export_is_one_picker(self):
+        page = self.open_editor()
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        shown = lambda sel: page.locator(sel).is_visible()  # noqa: E731
+        page.click("[data-io-mode='export']")
+        page.select_option("#ioFormatSelect", "backup")
+        self.assertEqual(page.text_content("#ioRunBtn"), "Export")
+        self.assertEqual((shown("#exportAllAtosToggle"), shown("#exportMtiToggle")), (True, False))
+        page.select_option("#ioFormatSelect", "csv")
+        self.assertEqual((shown("#exportAllAtosToggle"), shown("#exportMtiToggle")), (False, True))
+        page.select_option("#ioFormatSelect", "arcgis-esri")
+        self.assertFalse(shown("#exportMtiToggle"))
+        self.assertTrue(shown("#export-from-date"), "the time filter is for exports")
+        page.click("[data-io-mode='import']")
+        self.assertEqual(page.text_content("#ioRunBtn"), "Import…")
+        self.assertFalse(shown("#export-from-date"))
+        page.select_option("#ioFormatSelect", "overlays")
+        with page.expect_file_chooser() as fc:
+            page.click("#ioRunBtn")
+        self.assertTrue(fc.value.is_multiple())
+        self.assertTrue(shown("#overlaysBody"), "it opened the Overlays tab")
+        # The choice is remembered; viewers only export.
+        page.reload()
+        page.wait_for_function("() => isExportViewActive")  # the view on screen is restored too
+        page.click(".ws-tab[data-tab='export']")
+        self.assertEqual(page.get_attribute("[data-io-mode='import']", "aria-pressed"), "true")
+        viewer = self.open_viewer()
+        viewer.click("#exportViewToggleBtn")
+        self.assertFalse(viewer.locator("[data-io-mode='import']").is_visible())
+        self.assertEqual(viewer.text_content("#ioRunBtn"), "Export")
 
     def test_horizontal_layout_fits_the_window(self):
         page = self.open_editor()

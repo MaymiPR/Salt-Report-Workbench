@@ -782,6 +782,18 @@ document.getElementById('exportArcgisCsvBtn').addEventListener('click', () => {
 
 el.menu.exportBtn.addEventListener('click', () => isExportViewActive ? closeExportView() : openExportView());
 
+document.querySelectorAll('[data-io-mode]').forEach(b => b.addEventListener('click', () => {
+    ioMode = b.dataset.ioMode;
+    try { localStorage.setItem('salt_io_mode', ioMode); } catch (e) { /* storage blocked: this session only */ }
+    renderIoPicker();
+}));
+el.ioPicker.select.addEventListener('change', () => {
+    try { localStorage.setItem(`salt_io_${ioMode}`, el.ioPicker.select.value); } catch (e) { /* this session only */ }
+    renderIoPicker();
+});
+el.ioPicker.run.addEventListener('click', runIoPicker);
+renderIoPicker();
+
 // Workspaces list: Unload buttons (editor only) AND viewer-mode whole-row
 // clicks are delegated through the list container so we don't have to
 // rebind on every renderWorkspacesList(). Same handler attaches to both

@@ -49,7 +49,7 @@ label { display: block; margin-bottom: 6px; font-weight: 500; color: var(--text-
 .config-inputs label { white-space: nowrap; }
 /* Small-caps field and section labels; each keeps only its own spacing below. */
 .profile-menu-label, .profile-field-label, .startup-section-label, .startup-field-label,
-.export-block-label, .export-action-col-label, .filter-field label {
+.export-block-label, .filter-field label {
     font-size: 0.72em;
     color: var(--text-secondary);
     font-weight: 500;
@@ -700,11 +700,19 @@ body.local-mode .startup-access-divider { display: none; }
 .export-option-row { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
 .export-option-text { font-size: 0.92em; color: var(--text-primary); line-height: 1.4; }
 .export-option-desc { font-size: 0.8em; color: var(--text-secondary); margin-top: 2px; }
-.export-action-grid { display: flex; justify-content: center; gap: 48px; margin-bottom: 20px; flex-wrap: wrap; }
-.export-action-col { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-width: 210px; }
-.export-action-col-label { margin-bottom: 4px; text-align: center; }
-.export-action-col button { width: 100%; text-align: center; padding: 12px 20px; }
-.export-action-vdivider { width: 1px; background: var(--divider); align-self: stretch; margin: 16px 0; }
+/* Import / Export: a segmented Export | Import, a pop-up of what, one button. */
+.io-picker { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; max-width: 560px; }
+.io-modes { display: inline-flex; align-self: flex-start; gap: 4px; padding: 4px; background-color: var(--input-bg); border-radius: 10px; }
+.io-mode { background: transparent; color: var(--text-secondary); border: none; padding: 7px 22px; border-radius: 8px; font-size: 0.86em; font-weight: 600; margin: 0; cursor: pointer; }
+.io-mode:hover { color: var(--text-primary); opacity: 1; }
+.io-mode[aria-pressed="true"] { background-color: var(--panel-bg); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
+.io-mode:active { transform: none; }
+.io-row { display: flex; gap: 10px; align-items: stretch; }
+.io-row select { flex: 1; min-width: 0; margin: 0; height: 46px; padding: 0 40px 0 16px; font-weight: 500; cursor: pointer; }
+.io-row #ioRunBtn { flex: 0 0 auto; min-width: 120px; margin: 0; }
+.io-desc { font-size: 0.85em; color: var(--text-secondary); line-height: 1.45; min-height: 2.9em; }
+.export-option-row + .export-option-row { margin-top: 10px; }
+#exportPanel [hidden] { display: none !important; }
 
 /* --- Read-only / viewer mode ---
    Applied when /api/sync returns read_only:true (viewer port). Server enforces

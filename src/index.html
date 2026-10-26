@@ -744,28 +744,34 @@
 
                         <!-- Tab: Import / Export — action grid, time filter, options. -->
                         <div class="ws-tab-panel" data-tab-panel="export">
-                            <div class="export-action-grid">
-                                <div class="export-action-col">
-                                    <div class="export-action-col-label">Export</div>
-                                    <button type="button" id="exportPanelBackupBtn" class="set-btn">Export Backup (.txt)</button>
-                                    <button type="button" id="exportPanelCsvBtn" class="set-btn">Export CSV (.csv)</button>
-                                    <button type="button" id="exportArcgisEsriBtn" class="set-btn">Export for ArcGIS (.json)</button>
-                                    <button type="button" id="exportArcgisGeojsonBtn" class="set-btn">Export for ArcGIS (.geojson)</button>
-                                    <button type="button" id="exportArcgisCsvBtn" class="set-btn">Export for ArcGIS (.csv)</button>
+                            <!-- Pick Export or Import, pick what, then one button (app/40-io.js).
+                                 The buttons below are what it presses; they stay out of sight. -->
+                            <div class="io-picker">
+                                <div class="io-modes" role="group" aria-label="Export or import">
+                                    <button type="button" class="io-mode" data-io-mode="export" aria-pressed="true">Export</button>
+                                    <button type="button" class="io-mode editor-only" data-io-mode="import" aria-pressed="false">Import</button>
                                 </div>
-                                <div class="export-action-vdivider"></div>
-                                <div class="export-action-col">
-                                    <div class="export-action-col-label">Import</div>
-                                    <button id="importBackupBtnTrigger" class="set-btn">Import from Backup (.txt)</button>
-                                    <button id="importCsvBtnTrigger" class="set-btn">Import External CSV</button>
-                                    <input type="file" id="importBackupFileInput" class="file-input-wrapper">
-                                    <input type="file" id="importCsvFileInput" class="file-input-wrapper" accept=".csv">
+                                <div class="io-row">
+                                    <select id="ioFormatSelect" aria-label="What to export or import"></select>
+                                    <button type="button" id="ioRunBtn" class="set-btn">Export</button>
                                 </div>
+                                <div id="ioFormatDesc" class="io-desc"></div>
+                            </div>
+                            <div class="io-actions" hidden>
+                                <button type="button" id="exportPanelBackupBtn">Export Backup (.txt)</button>
+                                <button type="button" id="exportPanelCsvBtn">Export CSV (.csv)</button>
+                                <button type="button" id="exportArcgisEsriBtn">Export for ArcGIS (.json)</button>
+                                <button type="button" id="exportArcgisGeojsonBtn">Export for ArcGIS (.geojson)</button>
+                                <button type="button" id="exportArcgisCsvBtn">Export for ArcGIS (.csv)</button>
+                                <button type="button" id="importBackupBtnTrigger">Import from Backup (.txt)</button>
+                                <button type="button" id="importCsvBtnTrigger">Import External CSV</button>
+                                <input type="file" id="importBackupFileInput" class="file-input-wrapper">
+                                <input type="file" id="importCsvFileInput" class="file-input-wrapper" accept=".csv">
                             </div>
 
-                            <div class="export-divider"></div>
+                            <div class="export-divider io-export-only"></div>
 
-                            <div class="export-block">
+                            <div class="export-block io-export-only">
                                 <div class="export-block-label">Filter by Time Range</div>
                                 <div class="filter-grid">
                                     <div class="filter-field">
@@ -795,18 +801,18 @@
                                 </div>
                             </div>
 
-                            <div class="export-divider"></div>
+                            <div class="export-divider io-options"></div>
 
-                            <div class="export-block">
+                            <div class="export-block io-options">
                                 <div class="export-block-label">Options</div>
-                                <label class="export-option-row">
+                                <label class="export-option-row" data-io-for="backup">
                                     <input type="checkbox" id="exportAllAtosToggle">
                                     <div>
                                         <div class="export-option-text">Export All ATOs</div>
                                         <div class="export-option-desc">Backup includes every loaded workspace, not just the active one</div>
                                     </div>
                                 </label>
-                                <label class="export-option-row" style="margin-top:10px;">
+                                <label class="export-option-row" data-io-for="csv">
                                     <input type="checkbox" id="exportMtiToggle">
                                     <div>
                                         <div class="export-option-text">MTI Export</div>

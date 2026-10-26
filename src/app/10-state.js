@@ -76,6 +76,11 @@ const el = {
         exportBtn: document.getElementById('exportViewToggleBtn'),
         clearBtn:  document.getElementById('clearAllBtn'),
     },
+    ioPicker: {
+        select: document.getElementById('ioFormatSelect'),
+        run:    document.getElementById('ioRunBtn'),
+        desc:   document.getElementById('ioFormatDesc'),
+    },
     layout: { grid: document.getElementById('mainGrid') },
     toast: {
         regular:    document.getElementById('toast-notification'),
@@ -109,7 +114,7 @@ const el = {
     workspaces: {
         list:        document.getElementById('workspacesList'),
         sidebarList: document.getElementById('workspacesSidebarList'),
-        tabs:        document.querySelectorAll('#exportPanel .ws-tab'),
+        tabs:        document.querySelectorAll('#exportPanel .ws-tabs .ws-tab'),
         tabPanels:   document.querySelectorAll('#exportPanel .ws-tab-panel'),
     },
     csv: {
