@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/pack.py` packs a release zip into one self-unpacking, plain-text
+  file, `SALT-Workbench-v<version>.txt`, for transfer systems that refuse zips
+  and scripts. Run it with Python and it unpacks into a `SALT Report
+  Workbench` folder, checks every file, deletes itself, and starts the
+  workbench. If anything fails, it deletes nothing. An upgrade keeps `Auto
+  Backups` and the launcher's `PYTHON_EXE` path. The v2.4.1 release carries one.
+
 ## [2.4.1] - 2026-10-25
 
 ### Fixed
