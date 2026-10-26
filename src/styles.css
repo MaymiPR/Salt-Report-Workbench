@@ -1125,6 +1125,15 @@ body.read-only .editor-only { display: none !important; }
 .stats-table td { padding: 4px 6px; border-bottom: 1px solid var(--divider); color: var(--text-primary); font-variant-numeric: tabular-nums; }
 .stats-table td:last-child, .stats-table th:last-child { text-align: right; }
 
+/* --- Summary Reports panel --- */
+#summaryPanel { display: none; flex-direction: column; flex: 1; min-height: 0; }
+.summary-kinds { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; background-color: var(--input-bg); border-radius: 10px; margin-bottom: 16px; align-self: flex-start; }
+.summary-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+.summary-actions button { margin: 0; width: auto; padding: 8px 16px; font-size: 0.85em; }
+#summaryPlaceRow[hidden] { display: none; }
+#summaryPlace { width: auto; margin: 0; padding: 6px 30px 6px 10px; font-size: 0.85em; background-position: right 10px center; }
+.summary-text { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 14px 16px; background: var(--input-bg); border-radius: 12px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.82em; line-height: 1.5; color: var(--text-primary); white-space: pre; }
+
 /* --- BDA (hidden until ellipsis toggle) --- */
 /* Roll-up strip between the header and the table: one chip per outcome,
    click to filter. Effect colors come from the shared .bda-eff-* classes. */

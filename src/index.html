@@ -362,6 +362,20 @@
                 </section>
 
                 <section class="manual-section">
+                    <h3>Summary Reports</h3>
+                    <p>Open from the ellipsis menu &rarr; <strong>Summary Reports</strong>. Pick a report and a window, and it is written for you from the reports you already have. It updates live, and viewers can use it too.</p>
+                    <ul>
+                        <li><strong>Rollup</strong>: totals and the change from the period before; each NAI, OBJ, and phase line with its count and activity; activity overall; what was reported by type; notable reports (firing or emplacing); BDA; and anything to check.</li>
+                        <li><strong>Most Trafficked</strong>: the busiest NAIs and OBJs, phase lines, and 1 km grid squares, each with its count, peak hour, and most common activity, then the busiest hours. This is the written heat map.</li>
+                        <li><strong>Place Activity</strong>: pick an NAI, OBJ, or phase line, and get every report there in time order, with a count, its activity, and its busiest hour.</li>
+                        <li><strong>Shift Brief</strong>: the short handover. Report count against the previous shift, the most active places, activity, the last report, open items (checks and unassessed BDA), and the last five reports.</li>
+                        <li><strong>Window</strong>: the last 6, 12 (the default), or 24 hours, 7 days, All, or your own From / To. With both ends set, the same length of time just before it is the &ldquo;previous&rdquo; period.</li>
+                        <li><strong>Copy</strong> puts the text on the clipboard; <strong>Save .txt</strong> downloads it; <strong>Print</strong> prints it with its charts (Rollup and Most Trafficked: places and hours; Place Activity: that place's hours and activity), or saves a PDF through the print dialog.</li>
+                        <li>The text comes from fixed templates and counting rules, not AI: the same reports always give the same words, and nothing is made up. Times follow your Zulu / Local mode, as DTGs.</li>
+                    </ul>
+                </section>
+
+                <section class="manual-section">
                     <h3>Sync and Server Status <span class="manual-tag online">Online only</span></h3>
                     <p>This section only applies when the Python sync server is running. Without the server, the tool operates entirely from your browser&rsquo;s local storage.</p>
                     <ul>
@@ -564,6 +578,7 @@
                                     <button id="toggleBdaBtn"></button>
                                     <button id="exportViewToggleBtn">Workspaces</button>
                                     <button id="statsViewToggleBtn">Statistics</button>
+                                    <button id="summaryViewToggleBtn">Summary Reports</button>
                                     <hr>
                                     <button id="selectAllBtn">Select All</button>
                                     <button id="deselectAllBtn">Deselect All</button>
@@ -824,6 +839,53 @@
                         <div id="statsBody" class="stats-body"></div>
                     </div>
 
+                    <!-- Summary Reports: written reports from presets (app/48-summary.js). -->
+                    <div id="summaryPanel">
+                        <div class="export-panel-header">
+                            <div class="export-panel-heading">
+                                <div class="export-panel-title"><span>Summary Reports</span></div>
+                                <div id="summary-panel-subtitle" class="export-panel-subtitle"></div>
+                            </div>
+                            <button id="closeSummaryViewBtn" class="icon-btn" title="Close Summary Reports">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+                        <div class="summary-kinds" role="group" aria-label="Report">
+                            <button type="button" class="ws-tab" data-summary-kind="rollup">Rollup</button>
+                            <button type="button" class="ws-tab" data-summary-kind="trafficked">Most Trafficked</button>
+                            <button type="button" class="ws-tab" data-summary-kind="place">Place Activity</button>
+                            <button type="button" class="ws-tab" data-summary-kind="brief">Shift Brief</button>
+                        </div>
+                        <div class="stats-filters">
+                            <div class="filter-presets" aria-label="Time window">
+                                <span class="filter-presets-label">Last</span>
+                                <button type="button" class="filter-preset-btn" data-summary-hours="6">6h</button>
+                                <button type="button" class="filter-preset-btn" data-summary-hours="12">12h</button>
+                                <button type="button" class="filter-preset-btn" data-summary-hours="24">24h</button>
+                                <button type="button" class="filter-preset-btn" data-summary-hours="168">7d</button>
+                                <button type="button" class="filter-preset-btn" data-summary-hours="0">All</button>
+                            </div>
+                            <div class="stats-range">
+                                <label>From</label>
+                                <input type="date" id="summary-from-date" class="filter-date" aria-label="From date">
+                                <input type="text" id="summary-from-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
+                                <label>To</label>
+                                <input type="date" id="summary-to-date" class="filter-date" aria-label="To date">
+                                <input type="text" id="summary-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
+                            </div>
+                            <div id="summaryPlaceRow" class="stats-range" hidden>
+                                <label for="summaryPlace">Place</label>
+                                <select id="summaryPlace"></select>
+                            </div>
+                        </div>
+                        <div class="summary-actions">
+                            <button type="button" id="summaryCopyBtn" class="set-btn">Copy</button>
+                            <button type="button" id="summarySaveBtn" class="set-btn">Save .txt</button>
+                            <button type="button" id="summaryPrintBtn" class="set-btn">Print</button>
+                        </div>
+                        <pre id="summaryText" class="summary-text" aria-live="polite"></pre>
+                    </div>
+
                     <div id="csvImportPanel">
                         <div class="export-panel-header">
                             <div class="export-panel-heading">
@@ -887,6 +949,7 @@
     <script src="app/40-io.js"></script>
     <script src="app/45-overlays.js"></script>
     <script src="app/47-stats.js"></script>
+    <script src="app/48-summary.js"></script>
     <script src="app/50-sync.js"></script>
     <script src="app/60-handlers.js"></script>
     <script src="app/70-startup.js"></script>

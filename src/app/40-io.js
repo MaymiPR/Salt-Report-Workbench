@@ -323,6 +323,7 @@ initBuilderHandlers();
 
 const openExportView = () => {
     closeStatsView();
+    closeSummaryView();
     isExportViewActive = true;
     el.log.view.style.display  = 'none';
     el.exp.panel.style.display = 'flex';
