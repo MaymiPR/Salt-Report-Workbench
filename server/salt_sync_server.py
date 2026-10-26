@@ -76,6 +76,7 @@ DATA_STORE: dict = {
     'config': {'ato': '', 'title': ''},
     'profiles': {},
     'formats': {},  # ato -> report-format dict (builder); synced to all clients
+    'overlays': {},  # ato -> [NAI / OBJ / PL features], imported from KML or GeoJSON
 }
 
 # Cached /api/sync prefix — all but the closing brace and connected_users count. Invalidated on every mutation.
@@ -375,6 +376,10 @@ MAX_BDA_ENTRIES = 200  # BDA assessments per report
 MAX_BDA_TARGET = 200
 MAX_BDA_EFFECT = 30
 MAX_BDA_NOTE = 500
+MAX_OVERLAYS = 500  # NAI / OBJ / PL features per workspace
+MAX_OVERLAY_NAME = 40
+MAX_OVERLAY_LABEL = 100
+MAX_OVERLAY_POINTS = 200_000  # coordinate pairs per workspace, all features together
 _FORMAT_LINE_TYPES = {'id', 'size', 'activity', 'location', 'time', 'analysis', 'custom'}
 # Report fields /api/edit_report may overwrite. History and BDA change through
 # save_reports, where merging applies.
@@ -611,6 +616,72 @@ def _v_save_format(data: dict) -> str | None:
     return None
 
 
+_OVERLAY_TYPES = {'NAI', 'OBJ', 'PL'}
+# Geometry type -> nesting depth of its coordinate arrays above the [lon, lat] pairs.
+_GEOMETRY_DEPTH = {
+    'Point': 0,
+    'LineString': 1,
+    'Polygon': 2,
+    'MultiLineString': 2,
+    'MultiPolygon': 3,
+}
+
+
+def _count_positions(coords, depth: int) -> int | None:
+    """Coordinate pairs in a GeoJSON coordinates array, or None if it is malformed."""
+    if depth == 0:
+        ok = (
+            isinstance(coords, list)
+            and len(coords) in (2, 3)
+            and all(isinstance(c, (int, float)) and not isinstance(c, bool) for c in coords)
+            and -180 <= coords[0] <= 180
+            and -90 <= coords[1] <= 90
+        )
+        return 1 if ok else None
+    if not isinstance(coords, list) or not coords:
+        return None
+    total = 0
+    for part in coords:
+        n = _count_positions(part, depth - 1)
+        if n is None:
+            return None
+        total += n
+    return total
+
+
+def _v_save_overlays(data: dict) -> str | None:
+    if err := _check_ato(data):
+        return err
+    ovs = data.get('overlays')
+    if not isinstance(ovs, list):
+        return 'overlays must be a list'
+    if len(ovs) > MAX_OVERLAYS:
+        return f'too many overlays (max {MAX_OVERLAYS})'
+    points = 0
+    for i, o in enumerate(ovs):
+        if not isinstance(o, dict):
+            return f'overlays[{i}] must be an object'
+        if o.get('type') not in _OVERLAY_TYPES:
+            return f'overlays[{i}].type must be NAI, OBJ or PL'
+        if not _is_str(o.get('name'), MAX_OVERLAY_NAME) or not o.get('name'):
+            return f'overlays[{i}].name must be a non-empty string ≤{MAX_OVERLAY_NAME} chars'
+        if 'label' in o and not _is_str(o['label'], MAX_OVERLAY_LABEL):
+            return f'overlays[{i}].label must be a string ≤{MAX_OVERLAY_LABEL} chars'
+        g = o.get('geometry')
+        depth = _GEOMETRY_DEPTH.get(g.get('type')) if isinstance(g, dict) else None
+        if depth is None:
+            return (
+                f'overlays[{i}].geometry must be a Point, LineString, Polygon, or Multi- of those'
+            )
+        n = _count_positions(g.get('coordinates'), depth)
+        if n is None:
+            return f'overlays[{i}].geometry.coordinates are not valid longitude/latitude pairs'
+        points += n
+    if points > MAX_OVERLAY_POINTS:
+        return f'overlays have too many points ({points}; max {MAX_OVERLAY_POINTS})'
+    return None
+
+
 # Path -> validator. A new POST route needs an entry here and one in
 # SaltSyncHandler._POST_ROUTES.
 _VALIDATORS = {
@@ -621,6 +692,7 @@ _VALIDATORS = {
     '/api/save_config': _v_save_config,
     '/api/save_profile': _v_save_profile,
     '/api/save_format': _v_save_format,
+    '/api/save_overlays': _v_save_overlays,
 }
 
 
@@ -674,6 +746,7 @@ def _extract_json_from_file(raw_text: str) -> dict | None:
                     'config': d.get('config', {'ato': '', 'title': ''}),
                     'profiles': d.get('profiles', {}),
                     'formats': d.get('formats', {}),
+                    'overlays': d.get('overlays', {}),
                 }
             # Legacy marker format: single ATO inferred from config
             ato = d.get('config', {}).get('ato', '')
@@ -683,6 +756,7 @@ def _extract_json_from_file(raw_text: str) -> dict | None:
                 'config': d.get('config', {'ato': '', 'title': ''}),
                 'profiles': d.get('profiles', {}),
                 'formats': {},
+                'overlays': {},
             }
         except (ValueError, KeyError):
             return None
@@ -730,6 +804,7 @@ def load_data_from_disk() -> None:
         latest_config = {'ato': '', 'title': ''}
         source_by_ato: dict = {}
         merged_formats: dict = {}
+        merged_overlays: dict = {}
 
         for filepath in candidates:
             try:
@@ -755,6 +830,13 @@ def load_data_from_disk() -> None:
                             for k, v in (result.get('formats') or {}).items()
                         }
                     )
+                    merged_overlays.update(
+                        {
+                            (k or '').strip().upper(): v
+                            for k, v in (result.get('overlays') or {}).items()
+                            if isinstance(v, list)
+                        }
+                    )
                     latest_config = result.get('config', latest_config)
             except Exception:
                 # Skip unreadable / malformed files silently.
@@ -765,6 +847,7 @@ def load_data_from_disk() -> None:
             DATA_STORE['profiles'] = merged_profiles
             DATA_STORE['config'] = latest_config
             DATA_STORE['formats'] = merged_formats
+            DATA_STORE['overlays'] = merged_overlays
             workspace_sources.clear()
             workspace_sources.update(source_by_ato)
             invalidate_sync_cache()
@@ -776,6 +859,7 @@ def render_backup(
     profiles: dict,
     formats: dict,
     label: tuple[str, str] | None = None,
+    overlays: dict | None = None,
 ) -> tuple[str, str] | None:
     """Return ``(filename, text)`` for a backup of the given state, or None if empty.
 
@@ -875,7 +959,13 @@ def render_backup(
             lines.append('')
 
     machine_json = json.dumps(
-        {'workspaces': workspaces, 'config': config, 'profiles': profiles, 'formats': formats},
+        {
+            'workspaces': workspaces,
+            'config': config,
+            'profiles': profiles,
+            'formats': formats,
+            'overlays': overlays or {},
+        },
         separators=(',', ':'),
         ensure_ascii=False,
     )
@@ -910,11 +1000,16 @@ def workspace_title(ato: str, reports: list, config: dict) -> str:
 
 
 def render_workspace_backups(
-    workspaces: dict, config: dict, profiles: dict, formats: dict, only: set | None = None
+    workspaces: dict,
+    config: dict,
+    profiles: dict,
+    formats: dict,
+    only: set | None = None,
+    overlays: dict | None = None,
 ) -> list[tuple[str, str, str]]:
     """One ``(ato, filename, text)`` per workspace, for those in ``only`` (None: all).
 
-    Each file holds a single workspace with its format, plus the shared
+    Each file holds a single workspace with its format and overlays, plus the shared
     config and profiles, so on boot every file contributes its workspace and
     the newest file decides the active one. Pure, like ``render_backup``.
     """
@@ -929,6 +1024,7 @@ def render_workspace_backups(
             profiles,
             {ato: formats[ato]} if ato in formats else {},
             label=(ato, workspace_title(ato, reports, config)),
+            overlays={ato: overlays[ato]} if overlays and ato in overlays else {},
         )
         if rendered is not None:
             out.append((ato, *rendered))
@@ -1003,6 +1099,7 @@ def save_data_to_disk() -> None:
                 DATA_STORE.get('profiles', {}),
                 DATA_STORE.get('formats', {}),
                 only,
+                DATA_STORE.get('overlays', {}),
             )
         if not files:
             return
@@ -1116,6 +1213,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                     'config': DATA_STORE['config'],
                     'profiles': DATA_STORE['profiles'],
                     'formats': DATA_STORE.get('formats', {}),
+                    'overlays': DATA_STORE.get('overlays', {}),
                     'sources': workspace_sources,
                 }
                 full = json.dumps(data, separators=(',', ':'))
@@ -1345,6 +1443,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         with data_lock:
             DATA_STORE['workspaces'].pop(ato, None)
             DATA_STORE.get('formats', {}).pop(ato, None)
+            DATA_STORE.get('overlays', {}).pop(ato, None)
             workspace_sources.pop(ato, None)
             cfg = DATA_STORE.get('config') or {}
             if (cfg.get('ato') or '').strip().upper() == ato:
@@ -1451,6 +1550,28 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             mark_dirty(ato)
         self._commit(f'save_format {ato}')
 
+    def _post_save_overlays(self, data: dict) -> None:
+        ato = (data.get('ato') or '').strip().upper()
+        # Known fields only, like save_config. An empty list is kept (not
+        # popped) so a clear reaches clients, which merge what the server sends.
+        clean = [
+            {
+                'type': o['type'],
+                'name': o['name'],
+                **({'label': o['label']} if o.get('label') else {}),
+                'geometry': {
+                    'type': o['geometry']['type'],
+                    'coordinates': o['geometry']['coordinates'],
+                },
+            }
+            for o in data.get('overlays') or []
+        ]
+        with data_lock:
+            DATA_STORE.setdefault('overlays', {})[ato] = clean
+            invalidate_sync_cache()
+            mark_dirty(ato)
+        self._commit(f'save_overlays {ato}: {len(clean)} overlay(s)')
+
     def _post_save_profile(self, data: dict) -> None:
         profile = data.get('profile')
         ini = ((profile or {}).get('initials') or '').strip()
@@ -1477,6 +1598,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         '/api/delete_history': _post_delete_history,
         '/api/save_config': _post_save_config,
         '/api/save_format': _post_save_format,
+        '/api/save_overlays': _post_save_overlays,
         '/api/save_profile': _post_save_profile,
     }
 
