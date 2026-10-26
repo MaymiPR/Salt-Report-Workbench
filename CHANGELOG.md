@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Summary Reports** (ellipsis menu): written reports from one click, over
+  the last 6, 12, or 24 hours, 7 days, all reports, or your own window:
+  - **Rollup**: totals against the period before; each NAI, OBJ, and phase
+    line with its count and activity; activity; what was reported by type;
+    notable reports (firing or emplacing); BDA; and anything to check.
+  - **Most Trafficked**: the busiest places, phase lines, and 1 km grid
+    squares, with peak hours and main activity. This is the written heat map.
+  - **Place Activity**: every report at one NAI, OBJ, or phase line, in time
+    order.
+  - **Shift Brief**: the short handover.
+
+  Copy the text, save it as .txt, or print it with its charts. It is built
+  from fixed templates and counting rules, not AI: the same reports always
+  give the same words, and nothing is made up. Viewers can use it too.
+
 ### Changed
 
 - Each release carries one checksum file, `SHA256SUMS.txt` (as ChanSampler does),
