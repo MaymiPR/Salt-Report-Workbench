@@ -435,3 +435,56 @@ test("backups carry the workspace's overlays", () => {
     const all = core.parseBackup(core.allWorkspacesBackupText({ ALPHA: [report()] }, 'ALPHA', 'Patrol', {}, {}, NOW, ovs)).data;
     assert.deepEqual(Object.keys(all.overlays), ['ALPHA'], 'only the workspaces in the file');
 });
+
+// --- Statistics ---
+
+test('Size lines are counted by type, plurals folded together', () => {
+    assert.deepEqual(core.sizeElements('2x T-72, 4 BMP-2; truck + 3x T-72s, 2 trucks, 1x bus'), [
+        { count: 2, type: 'T-72' }, { count: 4, type: 'BMP-2' }, { count: 1, type: 'TRUCK' },
+        { count: 3, type: 'T-72' }, { count: 2, type: 'TRUCK' }, { count: 1, type: 'BUS' },
+    ]);
+    assert.deepEqual(core.sizeElements(''), []);
+});
+
+test('grid squares at 10 km and 1 km, and grids too coarse for them', () => {
+    assert.equal(core.gridSquare('38S MB 45000 82000', 1), '38S MB 4 8');
+    assert.equal(core.gridSquare('38S MB 45000 82000', 2), '38S MB 45 82');
+    assert.equal(core.gridSquare('38S MB 4 8', 2), null);
+});
+
+test('statistics count each report once per place, square, tag and type', () => {
+    const reps = [
+        report({ id: 'a', size: '2x T-72', activity: 'moving N', location: '38SMB4500082000', time: '2026-10-24T02:15:00Z' }),
+        report({ id: 'b', size: '1x BMP-2', activity: 'stationary', location: '38S MB 55000 82000, NAI 1', time: '2026-10-24T02:40:00Z' }),
+        report({ id: 'c', size: '3x T-72s', activity: 'dismounted, heading 090', location: '38SMB4500082000 38SMB4600082000', time: '2026-10-26T13:00:00Z' }),
+        report({ id: 'd', size: 'truck', activity: 'parked', location: 'vic the bridge', time: '2026-10-26T13:30:00Z', deleted: true }),
+        report({ id: 'e', size: '1x truck', activity: '', location: '38SMB4100084900, PL BLUE', time: '2026-10-26T14:00:00Z' }),
+    ];
+    const d = core.statsData(reps, OVERLAYS, { local: false });
+    assert.deepEqual(d.kpis, { reports: 4, withGrid: 4, inPlace: 4, checks: 1, bdaDone: 0, bdaTotal: 4 });
+    assert.deepEqual(d.nai, [{ label: 'NAI 1', value: 4 }]);
+    assert.deepEqual(d.pl, [{ label: 'PL BLUE', value: 1 }], 'typed; grids 3 km off are not near it');
+    // Report c names two grids in one 10 km square: counted once there.
+    assert.deepEqual(d.squares, [{ label: '38S MB 4 8', value: 3 }, { label: '38S MB 5 8', value: 1 }]);
+    assert.equal(d.hours[2].value, 2);
+    assert.equal(d.hours[13].value, 1);
+    assert.deepEqual(d.days, [
+        { label: '2026-10-24', value: 2 }, { label: '2026-10-25', value: 0 }, { label: '2026-10-26', value: 2 },
+    ], 'a quiet day is a zero, not a gap');
+    assert.deepEqual(d.tags, [
+        { label: 'Moving', value: 2 }, { label: 'Stationary', value: 1 }, { label: 'Dismounted', value: 1 }, { label: 'Untagged', value: 1 },
+    ]);
+    assert.deepEqual(d.headings.filter(h => h.value).map(h => h.label), ['N', 'E']);
+    assert.deepEqual(d.equipment, [{ label: 'T-72', value: 5 }, { label: 'BMP-2', value: 1 }, { label: 'TRUCK', value: 1 }]);
+    assert.deepEqual(d.bda, [], 'no BDA chart until something is assessed');
+    const one = core.statsData(reps, OVERLAYS, { local: false, squareDigits: 2 });
+    assert.deepEqual(one.squares.map(s => s.label), ['38S MB 45 82', '38S MB 41 84', '38S MB 46 82', '38S MB 55 82']);
+    assert.deepEqual(core.statsData([], OVERLAYS, {}).days, []);
+});
+
+test('the statistics CSV has one section per chart', () => {
+    assert.equal(core.statsCsv([
+        { title: 'Reports per NAI', items: [{ label: 'NAI 1', value: 4 }] },
+        { title: 'Activity, "tags"', items: [] },
+    ]), '"Reports per NAI"\r\n"NAI 1",4\r\n\r\n"Activity, ""tags"""\r\n');
+});

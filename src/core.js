@@ -730,6 +730,94 @@ const arcgisCsv = (rows) => {
     return cols.join(',') + '\r\n' + rows.map(r => cols.map(c => cell(r[c])).join(',')).join('\r\n') + '\r\n';
 };
 
+// --- Statistics ---
+
+// The elements of a Size line with their counts: "2x T-72, 4 BMP-2; truck"
+// -> T-72 x2, BMP-2 x4, TRUCK x1. Types are upper-cased, and a plural "s" is
+// dropped ("T-72s", "trucks") so the same vehicle is counted as one type.
+const sizeElements = (size) => String(size || '').split(/[,;+]/).map(s => s.trim()).filter(Boolean).map(part => {
+    const m = /^(\d+)\s*x?\s*(.+)$/i.exec(part);
+    let type = (m ? m[2] : part).trim().replace(/\s+/g, ' ');
+    if (/[^su]s$/.test(type) && !/ss$/i.test(type)) type = type.slice(0, -1);
+    return { count: m ? Number(m[1]) : 1, type: type.toUpperCase() };
+}).filter(e => e.type && e.count > 0);
+
+// The MGRS square a grid sits in at `digits` per half (1: 10 km, 2: 1 km),
+// or null when the grid was given more coarsely than that.
+const gridSquare = (mgrs, digits) => {
+    const [zb, sq, e = '', n = ''] = String(mgrs).split(' ');
+    if (e.length < digits) return null;
+    return `${zb} ${sq} ${e.slice(0, digits)} ${n.slice(0, digits)}`;
+};
+
+// A grid this close to a phase line counts as a report at that line.
+const PL_NEAR_METRES = 1000;
+const HEADINGS_8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+
+// Everything the Statistics panel draws, for the live reports given (already
+// cut to the time window). Each report counts once per place, square, tag, or
+// type it names; history is not counted. Lists are sorted largest first.
+//   squareDigits  1 = 10 km squares, 2 = 1 km squares
+const statsData = (reps, overlays, { local, squareDigits = 1 } = {}) => {
+    const live = (reps || []).filter(r => !r.deleted);
+    const tally = () => new Map();
+    const add = (map, key, n = 1) => map.set(key, (map.get(key) || 0) + n);
+    const nai = tally(), obj = tally(), pl = tally(), squares = tally(), tags = tally(), equipment = tally();
+    const hours = new Array(24).fill(0), headings = new Array(8).fill(0), days = tally();
+    let withGrid = 0, inPlace = 0, checks = 0, coarse = 0;
+    for (const r of live) {
+        const a = analyzeLocation(r.location, overlays);
+        if (a.points.length) withGrid++;
+        if (a.nai.keys.length || a.obj.keys.length) inPlace++;
+        if (a.checks.length) checks++;
+        a.nai.keys.forEach(k => add(nai, k));
+        a.obj.keys.forEach(k => add(obj, k));
+        const near = a.nearestPl && a.nearestPl.metres <= PL_NEAR_METRES ? [a.nearestPl.key] : [];
+        new Set([...a.pl, ...near]).forEach(k => add(pl, k));
+        const sq = new Set();
+        a.points.forEach(p => { const s = gridSquare(p.mgrs, squareDigits); if (s) sq.add(s); else coarse++; });
+        sq.forEach(s => add(squares, s));
+        const act = classifyActivity(r.activity);
+        (act.tags.length ? act.tags : ['Untagged']).forEach(t => add(tags, t));
+        if (act.headingDeg !== null) headings[Math.round(act.headingDeg / 45) % 8]++;
+        sizeElements(r.size).forEach(e => add(equipment, e.type, e.count));
+        const d = new Date(r.time);
+        if (!isNaN(d.getTime())) {
+            const f = dateFields(d, local);
+            hours[+f.h]++;
+            add(days, `${f.y}-${f.mo}-${f.day}`);
+        }
+    }
+    const sorted = map => [...map].map(([label, value]) => ({ label, value }))
+        .sort((x, y) => y.value - x.value || x.label.localeCompare(y.label, undefined, { numeric: true }));
+    // Every day from the first to the last, so a quiet day shows as zero.
+    const dayList = [];
+    const keys = [...days.keys()].sort();
+    if (keys.length) {
+        for (let t = Date.parse(`${keys[0]}T00:00:00Z`), end = Date.parse(`${keys[keys.length - 1]}T00:00:00Z`); t <= end; t += 86400000) {
+            const k = new Date(t).toISOString().slice(0, 10);
+            dayList.push({ label: k, value: days.get(k) || 0 });
+        }
+    }
+    const order = ACTIVITY_TAGS.map(([t]) => t).concat('Untagged');
+    const roll = bdaRollup(live);
+    return {
+        kpis: { reports: live.length, withGrid, inPlace, checks, bdaDone: roll.done, bdaTotal: roll.total },
+        nai: sorted(nai), obj: sorted(obj), pl: sorted(pl),
+        squares: sorted(squares), coarse,
+        hours: hours.map((value, h) => ({ label: pad2(h), value })),
+        days: dayList,
+        tags: order.filter(t => tags.has(t)).map(t => ({ label: t, value: tags.get(t) })),
+        headings: HEADINGS_8.map((label, i) => ({ label, value: headings[i] })),
+        equipment: sorted(equipment),
+        bda: roll.done ? [...BDA_EFFECTS.map(e => ({ label: e.name, value: roll.byEffect[e.name] })), { label: 'Unassessed', value: roll.unassessed }] : [],
+    };
+};
+
+// One CSV holding every table the panel shows, section by section.
+const statsCsv = (sections) => sections.map(({ title, items }) =>
+    [csvField(title), ...items.map(i => `${csvField(i.label)},${i.value}`)].join('\r\n')).join('\r\n\r\n') + '\r\n';
+
 // --- Sync bookkeeping ---
 
 // Reports are matched the way the server merges them: by id, or by
@@ -776,6 +864,7 @@ const SaltCore = {
     parseCsv, reportsCsv, mtiCsvs,
     utmToLatLon, gridToLatLon, findGrids, findRefs, overlayRef, geometryContains, metresToGeometry,
     analyzeLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisCsv,
+    sizeElements, gridSquare, statsData, statsCsv, PL_NEAR_METRES,
     reportKey, knownVersions, changedReports, withUnsaved,
 };
 
