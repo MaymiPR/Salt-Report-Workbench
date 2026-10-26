@@ -640,3 +640,86 @@ test('places to summarize: every overlay, then whatever reports name', () => {
     assert.deepEqual(core.summaryPlaces([report({ location: '38SMB4500082000, OBJ GOLD' })], OVERLAYS),
         ['NAI 1', 'NAI 2', 'OBJ BRIDGE', 'OBJ GOLD', 'PL BLUE']);
 });
+
+// --- Shapefiles ---
+
+// A minimal shapefile writer for the tests: `shapes` are { type: 1 | 3 | 5,
+// parts: [[[x, y], ...], ...] } (a point has one part of one position), and
+// `names` fill a one-column .dbf.
+const writeShapefile = (shapes, names) => {
+    const recs = shapes.map(s => {
+        const pts = s.parts.flat();
+        const len = s.type === 1 ? 20 : 44 + 4 * s.parts.length + 16 * pts.length;
+        const b = new DataView(new ArrayBuffer(8 + len));
+        b.setInt32(4, len / 2);
+        b.setInt32(8, s.type, true);
+        if (s.type === 1) { b.setFloat64(12, pts[0][0], true); b.setFloat64(20, pts[0][1], true); return b.buffer; }
+        b.setInt32(8 + 36, s.parts.length, true);
+        b.setInt32(8 + 40, pts.length, true);
+        let at = 0;
+        s.parts.forEach((p, k) => { b.setInt32(8 + 44 + 4 * k, at, true); at += p.length; });
+        pts.forEach(([x, y], k) => { const o = 8 + 44 + 4 * s.parts.length + 16 * k; b.setFloat64(o, x, true); b.setFloat64(o + 8, y, true); });
+        return b.buffer;
+    });
+    const total = 100 + recs.reduce((n, r) => n + r.byteLength, 0);
+    const shp = new Uint8Array(total), head = new DataView(shp.buffer);
+    head.setInt32(0, 9994); head.setInt32(24, total / 2); head.setInt32(28, 1000, true); head.setInt32(32, shapes[0].type, true);
+    let o = 100;
+    recs.forEach(r => { shp.set(new Uint8Array(r), o); o += r.byteLength; });
+    const width = 20, headLen = 32 + 32 + 1, recLen = 1 + width;
+    const dbf = new Uint8Array(headLen + recLen * names.length + 1), d = new DataView(dbf.buffer);
+    dbf[0] = 3; d.setUint32(4, names.length, true); d.setUint16(8, headLen, true); d.setUint16(10, recLen, true);
+    [...'NAME'].forEach((c, k) => { dbf[32 + k] = c.charCodeAt(0); });
+    dbf[32 + 11] = 'C'.charCodeAt(0); dbf[32 + 16] = width; dbf[64] = 0x0d;
+    names.forEach((n, r) => {
+        const at = headLen + r * recLen;
+        dbf[at] = 0x20;
+        const bytes = new TextEncoder().encode(n.padEnd(width).slice(0, width));
+        dbf.set(bytes.subarray(0, width), at + 1);
+    });
+    dbf[dbf.length - 1] = 0x1a;
+    return { shp: shp.buffer, dbf: dbf.buffer };
+};
+const WGS84_PRJ = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
+const utmPrj = (zone, south) => `PROJCS["WGS_1984_UTM_Zone_${zone}${south ? 'S' : 'N'}",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",500000.0],PARAMETER["False_Northing",${south ? 10000000 : 0}.0],PARAMETER["Central_Meridian",${zone * 6 - 183}.0],PARAMETER["Scale_Factor",0.9996],PARAMETER["Latitude_Of_Origin",0.0],UNIT["Meter",1.0]]`;
+
+test('a shapefile reads as areas (holes kept), lines and points, with its names', () => {
+    // Outer rings clockwise, the hole counter-clockwise, as shapefiles have them.
+    const outer = [[0, 0], [0, 10], [10, 10], [10, 0], [0, 0]];
+    const hole = [[2, 2], [4, 2], [4, 4], [2, 4], [2, 2]];
+    const other = [[20, 0], [20, 5], [25, 5], [25, 0], [20, 0]];
+    const { shp, dbf } = writeShapefile([
+        { type: 5, parts: [outer, hole, other] },
+        { type: 3, parts: [[[0, 20], [10, 21]]] },
+        { type: 1, parts: [[[5, 30]]] },
+    ], ['NAI 1', 'PL Blue', 'Label']);
+    const fc = core.parseShapefile(shp, dbf, WGS84_PRJ);
+    assert.deepEqual(fc.features.map(f => [f.geometry.type, f.properties.NAME]),
+        [['MultiPolygon', 'NAI 1'], ['LineString', 'PL Blue'], ['Point', 'Label']]);
+    const area = fc.features[0].geometry;
+    assert.deepEqual(area.coordinates, [[outer, hole], [other]]);
+    assert.equal(core.geometryContains(area, 3, 3), false, 'in the hole');
+    assert.equal(core.geometryContains(area, 6, 6), true);
+    assert.equal(core.geometryContains(area, 22, 2), true, 'the second part');
+});
+
+test("a shapefile's coordinates come to longitude / latitude from its .prj", () => {
+    const { shp } = writeShapefile([{ type: 1, parts: [[[400000, 3905000]]] }], ['x']);
+    const [lon, lat] = core.parseShapefile(shp, null, utmPrj(11, false)).features[0].geometry.coordinates;
+    // Reference: the `utm` Python package.
+    assert.ok(Math.abs(lon - -118.09964964384866) < 1e-7 && Math.abs(lat - 35.28316447698027) < 1e-7, `${lon} ${lat}`);
+    const south = writeShapefile([{ type: 1, parts: [[[500000, 6000000]]] }], ['x']).shp;
+    const [lon2, lat2] = core.parseShapefile(south, null, utmPrj(33, true)).features[0].geometry.coordinates;
+    assert.ok(Math.abs(lon2 - 15) < 1e-7 && Math.abs(lat2 - -36.14471809833201) < 1e-7, `${lon2} ${lat2}`);
+    const merc = writeShapefile([{ type: 1, parts: [[[-12974286.651, 4202000]]] }], ['x']).shp;
+    const prj = 'PROJCS["WGS_1984_Web_Mercator_Auxiliary_Sphere",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Mercator_Auxiliary_Sphere"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",0.0],PARAMETER["Standard_Parallel_1",0.0],PARAMETER["Auxiliary_Sphere_Type",0.0],UNIT["Meter",1.0]]';
+    const [lon3] = core.parseShapefile(merc, null, prj).features[0].geometry.coordinates;
+    assert.ok(Math.abs(lon3 - -116.55) < 1e-7, `${lon3}`);
+    // No .prj: fine when it already reads as longitude / latitude, refused when it doesn't.
+    const plain = writeShapefile([{ type: 1, parts: [[[-116.5, 35.2]]] }], ['x']).shp;
+    assert.deepEqual(core.parseShapefile(plain, null, null).features[0].geometry.coordinates, [-116.5, 35.2]);
+    assert.throws(() => core.parseShapefile(shp, null, null), /no \.prj/);
+    assert.throws(() => core.parseShapefile(shp, null, 'PROJCS["NAD_1927_StatePlane_California_V",GEOGCS["GCS_North_American_1927"]]'),
+        /NAD 1927 StatePlane California V/);
+    assert.throws(() => core.parseShapefile(new ArrayBuffer(120), null, null), /not a shapefile/);
+});

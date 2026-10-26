@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -462,6 +463,72 @@ class BrowserTests(unittest.TestCase):
         self.assertLessEqual(menu["y"] + menu["height"], report["y"] + report["height"])
         page.locator("#clearAllBtn").scroll_into_view_if_needed()
         self.assertTrue(page.locator("#clearAllBtn").is_visible())
+
+    def shapefile_parts(self) -> dict[str, bytes]:
+        """A small shapefile as ArcGIS writes one, far from the other tests'
+        overlays: an area named OBJ IRON with a hole, in WGS 1984."""
+        outer = [(10.0, 10.0), (10.0, 10.2), (10.2, 10.2), (10.2, 10.0), (10.0, 10.0)]  # clockwise
+        hole = [(10.05, 10.05), (10.1, 10.05), (10.1, 10.1), (10.05, 10.1), (10.05, 10.05)]
+        pts = outer + hole
+        content = struct.pack("<i4d2i", 5, 10.0, 10.0, 10.2, 10.2, 2, len(pts))
+        content += struct.pack("<2i", 0, len(outer)) + b"".join(struct.pack("<2d", *p) for p in pts)
+        record = struct.pack(">2i", 1, len(content) // 2) + content
+        total = 100 + len(record)
+        head = struct.pack(">7i", 9994, 0, 0, 0, 0, 0, total // 2) + struct.pack(
+            "<2i4d4d", 1000, 5, 10.0, 10.0, 10.2, 10.2, 0, 0, 0, 0
+        )
+        name = "OBJ IRON".ljust(20).encode()
+        dbf = struct.pack("<B3BIHH20x", 3, 126, 10, 26, 1, 65, 21)
+        dbf += b"NAME".ljust(11, b"\0") + b"C" + b"\0" * 4 + bytes([20, 0]) + b"\0" * 14 + b"\r"
+        dbf += b" " + name + b"\x1a"
+        prj = (
+            'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],'
+            'PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]'
+        )
+        return {
+            "Objectives.shp": head + record,
+            "Objectives.dbf": dbf,
+            "Objectives.prj": prj.encode(),
+        }
+
+    def test_shapefile_import(self):
+        page = self.open_editor()
+        before = page.evaluate("() => sharedOverlays")
+        parts = self.shapefile_parts()
+        zpath = self.tmp / "objectives.zip"
+        with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, data in parts.items():
+                zf.writestr(f"export/{name}", data)
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.set_input_files("#overlaysFileInput", str(zpath))
+        page.wait_for_selector("#overlaysBody .overlay-type-select")
+        cells = page.locator("#overlaysBody tbody tr").first.locator("td")
+        self.assertEqual(cells.nth(0).text_content(), "OBJ IRON")
+        self.assertEqual(cells.nth(1).text_content(), "Area")
+        self.assertEqual(cells.nth(3).text_content(), "OBJ IRON")
+        page.click("#overlaysReviewCancelBtn")
+        # The same files picked together, unzipped.
+        loose = []
+        for name, data in parts.items():
+            path = self.tmp / name
+            path.write_bytes(data)
+            loose.append(str(path))
+        page.set_input_files("#overlaysFileInput", loose)
+        page.wait_for_selector("#overlaysReviewAddBtn")
+        page.click("#overlaysReviewAddBtn")
+        page.wait_for_selector("#toast-notification:has-text('Imported 1 overlay')")
+        iron = page.evaluate("() => sharedOverlays.find(o => o.name === 'IRON')")
+        self.assertEqual(
+            (iron["type"], iron["geometry"]["type"], len(iron["geometry"]["coordinates"])),
+            ("OBJ", "Polygon", 2),
+        )
+        # A .dbf without its .shp is named, not silently dropped.
+        page.set_input_files("#overlaysFileInput", [loose[1]])
+        page.wait_for_selector(
+            "#toast-notification:has-text(\"its .shp file wasn't picked with it\")"
+        )
+        page.evaluate("list => saveOverlays(list)", before)
 
     def test_a_long_overlay_list_scrolls(self):
         page = self.open_editor()
