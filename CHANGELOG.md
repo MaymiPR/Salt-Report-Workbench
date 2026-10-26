@@ -6,6 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Statistics** (ellipsis menu): headline numbers and charts for the workspace
+  on screen, for all reports or a time window. They follow the log live, and
+  viewers get them too. The charts:
+  - reports per NAI, per OBJ, and at each phase line (typed, or a grid within
+    1 km of it)
+  - the busiest 10 km or 1 km grid squares
+  - reports by hour of day and by day
+  - activity tags, and the heading of moving reports
+  - what was reported by type, counted from Size
+  - BDA outcomes
+
+  Each chart has a hover readout and a table view. It exports as PNG, SVG, or
+  CSV on a light background, with its title, workspace, and window written in.
+  **Export All** zips every chart with one CSV of all the numbers.
+
+### Changed
+
+- How to download, verify, and upgrade now lives in the README's *Download*
+  section, and release pages carry only the changelog.
+
 ## [2.5.0] - 2026-10-26
 
 ### Added

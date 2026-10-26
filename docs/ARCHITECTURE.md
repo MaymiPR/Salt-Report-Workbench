@@ -39,11 +39,11 @@ Three constraints drive almost every decision:
 text, MGRS clean-up, BDA pairing, backup and CSV generation, parsing, and the
 geography (MGRS to latitude/longitude, reading grids and NAI/OBJ/PL names out of
 a Location box, placing them in overlay areas, activity tags, the ArcGIS
-export). It
+export), and the counts behind the Statistics panel (`statsData`). It
 touches no DOM, storage, or network, so it loads in the page as
 `window.SaltCore` and in Node for `tests/js/`. The rest of the page is
-`src/app/`, eight top-level scripts loaded in order (state, rendering, form,
-import/export, overlays, sync, handlers, startup) that share one global scope, so a
+`src/app/`, nine top-level scripts loaded in order (state, rendering, form,
+import/export, overlays, statistics, sync, handlers, startup) that share one global scope, so a
 name declared in an earlier file is visible in the later ones. Together they
 hold the whole application state in a handful of top-level
 variables, with `reportsByAto` (every workspace's reports) as the core. Every

@@ -44,6 +44,42 @@ or a package registry:
   <img src="docs/screenshots/viewer.png" alt="The report log in view-only mode, with a workspaces sidebar and six SALT reports" width="900">
 </p>
 
+## Download
+
+Get the latest release from the [Releases page](https://github.com/MaymiPR/SaltReportWorkbench/releases/latest).
+It offers two downloads holding the same five files: the page, the server, the Windows
+launcher, the license, and a short `README.txt`.
+
+- **`SaltReportWorkbench-v<version>.zip`**: extract it. On Windows, double-click
+  **`Start SALT Workbench.bat`**; anywhere else, run `python salt_sync_server.py` in
+  that folder. Python 3.10+ and a browser are all it needs.
+- **`SALT-Workbench-v<version>.txt`**: the same files as one plain-text file with
+  no compression, for transfer systems that refuse zips or scripts. Run it with
+  Python, and it unpacks into a `SALT Report Workbench` folder beside itself, checks
+  every file, and deletes itself (`--keep` keeps it). It starts nothing. It is still
+  a program whatever its extension, so if your network blocks scripts on purpose,
+  ask your security office before sending it this way.
+
+  ```bat
+  python "SALT-Workbench-v2.5.0.txt"
+  ```
+
+**Verify a download.** Each file has a `.sha256` beside it on the release. The zip is
+reproducible, so its checksum is stable. Check it with:
+
+- PowerShell: `Get-FileHash SaltReportWorkbench-v2.5.0.zip`
+- macOS or Linux: `sha256sum -c SaltReportWorkbench-v2.5.0.zip.sha256`
+
+**Upgrading.** Stop the server and drop the new files over the old ones, or run the
+new `.txt` from the folder that holds `SALT Report Workbench`. Keep the `Auto Backups`
+folder: reports, overlays, and settings load from it as they are. A `PYTHON_EXE` path
+set in the launcher survives an upgrade by `.txt`. If you drop files in by hand,
+set it again. See [Windows launcher](#windows-launcher).
+
+> [!IMPORTANT]
+> The server speaks plain HTTP. Run it only on a network you trust, or over a VPN.
+> See [SECURITY.md](SECURITY.md).
+
 ## How it was made
 
 S.A.L.T. Report Workbench was created entirely with Claude (Anthropic's AI):
@@ -59,6 +95,7 @@ in [CHANGELOG.md](CHANGELOG.md).
 | **Offline-first** | Full functionality from local storage; queued changes replay automatically on reconnect. Each change uploads only the reports it touched, and a report the server refuses stays visible as *Not saved* until it's fixed or discarded. |
 | **Report builder** | Reorder lines, switch between SALT and SALT-U, and add custom fields (e.g. `W: Weather`) that get their own form box, table column, and copy-text line. Saved per workspace and synced to the team. |
 | **Overlays and ArcGIS** | Import NAIs, OBJs, and phase lines from KML, KMZ, or GeoJSON. Reports are placed in them by grid, with a check where a typed NAI disagrees. Export one point per grid, with activity tags and heading, for ArcGIS Pro heat maps. |
+| **Statistics** | Headline numbers and charts for any time window. Covers reports per NAI, OBJ and phase line, the busiest grid squares, the hour of day and day, activity and heading, what was reported by type, and BDA. Each chart exports as PNG, SVG, or CSV, or all at once. |
 | **BDA tracking** | Hidden until you need it. A checklist pre-pairs each element of a report with its grid, so a ten-target assessment is ten clicks. A roll-up above the table totals the workspace by outcome, click-to-filter. Revisable, searchable, exported. |
 | **Edit history** | *Update* snapshots the prior version; *Edit* corrects in place. Any prior version can be restored, and Delete and Restore both offer a ten-second Undo. |
 | **Workspaces** | Separate ATOs with their own reports and formats. Switch live, and the team switches with you. |
@@ -105,26 +142,14 @@ also publishes `dist/` as a downloadable artifact.
 
 ### One file, for strict transfer systems
 
-Some file-transfer systems refuse zips and scripts. Each release also carries
-**`SALT-Workbench-v<version>.txt`**: the whole release in one plain-text file,
-with no compression and no base64. Each file inside is stored line by line as
-escaped text, so it can be read in Notepad. Run it with Python on the other end:
+Each release also carries the one-file `SALT-Workbench-v<version>.txt` (see
+[Download](#download) for using it). Each file inside is stored line by line as
+escaped text, with no compression and no base64, so all of it can be read in
+Notepad. Build it from a release zip with:
 
-```bat
-python "SALT-Workbench-v2.4.1.txt"
+```bash
+python scripts/pack.py SaltReportWorkbench-v<version>.zip
 ```
-
-It unpacks into a `SALT Report Workbench` folder beside itself, checks every file
-against the checksum recorded inside, and deletes itself. It starts nothing;
-double-click the launcher in that folder when you're ready. If anything fails,
-it deletes nothing. To upgrade, run a newer one from the same
-place: the app files are replaced, `Auto Backups` stays, and a `PYTHON_EXE` path
-set in the old launcher is kept. `--keep` keeps the packed file.
-
-It is still a program, whatever its extension. If your network blocks scripts on
-purpose, ask your security office before sending it this way.
-
-Build it from a release zip with `python scripts/pack.py SaltReportWorkbench-v<version>.zip`.
 
 ### Windows launcher
 
@@ -235,6 +260,7 @@ fact; nothing reads it.
 │       ├── 30-form.js        Entry, editing, restore, undo
 │       ├── 40-io.js          Workspaces panel, builder, export, import
 │       ├── 45-overlays.js    Overlay import (KML, KMZ, GeoJSON), Overlays tab, ArcGIS export
+│       ├── 47-stats.js       Statistics panel: charts, hover, tables, PNG / SVG / CSV export
 │       ├── 50-sync.js        Push, pull, SSE, offline queue
 │       ├── 60-handlers.js    Event wiring
 │       └── 70-startup.js     Restore saved state, then connect
