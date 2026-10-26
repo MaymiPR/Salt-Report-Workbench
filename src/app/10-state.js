@@ -310,6 +310,10 @@ const storeOverlays = () => {
 // The workspace on screen: the editor's active one, or the viewer's pick.
 const shownAto        = () => (isReadOnly ? viewerShowingAto : activeAto) || '';
 const currentOverlays = () => sharedOverlays;
+// The map's basemap services ([{ name, kind, url, layers? }]), shared like the
+// overlays; each browser picks which one it shows.
+let sharedBasemaps = viewerAtLoad ? [] : (Array.isArray(readStored('salt_basemaps', [])) ? readStored('salt_basemaps', []) : []);
+const storeBasemaps = () => { if (!isReadOnly && !viewerAtLoad) writeStored('salt_basemaps', JSON.stringify(sharedBasemaps)); };
 // What each Location box says against the overlays (grids, NAI/OBJ, nearest
 // PL, checks). Cached by text; cleared whenever the overlays change.
 const locationCache = new Map();

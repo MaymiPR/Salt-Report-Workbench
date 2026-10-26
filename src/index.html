@@ -365,9 +365,21 @@
                         <li><strong>.json</strong> (Esri JSON, the surest): in ArcGIS Pro run <em>JSON To Features</em> on it. Every field's type is written in the file, so nothing is guessed. <strong>.geojson</strong>: the same tool; text longer than 254 characters is cut, since ArcGIS gives GeoJSON text fields 255. <strong>.csv</strong>: run <em>XY Table To Point</em> with <code>lon</code> as X and <code>lat</code> as Y (WGS 1984). All three hold the same rows; the time filter applies.</li>
                         <li>One point per grid, at the centre of the square the grid names. Each carries the report's identifier, time, Size, Activity, its tags and heading (<code>heading_deg</code>, for rotating arrow symbols), the MGRS, the NAI and OBJ (with <code>nai_from</code> / <code>obj_from</code>: <em>typed</em> or <em>grid</em>), the nearest phase line and its distance in metres, any <code>loc_check</code>, the BDA, and custom fields. Reports with no readable grid are left out, and the message says how many.</li>
                         <li><strong>Heat map</strong>: select the new layer, open <em>Symbology</em>, and choose <em>Heat Map</em>. For analysis, <em>Kernel Density</em> or <em>Optimized Hot Spot Analysis</em> run on the same layer.</li>
+                        <li><strong>ArcGIS tracks (.json or .geojson)</strong>: one line per report that moved, from its first grid through its updates to its latest, in the order reported. Each carries its identifier, Size, Activity, start and end times, the number of positions, the length in metres, and the direction (<code>bearing_deg</code>, <code>direction</code>). In ArcGIS Pro, give the layer a line symbol with an arrow at its end to show the way it went. A report that never moved is not a line; it is in the points.</li>
+                        <li>The points hold each report <strong>once</strong> (per grid it names), as it is now: its earlier updates are not extra points, so a heat map counts each formation once. For a CSV to load into another tool that plots every row, tick <strong>Latest version only</strong> on <em>Reports for Excel (.csv)</em>.</li>
                     </ul>
-                    <p class="manual-modes"><strong>Locally:</strong> Overlays are kept in this browser, for every workspace in it, and work the same way.</p>
-                    <p class="manual-modes"><strong>With sync server:</strong> Overlays sync to every editor and viewer and are restored on server restart. Viewers can export for ArcGIS but not change overlays.</p>
+                    <p class="manual-step">The map (Overlays tab &rarr; Map)</p>
+                    <ul>
+                        <li>The overlays drawn on a map: <strong>NAIs green, OBJs blue, phase lines black</strong> (with a white edge, so they show on any background). The tags under each Location use the same colours.</li>
+                        <li><strong>Heat map</strong>: where the reports are thickest, counting each report once at its latest grid (a report with several grids is shared between them). <strong>Track map</strong>: each report's path from its first position through its updates to its latest, with an arrow for the way it went; a report at one grid is a dot (with a short arrow when its Activity gives a heading). Hover a track for its report, distance, direction and times.</li>
+                        <li><strong>Window</strong>: All, or the last 24, 12, or 6 hours. The map covers the workspace on screen.</li>
+                        <li>Scroll to zoom, drag to move, double-click to zoom in; <strong>+</strong>, <strong>&minus;</strong> and the arrows button (show all). The map covers your overlays and reports and can't be zoomed out past them.</li>
+                        <li><strong>Basemaps&hellip;</strong> (editors): add as many services as you use, each with a name: WMS (its address and layer names; it is asked for EPSG:3857 images) or tiles (WMTS, ArcGIS, or XYZ: an address with <code>{z}</code>, <code>{x}</code>, <code>{y}</code>, or <code>{TileMatrix}</code>, <code>{TileRow}</code>, <code>{TileCol}</code>, in Web Mercator). The &times; removes one. The list is shared with everyone.</li>
+                        <li>The <strong>basemap picker</strong> beside the window switches between them, or to <em>No basemap</em>; each person's pick is kept in their browser. Only the area of the map is requested, never the whole world. Each browser fetches it straight from the service, so a computer that can't reach a service shows the map without it, and says so.</li>
+                        <li>Viewers get the map too, and pick from the same list, but can't change it.</li>
+                    </ul>
+                    <p class="manual-modes"><strong>Locally:</strong> Overlays and the basemap are kept in this browser, for every workspace in it, and work the same way.</p>
+                    <p class="manual-modes"><strong>With sync server:</strong> Overlays and the basemap sync to every editor and viewer and are restored on server restart. Viewers can see the map and export for ArcGIS, but not change either.</p>
                 </section>
 
                 <section class="manual-section">
@@ -484,7 +496,7 @@
                     <p>A short thank you to the testers who put up with the bugs and kept the vibe coding going:</p>
                     <p class="manual-tester-list">You know who you are.</p>
                 </section>
-                <p class="manual-version-footer">Version 2.8 &middot; <a href="https://github.com/MaymiPR/SaltReportWorkbench" target="_blank" rel="noopener">Source code</a> (AGPL v3)</p>
+                <p class="manual-version-footer">Version 2.9 &middot; <a href="https://github.com/MaymiPR/SaltReportWorkbench" target="_blank" rel="noopener">Source code</a> (AGPL v3)</p>
             </div>
 
             <button type="button" id="manualCloseBtn" class="set-btn startup-continue-btn">Close</button>
@@ -829,6 +841,13 @@
                                     </div>
                                 </label>
                                 <label class="export-option-row" data-io-for="csv">
+                                    <input type="checkbox" id="exportLatestOnlyToggle">
+                                    <div>
+                                        <div class="export-option-text">Latest version only</div>
+                                        <div class="export-option-desc">One row per report, without its earlier updates: for tools that put every row on a map</div>
+                                    </div>
+                                </label>
+                                <label class="export-option-row" data-io-for="csv">
                                     <input type="checkbox" id="exportMtiToggle">
                                     <div>
                                         <div class="export-option-text">MTI Export</div>
@@ -985,6 +1004,7 @@
     <script src="app/30-form.js"></script>
     <script src="app/40-io.js"></script>
     <script src="app/45-overlays.js"></script>
+    <script src="app/46-map.js"></script>
     <script src="app/47-stats.js"></script>
     <script src="app/48-summary.js"></script>
     <script src="app/50-sync.js"></script>

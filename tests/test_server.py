@@ -57,6 +57,7 @@ def reset_state() -> None:
             "profiles": {},
             "formats": {},
             "overlays": [],
+            "basemaps": [],
         }
     )
     srv.workspace_sources.clear()
@@ -280,6 +281,28 @@ class ValidatorTests(unittest.TestCase):
         self.assertIsNone(srv._v_save_profile({"profile": {"initials": "AB", "color": "#32d74b"}}))
         self.assertRejects(srv._v_save_profile, {"profile": {"color": "#32d74b"}}, "initials")
         self.assertRejects(srv._v_save_profile, {"profile": {"initials": "ABCD"}}, "initials")
+
+    def test_basemap_validation(self):
+        v = srv._v_save_basemaps
+        wms = {
+            "name": "Imagery",
+            "kind": "wms",
+            "url": "https://maps.example.mil/wms",
+            "layers": "imagery",
+        }
+        tiles = {"name": "Topo", "kind": "tiles", "url": "http://10.0.0.5/tiles/{z}/{y}/{x}.png"}
+        self.assertIsNone(v({"basemaps": [wms, tiles]}))
+        self.assertIsNone(v({"basemaps": []}), "none: a plain background")
+        self.assertRejects(v, {"basemaps": wms}, "list")
+        self.assertRejects(v, {"basemaps": [wms, {**tiles, "name": " imagery "}]}, "used twice")
+        self.assertRejects(v, {"basemaps": [{**wms, "name": ""}]}, "name")
+        self.assertRejects(v, {"basemaps": [{**wms, "kind": "wfs"}]}, "wms or tiles")
+        self.assertRejects(v, {"basemaps": [{**wms, "url": "file:///c:/x"}]}, "http(s)")
+        self.assertRejects(v, {"basemaps": [{**wms, "url": "javascript:alert(1)"}]}, "http(s)")
+        self.assertRejects(v, {"basemaps": [{**wms, "url": "https://x/" + "a" * 2000}]}, "http(s)")
+        self.assertRejects(v, {"basemaps": [{**wms, "layers": 5}]}, "layers")
+        many = [{**tiles, "name": f"T{i}"} for i in range(21)]
+        self.assertRejects(v, {"basemaps": many}, "too many")
 
 
 # --------------------------------------------------------------------------- #
@@ -719,6 +742,37 @@ class HttpApiTests(unittest.TestCase):
         # Unloading a workspace leaves the shared set alone.
         self.post("/api/unload_ato", {"ato": "ALPHA"})
         self.assertEqual(self.sync()["overlays"], [NAI1, PL_BLUE])
+
+    def test_basemaps_sync_and_survive_a_restart(self):
+        shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        wms = {
+            "name": " Imagery ",
+            "kind": "wms",
+            "url": " https://maps.example.mil/wms ",
+            "layers": "imagery",
+            "x": 1,
+        }
+        tiles = {"name": "Topo", "kind": "tiles", "url": "http://10.0.0.5/tiles/{z}/{y}/{x}.png"}
+        self.assertEqual(self.post("/api/save_basemaps", {"basemaps": [wms, tiles]})[0], 200)
+        clean = [
+            {
+                "name": "Imagery",
+                "kind": "wms",
+                "url": "https://maps.example.mil/wms",
+                "layers": "imagery",
+            },
+            tiles,
+        ]
+        self.assertEqual(self.sync()["basemaps"], clean, "trimmed, known fields only")
+        srv.flush_pending_save()
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(self.sync()["basemaps"], clean)
+        self.post("/api/save_basemaps", {"basemaps": []})
+        self.assertEqual(self.sync()["basemaps"], [])
+        status, _ = self.post("/api/save_basemaps", {"basemaps": clean}, base=self.viewer_base)
+        self.assertEqual(status, 405, "viewers cannot change them")
 
     def test_per_workspace_overlays_from_older_backups_are_pooled(self):
         nai2 = {**NAI1, "name": "2"}

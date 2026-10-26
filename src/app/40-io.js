@@ -171,12 +171,12 @@ const clearExportFilter = () => {
 };
 
 // Workspaces panel tabs: 'export' (default) | 'workspaces' | 'builder' | 'overlays' | 'identity'.
-// Persisted in localStorage. Viewer mode forces 'export' since the
-// workspaces list lives in the sidebar and the identity tab is hidden.
+// Persisted in localStorage. Viewers get 'export' and 'overlays' only: the
+// workspaces list lives in their sidebar, and the other tabs change things.
 const VALID_TABS = ['export', 'workspaces', 'identity', 'builder', 'overlays'];
 const switchWorkspacesTab = (tabName) => {
     if (!VALID_TABS.includes(tabName)) tabName = 'export';
-    if (isReadOnly) tabName = 'export';
+    if (isReadOnly && tabName !== 'overlays') tabName = 'export';
     el.workspaces.tabs.forEach(btn => {
         const isActive = btn.dataset.tab === tabName;
         btn.classList.toggle('active', isActive);
@@ -327,13 +327,17 @@ const IO_FORMATS = {
         { id: 'backup', label: 'Backup (.txt)', btn: 'exportPanelBackupBtn', needs: 'backup',
           desc: 'Every report with its updates, BDA, report format and the overlays. Opens in Notepad; Import it on any workbench.' },
         { id: 'csv', label: 'Reports for Excel (.csv)', btn: 'exportPanelCsvBtn', needs: 'csv',
-          desc: 'One row per report, and one per saved update, with the time filter below.' },
+          desc: 'One row per report, and one per saved update (or, with Latest version only, just the report), with the time filter below.' },
         { id: 'arcgis-esri', label: 'ArcGIS points (.json, Esri JSON)', btn: 'exportArcgisEsriBtn',
-          desc: 'One point per grid for ArcGIS Pro: run JSON To Features on it. The surest way into Pro.' },
+          desc: 'One point per grid of each report as it is now (its updates are not extra points), for heat maps. ArcGIS Pro: JSON To Features. The surest way into Pro.' },
         { id: 'arcgis-geojson', label: 'ArcGIS points (.geojson)', btn: 'exportArcgisGeojsonBtn',
           desc: 'The same points as GeoJSON, for JSON To Features or other GIS. Text longer than 254 characters is cut.' },
         { id: 'arcgis-csv', label: 'ArcGIS points (.csv)', btn: 'exportArcgisCsvBtn',
           desc: 'The same points as a table: XY Table To Point, with lon as X and lat as Y (WGS 1984).' },
+        { id: 'tracks-esri', label: 'ArcGIS tracks (.json, Esri JSON)', run: () => exportForArcgis('tracks-esri'),
+          desc: 'One line per report that moved, from its first grid through its updates to the latest, for an arrow at the end (Symbology: a line with an end arrow). JSON To Features.' },
+        { id: 'tracks-geojson', label: 'ArcGIS tracks (.geojson)', run: () => exportForArcgis('tracks-geojson'),
+          desc: 'The same tracks as GeoJSON lines, drawn first to latest.' },
     ],
     import: [
         { id: 'backup', label: 'Backup (.txt)', btn: 'importBackupBtnTrigger',
@@ -365,6 +369,7 @@ const renderIoPicker = () => {
 };
 const runIoPicker = () => {
     const f = ioFormat();
+    if (f.run) { f.run(); return; }
     if (f.overlays) {
         switchWorkspacesTab('overlays');
         document.getElementById('overlaysFileInput').click();

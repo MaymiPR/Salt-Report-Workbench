@@ -125,14 +125,14 @@ async function syncWithServer() {
         if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) throw new Error('Server unreachable');
         const state = await res.json();
-        applyServerUpdate(state.workspaces, state.config, state.profiles, state.connected_users, state.sources, state.connected_initials, state.read_only, state.formats, state.overlays);
+        applyServerUpdate(state.workspaces, state.config, state.profiles, state.connected_users, state.sources, state.connected_initials, state.read_only, state.formats, state.overlays, state.basemaps);
         setConnectionStatus(true);
     } catch (err) {
         setConnectionStatus(false);
     }
 }
 
-function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources, connInitials, readOnly, formats, overlays) {
+function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources, connInitials, readOnly, formats, overlays, basemaps) {
     // Per-workspace report formats — server keys win, locally-known formats
     // for workspaces the server hasn't seen survive.
     if (formats && typeof formats === 'object') {
@@ -145,6 +145,10 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
         sharedOverlays = overlays;
         if (!readOnly) storeOverlays();
         renderLocationHints();
+    }
+    if (Array.isArray(basemaps) && JSON.stringify(basemaps) !== JSON.stringify(sharedBasemaps)) {
+        sharedBasemaps = basemaps;
+        if (!readOnly) storeBasemaps();
     }
     if (connectedUsers != null) {
         el.status.userCount.textContent    = connectedUsers;

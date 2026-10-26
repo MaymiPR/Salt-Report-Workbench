@@ -193,6 +193,8 @@ const readOverlayFile = async (file) => {
 
 const SHAPE_LABEL = { Polygon: 'Area', MultiPolygon: 'Area', LineString: 'Line', MultiLineString: 'Line', Point: 'Point', MultiPoint: 'Point' };
 let overlayReview = null;  // { rows: [{ label, geometry, type }], files: [names] }
+// The tab shows the overlays as a list or on a map (app/46-map.js). Per browser.
+let overlayView = localStorage.getItem('salt_overlay_view') === 'map' ? 'map' : 'list';
 
 // The overlay a review row becomes with the type picked for it.
 const reviewOverlay = (row) => {
@@ -314,6 +316,17 @@ const renderOverlays = () => {
     }
 
     const list = currentOverlays();
+    const header = `<div class="overlays-head">
+        <div class="io-modes" role="group" aria-label="Show as">
+            <button type="button" class="io-mode" data-overlay-view="list" aria-pressed="${overlayView === 'list'}">List</button>
+            <button type="button" class="io-mode" data-overlay-view="map" aria-pressed="${overlayView === 'map'}">Map</button>
+        </div>
+        <div class="overlays-actions editor-only">
+            <button type="button" id="overlaysImportBtn" class="set-btn">Import KML / KMZ / GeoJSON / SHP</button>
+            ${list.length ? '<button type="button" id="overlaysClearBtn" class="cancel-btn">Unload All</button>' : ''}
+        </div>
+    </div>`;
+    if (overlayView === 'map') { renderOverlayMap(box, header); return; }
     // How many of the shown workspace's live reports each place appears in,
     // typed or by grid (a phase line: typed, or a grid near it).
     const uses = {};
@@ -347,11 +360,7 @@ const renderOverlays = () => {
             </table>
         </section>`;
     }).join('');
-    box.innerHTML = `
-        <div class="overlays-actions editor-only">
-            <button type="button" id="overlaysImportBtn" class="set-btn">Import KML / KMZ / GeoJSON / SHP</button>
-            ${list.length ? '<button type="button" id="overlaysClearBtn" class="cancel-btn">Unload All</button>' : ''}
-        </div>
+    box.innerHTML = `${header}
         ${list.length ? `
         <div class="overlays-note">One set for every workspace. Importing a shape with the same type and name replaces the old one, so an updated NAI file just updates its NAIs.</div>
         ${groups}` : `<div class="overlays-note">No overlays yet. Export your NAIs, OBJs and phase lines from ArcGIS as KML, KMZ, GeoJSON or a shapefile (zipped, or its .shp, .dbf and .prj picked together) and import them here. They apply to every workspace. Reports are then placed in NAIs and OBJs by their grid, and checked against what was typed.</div>`}`;
@@ -363,6 +372,14 @@ const overlaysFileInput = document.getElementById('overlaysFileInput');
 if (overlaysBody && overlaysFileInput) {
     overlaysBody.addEventListener('click', e => {
         if (e.target.closest('#overlaysImportBtn')) { overlaysFileInput.click(); return; }
+        const view = e.target.closest('[data-overlay-view]');
+        if (view) {
+            overlayView = view.dataset.overlayView;
+            try { localStorage.setItem('salt_overlay_view', overlayView); } catch (err) { /* this session only */ }
+            overlaysBody.innerHTML = '';  // the map is built afresh
+            renderOverlays();
+            return;
+        }
         if (e.target.closest('#overlaysReviewAddBtn')) { finishOverlayImport(); return; }
         if (e.target.closest('#overlaysReviewCancelBtn')) { overlayReview = null; renderOverlays(); return; }
         if (e.target.closest('#overlaysClearBtn')) {
@@ -407,11 +424,21 @@ const exportForArcgis = (kind) => {
         ...currentFormat().lines.filter(l => l.type === 'custom').map(l => l.label),
         ...reps.flatMap(r => Object.keys(r.custom || {})),
     ])];
+    const base = `${getCsvFilename(shownAto() || 'ATO', localConfig.title || 'SALT')}_arcgis`;
+    if (kind.startsWith('tracks')) {
+        // One line per report that moved, first grid to latest.
+        const tracks = SaltCore.arcgisTrackRows(reps, { local: timeDisplayMode === 'local', idOf: formatFullId });
+        if (!tracks.length) { showToast('No report has moved: each needs updates at two or more grids.', true); return; }
+        if (kind === 'tracks-esri') triggerDownload(`${base}_tracks.json`, SaltCore.arcgisTracksEsriJson(tracks), 'application/json');
+        else triggerDownload(`${base}_tracks.geojson`, SaltCore.arcgisTracksGeoJson(tracks), 'application/geo+json');
+        showToast(`Exported ${tracks.length} track${tracks.length === 1 ? '' : 's'}.`);
+        clearExportFilter();
+        return;
+    }
     const { rows, skipped } = SaltCore.arcgisRows(reps, currentOverlays(), {
         local: timeDisplayMode === 'local', customLabels, idOf: formatFullId,
     });
     if (!rows.length) { showToast(`None of the ${skipped} report${skipped === 1 ? '' : 's'} has a readable MGRS grid.`, true); return; }
-    const base = `${getCsvFilename(shownAto() || 'ATO', localConfig.title || 'SALT')}_arcgis`;
     if (kind === 'csv') triggerDownload(`${base}.csv`, SaltCore.arcgisCsv(rows), 'text/csv;charset=utf-8;');
     else if (kind === 'esri') triggerDownload(`${base}.json`, SaltCore.arcgisEsriJson(rows), 'application/json');
     else triggerDownload(`${base}.geojson`, SaltCore.arcgisGeoJson(rows), 'application/geo+json');

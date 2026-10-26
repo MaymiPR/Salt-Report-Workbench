@@ -737,8 +737,10 @@ body.read-only .view-only-badge { display: inline-block; }
 /* Hide form, show sidebar in column 1 (grid auto-placement skips display:none). */
 body.read-only .form-section        { display: none; }
 body.read-only .workspaces-sidebar  { display: flex; }
-/* Sidebar duplicates the Workspaces tab — hide it; panel opens on Import/Export. */
-body.read-only #exportPanel .ws-tabs                                { display: none !important; }
+/* Viewers get Import / Export (exports only) and Overlays (to see the map);
+   the sidebar stands in for the Workspaces tab, and the rest change things. */
+body.read-only .ws-tab[data-tab="workspaces"],
+body.read-only .ws-tab[data-tab="builder"]                             { display: none !important; }
 body.read-only #exportPanel .ws-tab-panel[data-tab-panel="workspaces"] { display: none !important; }
 /* Sidebar list scrolls internally so total height matches the report panel. */
 body.read-only .workspaces-sidebar .workspaces-list {
@@ -1109,12 +1111,53 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .overlays-table td { padding: 6px 8px; border-bottom: 1px solid var(--divider); vertical-align: middle; overflow-wrap: anywhere; }
 .overlays-table select { padding: 5px 30px 5px 10px; min-width: 96px; font-size: 0.95em; margin: 0; width: auto; background-position: right 10px center; }
 .overlay-type { display: inline-block; min-width: 30px; text-align: center; font-size: 0.78em; font-weight: 700; padding: 1px 6px; border-radius: 6px; margin-right: 4px; }
-.overlay-nai { background: rgba(10, 132, 255, 0.16); color: var(--system-blue); }
-.overlay-obj { background: rgba(255, 159, 10, 0.16); color: var(--system-orange); }
-.overlay-pl  { background: rgba(50, 215, 75, 0.16); color: var(--system-green); }
+/* The map's colours: NAI green, OBJ blue, PL black (a neutral chip here, on the dark panel). */
+.overlay-nai { background: rgba(50, 215, 75, 0.16); color: var(--system-green); }
+.overlay-obj { background: rgba(10, 132, 255, 0.16); color: var(--system-blue); }
+.overlay-pl  { background: rgba(255, 255, 255, 0.12); color: var(--text-primary); }
 .overlay-remove { background: none; border: none; color: var(--text-secondary); font-size: 1.2em; line-height: 1; padding: 2px 6px; margin: 0; width: auto; cursor: pointer; }
 .overlay-remove:hover { color: var(--system-red); }
 /* One group per type, each with its own Unload. */
+/* List | Map, with the import buttons beside it. */
+.overlays-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 12px; }
+.overlays-head .overlays-actions { margin: 0; }
+
+/* --- The overlay map --- */
+.map-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 10px; }
+.map-tools .filter-presets { margin: 0; }
+.map-tools #mapBaseEdit { margin: 0 0 0 auto; width: auto; padding: 7px 14px; font-size: 0.82em; }
+.map-base-select { width: auto; min-width: 150px; margin: 0; padding: 7px 34px 7px 12px; font-size: 0.85em; border-radius: 10px; }
+.map-base-select[hidden] { display: none; }
+.map-base-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+.map-base-row { display: grid; grid-template-columns: minmax(80px, auto) 52px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 4px 6px; border-bottom: 1px solid var(--divider); font-size: 0.85em; }
+.map-base-name { font-weight: 600; }
+.map-base-kind { color: var(--text-secondary); }
+.map-base-url { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, Consolas, monospace; font-size: 0.92em; }
+.map-form-row #mapBaseName { flex: 0 1 170px; }
+.map-basemap-form { background: var(--input-bg); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
+.map-form-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.map-form-row select { width: auto; min-width: 150px; margin: 0; padding: 9px 34px 9px 12px; font-size: 0.88em; }
+.map-form-row input { flex: 1 1 240px; margin: 0; padding: 9px 12px; font-size: 0.88em; background: var(--panel-bg); }
+.map-form-row #mapBaseLayers { flex: 0 1 180px; }
+.map-form-row button { margin: 0; width: auto; padding: 9px 18px; }
+.map-box { position: relative; height: max(380px, calc(100vh - 380px)); border-radius: 12px; overflow: hidden; background: #2a2b2e; border: 1px solid var(--divider); touch-action: none; cursor: grab; user-select: none; }
+.map-box.dragging { cursor: grabbing; }
+.map-box svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.map-label { font: 600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; fill: #f5f5f7; stroke: #000; stroke-width: 3px; stroke-opacity: 0.75; paint-order: stroke; pointer-events: none; }
+.map-label-track { font-weight: 500; font-size: 10px; text-anchor: start; }
+.map-track { cursor: pointer; }
+.map-hit { pointer-events: stroke; }
+circle.map-hit { pointer-events: all; }
+.map-zoom { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.map-zoom button { width: 30px; height: 30px; margin: 0; padding: 0; border-radius: 8px; background: var(--glass-bg); backdrop-filter: blur(12px); border: 1px solid var(--glass-border); color: var(--text-primary); font-size: 1.05em; line-height: 1; }
+.map-note { position: absolute; left: 10px; top: 10px; max-width: 60%; padding: 6px 10px; border-radius: 8px; background: var(--glass-bg); backdrop-filter: blur(12px); font-size: 0.8em; color: var(--text-secondary); }
+.map-note[hidden], .map-tip[hidden] { display: none; }
+.map-tip { position: absolute; z-index: 2; max-width: 280px; padding: 8px 10px; border-radius: 10px; background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); font-size: 0.8em; line-height: 1.45; pointer-events: none; }
+.map-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 0.8em; color: var(--text-secondary); }
+.map-key { display: inline-flex; align-items: center; gap: 6px; }
+.map-ramp { display: inline-block; width: 46px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, rgba(255, 159, 10, 0.27), rgba(255, 159, 10, 0.67) 40%, rgba(255, 214, 10, 0.84) 70%, rgba(255, 248, 220, 0.92)); }
+[data-map-mode][aria-pressed="true"] { background-color: var(--panel-bg); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
+
 .overlay-group { background: var(--input-bg); border-radius: 12px; padding: 10px 12px 2px; margin-bottom: 12px; }
 .overlay-group-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .overlay-group-title { font-weight: 600; font-size: 0.92em; }
@@ -1131,6 +1174,8 @@ body.read-only .editor-only { display: none !important; }
 /* Under a report's Location: the place its grid puts it in, and checks. */
 .loc-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
 .loc-tag { font-size: 0.72em; font-weight: 600; padding: 1px 7px; border-radius: 100px; background: rgba(10, 132, 255, 0.12); color: var(--system-blue); white-space: nowrap; }
+.loc-tag.loc-nai { background: rgba(50, 215, 75, 0.14); color: var(--system-green); }
+.loc-tag.loc-pl { background: rgba(255, 255, 255, 0.1); color: var(--text-primary); }
 .loc-tag.warn { background: rgba(255, 159, 10, 0.14); color: var(--system-orange); white-space: normal; border-radius: 6px; }
 button.loc-tag { border: none; margin: 0; width: auto; font-family: inherit; text-align: left; line-height: 1.5; cursor: pointer; }
 button.loc-tag.warn:hover { background: rgba(255, 159, 10, 0.26); }
