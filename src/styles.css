@@ -371,8 +371,19 @@ body.local-mode .startup-access-divider { display: none; }
     cursor: not-allowed;
 }
 
+/* The view switcher: Workspaces, Statistics, Summary Reports, and Settings
+   as a 2x2 square at the top right of the report panel, in every view. Each
+   view's header leaves room for it. */
+.report-section { position: relative; }
+.view-switcher { position: absolute; top: 30px; right: 30px; z-index: 30; display: grid; grid-template-columns: repeat(2, 22px); grid-auto-rows: 22px; gap: 4px; }
+.view-icon { width: 22px; height: 22px; margin: 0; padding: 0; border: none; border-radius: 7px; background: var(--input-bg); color: var(--text-secondary); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background-color 0.15s, color 0.15s; }
+.view-icon svg { width: 14px; height: 14px; display: block; }
+.view-icon:hover { background: var(--input-bg-hover); color: var(--text-primary); }
+.view-icon.active, .data-management-menu:has(#dataMgmtMenu[style*="block"]) #dataMgmtBtn { background: rgba(10, 132, 255, 0.22); color: var(--system-blue); }
+.view-icon:focus-visible { outline: 2px solid var(--system-blue); outline-offset: 1px; }
+.report-header, .export-panel-header { padding-right: 64px; min-height: 62px; box-sizing: border-box; }
 .data-management-menu { position: relative; }
-#dataMgmtMenu { display: none; position: absolute; right: 0; top: calc(100% + 8px); background-color: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: 14px; padding: 6px; z-index: 20; min-width: 250px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+#dataMgmtMenu { display: none; position: absolute; right: 0; top: calc(100% + 8px); overflow-y: auto; background-color: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: 14px; padding: 6px; z-index: 20; min-width: 250px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
 #dataMgmtMenu button { width: 100%; text-align: left; background: transparent; font-size: 0.9em; margin: 0; border-radius: 8px; padding: 10px 14px; color: var(--text-primary); font-weight: 500; }
 #dataMgmtMenu hr { border: none; border-top: 1px solid var(--divider); margin: 5px 0; }
 #dataMgmtMenu button:hover { background: var(--system-blue); }
@@ -577,25 +588,42 @@ body.local-mode .startup-access-divider { display: none; }
 .confirm-btn { background-color: var(--system-red); }
 .cancel-btn { background-color: var(--input-bg); color: var(--text-primary); }
 
-.horizontal-layout .form-section { display: block; padding-top: 18px; padding-bottom: 18px; }
-.horizontal-layout .form-header-row { justify-content: flex-start; gap: 30px; }
-.horizontal-layout .config-controls { gap: 10px; padding-bottom: 14px; margin-bottom: 0; }
-.horizontal-layout .config-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
-.horizontal-layout .config-inputs input { padding: 8px 12px; height: 36px; }
-.horizontal-layout .config-inputs label { margin-bottom: 3px; }
-.horizontal-layout .config-button-wrapper { align-self: end; justify-content: flex-end; }
-.horizontal-layout #atoHistorySelect { margin-top: 0; height: 36px; padding-top: 6px; padding-bottom: 6px; }
-.horizontal-layout #setAtoBtn { height: 36px; padding: 0 16px; }
-.horizontal-layout #saltForm { display: grid; grid-template-columns: 1fr 1fr; grid-template-areas: "fields analysis" "submit submit"; gap: 24px 40px; }
-.horizontal-layout #salt-fields { grid-area: fields; }
-.horizontal-layout #analysis-field { grid-area: analysis; }
-.horizontal-layout #analysis-field textarea { height: calc(100% - 28px); margin-bottom: 0; }
-.horizontal-layout .update-controls { grid-area: submit; margin-top: 0; }
 .input-group { margin-bottom: 12px; }
-.horizontal-layout .input-group { margin-bottom: 16px; }
-.horizontal-layout .input-group input, .horizontal-layout .input-group .time-control { margin-bottom: 0; }
-/* Horizontal layout: cap table height so rows scroll internally instead of pushing the footer past the fold. */
-.horizontal-layout .table-wrapper { max-height: 65vh; }
+
+/* --- Horizontal layout ---
+   A compact form across the top; the report panel fills the rest of the
+   window, and its table, statistics or summary scroll inside it. On a short
+   window the page scrolls rather than squeezing the log below 360px. */
+.grid-container.horizontal-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(360px, 1fr); height: max(calc(105vh - 100px), 640px); justify-content: stretch; gap: 16px; }
+.horizontal-layout .form-section { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "title config" "head head" "form form"; align-items: end; gap: 14px 32px; padding: 18px 24px 20px; }
+.horizontal-layout .form-header-block { grid-area: title; align-self: center; margin: 0; padding: 0; border: none; text-align: left; }
+.horizontal-layout #main-form-header { text-align: left; font-size: 1.15em; }
+.horizontal-layout .config-controls { grid-area: config; display: flex; align-items: flex-end; gap: 10px; margin: 0; padding: 0; }
+.horizontal-layout .config-inputs { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.horizontal-layout .config-inputs label { margin-bottom: 3px; }
+.horizontal-layout .config-inputs input { padding: 8px 12px; height: 38px; }
+.horizontal-layout .config-button-wrapper { flex-direction: row; align-self: flex-end; align-items: flex-end; gap: 8px; }
+.horizontal-layout #atoHistorySelect { margin: 0; height: 38px; padding-top: 6px; padding-bottom: 6px; }
+.horizontal-layout #setAtoBtn { height: 38px; padding: 0 16px; }
+.horizontal-layout .form-header-row { grid-area: head; margin: 0; padding-top: 14px; }
+.horizontal-layout #saltForm { grid-area: form; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "fields submit" "analysis analysis"; gap: 12px 16px; align-items: start; }
+/* The fields share one row (a custom field joins it, or wraps); Location gets two shares. */
+.horizontal-layout #salt-fields { grid-area: fields; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; }
+.horizontal-layout #salt-fields .input-group:has(#location) { grid-column: span 2; }
+.horizontal-layout .input-group { margin: 0; }
+.horizontal-layout .input-group input, .horizontal-layout .time-control { margin-bottom: 0; }
+.horizontal-layout .time-control { gap: 8px; }
+.horizontal-layout .time-control button { width: 64px; }
+.horizontal-layout .loc-hints { margin: 6px 0 0; }
+.horizontal-layout #analysis-field { grid-area: analysis; margin: 0; min-height: 0; }
+.horizontal-layout #analysis-field textarea { height: 52px; min-height: 52px; margin: 0; }
+.horizontal-layout .update-controls { grid-area: submit; display: flex; align-items: center; gap: 8px; margin: 0; }
+.horizontal-layout #logButton, .horizontal-layout #editUpdatePair { margin: 0; }
+.horizontal-layout #logButton { width: auto; min-width: 170px; height: 46px; }
+.horizontal-layout #editUpdatePair button { min-width: 96px; height: 46px; }
+.horizontal-layout #cancelButton { width: auto; margin: 0; height: 46px; }
+/* The Cancel slot is reserved only while editing here: a row has room to spare. */
+.horizontal-layout #cancelButton[style*="hidden"] { display: none; }
 .horizontal-layout .report-header h2 { margin-right: 0; }
 .sortable-th { cursor: pointer; user-select: none; white-space: nowrap; transition: color 0.15s ease; }
 .sortable-th:hover { color: var(--text-primary); }
@@ -677,7 +705,6 @@ body.local-mode .startup-access-divider { display: none; }
 .export-action-col-label { margin-bottom: 4px; text-align: center; }
 .export-action-col button { width: 100%; text-align: center; padding: 12px 20px; }
 .export-action-vdivider { width: 1px; background: var(--divider); align-self: stretch; margin: 16px 0; }
-#dataMgmtMenu #exportViewToggleBtn.active { color: var(--system-blue); font-weight: 600; }
 
 /* --- Read-only / viewer mode ---
    Applied when /api/sync returns read_only:true (viewer port). Server enforces
@@ -728,12 +755,12 @@ body.read-only #importBackupBtnTrigger,
 body.read-only #importCsvBtnTrigger,
 body.read-only .ws-tab[data-tab="identity"],
 body.read-only #set-profile-btn,
-/* Ellipsis-menu items that have no purpose in a read-only session. */
+/* Settings-menu items that have no purpose in a read-only session. */
 body.read-only #toggleLayoutBtn,
 body.read-only #selectAllBtn,
 body.read-only #deselectAllBtn,
 body.read-only #clearAllBtn { display: none !important; }
-/* Viewer mode: drop every separator in the ellipsis menu. With Layout,
+/* Viewer mode: drop every separator in the Settings menu. With Layout,
    Select/Deselect, and Clear Workspace hidden, the remaining items (Time, Workspaces,
    User Manual) are few enough that dividers add visual noise without grouping
    anything meaningful. */
@@ -1086,7 +1113,10 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .overlay-group-count { font-size: 0.78em; font-weight: 600; color: var(--text-secondary); background: rgba(255, 255, 255, 0.08); border-radius: 100px; padding: 1px 8px; }
 .overlay-group-unload { margin: 0 0 0 auto; width: auto; padding: 5px 12px; font-size: 0.8em; font-weight: 600; border: none; border-radius: 8px; background: rgba(255, 255, 255, 0.08); color: var(--text-primary); cursor: pointer; }
 .overlay-group-unload:hover { background: rgba(255, 69, 58, 0.18); color: var(--system-red); }
-.overlay-group .overlays-table { margin-bottom: 6px; }
+.overlay-group .overlays-table { margin-bottom: 6px; table-layout: fixed; }
+.overlay-group .overlays-table th:nth-child(1) { width: 46%; }
+.overlay-group .overlays-table th:nth-child(2) { width: 20%; }
+.overlay-group .overlays-table th:nth-child(4) { width: 36px; }
 .overlay-group .overlays-table tr:last-child td { border-bottom: none; }
 body.read-only .editor-only { display: none !important; }
 
@@ -1098,7 +1128,7 @@ button.loc-tag { border: none; margin: 0; width: auto; font-family: inherit; tex
 button.loc-tag.warn:hover { background: rgba(255, 159, 10, 0.26); }
 
 /* Under the Location box while typing: what Log / Update will add, and what disagrees. */
-.loc-hints { display: flex; flex-wrap: wrap; gap: 6px; margin: -6px 0 12px; }
+.loc-hints { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 12px 2px; }
 .loc-hints[hidden] { display: none; }
 .loc-hint { font-size: 0.78em; font-weight: 600; padding: 3px 10px; border-radius: 100px; border: none; margin: 0; width: auto; background: rgba(10, 132, 255, 0.14); color: var(--system-blue); cursor: pointer; font-family: inherit; line-height: 1.4; }
 .loc-hint:hover { background: rgba(10, 132, 255, 0.26); }

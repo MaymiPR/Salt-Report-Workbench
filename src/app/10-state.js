@@ -392,7 +392,27 @@ const copyToClipboard = (text) => {
 const postJson = (path, body) => fetch(path, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });
-const setupMenuToggle = (btn, menu) => btn.addEventListener('click', e => { e.stopPropagation(); menu.style.display = menu.style.display === 'block' ? 'none' : 'block'; });
+// A dropdown never runs past the bottom of the window or of the panel that
+// holds it (which clips it): it gets the room below its button, and scrolls
+// inside that if it needs more.
+const setupMenuToggle = (btn, menu) => btn.addEventListener('click', e => {
+    e.stopPropagation();
+    const open = menu.style.display !== 'block';
+    menu.style.display = open ? 'block' : 'none';
+    if (open) {
+        menu.style.maxHeight = '';
+        const panel = btn.closest('.report-section, .form-section');
+        const bottom = Math.min(window.innerHeight, panel ? panel.getBoundingClientRect().bottom : Infinity);
+        const room = bottom - menu.getBoundingClientRect().top - 12;
+        if (menu.scrollHeight > room) menu.style.maxHeight = `${Math.max(160, room)}px`;
+    }
+});
+
+// The view switcher's icons: the open view's is highlighted.
+const setViewIcon = (id, on) => {
+    const b = document.getElementById(id);
+    if (b) { b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); }
+};
 
 // --- 4. Notifications (toasts + confirmation dialog) ---
 let toastTimer = null;

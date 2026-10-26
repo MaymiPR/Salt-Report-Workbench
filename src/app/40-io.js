@@ -325,7 +325,7 @@ const openExportView = () => {
     isExportViewActive = true;
     el.log.view.style.display  = 'none';
     el.exp.panel.style.display = 'flex';
-    el.menu.exportBtn.classList.add('active');
+    setViewIcon('exportViewToggleBtn', true);
     el.menu.panel.style.display = 'none';
     writeStored('salt_view', 'export');
     // Restore last-used tab; default 'export' for fresh sessions.
@@ -338,7 +338,7 @@ const closeExportView = () => {
     isExportViewActive = false;
     el.log.view.style.display  = 'flex';
     el.exp.panel.style.display = 'none';
-    el.menu.exportBtn.classList.remove('active');
+    setViewIcon('exportViewToggleBtn', false);
     writeStored('salt_view', 'log');
 };
 
@@ -415,7 +415,7 @@ const openCsvImportView = () => {
     // The CSV mapping view replaces the export view — keep the menu button's "active"
     // state in sync so the next click opens the panel on the first try.
     isExportViewActive = false;
-    el.menu.exportBtn.classList.remove('active');
+    setViewIcon('exportViewToggleBtn', false);
     el.log.view.style.display   = 'none';
     el.exp.panel.style.display  = 'none';
     el.csv.panel.style.display  = 'flex';

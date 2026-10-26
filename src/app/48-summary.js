@@ -48,6 +48,7 @@ const openSummaryView = () => {
     if (isExportViewActive) closeExportView();
     closeStatsView();
     isSummaryViewActive = true;
+    setViewIcon('summaryViewToggleBtn', true);
     el.log.view.style.display = 'none';
     const s = summaryEls();
     s.panel.style.display = 'flex';
@@ -60,6 +61,7 @@ const openSummaryView = () => {
 const closeSummaryView = () => {
     if (!isSummaryViewActive) return;
     isSummaryViewActive = false;
+    setViewIcon('summaryViewToggleBtn', false);
     summaryEls().panel.style.display = 'none';
     el.log.view.style.display = 'flex';
     writeStored('salt_view', 'log');
@@ -121,7 +123,6 @@ const summaryFileName = () =>
     const s = summaryEls();
     if (!s.panel) return;
     document.getElementById('summaryViewToggleBtn').addEventListener('click', () => (isSummaryViewActive ? closeSummaryView() : openSummaryView()));
-    document.getElementById('closeSummaryViewBtn').addEventListener('click', closeSummaryView);
     [s.fromDate, s.toDate, s.fromTime, s.toTime].forEach(n => { n.addEventListener('change', renderSummary); n.addEventListener('input', renderSummary); });
     [s.fromTime, s.toTime].forEach(n => n.addEventListener('blur', e => { if (autoColonTime(e.target)) renderSummary(); }));
     s.place.addEventListener('change', () => { summaryPlace = s.place.value; renderSummary(); });

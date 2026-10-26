@@ -211,6 +211,7 @@ const openStatsView = () => {
     if (isExportViewActive) closeExportView();
     closeSummaryView();
     isStatsViewActive = true;
+    setViewIcon('statsViewToggleBtn', true);
     el.log.view.style.display = 'none';
     statsEls().panel.style.display = 'flex';
     el.menu.panel.style.display = 'none';
@@ -220,6 +221,7 @@ const openStatsView = () => {
 const closeStatsView = () => {
     if (!isStatsViewActive) return;
     isStatsViewActive = false;
+    setViewIcon('statsViewToggleBtn', false);
     statsEls().panel.style.display = 'none';
     el.log.view.style.display = 'flex';
     writeStored('salt_view', 'log');
@@ -307,7 +309,6 @@ const exportAllStats = async () => {
     const s = statsEls();
     if (!s.panel) return;
     document.getElementById('statsViewToggleBtn').addEventListener('click', () => (isStatsViewActive ? closeStatsView() : openStatsView()));
-    document.getElementById('closeStatsViewBtn').addEventListener('click', closeStatsView);
     document.getElementById('statsExportAllBtn').addEventListener('click', () => {
         exportAllStats().catch(e => showToast('Export error: ' + e.message, true));
     });

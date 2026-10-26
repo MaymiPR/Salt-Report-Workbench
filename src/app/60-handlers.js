@@ -781,7 +781,6 @@ document.getElementById('exportArcgisCsvBtn').addEventListener('click', () => {
 });
 
 el.menu.exportBtn.addEventListener('click', () => isExportViewActive ? closeExportView() : openExportView());
-document.getElementById('closeExportViewBtn').addEventListener('click', closeExportView);
 
 // Workspaces list: Unload buttons (editor only) AND viewer-mode whole-row
 // clicks are delegated through the list container so we don't have to

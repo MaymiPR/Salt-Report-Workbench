@@ -254,7 +254,6 @@ class BrowserTests(unittest.TestCase):
         return path
 
     def import_overlays(self, page):
-        page.click("#dataMgmtBtn")
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='overlays']")
         page.set_input_files("#overlaysFileInput", str(self.overlay_kmz()))
@@ -267,7 +266,7 @@ class BrowserTests(unittest.TestCase):
         page.select_option("[data-review-idx='2']", "OBJ")
         page.click("#overlaysReviewAddBtn")
         page.wait_for_selector("#toast-notification:has-text('Imported 4 overlays')")
-        page.click("#closeExportViewBtn")
+        page.click("#exportViewToggleBtn")
 
     def test_overlays_place_reports_and_reach_viewers(self):
         page = self.open_editor()
@@ -351,7 +350,6 @@ class BrowserTests(unittest.TestCase):
         self.import_overlays(page)
         self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000 38SMB5500082000")
         self.log(page, "1x truck", activity="parked", location="vic the bridge")
-        page.click("#dataMgmtBtn")
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='export']")  # the panel reopens on the last tab used
         with page.expect_download() as dl:
@@ -399,7 +397,6 @@ class BrowserTests(unittest.TestCase):
         other.wait_for_selector("#startupModal.show", state="hidden")
         self.log(other, "1x BTR", location="38SMB4500082000")
         other.wait_for_selector("#reportLogBody .col-location:has-text('38SMB4500082000, NAI 1')")
-        page.click("#dataMgmtBtn")
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='overlays']")
         groups = page.locator(".overlay-group").evaluate_all(
@@ -414,11 +411,41 @@ class BrowserTests(unittest.TestCase):
             "() => fetch('/api/sync').then(r => r.json()).then(s => s.overlays.map(o => o.type + ' ' + o.name).join() === 'NAI 1,NAI 2')"
         )
 
+    def test_horizontal_layout_fits_the_window(self):
+        page = self.open_editor()
+        page.set_viewport_size({"width": 1280, "height": 800})
+        page.click("#dataMgmtBtn")
+        page.click("#toggleLayoutBtn")
+        box = page.evaluate(
+            """() => {
+                const r = s => document.querySelector(s).getBoundingClientRect();
+                return { form: r('.form-section'), report: r('.report-section'), table: r('.table-wrapper'),
+                         size: r('#size'), location: r('#location'), log: r('#logButton') };
+            }"""
+        )
+        # The form is one compact band: the fields and Log share a row.
+        self.assertLess(box["form"]["height"], 320)
+        self.assertAlmostEqual(box["size"]["top"], box["location"]["top"], delta=1)
+        self.assertAlmostEqual(box["size"]["top"], box["log"]["top"], delta=1)
+        # The log fills the rest of the window, and its table stays inside it.
+        self.assertLessEqual(box["report"]["bottom"], 800)
+        self.assertLessEqual(box["table"]["bottom"], box["report"]["bottom"])
+        self.assertGreater(box["table"]["height"], 250)
+        # The views stay one click away, and the Settings menu fits its panel.
+        page.click("#statsViewToggleBtn")
+        self.assertEqual(page.get_attribute("#statsViewToggleBtn", "aria-pressed"), "true")
+        page.click("#statsViewToggleBtn")
+        page.click("#dataMgmtBtn")
+        menu = page.locator("#dataMgmtMenu").bounding_box()
+        report = page.locator(".report-section").bounding_box()
+        self.assertLessEqual(menu["y"] + menu["height"], report["y"] + report["height"])
+        page.locator("#clearAllBtn").scroll_into_view_if_needed()
+        self.assertTrue(page.locator("#clearAllBtn").is_visible())
+
     def test_a_long_overlay_list_scrolls(self):
         page = self.open_editor()
         self.import_overlays(page)
         page.set_viewport_size({"width": 1280, "height": 480})
-        page.click("#dataMgmtBtn")
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='overlays']")
         panel = page.locator(".ws-tab-panel[data-tab-panel='overlays']")
@@ -441,7 +468,6 @@ class BrowserTests(unittest.TestCase):
             location="38S MB 55000 82000, NAI 1",
             choice="Keep NAI 1",
         )
-        page.click("#dataMgmtBtn")
         page.click("#statsViewToggleBtn")
         page.wait_for_selector(".stats-card[data-chart='nai'] svg")
         tiles = page.locator(".stats-tile").all_inner_texts()
@@ -471,9 +497,8 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("hours.svg", names)
         self.assertIn('"NAI 1",2', csv)
         # Live: a report logged from the form shows up without reopening.
-        page.click("#closeStatsViewBtn")
+        page.click("#statsViewToggleBtn")
         self.log(page, "1x truck", activity="parked", location="38SMB4500082100")
-        page.click("#dataMgmtBtn")
         page.click("#statsViewToggleBtn")
         page.wait_for_selector(".stats-tile:has-text('Reports') .stats-tile-value:text-is('3')")
 
@@ -482,7 +507,6 @@ class BrowserTests(unittest.TestCase):
         self.import_overlays(page)
         self.log(page, "2x T-72", activity="moving N", location="38SMB4500082000")
         self.log(page, "1x BMP-2", activity="engaging", location="38SMB5300088000")
-        page.click("#dataMgmtBtn")
         page.click("#summaryViewToggleBtn")
         # Opens on the last twelve hours, with the Rollup.
         page.wait_for_selector("#summaryText:has-text('ROLLUP - ')")
