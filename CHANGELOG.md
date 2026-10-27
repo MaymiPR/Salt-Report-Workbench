@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.14.0] - 2026-10-27
+
 ### Added
 
 - **Narrative** summary report: the period in sentences, under *Observed*,
@@ -659,7 +661,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Ruff, pre-commit, EditorConfig, and a Makefile.
 - README, architecture notes, and contributing, security, and conduct guides.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.13.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.14.0...HEAD
+[2.14.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.13.0...v2.14.0
 [2.13.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.12.0...v2.13.0
 [2.12.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.11.0...v2.12.0
 [2.11.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.10.0...v2.11.0
