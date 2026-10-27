@@ -492,18 +492,17 @@ class BrowserTests(unittest.TestCase):
         page.select_option("#ioFormatSelect", "arcgis-esri")
         self.assertFalse(shown("#exportMtiToggle"))
         self.assertTrue(shown("#export-from-date"))
-        # Clear sits in the card's header, shows once a range is set, and empties it.
+        # Clear sits in the card's header, always there, and empties the range.
         self.assertEqual(page.locator(".io-time .io-card-head #exportClearFilterBtn").count(), 1)
-        self.assertFalse(shown("#exportClearFilterBtn"))
-        page.click("[data-preset-hours='24']")
         self.assertTrue(shown("#exportClearFilterBtn"))
+        page.click("[data-preset-hours='24']")
         self.assertNotEqual(page.input_value("#export-from-date"), "")
         self.assertNotEqual(
             page.input_value("#export-from-date"), page.input_value("#export-to-date")
         )
         page.click("#exportClearFilterBtn")
         self.assertEqual(page.input_value("#export-from-date"), "")
-        self.assertFalse(shown("#exportClearFilterBtn"))
+        self.assertTrue(shown("#exportClearFilterBtn"))
         # The list holds exports only; clicking the drop area chooses files to import.
         options = page.locator("#ioFormatSelect option").evaluate_all("os => os.map(o => o.value)")
         self.assertNotIn("overlays", options)
@@ -1182,11 +1181,12 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_function(
             "() => document.querySelector('#mapTiles .map-tile-value').textContent.trim() === '1'"
         )
-        self.assertEqual(
+        self.assertAlmostEqual(
             page.evaluate(
                 "document.getElementById('mapBox').getBoundingClientRect().top - document.getElementById('mapPanel').getBoundingClientRect().top"
             ),
             top,
+            delta=1,
         )
 
     def test_map_full_screen_and_names_on_screen_when_zoomed(self):

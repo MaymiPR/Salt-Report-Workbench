@@ -203,7 +203,7 @@ const renderMapTime = () => {
     range.value = String(mapEnd === null ? 1000 : Math.round((mapEnd - first) / span * 1000));
     const local = timeDisplayMode === 'local';
     label.textContent = mapEnd === null ? 'Now' : SaltCore.dtg(mapEnd, local);
-    now.style.visibility = mapEnd === null ? 'hidden' : '';
+    now.hidden = mapEnd === null;
 };
 
 const renderMapView = () => {

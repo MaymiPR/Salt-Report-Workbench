@@ -60,8 +60,6 @@ const renderExportPreview = () => {
             `<span class="filter-count-detail">${totalWithHistory} of ${totalAllHistory} total reports</span>`;
     }
     el.exp.filterCount.classList.toggle('active', hasFilter);
-    // Out of sight but still taking its room, so the card keeps its size.
-    el.exp.clearBtn.style.visibility = hasFilter ? '' : 'hidden';
 };
 
 // Loaded Workspaces list — rendered into both the panel tab and the
