@@ -233,6 +233,12 @@ const showHomeView = (slide = false) => {
     btn.innerHTML = MAP_BTN_ICONS[map ? 'list' : 'map'];
     btn.title = map ? 'Back to the Report Log' : 'Show the map';
     btn.setAttribute('aria-label', btn.title);
+    // The heading says which is on screen, fading over when it changes.
+    const title = document.getElementById('homeTitle'), name = map ? 'Map' : 'Report Log';
+    if (title.textContent !== name) {
+        title.textContent = name;
+        if (slide) { title.classList.remove('swap'); void title.offsetWidth; title.classList.add('swap'); }
+    }
     // Drawn before it slides in, so it arrives whole.
     if (map) renderMapView();
     pager.classList.toggle('on-map', map);

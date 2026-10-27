@@ -10,8 +10,8 @@ All notable changes to this project are documented here. The format follows
 
 - **The map is under the Report Log**: the map button by the *Report Log*
   heading slides down to the map, and the same button (a list by then) slides
-  back. The Report Log's bar stays above both, and its search narrows the map
-  too. The view
+  back; the heading reads *Map* there. The bar stays above both, and its
+  search narrows the map too. The view
   icons are a 2×2 square of four again, a little larger.
 - **A bigger map**, the width of the panel, with its controls on it: the
   layers, *Latest grids* or *All reports*, and the window at the top left;

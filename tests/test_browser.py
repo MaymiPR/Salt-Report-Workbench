@@ -1109,7 +1109,10 @@ class BrowserTests(unittest.TestCase):
         )
         # The sidebar runs down the map's left side, in two halves that each scroll.
         side, mbox = page.locator("#mapSide").bounding_box(), page.locator("#mapBox").bounding_box()
-        self.assertAlmostEqual(side["y"] + side["height"], mbox["y"] + mbox["height"] - 10, delta=3)
+        # It stops just above the Up to slider, which runs the map's whole width.
+        slider = page.locator("#mapBox .map-time").bounding_box()
+        self.assertAlmostEqual(side["y"] + side["height"], slider["y"] - 6, delta=3)
+        self.assertAlmostEqual(slider["width"], mbox["width"] - 20, delta=3)
         halves = page.locator("#mapSide .map-side-block").evaluate_all(
             "bs => bs.map(b => Math.round(b.getBoundingClientRect().height))"
         )
@@ -1125,8 +1128,13 @@ class BrowserTests(unittest.TestCase):
         page.click("#mapSideBtn")
         page.wait_for_selector("#mapSide", state="hidden")
         self.assertEqual(page.locator("#mapBox").bounding_box()["width"], wide)
+        # Its controls slide, keeping their width (so they don't wrap differently).
+        tools = page.evaluate("document.querySelector('#mapBox .map-tools').offsetWidth")
         page.click("#mapSideBtn")
         page.wait_for_selector("#mapSide", state="visible")
+        self.assertEqual(
+            page.evaluate("document.querySelector('#mapBox .map-tools').offsetWidth"), tools
+        )
         # The layers and the latest / all choice are kept in this browser.
         page.reload()
         page.wait_for_selector("#mapSvg .map-report")
@@ -1274,10 +1282,13 @@ class BrowserTests(unittest.TestCase):
         page.mouse.wheel(0, 120)
         page.wait_for_timeout(700)
         self.assertTrue(page.locator("#logView").is_visible())
+        self.assertEqual(page.text_content("#homeTitle"), "Report Log")
         page.click("[data-home-go='map']")
         page.wait_for_selector("#logView", state="hidden")
+        self.assertEqual(page.text_content("#homeTitle"), "Map")
         page.click("[data-home-go='list']")
         page.wait_for_selector("#logView", state="visible")
+        self.assertEqual(page.text_content("#homeTitle"), "Report Log")
 
     def test_mgrs_lock_fills_in_the_zone_and_square(self):
         page = self.open_editor()
