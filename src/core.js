@@ -978,13 +978,30 @@ const bearingBetween = (a, b) => {
 };
 const compass16 = (deg) => COMPASS[Math.round(deg / 22.5) % 16];
 
-// One weight per unique report, at its latest Location (split evenly when it
-// names several grids), so a heat map counts each report once, however many
-// times it was updated.
-const heatPoints = (reps) => (reps || []).filter(r => !r.deleted).flatMap(r => {
-    const grids = findGrids(r.location);
-    return grids.map(g => ({ lon: g.lon, lat: g.lat, w: 1 / grids.length }));
+// Where reports were, for the map: each report at the grids of its latest
+// Location; or (`all`) every saved version of it, its updates included,
+// oldest first, at each version's grids. A weight per point splits each
+// version evenly between the grids it names, so each version counts once.
+const reportPositions = (reps, all = false) => (reps || []).filter(r => !r.deleted).flatMap(r => {
+    const versions = all
+        ? [...(r.history || [])].sort((a, b) => (new Date(a.time) - new Date(b.time)) || (a.lastModified - b.lastModified)).concat(r)
+        : [r];
+    return versions.flatMap(v => {
+        const grids = findGrids(v.location);
+        return grids.map(g => ({ report: r, lon: g.lon, lat: g.lat, mgrs: g.mgrs, time: v.time, latest: v === r, w: 1 / grids.length }));
+    });
 });
+// The heat map's points: by default each unique report once, at its latest
+// Location, however many times it was updated; with `all`, every version.
+const heatPoints = (reps, all = false) => reportPositions(reps, all).map(p => ({ lon: p.lon, lat: p.lat, w: p.w }));
+
+// Whether an Activity line has any of these tags (the empty set takes every
+// line). 'Untagged' takes a line with none.
+const activityMatches = (text, tags) => {
+    if (!tags || !tags.size) return true;
+    const got = classifyActivity(text).tags;
+    return got.length ? got.some(t => tags.has(t)) : tags.has('Untagged');
+};
 
 // ArcGIS tracks: one line per report that moved, from its first grid to its
 // latest in the order reported, for an arrow symbol at the line's end.
@@ -1913,7 +1930,7 @@ const SaltCore = {
     parseCsv, reportsCsv, mtiCsvs,
     utmToLatLon, gridToLatLon, findGrids, findRefs, overlayRef, geometryContains, metresToGeometry,
     webMercatorToLonLat, readDbf, shapefileProjection, parseShapefile,
-    reportTracks, heatPoints, arcgisTrackRows, arcgisTracksGeoJson, arcgisTracksEsriJson,
+    reportTracks, reportPositions, heatPoints, activityMatches, arcgisTrackRows, arcgisTracksGeoJson, arcgisTracksEsriJson,
     lonLatToMerc, MERC_WORLD, compass16, zipStore, crc32, shapefileParts, arcgisShapefileZip, arcgisTracksShapefileZip, tilesFor, tileZoom, tileUrl, wmsUrl, wmsCapabilitiesUrl, pickWmsCrs, pickWmsFormat, mercToLonLat, metresBetween, bearingBetween,
     asArea, analyzeLocation, locationPlan, editLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisEsriJson, arcgisCsv,
     sizeElements, gridSquare, statsData, statsCsv, PL_NEAR_METRES, workbookReportRows, statsXlsx, excelSerial, colName,

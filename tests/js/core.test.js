@@ -968,3 +968,30 @@ test('the Statistics workbook: its parts, the tables its charts are drawn from, 
     assert.ok(!empty['xl/tables/table1.xml'] && !empty['xl/drawings/drawing1.xml']);
     assert.ok(!empty['[Content_Types].xml'].includes('table1'));
 });
+
+test('report positions: the latest grids, or every saved version at its grids', () => {
+    const r = report({
+        location: '38SMB4500082000, 38SMB5500082000', time: '2026-10-24T06:00:00Z', lastModified: 30,
+        history: [
+            { location: '38SMB4500084000', time: '2026-10-24T05:00:00Z', lastModified: 20 },
+            { location: '38SMB4500086000', time: '2026-10-24T04:00:00Z', lastModified: 10 },
+        ],
+    });
+    const latest = core.reportPositions([r, report({ id: 'gone', deleted: true })]);
+    assert.deepEqual(latest.map(p => [p.mgrs, p.w, p.latest]), [['38S MB 45000 82000', 0.5, true], ['38S MB 55000 82000', 0.5, true]]);
+    const all = core.reportPositions([r], true);
+    assert.deepEqual(all.map(p => p.mgrs), ['38S MB 45000 86000', '38S MB 45000 84000', '38S MB 45000 82000', '38S MB 55000 82000'], 'oldest first');
+    assert.deepEqual(all.map(p => p.latest), [false, false, true, true]);
+    assert.equal(all.reduce((t, p) => t + p.w, 0), 3, 'each version counts once');
+    assert.equal(core.heatPoints([r], true).length, 4);
+    assert.equal(core.heatPoints([r]).length, 2);
+});
+
+test('activity filter: any picked tag, Untagged for none, and nothing picked takes all', () => {
+    assert.equal(core.activityMatches('moving N', new Set(['Moving'])), true);
+    assert.equal(core.activityMatches('dug in, observing', new Set(['Moving'])), false);
+    assert.equal(core.activityMatches('dug in, observing', new Set(['Moving', 'Observing'])), true);
+    assert.equal(core.activityMatches('waving', new Set(['Untagged'])), true);
+    assert.equal(core.activityMatches('moving N', new Set(['Untagged'])), false);
+    assert.equal(core.activityMatches('anything', new Set()), true);
+});

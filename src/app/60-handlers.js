@@ -363,7 +363,7 @@ el.log.sendBtn.addEventListener('click', async () => {
     await pushWorkspace(target, reportsByAto[target]);
 });
 
-el.log.search.addEventListener('input', debounce(e => renderLog(e.target.value.toLowerCase()), 100));
+el.log.search.addEventListener('input', debounce(e => { renderLog(e.target.value.toLowerCase()); renderMapView(); }, 100));
 // `<input type="search">` natively clears its value on Escape but doesn't
 // reliably fire an `input` event afterwards — so the rendered filter
 // stayed applied after the text disappeared. Clear and re-render

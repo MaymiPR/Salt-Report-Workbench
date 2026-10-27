@@ -225,10 +225,11 @@ const renderStats = () => {
 const openStatsView = () => {
     if (isExportViewActive) closeExportView();
     closeSummaryView();
-    closeMapView();
+    hideHomeViews();
     isStatsViewActive = true;
     setViewIcon('statsViewToggleBtn', true);
-    el.log.view.style.display = 'none';
+    setTopBar('stats', 'Statistics');
+    animateIn(statsEls().panel);
     statsEls().panel.style.display = 'flex';
     el.menu.panel.style.display = 'none';
     writeStored('salt_view', 'stats');
@@ -239,8 +240,7 @@ const closeStatsView = () => {
     isStatsViewActive = false;
     setViewIcon('statsViewToggleBtn', false);
     statsEls().panel.style.display = 'none';
-    el.log.view.style.display = 'flex';
-    writeStored('salt_view', 'log');
+    showHomeView();
 };
 
 // --- Export ---

@@ -241,13 +241,14 @@
                 </section>
 
                 <section class="manual-section">
-                    <h3>The View Icons</h3>
-                    <p>At the top right of the report panel, a row of five icons is there in every view:</p>
+                    <h3>The Four Icons</h3>
+                    <p>At the top right of the report panel, a square of four icons is there in every view:</p>
                     <ul>
                         <li><strong>Folder</strong>: Workspaces (import and export, loaded workspaces, the report builder, overlays, your identity).</li>
-                        <li><strong>Map</strong>: the Map view (see <em>The Map</em> below). <strong>Bar chart</strong>: Statistics. <strong>Page</strong>: Summary Reports.</li>
+                        <li><strong>Bar chart</strong>: Statistics. <strong>Page</strong>: Summary Reports.</li>
                         <li><strong>Gear</strong>: Settings: layout, Zulu or Local time, the title separator, BDA, MGRS Lock, Select All / Deselect All, the User Manual, and Clear Workspace.</li>
-                        <li>The icon of the view on screen is blue; click it again to go back to the Report Log.</li>
+                        <li>The icon of the view on screen is blue; click it again to go back to the Report Log (or the map under it, if that was on screen).</li>
+                        <li>The map is under the Report Log's table: the map button beside the <em>Report Log</em> heading slides down to it, and the same button (a list by then) slides back. The bar stays put, and its search narrows the map too.</li>
                     </ul>
                 </section>
 
@@ -372,25 +373,27 @@
                         <li><strong>ArcGIS tracks (Shapefile .zip, .json or .geojson)</strong>: one line per report that moved, from its first grid through its updates to its latest, in the order reported. Each carries its identifier, Size, Activity, start and end times, the number of positions, the length in metres, and the direction (<code>bearing_deg</code>, <code>direction</code>). In ArcGIS Pro, give the layer a line symbol with an arrow at its end to show the way it went. A report that never moved is not a line; it is in the points.</li>
                         <li>The points hold each report <strong>once</strong> (per grid it names), as it is now: its earlier updates are not extra points, so a heat map counts each formation once. For a CSV to load into another tool that plots every row, tick <strong>Latest version only</strong> on <em>Reports for Excel (.csv)</em>.</li>
                     </ul>
-                    <p class="manual-step">The Map (the map icon)</p>
+                    <p class="manual-step">The Map (under the Report Log)</p>
                     <ul>
-                        <li>Its own view: the map, beside it what's on the map, and under it the table of those reports. Everything covers the workspace on screen.</li>
+                        <li>The map button beside the <em>Report Log</em> heading slides down to the map; the same button, a list by then, slides back. The Report Log's bar stays above both, and its <strong>search</strong> narrows the map, its numbers and its table as well. Beside the map is what's on it, and under it the table of those reports. Everything covers the workspace on screen.</li>
                         <li>The overlays drawn on a map: <strong>NAIs green, OBJs blue, phase lines black</strong> (with a white edge, so they show on any background). The tags under each Location use the same colours.</li>
-                        <li><strong>Reports</strong>: each report as a dot at its latest grid. <strong>Heat map</strong>: where the reports are thickest, blue through green and yellow to red at the busiest, counting each report once at its latest grid (a report with several grids is shared between them). <strong>Tracks</strong>: each report's path from its first position through its updates to its latest, with an arrow for the way it went; a report at one grid is a dot (with a short arrow when its Activity gives a heading). Hover a track for its report, distance, direction and times.</li>
+                        <li><strong>Layers</strong>, each turned on and off by itself, so they can be seen together: the <strong>Heat map</strong> (on to start with), where the reports are thickest, blue through green and yellow to red at the busiest; <strong>Tracks</strong>, each report's path from its first position through its updates to its latest, with an arrow for the way it went (a report at one grid is a dot, with a short arrow when its Activity gives a heading); and <strong>Reports</strong>, each report as a dot. Hover a track or a dot for its report, distance, direction and times. Your layers are kept in this browser.</li>
+                        <li><strong>Latest grids</strong> or <strong>All reports</strong>, for the heat map and the dots: each report once, at its latest grid (a report with several grids is shared between them); or every saved report, its updates included, at its grids, the earlier dots smaller.</li>
                         <li><strong>Click a report</strong> (a dot or a track) for its card: what it says, its time, BDA and updates. <strong>Show in table</strong> finds its row; <strong>Edit</strong> (editors) puts it in the form to update. Its ring stays on the map until you pick another or click an empty spot. A picked track shows the time at each of its positions.</li>
                         <li><strong>Click a row</strong> in the table and the map moves to that report (keeping the zoom), rings it, and opens its card.</li>
-                        <li><strong>Click an NAI, OBJ or phase line</strong> to narrow the table and the numbers to it; it's drawn bolder, and a chip above the table says which. Click it again, or the chip, to show every place. The <em>Busiest places</em> beside the map do the same.</li>
+                        <li><strong>Click an NAI, OBJ or phase line</strong> to narrow the table and the numbers to it; it's drawn bolder, and a chip above the table says which. Click it again, or the chip, to show every place. The <em>Busiest places</em> in the sidebar do the same.</li>
                         <li><strong>Only what's on the map</strong> (above the table, on to start with): the table and the numbers hold only the reports in the part of the map on screen, so zooming and panning narrow them. Untick it for every report in the window.</li>
-                        <li><strong>Beside the map</strong>: how many reports are on it, how many are in an NAI or OBJ, BDA assessed (when there is any), the commonest activities, and the busiest places.</li>
-                        <li><strong>Window</strong>: All, or the last 24, 12, or 6 hours. <strong>Up to</strong> (the slider under the map) moves the window's end back from now to the first report, to see how things stood then; <strong>Now</strong> brings it back.</li>
-                        <li>Scroll to zoom, drag to move, double-click to zoom in; <strong>+</strong>, <strong>&minus;</strong> and the arrows button (show all). The map covers your overlays and reports and can't be zoomed out past them. Names stay on screen as you zoom in: a shape's name moves to the part of it in view.</li>
+                        <li><strong>Above the map</strong>: how many reports are on it, how many are in an NAI or OBJ, and BDA assessed. <strong>In the sidebar left of it</strong>: every activity with how many, and the busiest places; the sidebar button at the top left of the map slides it away and back (the map keeps its size). <strong>Click an activity</strong> to show only reports with it, on the map, in the numbers and in the table; click more to add them, or <em>Show all</em>.</li>
+                        <li><strong>Window</strong>: All, or the last 24, 12, or 6 hours. The key and, under it, <strong>Up to</strong> sit inside the map at its foot: the slider moves the window's end back from now to the first report, to see how things stood then; <strong>Now</strong> brings it back.</li>
+                        <li><strong>Ctrl + scroll</strong> to zoom (&#8984; + scroll on a Mac, or pinch on a trackpad; in full screen a plain scroll zooms), drag to move, double-click to zoom in; <strong>+</strong>, <strong>&minus;</strong> and the arrows button (show all). The map covers your overlays and reports and can't be zoomed out past them. Names stay on screen as you zoom in: a shape's name moves to the part of it in view. A plain scroll over the map scrolls the page on, down to the table.</li>
                         <li><strong>Full screen</strong>: the corners button under the zoom buttons fills the screen with the map, its controls and key; <kbd>Esc</kbd> or the button again leaves.</li>
-                        <li><strong>Basemaps&hellip; &rarr; Add WMS</strong> (editors): paste the link you use in other tools (for ArcGIS, the address ending in <code>WMSServer</code>) and press <strong>Find layers</strong>. The service's layers are listed (with a filter when there are many); tick the ones you want and <strong>Add</strong> puts them in as one basemap, named after the service (rename it in the box first if you like). It asks the service in its own terms: its WMS version, its image format, and Web Mercator when it offers it, otherwise latitude / longitude, stretched to fit. A layer it can't show (only in some other projection) says so.</li>
+                        <li><strong>The layers button</strong> under the map's zoom buttons opens the basemap: pick one, or <em>No basemap</em>. Editors also get <strong>Manage basemaps&hellip;</strong>.</li>
+                        <li><strong>Manage basemaps&hellip; &rarr; Add WMS</strong> (editors): paste the link you use in other tools (for ArcGIS, the address ending in <code>WMSServer</code>) and press <strong>Find layers</strong>. The service's layers are listed (with a filter when there are many); tick the ones you want and <strong>Add</strong> puts them in as one basemap, named after the service (rename it in the box first if you like). It asks the service in its own terms: its WMS version, its image format, and Web Mercator when it offers it, otherwise latitude / longitude, stretched to fit. A layer it can't show (only in some other projection) says so.</li>
                         <li>Many services won't let a web page read their layer list; then the sync server reads it for you (the list says <em>read by the server</em>). If neither can reach the service, the message says so, and you can still type layer names to try.</li>
                         <li><strong>Add tiles</strong>: a name and a tile address (WMTS, ArcGIS, or XYZ: <code>{z}</code>, <code>{x}</code>, <code>{y}</code>, or <code>{TileMatrix}</code>, <code>{TileRow}</code>, <code>{TileCol}</code>, in Web Mercator).</li>
                         <li><strong>Check</strong> beside a service asks it for a little of the map and says what came back: a map image, or the service's own error (a wrong layer name, a projection it doesn't offer, a login it wants). The &times; removes a service. The list is shared with everyone.</li>
-                        <li>The <strong>basemap picker</strong> beside the window switches between them, or to <em>No basemap</em>; each person's pick is kept in their browser. Only the area of the map is requested, never the whole world. Each browser fetches it straight from the service, so a computer that can't reach a service shows the map without it, and says so.</li>
-                        <li>Viewers have the Map view too, with everything but Edit and Basemaps&hellip; (the same list as the editors; they can't add to it).</li>
+                        <li>The picker behind the layers button switches between them, or to <em>No basemap</em>; each person's pick is kept in their browser. Only the area of the map is requested, never the whole world. Each browser fetches it straight from the service, so a computer that can't reach a service shows the map without it, and says so.</li>
+                        <li>Viewers have the map too, with everything but Edit and Manage basemaps&hellip; (the same list as the editors; they can't add to it).</li>
                     </ul>
                     <p class="manual-modes"><strong>Locally:</strong> Overlays and the basemap are kept in this browser, for every workspace in it, and work the same way.</p>
                     <p class="manual-modes"><strong>With sync server:</strong> Overlays and the basemap sync to every editor and viewer and are restored on server restart. Viewers can see the map and export for ArcGIS, but not change either.</p>
@@ -511,7 +514,7 @@
                     <p>A short thank you to the testers who put up with the bugs and kept the vibe coding going:</p>
                     <p class="manual-tester-list">You know who you are.</p>
                 </section>
-                <p class="manual-version-footer">Version 2.12 &middot; <a href="https://github.com/MaymiPR/SaltReportWorkbench" target="_blank" rel="noopener">Source code</a> (AGPL v3)</p>
+                <p class="manual-version-footer">Version 2.13 &middot; <a href="https://github.com/MaymiPR/SaltReportWorkbench" target="_blank" rel="noopener">Source code</a> (AGPL v3)</p>
             </div>
 
             <button type="button" id="manualCloseBtn" class="set-btn startup-continue-btn">Close</button>
@@ -601,14 +604,12 @@
                 </aside>
 
                 <div class="report-section">
-                <!-- The view switcher: a row of icons, in every view. The open view's
-                     icon is highlighted; clicking it again goes back to the Report Log. -->
+                <!-- The view switcher: a 2x2 square of icons, in every view. The open
+                     view's icon is highlighted; clicking it again goes back to the Report Log
+                     (as a list or as the map, whichever was showing). -->
                 <div class="view-switcher" role="toolbar" aria-label="Views">
                     <button type="button" id="exportViewToggleBtn" class="view-icon" title="Workspaces" aria-label="Workspaces" aria-pressed="false">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h9A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>
-                    </button>
-                    <button type="button" id="mapViewToggleBtn" class="view-icon" title="Map" aria-label="Map" aria-pressed="false">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4 3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg>
                     </button>
                     <button type="button" id="statsViewToggleBtn" class="view-icon" title="Statistics" aria-label="Statistics" aria-pressed="false">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20v-7M12 20V5M19 20v-10M3 20h18"/></svg>
@@ -636,32 +637,41 @@
                         </div>
                     </div>
                 </div>
-                    <div id="logView">
-                        <div class="report-header">
-                            <h2>
-                                <div id="status-dot" class="status-dot" title="Sync Status"></div>
-                                <span id="connected-users" class="connected-users-chip" title="Users connected">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                                    <span id="connected-users-count">1</span>
-                                </span>
-                                Report Log
-                            </h2>
-                            <div class="search-bar-wrapper">
-                                 <span class="icon">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
-                                </span>
-                                <input type="search" id="searchBar" placeholder="Search...">
-                            </div>
-                            <div class="report-metrics">
-                                <span id="report-count"></span>
-                                <span id="report-total-count" title="Total reports including every saved update"></span>
-                            </div>
-
-                            <button id="deleteSelectedBtn">Delete</button>
-                            <select id="sendToAtoSelect" style="display:none;"></select>
-                            <button id="sendToAtoBtn" style="display:none;">&#8594;</button>
-
+                    <!-- The one top bar, for every view: the sync dot, who's connected and the
+                         view's name stay put; the Report Log adds its map button, search and counts,
+                         and each other view its one-line summary (setTopBar in app/10-state.js). -->
+                    <div id="topBar" class="report-header top-bar" data-view="home">
+                        <h2>
+                            <div id="status-dot" class="status-dot" title="Sync Status"></div>
+                            <span id="connected-users" class="connected-users-chip" title="Users connected">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                <span id="connected-users-count">1</span>
+                            </span>
+                            <span id="homeTitle" class="home-title">Report Log</span>
+                            <button type="button" class="home-arrow home-only" data-home-go="map" title="Show the map" aria-label="Show the map"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg></button>
+                        </h2>
+                        <div class="top-subs"><div id="export-panel-subtitle" class="top-sub" data-top-for="export">Loading&#8230;</div><div id="stats-panel-subtitle" class="top-sub" data-top-for="stats"></div><div id="summary-panel-subtitle" class="top-sub" data-top-for="summary"></div></div>
+                        <div class="search-bar-wrapper home-only">
+                             <span class="icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
+                            </span>
+                            <input type="search" id="searchBar" placeholder="Search...">
                         </div>
+                        <div class="report-metrics home-only">
+                            <span id="report-count"></span>
+                            <span id="report-total-count" title="Total reports including every saved update"></span>
+                        </div>
+
+                        <button id="deleteSelectedBtn" class="home-only">Delete</button>
+                        <select id="sendToAtoSelect" class="home-only" style="display:none;"></select>
+                        <button id="sendToAtoBtn" class="home-only" style="display:none;">&#8594;</button>
+
+                    </div>
+                    <!-- The Report Log: its table and, under it, its map; the button in the bar
+                         slides from one to the other (app/49-mapview.js). -->
+                    <div id="homeView" class="home-view">
+                    <div id="homePager" class="home-pager">
+                    <div id="logView" class="home-pane">
                         <!-- BDA roll-up: present only in BDA mode (body.bda-mode); filled by renderBdaRollup. -->
                         <div id="bdaRollup" class="bda-rollup" aria-label="BDA roll-up"></div>
                         <div class="table-wrapper">
@@ -683,6 +693,36 @@
                             </table>
                         </div>
                     </div><!-- end #logView -->
+                    <!-- The map, under the Report Log: the overlays and the shown workspace's
+                         reports; beside it what's in view, and under it a table of those reports,
+                         linked to the map (app/49-mapview.js). -->
+                    <div id="mapPanel" class="home-pane" inert>
+                        <div class="map-view">
+                            <!-- The headline numbers; under them a sidebar of what's on the map
+                                 (activities, busiest places: click to narrow) to the left of the map. -->
+                            <!-- In the page from the start (the numbers come with the first drawing), so nothing moves. -->
+                            <div id="mapTiles" class="map-tiles"><div class="map-tile"><div class="map-tile-label">On the map</div><div class="map-tile-value">&mdash;</div></div><div class="map-tile"><div class="map-tile-label">In an NAI or OBJ</div><div class="map-tile-value">&mdash;</div></div><div class="map-tile"><div class="map-tile-label">BDA assessed</div><div class="map-tile-value">&mdash;</div></div></div>
+                            <div class="map-main">
+                                <aside id="mapSide" class="map-side" aria-label="What is on the map"></aside>
+                                <div id="mapHost" class="map-host"></div>
+                            </div>
+                            <section class="map-table-block">
+                                <div class="map-table-head">
+                                    <h4 id="mapTableTitle">Reports</h4>
+                                    <span id="mapPlaceChip"></span>
+                                    <label class="map-only-toggle"><input type="checkbox" id="mapOnlyInView"> Only what&rsquo;s on the map</label>
+                                </div>
+                                <div class="map-table-wrap">
+                                    <table id="mapTable" class="map-table">
+                                        <thead><tr><th>Identifier</th><th>Size</th><th>Activity</th><th>Location</th><th id="mapTimeHead">Time (Z)</th></tr></thead>
+                                        <tbody id="mapTableBody"></tbody>
+                                    </table>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                    </div><!-- end #homePager -->
+                    </div><!-- end #homeView -->
                     <div id="exportPanel">
                         <div class="export-panel-header">
                             <div class="export-panel-heading">
@@ -694,7 +734,6 @@
                                     </span>
                                     <span>Workspaces</span>
                                 </div>
-                                <div id="export-panel-subtitle" class="export-panel-subtitle">Loading&#8230;</div>
                             </div>
                         </div>
 
@@ -824,7 +863,7 @@
                                          it shows only while there is something to clear. -->
                                     <div class="io-card-head">
                                         <div class="export-block-label">Time range</div>
-                                        <button type="button" id="exportClearFilterBtn" class="text-btn">Clear</button>
+                                        <button type="button" id="exportClearFilterBtn" class="filter-preset-btn">Clear</button>
                                     </div>
                                     <div class="filter-field">
                                         <label>From <span class="filter-mode" id="export-from-mode">(Z)</span></label>
@@ -891,42 +930,11 @@
                         </div><!-- /ws-tab-panel data-tab-panel="export" -->
                     </div>
 
-                    <!-- Map: the overlays and the shown workspace's reports; beside it what's in
-                         view, and under it a table of those reports, linked to the map (app/49-mapview.js). -->
-                    <div id="mapPanel">
-                        <div class="export-panel-header">
-                            <div class="export-panel-heading">
-                                <div class="export-panel-title"><span>Map</span></div>
-                                <div id="map-panel-subtitle" class="export-panel-subtitle"></div>
-                            </div>
-                        </div>
-                        <div class="map-view">
-                            <div class="map-view-top">
-                                <div id="mapHost" class="map-host"></div>
-                                <aside id="mapSide" class="map-side" aria-label="What is on the map"></aside>
-                            </div>
-                            <section class="map-table-block">
-                                <div class="map-table-head">
-                                    <h4 id="mapTableTitle">Reports</h4>
-                                    <span id="mapPlaceChip"></span>
-                                    <label class="map-only-toggle"><input type="checkbox" id="mapOnlyInView"> Only what&rsquo;s on the map</label>
-                                </div>
-                                <div class="map-table-wrap">
-                                    <table id="mapTable" class="map-table">
-                                        <thead><tr><th>Identifier</th><th>Size</th><th>Activity</th><th>Location</th><th id="mapTimeHead">Time (Z)</th></tr></thead>
-                                        <tbody id="mapTableBody"></tbody>
-                                    </table>
-                                </div>
-                            </section>
-                        </div>
-                    </div>
-
                     <!-- Statistics: headline numbers and charts for the shown workspace (app/47-stats.js). -->
                     <div id="statsPanel">
                         <div class="export-panel-header">
                             <div class="export-panel-heading">
                                 <div class="export-panel-title"><span>Statistics</span></div>
-                                <div id="stats-panel-subtitle" class="export-panel-subtitle"></div>
                             </div>
                         </div>
                         <div class="stats-filters">
@@ -975,7 +983,6 @@
                         <div class="export-panel-header">
                             <div class="export-panel-heading">
                                 <div class="export-panel-title"><span>Summary Reports</span></div>
-                                <div id="summary-panel-subtitle" class="export-panel-subtitle"></div>
                             </div>
                         </div>
                         <div class="summary-kinds" role="group" aria-label="Report">

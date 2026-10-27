@@ -492,18 +492,17 @@ class BrowserTests(unittest.TestCase):
         page.select_option("#ioFormatSelect", "arcgis-esri")
         self.assertFalse(shown("#exportMtiToggle"))
         self.assertTrue(shown("#export-from-date"))
-        # Clear sits in the card's header, shows once a range is set, and empties it.
+        # Clear sits in the card's header, always there, and empties the range.
         self.assertEqual(page.locator(".io-time .io-card-head #exportClearFilterBtn").count(), 1)
-        self.assertFalse(shown("#exportClearFilterBtn"))
-        page.click("[data-preset-hours='24']")
         self.assertTrue(shown("#exportClearFilterBtn"))
+        page.click("[data-preset-hours='24']")
         self.assertNotEqual(page.input_value("#export-from-date"), "")
         self.assertNotEqual(
             page.input_value("#export-from-date"), page.input_value("#export-to-date")
         )
         page.click("#exportClearFilterBtn")
         self.assertEqual(page.input_value("#export-from-date"), "")
-        self.assertFalse(shown("#exportClearFilterBtn"))
+        self.assertTrue(shown("#exportClearFilterBtn"))
         # The list holds exports only; clicking the drop area chooses files to import.
         options = page.locator("#ioFormatSelect option").evaluate_all("os => os.map(o => o.value)")
         self.assertNotIn("overlays", options)
@@ -665,7 +664,9 @@ class BrowserTests(unittest.TestCase):
     )
 
     def open_map(self, page):
-        page.click("#mapViewToggleBtn")
+        """Slide down to the map, unless this browser already opens on it."""
+        if page.locator("[data-home-go='map']").is_visible():
+            page.click("[data-home-go='map']")
         page.wait_for_selector("#mapSvg .map-overlays path")
 
     def test_the_overlay_map_heat_and_tracks(self):
@@ -686,11 +687,12 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("#32d74b", strokes)
         self.assertIn("#0a84ff", strokes)
         self.assertIn("#000000", strokes)
-        page.click("[data-map-mode='heat']")
+        # The heat map is on to start with; Tracks go on top of it.
         page.wait_for_selector("#mapSvg image.map-heat")
         self.assertIn("each once", page.text_content("#mapLegend"))
-        page.click("[data-map-mode='tracks']")
+        page.click("[data-map-layer='tracks']")
         page.wait_for_selector("#mapSvg .map-track")
+        page.wait_for_selector("#mapSvg image.map-heat")
         self.assertIn("1 moved, 1 at one grid", page.text_content("#mapLegend"))
         page.hover("#mapSvg .map-track .map-hit >> nth=0")
         page.wait_for_selector("#mapTip:not([hidden])")
@@ -703,23 +705,34 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-map-zoom='out']")
         page.wait_for_function(f"() => Math.abs(mapView.mpp - {before}) < 1e-6")
 
-    def open_basemaps(self, page, kind):
+    @staticmethod
+    def pick_basemap(page, value):
+        """Choose a basemap from the panel behind the map's layers button."""
+        if not page.locator("#mapBasePop").is_visible():
+            page.click("#mapBaseBtn")
+        page.select_option("#mapBaseSelect", value)
+
+    def open_basemaps(self, page):
+        """The list of services, in the basemap panel on the map."""
+        if not page.locator("#mapBasePop").is_visible():
+            page.click("#mapBaseBtn")
         if not page.locator("#mapBasemapForm").is_visible():
             page.click("#mapBaseEdit")
-        page.click(f"[data-base-add-kind='{kind}']")
 
     def add_tiles(self, page, name, url):
-        self.open_basemaps(page, "tiles")
-        page.fill("#mapBaseName", name)
-        page.fill("#mapBaseUrl", url)
-        page.click("#mapBaseAdd")
+        """One box takes either kind: a tile address is known by its {z}."""
+        self.open_basemaps(page)
+        page.fill("#mapBaseInput", url)
+        page.fill("#mapBaseNameIn", name)
+        page.click("#mapBaseAddBtn")
         page.wait_for_selector(f"#toast-notification:has-text('{name} added')")
+        self.assertEqual(page.input_value("#mapBaseInput"), "", "the box is emptied")
 
     def add_wms(self, page, link, titles):
         """Look a WMS up from its link, tick the layers with these titles, add them."""
-        self.open_basemaps(page, "wms")
-        page.fill("#mapWmsLink", link)
-        page.click("#mapWmsFind")
+        self.open_basemaps(page)
+        page.fill("#mapBaseInput", link)
+        page.click("#mapBaseAddBtn")
         page.wait_for_selector(".map-layer-list, .map-find-error")
         self.assertEqual(
             page.locator(".map-find-error").count(), 0, page.evaluate("JSON.stringify(wmsFind)")
@@ -792,34 +805,42 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(all("/tiles/" in u for u in asked))
         options = page.locator("#mapBaseSelect option").all_text_contents()
         self.assertEqual(options, ["No basemap", "Imagery", "Topo"])
-        page.select_option("#mapBaseSelect", "Imagery")
+        self.pick_basemap(page, "Imagery")
         page.wait_for_function(
             "() => [...document.querySelectorAll('#mapBase image')].some(i => i.dataset.url.includes('/wms'))"
         )
-        page.select_option("#mapBaseSelect", "off")
+        self.pick_basemap(page, "off")
         page.wait_for_function("() => document.querySelectorAll('#mapBase image').length === 0")
         page.wait_for_function(
             "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.map(b => b.name).join() === 'Imagery,Topo')"
         )
-        # Viewers get the Map view too (its modes, window and basemap picker), the
+        # Viewers get the map too (its layers, window and basemap picker), the
         # same list to pick from, and can't change it; the Overlays tab isn't theirs.
+        # The view switcher stays a 2x2 square of four icons.
+        self.assertEqual(
+            page.locator(
+                ".view-switcher > .view-icon, .view-switcher .data-management-menu"
+            ).count(),
+            4,
+        )
         viewer = self.open_viewer()
         viewer.click("#exportViewToggleBtn")
         self.assertFalse(viewer.locator(".ws-tab[data-tab='overlays']").is_visible())
-        viewer.click("#mapViewToggleBtn")
+        viewer.click("#exportViewToggleBtn")
+        self.open_map(viewer)
         viewer.wait_for_function(
             "() => document.querySelectorAll('#mapBaseSelect option').length === 3"
         )
         self.assertFalse(viewer.locator("#mapBaseEdit").is_visible())
         for sel in (
-            "[data-map-mode='reports']",
-            "[data-map-mode='heat']",
-            "[data-map-mode='tracks']",
+            "[data-map-layer='reports']",
+            "[data-map-layer='heat']",
+            "[data-map-layer='tracks']",
             "[data-map-hours='6']",
             "[data-map-zoom='full']",
         ):
             self.assertTrue(viewer.locator(sel).is_visible(), sel)
-        viewer.select_option("#mapBaseSelect", "Topo")
+        self.pick_basemap(viewer, "Topo")
         viewer.wait_for_function("() => document.querySelectorAll('#mapBase image').length > 0")
         # Removing one takes it out for everyone.
         page.click("[data-base-remove='0']")
@@ -874,9 +895,9 @@ class BrowserTests(unittest.TestCase):
         page = self.open_editor()
         self.import_overlays(page)
         self.open_map(page)
-        self.open_basemaps(page, "wms")
-        page.fill("#mapWmsLink", base + "?service=WMS&request=GetMap&layers=old")
-        page.click("#mapWmsFind")
+        self.open_basemaps(page)
+        page.fill("#mapBaseInput", base + "?service=WMS&request=GetMap&layers=old")
+        page.click("#mapBaseAddBtn")
         page.wait_for_selector(".map-layer-list")
         self.assertIn("read by the server", page.text_content(".map-find-head"))
         self.assertEqual(page.input_value("#mapWmsName"), "Range Maps", "named after the service")
@@ -930,8 +951,10 @@ class BrowserTests(unittest.TestCase):
         self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
         self.log(page, "1x truck", activity="parked", location="38SMB5500082000")
         self.open_map(page)
-        page.click("[data-map-mode='reports']")
+        page.click("[data-map-layer='heat']")
+        page.click("[data-map-layer='reports']")
         page.wait_for_selector("#mapSvg .map-report")
+        self.assertEqual(page.locator("#mapSvg image.map-heat").count(), 0)
         self.assertEqual(page.locator("#mapSvg .map-report").count(), 2)
         page.wait_for_selector("#mapTableBody tr[data-map-row] >> nth=1")
 
@@ -973,7 +996,7 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_timeout(300)
         xy = page.evaluate("""() => {
             const r = document.getElementById('mapBox').getBoundingClientRect();
-            const [x, y] = SaltCore.lonLatToMerc(44.36, 33.262);
+            const [x, y] = SaltCore.lonLatToMerc(44.36, 33.34);
             return [r.left + 1 + (x - mapView.cx) / mapView.mpp + (r.width - 2) / 2, r.top + 1 + (mapView.cy - y) / mapView.mpp + (r.height - 2) / 2];
         }""")
         page.mouse.click(*xy)
@@ -1014,11 +1037,157 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.text_content("#mapEndLabel"), "Now")
         # A viewer's card has no Edit.
         viewer = self.open_viewer()
-        viewer.click("#mapViewToggleBtn")
+        self.open_map(viewer)
+        viewer.click("[data-map-layer='reports']")  # a viewer's layers are its own
         viewer.wait_for_selector("#mapSvg .map-report")
         viewer.locator("#mapTableBody tr[data-map-row]").first.click()
         viewer.wait_for_selector("#mapCard:not([hidden])")
         self.assertFalse(viewer.locator("[data-card-act='edit']").is_visible())
+
+    def test_map_layers_together_all_reports_and_activity(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
+        page.click("#reportLogBody tr[data-id] .col-size:has-text('2x BMP')")
+        page.fill("#location", "38SMB4500084000")
+        page.click("#updateButton")
+        page.wait_for_selector("#reportLogBody .col-location:has-text('38SMB4500084000')")
+        self.log(page, "1x truck", activity="parked", location="38SMB5500082000")
+        self.open_map(page)
+        count = lambda sel: page.locator(sel).count()  # noqa: E731
+        # Heat to start with; Reports on top of it, at the latest grids.
+        page.wait_for_selector("#mapSvg image.map-heat")
+        self.assertEqual(page.get_attribute("[data-map-layer='heat']", "aria-pressed"), "true")
+        page.click("[data-map-layer='reports']")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#mapSvg .map-report').length === 2"
+        )
+        self.assertEqual(count("#mapSvg image.map-heat"), 1)
+        # All reports: the update's earlier grid too, smaller.
+        page.click("[data-map-grids='all']")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#mapSvg .map-report').length === 3"
+        )
+        self.assertEqual(count("#mapSvg .map-report-old"), 1)
+        self.assertIn("every saved report", page.text_content("#mapLegend"))
+        # And tracks with them: all three layers at once.
+        page.click("[data-map-layer='tracks']")
+        page.wait_for_selector("#mapSvg .map-track")
+        self.assertEqual(count("#mapSvg image.map-heat"), 1)
+        self.assertEqual(count("#mapSvg .map-report"), 3)
+        # With no heat map and no dots, the latest / all choice goes away.
+        page.click("[data-map-layer='heat']")
+        page.click("[data-map-layer='reports']")
+        self.assertTrue(page.locator("[data-map-grids='all']").is_disabled())
+        page.click("[data-map-layer='tracks']")
+        page.wait_for_selector("#mapLegend:has-text('Turn on a layer')")
+        page.click("[data-map-layer='reports']")
+        # Activity, picked beside the map: Moving keeps the BMPs (both their
+        # positions); Show all brings back the rest.
+        self.assertIn("Stationary", page.text_content("#mapSide"))
+        page.click("#mapSide [data-map-activity='Moving']")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#mapSvg .map-report').length === 2"
+        )
+        page.wait_for_function(
+            "() => [...document.querySelectorAll('#mapTableBody tr[data-map-row] td:nth-child(2)')].map(t => t.textContent).join() === '2x BMP'"
+        )
+        self.assertIn("Stationary", page.text_content("#mapSide"), "the others can still be picked")
+        page.click("#mapSide [data-map-activity='']")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#mapSvg .map-report').length === 3"
+        )
+        # The Report Log's bar stays over the map: its search narrows the map too.
+        page.fill("#searchBar", "truck")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#mapSvg .map-report').length === 1"
+        )
+        page.fill("#searchBar", "")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#mapSvg .map-report').length === 3"
+        )
+        # The sidebar runs down the map's left side, in two halves that each scroll.
+        side, mbox = page.locator("#mapSide").bounding_box(), page.locator("#mapBox").bounding_box()
+        # It stops just above the Up to slider, which runs the map's whole width.
+        slider = page.locator("#mapBox .map-time").bounding_box()
+        self.assertAlmostEqual(side["y"] + side["height"], slider["y"] - 6, delta=3)
+        self.assertAlmostEqual(slider["width"], mbox["width"] - 20, delta=3)
+        halves = page.locator("#mapSide .map-side-block").evaluate_all(
+            "bs => bs.map(b => Math.round(b.getBoundingClientRect().height))"
+        )
+        self.assertLessEqual(abs(halves[0] - halves[1]), 2, halves)
+        self.assertEqual(
+            page.locator("#mapSide .map-chips").evaluate_all(
+                "cs => cs.map(c => getComputedStyle(c).overflowY)"
+            ),
+            ["auto", "auto"],
+        )
+        # The sidebar slides away and back; the map keeps its size throughout,
+        # and its button stays where it is, for the next click.
+        wide = page.locator("#mapBox").bounding_box()["width"]
+        at = page.locator("#mapSideBtn").bounding_box()
+        page.click("#mapSideBtn")
+        page.wait_for_selector("#mapSide", state="hidden")
+        self.assertEqual(page.locator("#mapSideBtn").bounding_box(), at)
+        self.assertEqual(page.locator("#mapBox").bounding_box()["width"], wide)
+        # Its controls slide, keeping their width (so they don't wrap differently).
+        tools = page.evaluate("document.querySelector('#mapBox .map-tools').offsetWidth")
+        page.click("#mapSideBtn")
+        page.wait_for_selector("#mapSide", state="visible")
+        self.assertEqual(
+            page.evaluate("document.querySelector('#mapBox .map-tools').offsetWidth"), tools
+        )
+        # The layers and the latest / all choice are kept in this browser.
+        page.reload()
+        page.wait_for_selector("#mapSvg .map-report")
+        self.assertEqual(page.get_attribute("[data-map-layer='heat']", "aria-pressed"), "false")
+        self.assertEqual(page.get_attribute("[data-map-grids='all']", "aria-pressed"), "true")
+
+    def test_the_wheel_scrolls_past_the_map_and_ctrl_wheel_zooms(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        page.hover("#mapBox")
+        before = page.evaluate("mapView.mpp")
+        page.mouse.wheel(0, 200)
+        page.wait_for_selector("#mapHint", state="visible")
+        self.assertEqual(page.evaluate("mapView.mpp"), before, "a plain wheel doesn't zoom")
+        self.assertGreater(
+            page.evaluate("document.querySelector('.map-view').scrollTop"),
+            0,
+            "it scrolls the page on",
+        )
+        page.evaluate("document.querySelector('.map-view').scrollTop = 0")
+        page.hover("#mapBox")
+        page.keyboard.down("Control")
+        page.mouse.wheel(0, -200)
+        page.keyboard.up("Control")
+        page.wait_for_function(f"() => mapView.mpp < {before}")
+
+    def test_the_map_doesnt_move_as_its_numbers_arrive(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BTR", location="38SMB4500082000")
+        page.reload()
+        page.wait_for_selector("#reportLogTable")
+        # The tiles are there before the map is drawn, so it opens where it stays
+        # (measured within its pane, which is still sliding in).
+        self.assertEqual(page.locator("#mapTiles .map-tile").count(), 3)
+        page.click("[data-home-go='map']")
+        page.wait_for_selector("#mapPanel", state="visible")
+        top = page.evaluate(
+            "document.getElementById('mapBox').getBoundingClientRect().top - document.getElementById('mapPanel').getBoundingClientRect().top"
+        )
+        page.wait_for_function(
+            "() => document.querySelector('#mapTiles .map-tile-value').textContent.trim() === '1'"
+        )
+        self.assertAlmostEqual(
+            page.evaluate(
+                "document.getElementById('mapBox').getBoundingClientRect().top - document.getElementById('mapPanel').getBoundingClientRect().top"
+            ),
+            top,
+            delta=1,
+        )
 
     def test_map_full_screen_and_names_on_screen_when_zoomed(self):
         page = self.open_editor()
@@ -1092,18 +1261,46 @@ class BrowserTests(unittest.TestCase):
         self.assertIn(f"{self.ato}001", note)
         page.click("#cancelButton")
         self.assertTrue(page.locator("#formEditingNote").is_hidden())
-        widths = []
+        widths, spots, names = [], [], []
         for btn in (
             None,
+            "[data-home-go='map']",
             "#exportViewToggleBtn",
-            "#mapViewToggleBtn",
             "#statsViewToggleBtn",
             "#summaryViewToggleBtn",
         ):
             if btn:
                 page.click(btn)
             widths.append(round(page.locator(".report-section").bounding_box()["width"]))
+            # One top bar for every view: the name in the same spot, saying which.
+            page.wait_for_timeout(400)
+            box = page.locator("#homeTitle").bounding_box()
+            spots.append((round(box["x"]), round(box["y"])))
+            names.append(page.text_content("#homeTitle"))
         self.assertEqual(len(set(widths)), 1, widths)
+        self.assertEqual(len(set(spots)), 1, spots)
+        self.assertEqual(
+            names, ["Report Log", "Map", "Workspaces", "Statistics", "Summary Reports"]
+        )
+        # Closing a view goes back to the Report Log as it was: here, the map.
+        page.click("#summaryViewToggleBtn")
+        page.wait_for_selector("#mapPanel #mapSvg")
+        self.assertTrue(page.locator("#mapPanel").is_visible())
+        page.click("[data-home-go='list']")
+        page.wait_for_selector("#mapPanel", state="hidden")
+        self.assertTrue(page.locator("#reportLogTable").is_visible())
+        # The button by each heading slides between the two; the heading doesn't scroll.
+        page.hover(".report-header h2")
+        page.mouse.wheel(0, 120)
+        page.wait_for_timeout(700)
+        self.assertTrue(page.locator("#logView").is_visible())
+        self.assertEqual(page.text_content("#homeTitle"), "Report Log")
+        page.click("[data-home-go='map']")
+        page.wait_for_selector("#logView", state="hidden")
+        self.assertEqual(page.text_content("#homeTitle"), "Map")
+        page.click("[data-home-go='list']")
+        page.wait_for_selector("#logView", state="visible")
+        self.assertEqual(page.text_content("#homeTitle"), "Report Log")
 
     def test_mgrs_lock_fills_in_the_zone_and_square(self):
         page = self.open_editor()
