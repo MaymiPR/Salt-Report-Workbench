@@ -11,11 +11,18 @@ let isSummaryViewActive = false;
 let summaryKind = readStored('salt_summary_kind', 'rollup');
 let summaryPlace = '';
 let summaryText = '';
-// Your own wording, per kind, kept until Revert: the generated text stops
-// following new reports while it's edited.
-const summaryEdits = {};
+// Your own wording, per workspace and kind, kept in this browser until
+// Revert: the generated text stops following new reports while it's edited.
+const summaryEdits = (s => (s && typeof s === 'object' ? s : {}))(readStored('salt_summary_edits', {}));
 let summaryEditing = false;
-const shownSummary = () => summaryEdits[summaryKind] ?? summaryText;
+let summaryEditingKey = null;
+const editKey = () => `${shownAto() || ''}|${summaryKind}`;
+const shownSummary = () => summaryEdits[editKey()] ?? summaryText;
+const setEdit = (text) => {
+    if (text === null || text === summaryText) delete summaryEdits[editKey()];
+    else summaryEdits[editKey()] = text;
+    writeStored('salt_summary_edits', JSON.stringify(summaryEdits));
+};
 
 const summaryEls = () => ({
     panel: document.getElementById('summaryPanel'),
@@ -38,16 +45,11 @@ const renderSummary = () => {
     if (!places.includes(summaryPlace)) summaryPlace = places[0] || '';
     s.place.replaceChildren(...places.map(p => { const o = new Option(p, p); o.selected = p === summaryPlace; return o; }));
     s.placeRow.hidden = summaryKind !== 'place';
-    // The narrative's settings: what the enemy is called, and the panel.
+    // The narrative's settings: a button, and a panel beside the report.
     const narr = summaryKind === 'narrative';
-    document.getElementById('summaryNarrRow').hidden = !narr;
-    const enemy = document.getElementById('narrEnemy');
-    if (document.activeElement !== enemy) enemy.value = sharedNarrative.enemy || '';
-    enemy.disabled = isReadOnly;
-    if (!narr) {
-        document.getElementById('narrSettings').hidden = true;
-        document.getElementById('narrSettingsBtn').setAttribute('aria-expanded', 'false');
-    } else renderNarrSettings();
+    document.getElementById('narrSettingsBtn').hidden = !narr;
+    if (!narr && !document.getElementById('narrSettings').hidden) openNarrSettings(false);
+    else renderNarrSettings();
     document.querySelectorAll('[data-summary-kind]').forEach(b => b.classList.toggle('active', b.dataset.summaryKind === summaryKind));
     const { from, to } = windowBounds(s);
     summaryText = SaltCore.summaryReport(summaryKind, live, currentOverlays(), {
@@ -56,11 +58,13 @@ const renderSummary = () => {
         by: (userProfile && userProfile.initials) || '', place: summaryPlace, narrative: sharedNarrative,
     });
     // Edited text is shown as edited; while editing, the box is left alone.
+    // Another workspace (or kind) while editing: the box closes, the edit kept.
+    if (summaryEditing && summaryEditingKey !== editKey()) summaryEditing = false;
     s.text.textContent = shownSummary();
     s.text.hidden = summaryEditing;
     s.editor.hidden = !summaryEditing;
-    document.getElementById('summaryEditBtn').textContent = summaryEditing ? 'Done' : 'Edit';
-    document.getElementById('summaryEdited').hidden = !(summaryKind in summaryEdits);
+    document.getElementById('summaryEditBtn').textContent = summaryEditing ? 'Done' : 'Edit text';
+    document.getElementById('summaryEdited').hidden = !(editKey() in summaryEdits);
     s.subtitle.textContent = `${ato || 'No workspace'} · ${plural(live.length, 'report')} in the workspace`;
     s.panel.querySelectorAll('.range-mode').forEach(n => { n.textContent = timeDisplayMode === 'local' ? '(Local)' : '(Zulu)'; });
 };
@@ -153,9 +157,8 @@ const summaryFileName = () =>
     s.place.addEventListener('change', () => { summaryPlace = s.place.value; renderSummary(); });
     // Kept as typed, so Copy and Save have it even before Done.
     s.editor.addEventListener('input', () => {
-        if (s.editor.value === summaryText) delete summaryEdits[summaryKind];
-        else summaryEdits[summaryKind] = s.editor.value;
-        document.getElementById('summaryEdited').hidden = !(summaryKind in summaryEdits);
+        setEdit(s.editor.value);
+        document.getElementById('summaryEdited').hidden = !(editKey() in summaryEdits);
     });
     s.panel.addEventListener('click', e => {
         const kind = e.target.closest('[data-summary-kind]');
@@ -167,12 +170,12 @@ const summaryFileName = () =>
         // Edit: the text in a box to change as you like; Done keeps it, Revert drops it.
         if (e.target.closest('#summaryEditBtn')) {
             if (summaryEditing) finishEditing();
-            else { summaryEditing = true; s.editor.value = shownSummary(); }
+            else { summaryEditing = true; summaryEditingKey = editKey(); s.editor.value = shownSummary(); }
             renderSummary();
             if (summaryEditing) { s.editor.focus(); s.editor.setSelectionRange(0, 0); s.editor.scrollTop = 0; }
             return;
         }
-        if (e.target.closest('#summaryRevertBtn')) { summaryEditing = false; delete summaryEdits[summaryKind]; renderSummary(); return; }
+        if (e.target.closest('#summaryRevertBtn')) { summaryEditing = false; setEdit(null); renderSummary(); return; }
         if (e.target.closest('#summaryPrintBtn')) printSummary();
     });
 })();

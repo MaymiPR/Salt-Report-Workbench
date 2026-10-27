@@ -368,19 +368,22 @@ const foldOverlays = (value) => {
     return [...byKey.values()];
 };
 
+// The narrative's settings for a backup's machine data: only when there are any.
+const narrativeData = (n) => (n && typeof n === 'object' && !Array.isArray(n) && Object.keys(n).length ? { narrative: n } : {});
+
 // One workspace's backup file. `reps` is exported as-is in the machine data
 // (deleted flags included); only live reports are listed for reading. The
-// shared overlays go in every file.
-const backupText = (ato, reps, title, profiles, formats, now = new Date(), overlays = []) => {
+// shared overlays (and the narrative's settings) go in every file.
+const backupText = (ato, reps, title, profiles, formats, now = new Date(), overlays = [], narrative = null) => {
     const active = reps.filter(r => !r.deleted);
     return `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH — ATO BACKUP\n ATO Designator : ${ato}\n Report Title   : ${title}\n Total Reports  : ${active.length}\n Exported       : ${backupStamp(now)}\n${BACKUP_DIV}\n\n`
         + backupReportBlocks(active)
         + backupMachineData({ workspaces: { [ato]: reps }, config: { ato, title }, profiles: profiles||{},
-            formats: formats[ato] ? { [ato]: formats[ato] } : {}, overlays: foldOverlays(overlays) });
+            formats: formats[ato] ? { [ato]: formats[ato] } : {}, overlays: foldOverlays(overlays), ...narrativeData(narrative) });
 };
 
 // Every given workspace in one file.
-const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats, now = new Date(), overlays = []) => {
+const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats, now = new Date(), overlays = [], narrative = null) => {
     const atoKeys   = Object.keys(workspaces);
     const totalReps = atoKeys.reduce((n, k) => n + (workspaces[k]||[]).filter(r => !r.deleted).length, 0);
     let out = `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH — FULL BACKUP (ALL ATOs)\n ATOs Included  : ${atoKeys.join(', ')}\n Total Reports  : ${totalReps}\n Exported       : ${backupStamp(now)}\n${BACKUP_DIV}\n\n`;
@@ -390,7 +393,7 @@ const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats
         out += `${BACKUP_DIV}\n ATO: ${ato}  —  ${atoTitle}  (${active.length} report${active.length !== 1 ? 's' : ''})\n${BACKUP_DIV}\n\n`;
         out += backupReportBlocks(active);
     });
-    return out + backupMachineData({ workspaces, config: { ato: activeAto, title }, profiles: profiles||{}, formats, overlays: foldOverlays(overlays) });
+    return out + backupMachineData({ workspaces, config: { ato: activeAto, title }, profiles: profiles||{}, formats, overlays: foldOverlays(overlays), ...narrativeData(narrative) });
 };
 
 // Read a backup file's payload. Returns { data } or { error } with a message
@@ -2036,6 +2039,20 @@ const HOUR = 3600000;
 const OBSTACLE = /\b(obstacles?|mines?|minefields?|wire|berms?|ditch(es)?|abatis|tank traps?)\b/i;
 const WITHDRAW = /\b(withdraw(s|n|ing|al)?|retreat(s|ed|ing)?|pull(s|ed|ing)? back|fall(s|ing)? back|fell back|break(s|ing)? contact|disengag(e|es|ed|ing))\b/i;
 
+// How a type reads in the narrative, in the reports' own style: a designation
+// as reported (15x T-72, 6x PAX), a plain word in lower case and plural
+// (31x trucks).
+const TYPE_ACRONYMS = new Set(['PAX', 'IFV', 'APC', 'MBT', 'BMP', 'BTR', 'BRDM', 'SAM', 'ADA', 'AAA', 'MANPADS', 'UAV', 'UAS',
+    'ATGM', 'MLRS', 'MRL', 'SPG', 'AVLB', 'POL', 'CP', 'HQ', 'C2', 'EW', 'ATV', 'UTV', 'SUV', 'ATZ']);
+const NO_PLURAL = new Set(['personnel', 'people', 'men', 'infantry', 'ammo', 'fuel', 'water', 'cargo', 'artillery', 'arty', 'recon', 'supply']);
+const PLURALS = { man: 'men', person: 'people' };
+const typeCount = (type, n, kit) => {
+    if (!kit || kit.origin || /\d/.test(type) || TYPE_ACRONYMS.has(type)) return `${n}x ${type}`;
+    const words = type.toLowerCase().split(' '), last = words.pop();
+    const many = n === 1 || NO_PLURAL.has(last) || /s$/.test(last) ? last : PLURALS[last] || `${last}s`;
+    return `${n}x ${[...words, many].join(' ')}`;
+};
+
 // What the narrative needs about a report, beyond the summaries' facts: its
 // equipment, the roles in it, its size by kind, and the areas it counts in
 // (its NAIs and OBJs, else its 10 km square, else none).
@@ -2241,18 +2258,19 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings }) => {
         + `${places.length ? `, most in ${places.slice(0, 3).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}.`);
 
     // The equipment, by role, with the types reported and how many.
-    const roles = new Map(), unknown = new Map();
+    const roles = new Map(), unknown = new Map(), kitOf = new Map();
     facts.forEach(f => f.els.forEach(e => {
         if (!e.kit) { unknown.set(e.type, (unknown.get(e.type) || 0) + 1); return; }
         if (!roles.has(e.kit.role)) roles.set(e.kit.role, new Map());
         const types = roles.get(e.kit.role);
         types.set(e.type, (types.get(e.type) || 0) + e.count);
+        kitOf.set(e.type, e.kit);
     }));
     const label = Object.fromEntries(EQUIPMENT_ROLES);
     const roleList = EQUIPMENT_ROLES.map(([r]) => r).filter(r => roles.has(r));
     if (roleList.length) {
         say(`Equipment reported: ${roleList.map(r => `${label[r]} (${[...roles.get(r)].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
-            .map(([t, n]) => `${t} x${n}`).join(', ')})`).join('; ')}.`);
+            .map(([t, n]) => typeCount(t, n, kitOf.get(t))).join(', ')})`).join('; ')}.`);
     }
     // The largest single sighting of each kind, and the unit size it suggests.
     const largest = Object.keys(ECHELONS).map(kind => {

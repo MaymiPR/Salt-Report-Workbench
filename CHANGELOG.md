@@ -22,20 +22,29 @@ All notable changes to this project are documented here. The format follows
   - *Gaps*: reports without a grid, equipment not in the catalogue, and
     places quiet for 6 hours or more.
   - An equipment catalogue of Russian and Chinese systems plus plain words
-    (tank, truck, PAX), used to name what was reported and to size it.
-  - **Enemy**: what the narrative calls them (*OPFOR*, say) when no unit fits.
+    (tank, truck, PAX), used to name what was reported (in the reports' own
+    style: *15x T-72, 31x trucks*) and to size it.
+  - **Settings**, in a panel beside the report, which updates as you change
+    them; tabs with counts, rows you tap to open, chips to pick places and
+    kinds, on/off switches for rules.
+  - **Call them**: what the narrative calls them (*OPFOR*, say) when no unit fits.
   - **Units**: each with the NAIs and OBJs it operates in and, optionally,
     the kinds of equipment it has; a judgment that fits is said of "elements
     of" the unit, in Assessment only, with a line saying it came from the
     unit list.
-  - **Equipment**: add types the catalogue doesn't know (offered from your
-    reports) or put built-in ones right for your team.
+  - **Equipment**: types in your reports the catalogue doesn't know come
+    first (a dot on the tab says there are some); look up any name; add your
+    own or put built-in ones right for your team.
   - **Rules**: switch built-in rules off, and add your own (what it judges,
     the words to look for, how many reports within how many hours).
-  - Shared with everyone through the server (`/api/save_narrative`) and kept
-    in the backup files; editors change them, viewers see them.
-- **Edit** any summary report before you copy, save or print it: your
-  wording is kept (and stops following new reports) until *Revert*.
+  - Shared with everyone through the server (`/api/save_narrative`), one set
+    for every workspace, and kept in the backup files, the ones you export by
+    hand included (importing one whose settings differ from yours asks
+    first); editors change them, viewers see them. A server too old to keep
+    them says so.
+- **Edit text** on any summary report before you copy, save or print it:
+  your wording is kept, per workspace and kind of report and through a
+  reload (and stops following new reports), until *Revert*.
 - **Change a basemap's layers**: *Layers* beside a WMS in *Manage basemaps…*
   opens it again, its layers looked up afresh with the ones in use ticked (a
   layer the service no longer lists stays, marked *not listed*); tick, untick
@@ -48,6 +57,14 @@ All notable changes to this project are documented here. The format follows
   "Remove for everyone?" first), not with an × on its row.
 - **Check's "It works"** message goes after a few seconds; a failure stays
   until you check again or close the panel.
+
+### Fixed
+
+- **The welcome screen** hid the page behind it only when the Report Log was
+  the last view; with the map last, the map showed through.
+- **The map's time slider**: its track no longer shortens under the thumb as
+  *Now* appears, and it has a pointer, not a "not allowed" cursor, and its
+  full color (a style meant for read-only text boxes caught it).
 
 ## [2.13.0] - 2026-10-27
 

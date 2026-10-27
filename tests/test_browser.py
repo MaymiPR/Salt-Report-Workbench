@@ -1077,9 +1077,19 @@ class BrowserTests(unittest.TestCase):
         )
         page.check("#mapOnlyInView")
         page.click("[data-map-zoom='fit']")
-        # The time slider: at its left end, only the first report.
+        # The time slider: at its left end, only the first report. Its track
+        # keeps its length as Now comes and goes.
+        track = page.locator("#mapEndRange").bounding_box()["width"]
         page.fill("#mapEndRange", "0")
         page.dispatch_event("#mapEndRange", "input")
+        self.assertEqual(page.locator("#mapEndRange").bounding_box()["width"], track)
+        self.assertEqual(
+            page.evaluate(
+                "[getComputedStyle(mapEndRange).cursor, getComputedStyle(mapEndRange).opacity]"
+            ),
+            ["pointer", "1"],
+            "a slider, not a read-only box",
+        )
         page.wait_for_function(
             "() => document.querySelectorAll('#mapSvg .map-report').length === 1"
         )
@@ -1512,7 +1522,7 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-summary-kind='narrative']")
         page.wait_for_selector("#summaryText:has-text('NARRATIVE - ')")
         text = page.inner_text("#summaryText")
-        for part in ("1. OBSERVED", "2. ASSESSMENT", "3. GAPS", "armor (T-72 x2)", "ICD 203"):
+        for part in ("1. OBSERVED", "2. ASSESSMENT", "3. GAPS", "armor (2x T-72)", "ICD 203"):
             self.assertIn(part, text)
         self.assertLess(text.index("1. OBSERVED"), text.index("2. ASSESSMENT"))
         self.assertEqual(page.evaluate("summaryCharts().map(c => c.id)"), ["nai", "tags"])
@@ -1529,30 +1539,45 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#summaryText:has-text('2. ASSESSMENT')")
         flat = lambda: " ".join(page.inner_text("#summaryText").split())  # noqa: E731
         self.assertIn("that enemy forces are preparing a defense in NAI 1.", flat())
+        self.assertIn("logistics (2x trucks)", flat())
+        # The settings: a panel beside the report, which stays in view.
+        page.click("#narrSettingsBtn")
+        side, text = (
+            page.locator("#narrSettings").bounding_box(),
+            page.locator("#summaryText").bounding_box(),
+        )
+        self.assertGreaterEqual(side["x"], text["x"] + text["width"], "beside the report")
         # What the enemy is called.
         page.fill("#narrEnemy", "OPFOR")
         page.press("#narrEnemy", "Enter")
         page.wait_for_selector("#toast-notification:has-text('calls them OPFOR')")
         self.assertIn("that OPFOR are preparing a defense in NAI 1.", flat())
-        # A unit, in NAI 1.
-        page.click("#narrSettingsBtn")
+        # A unit, in NAI 1: places and kinds are chips to tap.
         page.click("[data-narr-add]")
         page.fill("#narrUnitName", "1-60 GMRB")
-        page.check("[data-narr-place][value='NAI 1']")
+        page.click("[data-narr-place='NAI 1']")
+        self.assertEqual(page.get_attribute("[data-narr-place='NAI 1']", "aria-pressed"), "true")
         page.click("[data-narr-save]")
         page.wait_for_selector("#toast-notification:has-text('1-60 GMRB saved')")
+        self.assertEqual(page.text_content("[data-narr-tab='units'] .narr-count"), "1")
         self.assertIn("that elements of 1-60 GMRB are preparing a defense in NAI 1.", flat())
         self.assertIn("Unit: from the unit list, 1-60 GMRB (NAI 1).", flat())
-        # Equipment the catalogue doesn't know, added from the reports.
+        # Equipment the catalogue doesn't know: a dot on the tab, offered first.
+        self.assertTrue(page.locator("[data-narr-tab='equipment'] .narr-dot").is_visible())
         page.click("[data-narr-tab='equipment']")
-        self.assertIn("XYZ-9", flat())
+        page.fill("#narrEqFind", "T-72B3")
+        self.assertEqual(page.text_content("#narrEqFindSays"), "Built in: armor (T-72, Russian).")
         page.click("[data-narr-fill='XYZ-9']")
-        self.assertEqual(page.text_content("#narrEqSays"), "Not in the catalogue yet.")
-        page.select_option("#narrEqNewRole", "engineer")
-        page.click("#narrEqAdd")
+        self.assertEqual(page.input_value("#narrEqType"), "XYZ-9")
+        self.assertEqual(page.text_content("#narrEqSays"), "Not in the catalogue.")
+        page.click("[data-narr-save]")
+        page.wait_for_selector("#toast-notification:has-text('Pick what XYZ-9 is')")
+        page.click("[data-narr-role='engineer']")
+        page.click("[data-narr-save]")
         page.wait_for_selector("#toast-notification:has-text('XYZ-9 saved')")
-        self.assertIn("engineers (PMP x1, XYZ-9 x1)", flat())
+        self.assertIn("engineers (1x PMP, 1x XYZ-9)", flat())
         self.assertNotIn("Not in the equipment catalogue", flat())
+        self.assertEqual(page.locator("[data-narr-tab='equipment'] .narr-dot").count(), 0)
         # A rule switched off, and one of the team's own.
         page.click("[data-narr-tab='rules']")
         page.uncheck("[data-narr-rule='defense']")
@@ -1562,17 +1587,31 @@ class BrowserTests(unittest.TestCase):
         page.fill("#narrRuleWhat", "are preparing a river crossing")
         page.fill("#narrRuleWords", "bridging, ferry")
         page.click("[data-narr-save]")
-        page.wait_for_selector("#toast-notification:has-text('saved for everyone')")
+        page.wait_for_selector("#toast-notification:has-text('Rule saved for everyone')")
         self.assertIn("that elements of 1-60 GMRB are preparing a river crossing in NAI 1.", flat())
+        # A saved one opens from its row; Remove asks first, and Back leaves it.
+        page.click("[data-narr-tab='units']")
+        page.click("[data-narr-edit='0']")
+        self.assertEqual(page.input_value("#narrUnitName"), "1-60 GMRB")
+        page.click("[data-narr-remove]")
+        self.assertEqual(page.text_content("[data-narr-remove]"), "Remove for everyone?")
+        page.click("[data-narr-back]")
+        self.assertEqual(page.locator("[data-narr-edit]").count(), 1, "still there")
+        # A backup made by hand carries them.
+        kept = page.evaluate(
+            "SaltCore.parseBackup(generateBackupText(activeAto, localReports, 'Patrol', {})).data.narrative"
+        )
+        self.assertEqual((kept["enemy"], kept["units"][0]["name"]), ("OPFOR", "1-60 GMRB"))
         # Shared: a viewer's narrative says the same, and the viewer can't change it.
         viewer = self.open_viewer()
         viewer.click("#summaryViewToggleBtn")
         viewer.click("[data-summary-kind='narrative']")
         viewer.wait_for_selector("#summaryText:has-text('river crossing')")
-        self.assertTrue(viewer.is_disabled("#narrEnemy"))
         viewer.click("#narrSettingsBtn")
+        self.assertTrue(viewer.is_disabled("#narrEnemy"))
         self.assertFalse(viewer.locator("[data-narr-add]").is_visible())
-        # Edit: your own words, kept for Copy and Save, until Revert.
+        # Edit text: your own words, kept for Copy and Save, per workspace and
+        # through a reload, until Revert.
         page.click("#summaryEditBtn")
         page.fill("#summaryEditor", "MY OWN WORDING")
         page.click("#summaryEditBtn")
@@ -1581,6 +1620,8 @@ class BrowserTests(unittest.TestCase):
         with page.expect_download() as dl:
             page.click("#summarySaveBtn")
         self.assertEqual(Path(dl.value.path()).read_bytes(), b"MY OWN WORDING")
+        page.reload()
+        page.wait_for_selector("#summaryText:has-text('MY OWN WORDING')")
         page.click("[data-summary-kind='rollup']")
         page.wait_for_selector("#summaryText:has-text('ROLLUP - ')")
         page.click("[data-summary-kind='narrative']")
@@ -1589,6 +1630,22 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("2. ASSESSMENT", page.inner_text("#summaryText"))
         self.assertFalse(page.locator("#summaryEdited").is_visible())
         page.evaluate("saveNarrative({ enemy: '', units: [], equipment: [], off: [], custom: [] })")
+
+    def test_the_welcome_screen_hides_the_page_whichever_view_was_last(self):
+        # The map's panes set their own visibility to slide; none may show through.
+        self.context.add_init_script("localStorage.setItem('salt_log_view', 'map')")
+        page = self.context.new_page()
+        page.on("pageerror", lambda exc: self.errors.append(str(exc)))
+        page.goto(self.editor + "/")
+        page.wait_for_selector("#startupModal.show")
+        page.wait_for_timeout(800)  # past the panes' own transitions
+        shown = page.evaluate(
+            """[...document.querySelectorAll('.app-wrapper *')]
+                .filter(e => getComputedStyle(e).visibility === 'visible' && e.getClientRects().length)
+                .filter(e => { for (let n = e; n; n = n.parentElement) if (getComputedStyle(n).opacity === '0') return false; return true; })
+                .map(e => e.id || e.className)"""
+        )
+        self.assertEqual(shown, [])
 
     def test_geojson_from_arcgis_in_web_mercator_is_converted(self):
         page = self.open_editor()

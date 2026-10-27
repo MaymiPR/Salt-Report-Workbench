@@ -1056,7 +1056,7 @@ test('the narrative says what was observed, apart from what is assessed', () => 
     assert.ok(obs > 0 && ass > obs && gaps > ass, text.join('\n'));
     const observed = text.slice(obs, ass).join(' ').replace(/\s+/g, ' ');
     assert.ok(observed.includes('5 reports from 2 observers, 252000Z to 260200Z (previous 12 hrs: 0); 4 in an NAI or OBJ, most in NAI 1 (4).'), observed);
-    assert.ok(observed.includes('Equipment reported: armor (T-72 x2); mechanized infantry (BMP-2 x3); reconnaissance (BRDM-2 x2); engineers (MTU-20 x1); dismounted personnel (PAX x6).'), observed);
+    assert.ok(observed.includes('Equipment reported: armor (2x T-72); mechanized infantry (3x BMP-2); reconnaissance (2x BRDM-2); engineers (1x MTU-20); dismounted personnel (6x PAX).'), observed);
     assert.ok(observed.includes('armor and mechanized approximately platoon size (2x T-72, 3x BMP-2; ALPHA012 252200Z, NAI 1)'), observed);
     assert.ok(observed.includes('dismounted approximately squad size (6x PAX; ALPHA013 252300Z, NAI 1)'), observed);
     assert.ok(!/likely|assess/i.test(observed.replace('1. OBSERVED', '')), 'no judgment in OBSERVED');
@@ -1130,9 +1130,17 @@ test("the team's own equipment, rules switched off, and rules of their own", () 
         custom: [{ what: 'are preparing a river crossing', words: 'bridging, ferry', min: 2, hours: 12 }],
     } }).join(' ').replace(/\s+/g, ' ');
     assert.ok(!text.includes('Not in the equipment catalogue'), text);
-    assert.ok(text.includes('air defense (XYZ-9 x1)'), text);
+    assert.ok(text.includes('air defense (1x XYZ-9)'), text);
+    assert.ok(text.includes('logistics (2x trucks)'), 'a plain word: lower case, plural');
     assert.ok(!text.includes('scouting a route'), 'switched off');
     assert.ok(text.includes('ROUGHLY EVEN CHANCE (45-55%) that enemy forces are preparing a river crossing in NAI 1.'), text);
     assert.ok(text.includes('Basis: reports of bridging, ferry within 12 hrs (ALPHA016 260300Z, ALPHA017 260400Z).'), text);
     assert.deepEqual(core.NARRATIVE_RULES.map(([id]) => id), ['defense', 'recon', 'offense', 'logistics', 'withdrawal', 'firing']);
+});
+
+test('backups carry the narrative settings, when there are any', () => {
+    const n = { enemy: 'OPFOR', units: [{ name: '1-60 GMRB', places: ['NAI 1'], kinds: [] }] };
+    assert.deepEqual(core.parseBackup(core.backupText('ALPHA', [report()], 'Patrol', {}, {}, NOW, [], n)).data.narrative, n);
+    assert.deepEqual(core.parseBackup(core.allWorkspacesBackupText({ ALPHA: [report()] }, 'ALPHA', 'Patrol', {}, {}, NOW, [], n)).data.narrative, n);
+    assert.equal('narrative' in core.parseBackup(core.backupText('ALPHA', [report()], 'Patrol', {}, {}, NOW, [], {})).data, false);
 });

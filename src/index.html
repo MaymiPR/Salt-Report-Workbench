@@ -429,16 +429,16 @@
                                 <li><strong>Gaps</strong>: reports without a grid, equipment not in the catalogue, and places gone quiet for 6 hours or more.</li>
                             </ul>
                             The equipment catalogue starts with Russian and Chinese systems (T-72, BMP-2, 2S19, ZSU-23-4, Type 99, ZBD-04, PHL-16, HQ-9, and more) and plain words (tank, truck, PAX). A type it doesn't know is listed under Gaps.</li>
-                        <li><strong>Enemy</strong> (beside the window, Narrative only): what the narrative calls them when no unit fits, e.g. <em>OPFOR</em>. Empty: <em>enemy forces</em>.</li>
-                        <li><strong>Units, equipment and rules&hellip;</strong> (editors change them; everyone shares them, and they are kept in the backup files):
+                        <li><strong>Settings</strong> (Narrative only) opens a panel beside the report, which updates as you change things. Editors change them; everyone shares them, and they are kept in the backup files:
                             <ul>
-                                <li><strong>Units</strong>: each unit's name, the NAIs and OBJs it operates in (or other places, like a 10 km square <code>11S NV 31</code>; none: anywhere), and optionally the kinds of equipment it has. A judgment about a place in its area, with that kind of equipment in its reports, is said of &ldquo;elements of&rdquo; the unit (two or three fitting: &ldquo;elements of A or B&rdquo;), with a <em>Unit:</em> line saying it came from the unit list. Only in Assessment; Observed just notes whose area a place is.</li>
-                                <li><strong>Equipment</strong>: add a type the catalogue doesn't know, or put a built-in one right for your team (yours win). Types in your reports that it doesn't know are offered with a click; as you type, it says what the catalogue makes of the name.</li>
-                                <li><strong>Rules</strong>: switch any built-in rule off, and add your own: what it judges (&ldquo;are preparing a river crossing&rdquo;), the words to look for (&ldquo;bridge, ferry, PMP&rdquo;), and how many reports within how many hours in one place. Yours start at <em>roughly even chance</em>; one more report makes them <em>likely</em>, three more <em>very likely</em>.</li>
-                                <li>Change or remove any of them with <strong>Edit</strong>; <strong>Remove</strong> asks once first.</li>
+                                <li><strong>Call them</strong>: what the narrative calls them when no unit fits, e.g. <em>OPFOR</em>. Empty: <em>enemy forces</em>.</li>
+                                <li><strong>Units</strong>: each unit's name, the NAIs and OBJs it operates in (tap to pick; or type other places, like a 10 km square <code>11S NV 31</code>; none: anywhere), and optionally the kinds of equipment it has (the usual seven, or <em>More</em>). A judgment about a place in its area, with that kind of equipment in its reports, is said of &ldquo;elements of&rdquo; the unit (two or three fitting: &ldquo;elements of A or B&rdquo;), with a <em>Unit:</em> line saying it came from the unit list. Only in Assessment; Observed just notes whose area a place is.</li>
+                                <li><strong>Equipment</strong>: types in your reports that the catalogue doesn't know come first (a dot on the tab says there are some): tap one, pick what it is, Save. <em>Look up a type</em> says what the catalogue makes of any name; add your own, or put a built-in one right for your team (yours win).</li>
+                                <li><strong>Rules</strong>: switch any built-in rule on or off, and add your own: what it judges (&ldquo;are preparing a river crossing&rdquo;), the words to look for (&ldquo;bridge, ferry, PMP&rdquo;), and how many reports within how many hours in one place. Yours start at <em>roughly even chance</em>; one more report makes them <em>likely</em>, three more <em>very likely</em>.</li>
+                                <li>Tap a unit, entry or rule to change it; <strong>Remove</strong> asks once first.</li>
                             </ul></li>
                         <li><strong>Window</strong>: the last 6, 12 (the default), or 24 hours, 7 days, All, or your own From / To. With both ends set, the same length of time just before it is the &ldquo;previous&rdquo; period.</li>
-                        <li><strong>Edit</strong> turns the report into a box you can type in (any report, not just the Narrative); <strong>Done</strong> keeps your wording, which then stops following new reports until <strong>Revert</strong>. Copy, Save .txt and Print use your wording. Edits stay in this browser, one per kind of report.</li>
+                        <li><strong>Edit text</strong> turns the report into a box you can type in (any report, not just the Narrative); <strong>Done</strong> keeps your wording, which then stops following new reports until <strong>Revert</strong>. Copy, Save .txt and Print use your wording. Edits are kept in this browser, one per workspace and kind of report, through reloads.</li>
                         <li><strong>Copy</strong> puts the text on the clipboard; <strong>Save .txt</strong> downloads it; <strong>Print</strong> prints it with its charts (Rollup and Most Trafficked: places and hours; Place Activity: that place's hours and activity; Narrative: places and activity), or saves a PDF through the print dialog.</li>
                         <li>The text comes from fixed templates and counting rules, not AI: the same reports always give the same words, and nothing is made up. Times follow your Zulu / Local mode, as DTGs.</li>
                     </ul>
@@ -1022,12 +1022,6 @@
                                 <label for="summaryPlace">Place</label>
                                 <select id="summaryPlace"></select>
                             </div>
-                            <!-- The narrative's settings (app/48-narrative.js): shared with everyone. -->
-                            <div id="summaryNarrRow" class="stats-range narr-enemy" hidden>
-                                <label for="narrEnemy">Enemy</label>
-                                <input type="text" id="narrEnemy" placeholder="enemy forces" maxlength="60" spellcheck="false" title="What the narrative calls them, when no unit fits">
-                                <button type="button" id="narrSettingsBtn" class="text-btn" aria-expanded="false">Units, equipment and rules&hellip;</button>
-                            </div>
                         </div>
                         <div class="filter-grid range-grid">
                                 <div class="filter-field">
@@ -1048,16 +1042,22 @@
                                     </div>
                                 </div>
                             </div>
-                        <div id="narrSettings" class="narr-settings" hidden></div>
                         <div class="summary-actions">
                             <button type="button" id="summaryCopyBtn" class="set-btn">Copy</button>
                             <button type="button" id="summarySaveBtn" class="set-btn">Save .txt</button>
                             <button type="button" id="summaryPrintBtn" class="set-btn">Print</button>
-                            <button type="button" id="summaryEditBtn" class="cancel-btn">Edit</button>
+                            <button type="button" id="summaryEditBtn" class="cancel-btn">Edit text</button>
                             <span id="summaryEdited" class="summary-edited" hidden>Edited, not following new reports. <button type="button" id="summaryRevertBtn" class="text-btn">Revert</button></span>
+                            <!-- The narrative's settings (app/48-narrative.js): shared with everyone. -->
+                            <button type="button" id="narrSettingsBtn" class="cancel-btn summary-settings-btn" aria-expanded="false" hidden><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h7M13 4h1M2 8h2M8 8h6M2 12h8M14 12h0"/><circle cx="11" cy="4" r="1.6"/><circle cx="6" cy="8" r="1.6"/><circle cx="12" cy="12" r="1.6"/></svg>Settings</button>
                         </div>
-                        <pre id="summaryText" class="summary-text" aria-live="polite"></pre>
-                        <textarea id="summaryEditor" class="summary-text summary-editor" spellcheck="false" aria-label="Edit the report" hidden></textarea>
+                        <div id="summaryBody" class="summary-body">
+                            <div class="summary-main">
+                                <pre id="summaryText" class="summary-text" aria-live="polite"></pre>
+                                <textarea id="summaryEditor" class="summary-text summary-editor" spellcheck="false" aria-label="Edit the report" hidden></textarea>
+                            </div>
+                            <aside id="narrSettings" class="narr-panel" aria-label="Narrative settings" hidden></aside>
+                        </div>
                     </div>
 
                     <div id="csvImportPanel">
