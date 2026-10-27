@@ -18,6 +18,41 @@ Three constraints drive almost every decision:
 3. **One folder to ship.** An operator should be able to copy a folder to a
    laptop and run it.
 
+## Repository layout
+
+```text
+.
+├── src/                      Frontend sources (edited by hand)
+│   ├── index.html            Markup and the built-in user manual
+│   ├── styles.css
+│   ├── core.js               Pure logic (formatting, parsing, exports); unit-tested
+│   └── app/                  DOM, state, and sync: ordered scripts sharing one scope
+│       ├── 10-state.js       Elements, state, helpers, toasts
+│       ├── 20-render.js      The report table, BDA panel and roll-up
+│       ├── 30-form.js        Entry, editing, restore, undo
+│       ├── 40-io.js          Workspaces panel, builder, export, import
+│       ├── 45-overlays.js    Overlay import (KML, KMZ, GeoJSON, SHP), Overlays tab, ArcGIS export
+│       ├── 46-map.js         The map: basemap, report dots, heat map, tracks
+│       ├── 47-stats.js       Statistics panel: charts, hover, tables, PNG / SVG / Excel export
+│       ├── 48-summary.js     Summary Reports panel: written reports, copy, .txt, print, edit
+│       ├── 48-narrative.js   The narrative's settings: enemy name, units, equipment, rules
+│       ├── 49-mapview.js     The map under the Report Log: what's on it, its table, the report card
+│       ├── 50-sync.js        Push, pull, SSE, offline queue
+│       ├── 60-handlers.js    Event wiring
+│       └── 70-startup.js     Restore saved state, then connect
+├── server/
+│   ├── salt_sync_server.py   Standard-library HTTP + SSE sync server
+│   └── Start SALT Workbench.bat  Windows double-click launcher
+├── scripts/
+│   ├── build.py              Bundles src/ into dist/index.html, copies the server and launcher
+│   ├── pack.py               Packs a release zip into one self-unpacking text file
+│   └── release.py            Builds a release: the zip, the one-file .txt, and SHA256SUMS.txt
+├── tests/                    Python tests (server, HTTP API, build, pack, release, launcher, browser); js/ for core.js
+├── assets/                   Logo, icon, banners, social preview (see BRAND.md)
+├── docs/                     Architecture, install guide, and screenshots
+└── dist/                     Build output (git-ignored)
+```
+
 ## Components
 
 ```text
