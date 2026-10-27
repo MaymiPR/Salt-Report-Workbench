@@ -536,7 +536,8 @@ class BrowserTests(unittest.TestCase):
         page.dispatch_event(tab, "dragover", {"dataTransfer": dt})
         self.assertIn("io-dropping", page.get_attribute(tab, "class"))
         page.dispatch_event(tab, "drop", {"dataTransfer": dt})
-        self.assertIn("backup", page.text_content("#confirmation-message").lower())
+        # The file is read first, then the prompt asks.
+        page.wait_for_selector("#confirmation-message:has-text('backup file')")
         page.click("#confirmActionBtn")
         page.wait_for_selector("#toast-notification:has-text('Import successful')")
         # Chosen from the drop area: a CSV goes to column matching...
