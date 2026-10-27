@@ -690,11 +690,12 @@ const renderOverlayMap = (box) => {
                 <div id="mapCard" class="map-card" hidden></div>
                 <div class="map-bottom">
                     <div id="mapLegend" class="map-legend"></div>
+                    <!-- The words to the left, at a fixed width, so the slider runs to the bar's end and never changes length. -->
                     <div class="map-time">
                         <label for="mapEndRange">Up to</label>
-                        <input type="range" id="mapEndRange" min="0" max="1000" step="1" value="1000" aria-label="Show reports up to this time">
                         <span id="mapEndLabel" class="map-time-label"></span>
-                        <button type="button" id="mapEndNow" class="text-btn" hidden>Now</button>
+                        <button type="button" id="mapEndNow" class="text-btn">Now</button>
+                        <input type="range" id="mapEndRange" min="0" max="1000" step="1" value="1000" aria-label="Show reports up to this time">
                     </div>
                 </div>
             </div>

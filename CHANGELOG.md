@@ -33,6 +33,10 @@ All notable changes to this project are documented here. The format follows
   edge in two halves that each scroll. The sidebar button on the map slides
   it away (and back); the map keeps its size, so nothing jumps.
 - Tracks are red with a black outline, and so are the report dots.
+- The *Up to* slider runs to the end of its bar (its words are at the left,
+  at a fixed width, so it never changes length).
+- Import / Export: the time range's *Clear* looks like the 24h / 12h / 6h /
+  1h buttons, and the card no longer changes size when it appears.
 - Zoomed all the way out, the map shows more around the graphics, so the
   controls and the key don't cover them.
 - Over the map, a plain scroll now scrolls the page on to the table;
