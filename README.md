@@ -208,9 +208,11 @@ macOS and Linux, `make check` runs everything CI runs. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the code layout and how sync
 works.
 
-## Security and license
+## Security
 
 Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
+
+## License
 
 S.A.L.T. Report Workbench is free software under the
 [GNU Affero General Public License v3](LICENSE). It ships no third-party code.

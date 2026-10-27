@@ -14,6 +14,10 @@ All notable changes to this project are documented here. The format follows
   `docs/INSTALL.md`, and the file tree to `docs/ARCHITECTURE.md`. Screenshots
   are about a third of their old size.
 
+### Removed
+
+- `CODE_OF_CONDUCT.md`.
+
 ## [2.15.0] - 2026-10-27
 
 ### Added
