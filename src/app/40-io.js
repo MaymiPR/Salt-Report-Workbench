@@ -172,12 +172,12 @@ const clearExportFilter = () => {
 };
 
 // Workspaces panel tabs: 'export' (default) | 'workspaces' | 'builder' | 'overlays' | 'identity'.
-// Persisted in localStorage. Viewers get 'export' and 'overlays' only: the
-// workspaces list lives in their sidebar, and the other tabs change things.
+// Persisted in localStorage. Viewers get 'export' only: the workspaces list
+// lives in their sidebar, the map is the Map view, and the rest change things.
 const VALID_TABS = ['export', 'workspaces', 'identity', 'builder', 'overlays'];
 const switchWorkspacesTab = (tabName) => {
     if (!VALID_TABS.includes(tabName)) tabName = 'export';
-    if (isReadOnly && tabName !== 'overlays') tabName = 'export';
+    if (isReadOnly) tabName = 'export';
     el.workspaces.tabs.forEach(btn => {
         const isActive = btn.dataset.tab === tabName;
         btn.classList.toggle('active', isActive);
@@ -411,6 +411,7 @@ const importFiles = (fileList) => {
 const openExportView = () => {
     closeStatsView();
     closeSummaryView();
+    closeMapView();
     isExportViewActive = true;
     el.log.view.style.display  = 'none';
     el.exp.panel.style.display = 'flex';

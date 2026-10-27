@@ -236,6 +236,7 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     // And the Statistics and Summary Reports panels, so they follow the log.
     renderStats();
     renderSummary();
+    renderMapView();
 }
 
 // Viewer-only: switch which workspace the viewer is LOOKING AT, locally.

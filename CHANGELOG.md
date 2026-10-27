@@ -6,6 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The Map view**, its own icon beside Workspaces. It has the map; beside it
+  the numbers for what's on the map (reports, in an NAI or OBJ, BDA, the
+  commonest activities, the busiest places); and under it the table of those
+  reports.
+- On the map, click a report for its card (*Show in table*, and *Edit* for
+  editors); click a row to move the map to its report; click an NAI, OBJ, or
+  phase line (or a busiest place) to narrow the table to it.
+- *Only what's on the map*: the table follows the part of the map on screen.
+- **Reports** mode (each report as a dot), beside Heat map and Tracks; a
+  picked track shows the time at each position.
+- **Up to**: a slider under the map that moves the window's end back, to see
+  how things stood earlier.
+
+### Changed
+
+- The view icons are a row of five: Workspaces, Map, Statistics, Summary,
+  Settings.
+- The map leaves the Overlays tab, which keeps the list, import and unload
+  (editors). Viewers use the Map view, and no longer have an Overlays tab.
+
 ## [2.11.0] - 2026-10-27
 
 ### Added

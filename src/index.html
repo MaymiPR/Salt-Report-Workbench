@@ -241,11 +241,11 @@
                 </section>
 
                 <section class="manual-section">
-                    <h3>The Four Icons</h3>
-                    <p>At the top right of the report panel, a square of four icons is there in every view:</p>
+                    <h3>The View Icons</h3>
+                    <p>At the top right of the report panel, a row of five icons is there in every view:</p>
                     <ul>
                         <li><strong>Folder</strong>: Workspaces (import and export, loaded workspaces, the report builder, overlays, your identity).</li>
-                        <li><strong>Bar chart</strong>: Statistics. <strong>Page</strong>: Summary Reports.</li>
+                        <li><strong>Map</strong>: the Map view (see <em>The Map</em> below). <strong>Bar chart</strong>: Statistics. <strong>Page</strong>: Summary Reports.</li>
                         <li><strong>Gear</strong>: Settings: layout, Zulu or Local time, the title separator, BDA, MGRS Lock, Select All / Deselect All, the User Manual, and Clear Workspace.</li>
                         <li>The icon of the view on screen is blue; click it again to go back to the Report Log.</li>
                     </ul>
@@ -342,7 +342,7 @@
                 <section class="manual-section">
                     <h3>Overlays and ArcGIS</h3>
                     <p>Bring your NAIs, OBJs, and phase lines in from ArcGIS, and send your reports back out to it as points for heat maps and analysis.</p>
-                    <p class="manual-step">Importing overlays (Workspaces &rarr; Overlays tab)</p>
+                    <p class="manual-step">Importing overlays (Workspaces &rarr; Overlays tab, editors)</p>
                     <ul>
                         <li>In ArcGIS Pro, export the layers as <strong>KMZ or KML</strong> (Layer To KML), <strong>GeoJSON</strong> (Features To JSON with <em>Output to GeoJSON</em> and <em>Project to WGS 1984</em> checked), or a <strong>shapefile</strong>. Then <strong>Import KML / KMZ / GeoJSON / SHP</strong> here. Several files at once are fine.</li>
                         <li><strong>Shapefiles</strong>: pick the zip ArcGIS makes, or the <code>.shp</code>, <code>.dbf</code> and <code>.prj</code> together. Names come from the attribute table (a NAME field), areas keep their holes. Coordinates in WGS 84 or NAD 83 latitude/longitude, Web Mercator, or a UTM zone are converted; another coordinate system is refused by name, so export it again in WGS 1984.</li>
@@ -372,11 +372,17 @@
                         <li><strong>ArcGIS tracks (Shapefile .zip, .json or .geojson)</strong>: one line per report that moved, from its first grid through its updates to its latest, in the order reported. Each carries its identifier, Size, Activity, start and end times, the number of positions, the length in metres, and the direction (<code>bearing_deg</code>, <code>direction</code>). In ArcGIS Pro, give the layer a line symbol with an arrow at its end to show the way it went. A report that never moved is not a line; it is in the points.</li>
                         <li>The points hold each report <strong>once</strong> (per grid it names), as it is now: its earlier updates are not extra points, so a heat map counts each formation once. For a CSV to load into another tool that plots every row, tick <strong>Latest version only</strong> on <em>Reports for Excel (.csv)</em>.</li>
                     </ul>
-                    <p class="manual-step">The map (Overlays tab &rarr; Map)</p>
+                    <p class="manual-step">The Map (the map icon)</p>
                     <ul>
+                        <li>Its own view: the map, beside it what's on the map, and under it the table of those reports. Everything covers the workspace on screen.</li>
                         <li>The overlays drawn on a map: <strong>NAIs green, OBJs blue, phase lines black</strong> (with a white edge, so they show on any background). The tags under each Location use the same colours.</li>
-                        <li><strong>Heat map</strong>: where the reports are thickest, blue through green and yellow to red at the busiest, counting each report once at its latest grid (a report with several grids is shared between them). <strong>Track map</strong>: each report's path from its first position through its updates to its latest, with an arrow for the way it went; a report at one grid is a dot (with a short arrow when its Activity gives a heading). Hover a track for its report, distance, direction and times.</li>
-                        <li><strong>Window</strong>: All, or the last 24, 12, or 6 hours. The map covers the workspace on screen.</li>
+                        <li><strong>Reports</strong>: each report as a dot at its latest grid. <strong>Heat map</strong>: where the reports are thickest, blue through green and yellow to red at the busiest, counting each report once at its latest grid (a report with several grids is shared between them). <strong>Tracks</strong>: each report's path from its first position through its updates to its latest, with an arrow for the way it went; a report at one grid is a dot (with a short arrow when its Activity gives a heading). Hover a track for its report, distance, direction and times.</li>
+                        <li><strong>Click a report</strong> (a dot or a track) for its card: what it says, its time, BDA and updates. <strong>Show in table</strong> finds its row; <strong>Edit</strong> (editors) puts it in the form to update. Its ring stays on the map until you pick another or click an empty spot. A picked track shows the time at each of its positions.</li>
+                        <li><strong>Click a row</strong> in the table and the map moves to that report (keeping the zoom), rings it, and opens its card.</li>
+                        <li><strong>Click an NAI, OBJ or phase line</strong> to narrow the table and the numbers to it; it's drawn bolder, and a chip above the table says which. Click it again, or the chip, to show every place. The <em>Busiest places</em> beside the map do the same.</li>
+                        <li><strong>Only what's on the map</strong> (above the table, on to start with): the table and the numbers hold only the reports in the part of the map on screen, so zooming and panning narrow them. Untick it for every report in the window.</li>
+                        <li><strong>Beside the map</strong>: how many reports are on it, how many are in an NAI or OBJ, BDA assessed (when there is any), the commonest activities, and the busiest places.</li>
+                        <li><strong>Window</strong>: All, or the last 24, 12, or 6 hours. <strong>Up to</strong> (the slider under the map) moves the window's end back from now to the first report, to see how things stood then; <strong>Now</strong> brings it back.</li>
                         <li>Scroll to zoom, drag to move, double-click to zoom in; <strong>+</strong>, <strong>&minus;</strong> and the arrows button (show all). The map covers your overlays and reports and can't be zoomed out past them. Names stay on screen as you zoom in: a shape's name moves to the part of it in view.</li>
                         <li><strong>Full screen</strong>: the corners button under the zoom buttons fills the screen with the map, its controls and key; <kbd>Esc</kbd> or the button again leaves.</li>
                         <li><strong>Basemaps&hellip; &rarr; Add WMS</strong> (editors): paste the link you use in other tools (for ArcGIS, the address ending in <code>WMSServer</code>) and press <strong>Find layers</strong>. The service's layers are listed (with a filter when there are many); tick the ones you want and <strong>Add</strong> puts them in as one basemap, named after the service (rename it in the box first if you like). It asks the service in its own terms: its WMS version, its image format, and Web Mercator when it offers it, otherwise latitude / longitude, stretched to fit. A layer it can't show (only in some other projection) says so.</li>
@@ -384,7 +390,7 @@
                         <li><strong>Add tiles</strong>: a name and a tile address (WMTS, ArcGIS, or XYZ: <code>{z}</code>, <code>{x}</code>, <code>{y}</code>, or <code>{TileMatrix}</code>, <code>{TileRow}</code>, <code>{TileCol}</code>, in Web Mercator).</li>
                         <li><strong>Check</strong> beside a service asks it for a little of the map and says what came back: a map image, or the service's own error (a wrong layer name, a projection it doesn't offer, a login it wants). The &times; removes a service. The list is shared with everyone.</li>
                         <li>The <strong>basemap picker</strong> beside the window switches between them, or to <em>No basemap</em>; each person's pick is kept in their browser. Only the area of the map is requested, never the whole world. Each browser fetches it straight from the service, so a computer that can't reach a service shows the map without it, and says so.</li>
-                        <li>Viewers have it as the <strong>Map</strong> tab: the map alone, with heat or tracks, the window, full screen, and the basemap picker (the same list as the editors; they can't add to it).</li>
+                        <li>Viewers have the Map view too, with everything but Edit and Basemaps&hellip; (the same list as the editors; they can't add to it).</li>
                     </ul>
                     <p class="manual-modes"><strong>Locally:</strong> Overlays and the basemap are kept in this browser, for every workspace in it, and work the same way.</p>
                     <p class="manual-modes"><strong>With sync server:</strong> Overlays and the basemap sync to every editor and viewer and are restored on server restart. Viewers can see the map and export for ArcGIS, but not change either.</p>
@@ -505,7 +511,7 @@
                     <p>A short thank you to the testers who put up with the bugs and kept the vibe coding going:</p>
                     <p class="manual-tester-list">You know who you are.</p>
                 </section>
-                <p class="manual-version-footer">Version 2.11 &middot; <a href="https://github.com/MaymiPR/SaltReportWorkbench" target="_blank" rel="noopener">Source code</a> (AGPL v3)</p>
+                <p class="manual-version-footer">Version 2.12 &middot; <a href="https://github.com/MaymiPR/SaltReportWorkbench" target="_blank" rel="noopener">Source code</a> (AGPL v3)</p>
             </div>
 
             <button type="button" id="manualCloseBtn" class="set-btn startup-continue-btn">Close</button>
@@ -595,11 +601,14 @@
                 </aside>
 
                 <div class="report-section">
-                <!-- The view switcher: a 2x2 square of icons, in every view. The open
-                     view's icon is highlighted; clicking it again goes back to the Report Log. -->
+                <!-- The view switcher: a row of icons, in every view. The open view's
+                     icon is highlighted; clicking it again goes back to the Report Log. -->
                 <div class="view-switcher" role="toolbar" aria-label="Views">
                     <button type="button" id="exportViewToggleBtn" class="view-icon" title="Workspaces" aria-label="Workspaces" aria-pressed="false">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h9A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>
+                    </button>
+                    <button type="button" id="mapViewToggleBtn" class="view-icon" title="Map" aria-label="Map" aria-pressed="false">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4 3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg>
                     </button>
                     <button type="button" id="statsViewToggleBtn" class="view-icon" title="Statistics" aria-label="Statistics" aria-pressed="false">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20v-7M12 20V5M19 20v-10M3 20h18"/></svg>
@@ -694,7 +703,7 @@
                             <button type="button" class="ws-tab active" data-tab="export" role="tab" aria-selected="true">Import / Export</button>
                             <button type="button" class="ws-tab" data-tab="workspaces" role="tab" aria-selected="false">Workspaces</button>
                             <button type="button" class="ws-tab" data-tab="builder" role="tab" aria-selected="false">Builder</button>
-                            <button type="button" class="ws-tab" data-tab="overlays" role="tab" aria-selected="false"><span class="for-editors">Overlays</span><span class="for-viewers">Map</span></button>
+                            <button type="button" class="ws-tab" data-tab="overlays" role="tab" aria-selected="false">Overlays</button>
                             <button type="button" class="ws-tab ws-tab-icon" data-tab="identity" role="tab" aria-selected="false" title="Identity" aria-label="Identity">
                                 <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 12C14.2091 12 16 10.2091 16 8C16 5.79086 14.2091 4 12 4C9.79086 4 8 5.79086 8 8C8 10.2091 9.79086 12 12 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 21V19C20 16.7909 18.2091 15 16 15H8C5.79086 15 4 16.7909 4 19V21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                             </button>
@@ -782,7 +791,7 @@
                         <!-- Tab: Overlays — NAI / OBJ / PL shapes for the workspace (rendered by app/45-overlays.js). -->
                         <div class="ws-tab-panel" data-tab-panel="overlays" style="display:none;">
                             <div class="export-block">
-                                <div class="export-block-label"><span class="for-editors">Overlays <span id="overlaysScopeNote"></span></span><span class="for-viewers">Map</span></div>
+                                <div class="export-block-label">Overlays <span id="overlaysScopeNote"></span></div>
                                 <div id="overlaysBody" class="overlays-body"></div>
                                 <input type="file" id="overlaysFileInput" class="file-input-wrapper" accept=".kml,.kmz,.geojson,.json,.zip,.shp,.shx,.dbf,.prj,.cpg" multiple>
                             </div>
@@ -880,6 +889,36 @@
                                 </div>
                             </div>
                         </div><!-- /ws-tab-panel data-tab-panel="export" -->
+                    </div>
+
+                    <!-- Map: the overlays and the shown workspace's reports; beside it what's in
+                         view, and under it a table of those reports, linked to the map (app/49-mapview.js). -->
+                    <div id="mapPanel">
+                        <div class="export-panel-header">
+                            <div class="export-panel-heading">
+                                <div class="export-panel-title"><span>Map</span></div>
+                                <div id="map-panel-subtitle" class="export-panel-subtitle"></div>
+                            </div>
+                        </div>
+                        <div class="map-view">
+                            <div class="map-view-top">
+                                <div id="mapHost" class="map-host"></div>
+                                <aside id="mapSide" class="map-side" aria-label="What is on the map"></aside>
+                            </div>
+                            <section class="map-table-block">
+                                <div class="map-table-head">
+                                    <h4 id="mapTableTitle">Reports</h4>
+                                    <span id="mapPlaceChip"></span>
+                                    <label class="map-only-toggle"><input type="checkbox" id="mapOnlyInView"> Only what&rsquo;s on the map</label>
+                                </div>
+                                <div class="map-table-wrap">
+                                    <table id="mapTable" class="map-table">
+                                        <thead><tr><th>Identifier</th><th>Size</th><th>Activity</th><th>Location</th><th id="mapTimeHead">Time (Z)</th></tr></thead>
+                                        <tbody id="mapTableBody"></tbody>
+                                    </table>
+                                </div>
+                            </section>
+                        </div>
                     </div>
 
                     <!-- Statistics: headline numbers and charts for the shown workspace (app/47-stats.js). -->
@@ -1051,6 +1090,7 @@
     <script src="app/46-map.js"></script>
     <script src="app/47-stats.js"></script>
     <script src="app/48-summary.js"></script>
+    <script src="app/49-mapview.js"></script>
     <script src="app/50-sync.js"></script>
     <script src="app/60-handlers.js"></script>
     <script src="app/70-startup.js"></script>

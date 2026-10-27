@@ -48,6 +48,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const openSummaryView = () => {
     if (isExportViewActive) closeExportView();
     closeStatsView();
+    closeMapView();
     isSummaryViewActive = true;
     setViewIcon('summaryViewToggleBtn', true);
     el.log.view.style.display = 'none';

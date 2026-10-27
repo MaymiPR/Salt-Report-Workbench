@@ -103,6 +103,7 @@ in [CHANGELOG.md](CHANGELOG.md).
 | **Offline-first** | Full functionality from local storage; queued changes replay automatically on reconnect. Each change uploads only the reports it touched, and a report the server refuses stays visible as *Not saved* until it's fixed or discarded. |
 | **Report builder** | Reorder lines, switch between SALT and SALT-U, and add custom fields (e.g. `W: Weather`) that get their own form box, table column, and copy-text line. One format for every workspace, synced to the team; it changes only when someone edits it. |
 | **Overlays and ArcGIS** | Import NAIs, OBJs, and phase lines once, for every workspace, from KML, KMZ, GeoJSON, or a shapefile; unload or replace them a group at a time. Logging adds the NAI, OBJ, or phase line a grid is in to the Location, and asks you to settle a typed name the grid disagrees with. Export one point per grid, with activity tags and heading, for ArcGIS Pro heat maps (a shapefile to drag in, Esri JSON, GeoJSON, or CSV). |
+| **Map** | Its own view: the overlays and the reports as dots, a heat map, or tracks, over your WMS or tile basemaps. Click a report for its card (Edit from there), a row to move the map to it, or an NAI to narrow the table to it; beside it the numbers for what's on the map, under it the table of those reports, and a slider to see how things stood earlier. |
 | **Statistics** | Headline numbers and charts for any time window, for one ATO or all of them. Covers reports per ATO, reports per NAI, OBJ and phase line, the hour of day and day, activity and heading, what was reported by type, and BDA. Each chart exports as PNG, SVG, or CSV, or all at once; or everything goes to one Excel workbook, with editable Excel charts and the report table. |
 | **Summary reports** | Written reports from one click: Rollup, Most Trafficked, Place Activity, and Shift Brief, over any time window. Copy, save as .txt, or print with charts. They are built from fixed templates, not AI, so nothing is made up. |
 | **BDA tracking** | Hidden until you need it. A checklist pre-pairs each element of a report with its grid, so a ten-target assessment is ten clicks, and part of an element can be logged (3 of `40x T-72`) with the rest left to assess. A roll-up above the table totals the workspace by outcome, click-to-filter. Revisable, searchable, exported. |
@@ -271,9 +272,10 @@ fact; nothing reads it.
 │       ├── 30-form.js        Entry, editing, restore, undo
 │       ├── 40-io.js          Workspaces panel, builder, export, import
 │       ├── 45-overlays.js    Overlay import (KML, KMZ, GeoJSON, SHP), Overlays tab, ArcGIS export
-│       ├── 46-map.js         The overlay map: basemap, heat map, track map
-│       ├── 47-stats.js       Statistics panel: charts, hover, tables, PNG / SVG / CSV export
+│       ├── 46-map.js         The map: basemap, report dots, heat map, tracks
+│       ├── 47-stats.js       Statistics panel: charts, hover, tables, PNG / SVG / Excel export
 │       ├── 48-summary.js     Summary Reports panel: written reports, copy, .txt, print
+│       ├── 49-mapview.js     Map view: the map, what's on it, its table, the report card
 │       ├── 50-sync.js        Push, pull, SSE, offline queue
 │       ├── 60-handlers.js    Event wiring
 │       └── 70-startup.js     Restore saved state, then connect

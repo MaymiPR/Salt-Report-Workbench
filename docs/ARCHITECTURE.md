@@ -134,6 +134,15 @@ Web Mercator when every chosen layer has it, else latitude / longitude, which
 the map stretches to its Mercator box (true to well under a pixel over a
 training area).
 
+The Map view (`app/49-mapview.js`) is built around that map. After each
+drawing the map tells it (`mapDrawnHook`) what it showed: the view box, the
+reports and their tracks. Once the view settles, the view counts what is
+on the map and fills the table from that. A click that didn't drag
+(`mapClickHook`) is a report (its card), an NAI or OBJ it falls in, or a
+phase line within ten pixels (the table narrows to it). The picked report
+and place are plain variables the next drawing reads; nothing about them is
+stored or synced.
+
 The one place a report's text is changed for it: on Log and Update,
 `locationPlan` lists the places its grids are in that the box doesn't name,
 and typed names the grids disagree with; the operator settles each of those
