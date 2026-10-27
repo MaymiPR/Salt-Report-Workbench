@@ -637,10 +637,10 @@
                         </div>
                     </div>
                 </div>
-                    <!-- The Report Log: one bar over both its table and, under the table, its map;
-                         the button in the bar slides from one to the other (app/49-mapview.js). -->
-                    <div id="homeView" class="home-view">
-                    <div class="report-header">
+                    <!-- The one top bar, for every view: the sync dot, who's connected and the
+                         view's name stay put; the Report Log adds its map button, search and counts,
+                         and each other view its one-line summary (setTopBar in app/10-state.js). -->
+                    <div id="topBar" class="report-header top-bar" data-view="home">
                         <h2>
                             <div id="status-dot" class="status-dot" title="Sync Status"></div>
                             <span id="connected-users" class="connected-users-chip" title="Users connected">
@@ -648,24 +648,28 @@
                                 <span id="connected-users-count">1</span>
                             </span>
                             <span id="homeTitle" class="home-title">Report Log</span>
-                            <button type="button" class="home-arrow" data-home-go="map" title="Show the map" aria-label="Show the map"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg></button>
+                            <button type="button" class="home-arrow home-only" data-home-go="map" title="Show the map" aria-label="Show the map"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg></button>
                         </h2>
-                        <div class="search-bar-wrapper">
+                        <div class="top-subs"><div id="export-panel-subtitle" class="top-sub" data-top-for="export">Loading&#8230;</div><div id="stats-panel-subtitle" class="top-sub" data-top-for="stats"></div><div id="summary-panel-subtitle" class="top-sub" data-top-for="summary"></div></div>
+                        <div class="search-bar-wrapper home-only">
                              <span class="icon">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
                             </span>
                             <input type="search" id="searchBar" placeholder="Search...">
                         </div>
-                        <div class="report-metrics">
+                        <div class="report-metrics home-only">
                             <span id="report-count"></span>
                             <span id="report-total-count" title="Total reports including every saved update"></span>
                         </div>
 
-                        <button id="deleteSelectedBtn">Delete</button>
-                        <select id="sendToAtoSelect" style="display:none;"></select>
-                        <button id="sendToAtoBtn" style="display:none;">&#8594;</button>
+                        <button id="deleteSelectedBtn" class="home-only">Delete</button>
+                        <select id="sendToAtoSelect" class="home-only" style="display:none;"></select>
+                        <button id="sendToAtoBtn" class="home-only" style="display:none;">&#8594;</button>
 
                     </div>
+                    <!-- The Report Log: its table and, under it, its map; the button in the bar
+                         slides from one to the other (app/49-mapview.js). -->
+                    <div id="homeView" class="home-view">
                     <div id="homePager" class="home-pager">
                     <div id="logView" class="home-pane">
                         <!-- BDA roll-up: present only in BDA mode (body.bda-mode); filled by renderBdaRollup. -->
@@ -730,7 +734,6 @@
                                     </span>
                                     <span>Workspaces</span>
                                 </div>
-                                <div id="export-panel-subtitle" class="export-panel-subtitle">Loading&#8230;</div>
                             </div>
                         </div>
 
@@ -932,7 +935,6 @@
                         <div class="export-panel-header">
                             <div class="export-panel-heading">
                                 <div class="export-panel-title"><span>Statistics</span></div>
-                                <div id="stats-panel-subtitle" class="export-panel-subtitle"></div>
                             </div>
                         </div>
                         <div class="stats-filters">
@@ -981,7 +983,6 @@
                         <div class="export-panel-header">
                             <div class="export-panel-heading">
                                 <div class="export-panel-title"><span>Summary Reports</span></div>
-                                <div id="summary-panel-subtitle" class="export-panel-subtitle"></div>
                             </div>
                         </div>
                         <div class="summary-kinds" role="group" aria-label="Report">

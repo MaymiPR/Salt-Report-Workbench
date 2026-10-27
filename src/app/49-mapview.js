@@ -233,18 +233,17 @@ const showHomeView = (slide = false) => {
     btn.innerHTML = MAP_BTN_ICONS[map ? 'list' : 'map'];
     btn.title = map ? 'Back to the Report Log' : 'Show the map';
     btn.setAttribute('aria-label', btn.title);
-    // The heading says which is on screen, fading over when it changes.
-    const title = document.getElementById('homeTitle'), name = map ? 'Map' : 'Report Log';
-    if (title.textContent !== name) {
-        title.textContent = name;
-        if (slide) { title.classList.remove('swap'); void title.offsetWidth; title.classList.add('swap'); }
-    }
+    // The bar says which is on screen.
+    setTopBar('home', map ? 'Map' : 'Report Log');
     // Drawn before it slides in, so it arrives whole.
     if (map) renderMapView();
     pager.classList.toggle('on-map', map);
     el.log.view.inert = map;
     mapViewEls().panel.inert = !map;
-    if (!slide) requestAnimationFrame(() => requestAnimationFrame(() => pager.classList.remove('instant')));
+    if (!slide) {
+        requestAnimationFrame(() => requestAnimationFrame(() => pager.classList.remove('instant')));
+        animateIn(document.getElementById('homeView'));
+    }
     writeStored('salt_view', 'log');
 };
 const slideHome = (mode) => {

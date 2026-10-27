@@ -11,7 +11,11 @@ All notable changes to this project are documented here. The format follows
 - **The map is under the Report Log**: the map button by the *Report Log*
   heading slides down to the map, and the same button (a list by then) slides
   back; the heading reads *Map* there. The bar stays above both, and its
-  search narrows the map too. The view
+  search narrows the map too.
+- **One top bar for every view**: the sync dot, who's connected and the
+  view's name stay in the same spot; the name changes (Workspaces,
+  Statistics, Summary Reports) and each view's one-line summary takes the
+  search's place. Views come in with a quick fade and rise. The view
   icons are a 2×2 square of four again, a little larger.
 - **A bigger map**, the width of the panel, with its controls on it: the
   layers, *Latest grids* or *All reports*, and the window at the top left;

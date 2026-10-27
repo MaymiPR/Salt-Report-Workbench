@@ -415,6 +415,8 @@ const openExportView = () => {
     isExportViewActive = true;
     el.exp.panel.style.display = 'flex';
     setViewIcon('exportViewToggleBtn', true);
+    setTopBar('export', 'Workspaces');
+    animateIn(el.exp.panel);
     el.menu.panel.style.display = 'none';
     writeStored('salt_view', 'export');
     renderIoPicker();
@@ -507,6 +509,8 @@ const openCsvImportView = () => {
     hideHomeViews();
     el.exp.panel.style.display  = 'none';
     el.csv.panel.style.display  = 'flex';
+    setTopBar('csv', 'Import CSV');
+    animateIn(el.csv.panel);
     el.menu.panel.style.display = 'none';
 
     el.csv.subtitle.textContent =

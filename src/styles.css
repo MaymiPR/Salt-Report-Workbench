@@ -390,6 +390,20 @@ body.local-mode .startup-access-divider { display: none; }
    them. The page out of sight is hidden once the slide ends, so it can't be
    tabbed into or clicked. */
 .home-view { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+/* The top bar, the same for every view: what only the Report Log uses goes
+   for the others, and each shows its own one-line summary instead. The
+   views' own headings are kept for what they hold, but not shown. */
+.top-bar:not([data-view="home"]) .home-only { display: none !important; }
+.top-subs { flex: 1 1 auto; min-width: 0; }
+.top-sub { display: none; font-size: 0.85em; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.top-bar[data-view="export"] [data-top-for="export"], .top-bar[data-view="stats"] [data-top-for="stats"], .top-bar[data-view="summary"] [data-top-for="summary"] { display: block; }
+.top-bar[data-view="home"] .top-subs { display: none; }
+#exportPanel > .export-panel-header, #statsPanel > .export-panel-header, #summaryPanel > .export-panel-header { display: none; }
+#csvImportPanel > .export-panel-header .export-panel-title { display: none; }
+/* A view coming in: a quick fade and rise, nothing that jumps. */
+.view-in { animation: view-in 0.28s cubic-bezier(0.32, 0.72, 0, 1); }
+@keyframes view-in { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) { .view-in, .home-title.swap { animation: none; } }
 .home-title.swap { animation: home-title-in 0.35s ease-out; }
 @keyframes home-title-in { from { opacity: 0; transform: translateY(4px); } }
 .home-pager { position: relative; flex: 1; min-height: 0; overflow: hidden; }
@@ -1335,20 +1349,20 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 /* The sidebar floats over the map's left edge and slides out sideways: the
    map keeps its size (nothing is redrawn as it moves); its controls and key
    glide aside to make room. */
-.map-main { --map-h: clamp(460px, calc(100vh - 275px), 1200px); --side-room: 210px; --slide: 0.42s cubic-bezier(0.32, 0.72, 0, 1); position: relative; }
-.map-main.side-hidden { --side-room: 10px; }
+.map-main { --map-h: clamp(460px, calc(100vh - 275px), 1200px); --side-room: 210px; --tools-left: 210px; --slide: 0.42s cubic-bezier(0.32, 0.72, 0, 1); position: relative; }
+.map-main.side-hidden { --side-room: 10px; --tools-left: 52px; }
 .map-main .map-box .map-note { left: var(--side-room); transition: left var(--slide); }
 /* The slider runs the map's whole width; the key sits beside the sidebar, above it. */
 .map-main .map-box .map-bottom .map-legend { margin-left: calc(var(--side-room) - 10px); transition: margin-left var(--slide); }
 /* The controls keep one width (so they never wrap differently) and slide. */
-.map-main .map-box .map-tools { left: 210px; transform: translateX(calc(var(--side-room) - 210px)); transition: transform var(--slide); }
+.map-main .map-box .map-tools { left: 210px; transform: translateX(calc(var(--tools-left) - 210px)); transition: transform var(--slide); }
 .map-main.side-hidden .map-side { transform: translateX(calc(-100% - 14px)); opacity: 0; visibility: hidden; transition: transform var(--slide), opacity 0.3s ease, visibility 0s linear 0.42s; }
-.map-side-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px; margin: 0; padding: 0; border: 1px solid var(--glass-border); border-radius: 9px; background: var(--glass-bg); backdrop-filter: blur(14px); color: var(--text-secondary); cursor: pointer; }
+.map-side-btn { position: absolute; top: 10px; left: 10px; z-index: 4; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px; margin: 0; padding: 0; border: 1px solid var(--glass-border); border-radius: 9px; background: var(--glass-bg); backdrop-filter: blur(14px); color: var(--text-secondary); cursor: pointer; }
 .map-side-btn:hover { color: var(--text-primary); }
 .map-side-btn:active { transform: none; }
 .map-side-btn[aria-pressed="true"] { color: var(--system-blue); }
 @media (prefers-reduced-motion: reduce) { .map-main *, .map-main .map-side { transition: none !important; } }
-.map-side { position: absolute; left: 10px; top: 10px; bottom: 50px; z-index: 3; width: 190px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; box-sizing: border-box; padding: 12px 10px; border-radius: 12px; background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); transform: translateX(0); opacity: 1; visibility: visible; transition: transform var(--slide), opacity 0.3s ease, visibility 0s linear 0s; will-change: transform; }
+.map-side { position: absolute; left: 10px; top: 48px; bottom: 50px; z-index: 3; width: 190px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; box-sizing: border-box; padding: 12px 10px; border-radius: 12px; background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); transform: translateX(0); opacity: 1; visibility: visible; transition: transform var(--slide), opacity 0.3s ease, visibility 0s linear 0s; will-change: transform; }
 /* Two halves, as tall as each other; each scrolls its own list when it's long. */
 .map-side-block { flex: 1 1 0; min-width: 0; min-height: 0; box-sizing: border-box; display: flex; flex-direction: column; }
 .map-side-block .map-chips { flex: 1 1 auto; min-height: 0; overflow-y: auto; }

@@ -228,6 +228,8 @@ const openStatsView = () => {
     hideHomeViews();
     isStatsViewActive = true;
     setViewIcon('statsViewToggleBtn', true);
+    setTopBar('stats', 'Statistics');
+    animateIn(statsEls().panel);
     statsEls().panel.style.display = 'flex';
     el.menu.panel.style.display = 'none';
     writeStored('salt_view', 'stats');

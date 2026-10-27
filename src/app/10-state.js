@@ -142,6 +142,23 @@ const el = {
     },
 };
 
+// The top bar, the same for every view: the view's name (fading over when it
+// changes) and which of its parts show ('home' for the Report Log and its map).
+const setTopBar = (view, title) => {
+    const bar = document.getElementById('topBar'), t = document.getElementById('homeTitle');
+    if (!bar || !t) return;
+    bar.dataset.view = view;
+    if (t.textContent !== title) {
+        t.textContent = title;
+        t.classList.remove('swap'); void t.offsetWidth; t.classList.add('swap');
+    }
+};
+// Play a view's coming-in animation (again, if it's already been shown).
+const animateIn = (node) => {
+    if (!node) return;
+    node.classList.remove('view-in'); void node.offsetWidth; node.classList.add('view-in');
+};
+
 // --- 2. State ---
 // Parse a JSON value from localStorage. A missing or corrupt entry yields the
 // fallback rather than stopping the app at startup.

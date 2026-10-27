@@ -51,6 +51,8 @@ const openSummaryView = () => {
     hideHomeViews();
     isSummaryViewActive = true;
     setViewIcon('summaryViewToggleBtn', true);
+    setTopBar('summary', 'Summary Reports');
+    animateIn(summaryEls().panel);
     const s = summaryEls();
     s.panel.style.display = 'flex';
     el.menu.panel.style.display = 'none';

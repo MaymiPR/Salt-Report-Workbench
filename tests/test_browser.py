@@ -1123,10 +1123,13 @@ class BrowserTests(unittest.TestCase):
             ),
             ["auto", "auto"],
         )
-        # The sidebar slides away and back; the map keeps its size throughout.
+        # The sidebar slides away and back; the map keeps its size throughout,
+        # and its button stays where it is, for the next click.
         wide = page.locator("#mapBox").bounding_box()["width"]
+        at = page.locator("#mapSideBtn").bounding_box()
         page.click("#mapSideBtn")
         page.wait_for_selector("#mapSide", state="hidden")
+        self.assertEqual(page.locator("#mapSideBtn").bounding_box(), at)
         self.assertEqual(page.locator("#mapBox").bounding_box()["width"], wide)
         # Its controls slide, keeping their width (so they don't wrap differently).
         tools = page.evaluate("document.querySelector('#mapBox .map-tools').offsetWidth")
@@ -1258,7 +1261,7 @@ class BrowserTests(unittest.TestCase):
         self.assertIn(f"{self.ato}001", note)
         page.click("#cancelButton")
         self.assertTrue(page.locator("#formEditingNote").is_hidden())
-        widths = []
+        widths, spots, names = [], [], []
         for btn in (
             None,
             "[data-home-go='map']",
@@ -1269,7 +1272,16 @@ class BrowserTests(unittest.TestCase):
             if btn:
                 page.click(btn)
             widths.append(round(page.locator(".report-section").bounding_box()["width"]))
+            # One top bar for every view: the name in the same spot, saying which.
+            page.wait_for_timeout(400)
+            box = page.locator("#homeTitle").bounding_box()
+            spots.append((round(box["x"]), round(box["y"])))
+            names.append(page.text_content("#homeTitle"))
         self.assertEqual(len(set(widths)), 1, widths)
+        self.assertEqual(len(set(spots)), 1, spots)
+        self.assertEqual(
+            names, ["Report Log", "Map", "Workspaces", "Statistics", "Summary Reports"]
+        )
         # Closing a view goes back to the Report Log as it was: here, the map.
         page.click("#summaryViewToggleBtn")
         page.wait_for_selector("#mapPanel #mapSvg")
