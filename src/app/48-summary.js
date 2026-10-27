@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // Summary Reports panel: a written report from a preset (Rollup, Most
-// Trafficked, Place Activity, Shift Brief) over a time window, to copy, save
+// Trafficked, Place Activity, Shift Brief, Narrative) over a time window, to copy, save
 // as .txt, or print with its charts. The text comes from SaltCore's fixed
 // templates, so the same reports always give the same words.
 // One of the ordered scripts that make up the page (see src/app/); they
@@ -11,6 +11,18 @@ let isSummaryViewActive = false;
 let summaryKind = readStored('salt_summary_kind', 'rollup');
 let summaryPlace = '';
 let summaryText = '';
+// Your own wording, per workspace and kind, kept in this browser until
+// Revert: the generated text stops following new reports while it's edited.
+const summaryEdits = (s => (s && typeof s === 'object' ? s : {}))(readStored('salt_summary_edits', {}));
+let summaryEditing = false;
+let summaryEditingKey = null;
+const editKey = () => `${shownAto() || ''}|${summaryKind}`;
+const shownSummary = () => summaryEdits[editKey()] ?? summaryText;
+const setEdit = (text) => {
+    if (text === null || text === summaryText) delete summaryEdits[editKey()];
+    else summaryEdits[editKey()] = text;
+    writeStored('salt_summary_edits', JSON.stringify(summaryEdits));
+};
 
 const summaryEls = () => ({
     panel: document.getElementById('summaryPanel'),
@@ -20,6 +32,7 @@ const summaryEls = () => ({
     subtitle: document.getElementById('summary-panel-subtitle'),
     fromDate: document.getElementById('summary-from-date'), fromTime: document.getElementById('summary-from-time'),
     toDate:   document.getElementById('summary-to-date'),   toTime:   document.getElementById('summary-to-time'),
+    editor: document.getElementById('summaryEditor'),
 });
 
 const renderSummary = () => {
@@ -32,18 +45,43 @@ const renderSummary = () => {
     if (!places.includes(summaryPlace)) summaryPlace = places[0] || '';
     s.place.replaceChildren(...places.map(p => { const o = new Option(p, p); o.selected = p === summaryPlace; return o; }));
     s.placeRow.hidden = summaryKind !== 'place';
+    // The narrative's settings: always there beside it, the full height of the view.
+    showNarrSettings(summaryKind === 'narrative');
     document.querySelectorAll('[data-summary-kind]').forEach(b => b.classList.toggle('active', b.dataset.summaryKind === summaryKind));
     const { from, to } = windowBounds(s);
-    summaryText = SaltCore.summaryReport(summaryKind, live, currentOverlays(), {
+    const opts = {
         local: timeDisplayMode === 'local', from, to, now: new Date(),
         ato: ato || 'NO WORKSPACE', title: (live.find(r => r.title) || {}).title || localConfig.title || '',
-        by: (userProfile && userProfile.initials) || '', place: summaryPlace,
-    });
-    s.text.textContent = summaryText;
+        by: (userProfile && userProfile.initials) || '', place: summaryPlace, narrative: sharedNarrative,
+    };
+    summaryText = SaltCore.summaryReport(summaryKind, live, currentOverlays(), opts);
+    // On screen the narrative is wrapped to the width it has, so no line breaks
+    // twice; Copy, Save and Print keep the 100 columns.
+    const fit = summaryKind === 'narrative' ? summaryFit() : 100;
+    const onScreen = fit < 100 ? SaltCore.summaryReport(summaryKind, live, currentOverlays(), { ...opts, width: fit }) : summaryText;
+    // Edited text is shown as edited; while editing, the box is left alone.
+    // Another workspace (or kind) while editing: the box closes, the edit kept.
+    if (summaryEditing && summaryEditingKey !== editKey()) summaryEditing = false;
+    s.text.textContent = editKey() in summaryEdits ? shownSummary() : onScreen;
+    s.text.hidden = summaryEditing;
+    s.editor.hidden = !summaryEditing;
+    document.getElementById('summaryEditBtn').textContent = summaryEditing ? 'Done' : 'Edit text';
+    document.getElementById('summaryEdited').hidden = !(editKey() in summaryEdits);
     s.subtitle.textContent = `${ato || 'No workspace'} · ${plural(live.length, 'report')} in the workspace`;
     s.panel.querySelectorAll('.range-mode').forEach(n => { n.textContent = timeDisplayMode === 'local' ? '(Local)' : '(Zulu)'; });
 };
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+// How many monospaced columns fit in the report's box.
+let summaryCanvas = null;
+const summaryFit = () => {
+    const pre = summaryEls().text, cs = getComputedStyle(pre);
+    const ctx = (summaryCanvas = summaryCanvas || document.createElement('canvas').getContext('2d'));
+    ctx.font = `${cs.fontSize} ${cs.fontFamily}`;
+    const col = ctx.measureText('0'.repeat(20)).width / 20;
+    const room = pre.parentElement.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 4;
+    return Math.max(40, Math.min(100, Math.floor(room / col)));
+};
 
 const openSummaryView = () => {
     if (isExportViewActive) closeExportView();
@@ -61,6 +99,8 @@ const openSummaryView = () => {
     if (!s.fromDate.value && !s.toDate.value) fillWindow(s, 12);
     renderSummary();
 };
+// Leave the edit box; what was typed stays as the report's text.
+const finishEditing = () => { summaryEditing = false; };
 const closeSummaryView = () => {
     if (!isSummaryViewActive) return;
     isSummaryViewActive = false;
@@ -93,7 +133,7 @@ const summaryCharts = () => {
         hours:   { title: `Reports by hour of day (${local ? 'local' : 'Zulu'})`, kind: 'column', items: d.hours, labelEvery: 3, fmtX: ident },
         tags:    { title: 'Activity', kind: 'bar', items: d.tags },
     };
-    const pick = { rollup: ['nai', 'obj', 'hours', 'tags'], trafficked: ['nai', 'obj', 'squares', 'hours'], place: ['hours', 'tags'], brief: [] }[summaryKind];
+    const pick = { rollup: ['nai', 'obj', 'hours', 'tags'], trafficked: ['nai', 'obj', 'squares', 'hours'], place: ['hours', 'tags'], brief: [], narrative: ['nai', 'obj', 'tags'] }[summaryKind];
     const context = summaryText.split('\n')[1].replace(/^\S+:\s+/, '');
     return pick.map(id => ({ ...all[id], id, context, shown: all[id].kind === 'bar' ? fold(all[id].items) : all[id].items }))
         .filter(c => c.items.some(i => i.value > 0));
@@ -107,11 +147,11 @@ const printSummary = () => {
     document.body.appendChild(frame);
     const doc = frame.contentDocument;
     doc.open();
-    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(summaryText.split('\n')[0])}</title><style>
+    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(shownSummary().split('\n')[0])}</title><style>
         body { margin: 16mm; color: #0b0b0b; background: #fff; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
         pre { font-family: ui-monospace, Consolas, "Courier New", monospace; font-size: 10pt; white-space: pre-wrap; margin: 0 0 8mm; }
         svg { display: block; width: 100%; max-width: 170mm; height: auto; margin: 0 0 6mm; break-inside: avoid; }
-    </style></head><body><pre>${escapeHtml(summaryText)}</pre>${charts.map(c => chartSvg(c, 'light', true)).join('')}</body></html>`);
+    </style></head><body><pre>${escapeHtml(shownSummary())}</pre>${charts.map(c => chartSvg(c, 'light', true)).join('')}</body></html>`);
     doc.close();
     frame.contentWindow.focus();
     frame.contentWindow.print();
@@ -128,13 +168,29 @@ const summaryFileName = () =>
     [s.fromDate, s.toDate, s.fromTime, s.toTime].forEach(n => { n.addEventListener('change', renderSummary); n.addEventListener('input', renderSummary); });
     [s.fromTime, s.toTime].forEach(n => n.addEventListener('blur', e => { if (autoColonTime(e.target)) renderSummary(); }));
     s.place.addEventListener('change', () => { summaryPlace = s.place.value; renderSummary(); });
+    // A narrower or wider window: the narrative re-wraps to fit.
+    window.addEventListener('resize', debounce(() => { if (isSummaryViewActive && summaryKind === 'narrative') renderSummary(); }, 150));
+    // Kept as typed, so Copy and Save have it even before Done.
+    s.editor.addEventListener('input', () => {
+        setEdit(s.editor.value);
+        document.getElementById('summaryEdited').hidden = !(editKey() in summaryEdits);
+    });
     s.panel.addEventListener('click', e => {
         const kind = e.target.closest('[data-summary-kind]');
-        if (kind) { summaryKind = kind.dataset.summaryKind; writeStored('salt_summary_kind', JSON.stringify(summaryKind)); renderSummary(); return; }
+        if (kind) { finishEditing(); summaryKind = kind.dataset.summaryKind; writeStored('salt_summary_kind', JSON.stringify(summaryKind)); renderSummary(); return; }
         const preset = e.target.closest('[data-summary-hours]');
         if (preset) { fillWindow(s, +preset.dataset.summaryHours); renderSummary(); return; }
-        if (e.target.closest('#summaryCopyBtn')) { copyToClipboard(summaryText); showToast('Report copied.'); return; }
-        if (e.target.closest('#summarySaveBtn')) { triggerDownload(summaryFileName(), summaryText.replace(/\n/g, '\r\n')); return; }
+        if (e.target.closest('#summaryCopyBtn')) { copyToClipboard(shownSummary()); showToast('Report copied.'); return; }
+        if (e.target.closest('#summarySaveBtn')) { triggerDownload(summaryFileName(), shownSummary().replace(/\n/g, '\r\n')); return; }
+        // Edit: the text in a box to change as you like; Done keeps it, Revert drops it.
+        if (e.target.closest('#summaryEditBtn')) {
+            if (summaryEditing) finishEditing();
+            else { summaryEditing = true; summaryEditingKey = editKey(); s.editor.value = shownSummary(); }
+            renderSummary();
+            if (summaryEditing) { s.editor.focus(); s.editor.setSelectionRange(0, 0); s.editor.scrollTop = 0; }
+            return;
+        }
+        if (e.target.closest('#summaryRevertBtn')) { summaryEditing = false; setEdit(null); renderSummary(); return; }
         if (e.target.closest('#summaryPrintBtn')) printSummary();
     });
 })();

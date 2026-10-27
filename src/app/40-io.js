@@ -17,9 +17,9 @@ const generateReportText = (report) => SaltCore.reportText(report, currentFormat
 const getCsvFilename = (ato, title) => `${SaltCore.backupFilename(ato, title)}_${fileStamp(new Date(), timeDisplayMode === 'local')}`;
 
 const generateBackupText = (ato, reps, title, profiles) =>
-    SaltCore.backupText(ato, reps, title, profiles, formatsFor([ato]), new Date(), sharedOverlays);
+    SaltCore.backupText(ato, reps, title, profiles, formatsFor([ato]), new Date(), sharedOverlays, sharedNarrative);
 const generateAllAtosBackupText = (workspaces, activeAto, title, profiles) =>
-    SaltCore.allWorkspacesBackupText(workspaces, activeAto, title, profiles, formatsFor(Object.keys(workspaces)), new Date(), sharedOverlays);
+    SaltCore.allWorkspacesBackupText(workspaces, activeAto, title, profiles, formatsFor(Object.keys(workspaces)), new Date(), sharedOverlays, sharedNarrative);
 
 const triggerDownload = (filename, content, type = 'text/plain;charset=utf-8') => {
     const blob = new Blob([content], { type }), a = document.createElement('a');
@@ -432,6 +432,22 @@ const closeExportView = () => {
     showHomeView();
 };
 
+// A backup's narrative settings: taken when this browser has none; when it
+// has its own, and they differ, you choose.
+const narrativeIsEmpty = (n) => !String(n.enemy || '').trim() && ['units', 'equipment', 'off', 'custom'].every(k => !(n[k] || []).length);
+const importNarrative = async (n) => {
+    if (!n || typeof n !== 'object' || Array.isArray(n) || narrativeIsEmpty(n)) return;
+    if (JSON.stringify(n) === JSON.stringify(sharedNarrative)) return;
+    if (!narrativeIsEmpty(sharedNarrative)) {
+        const count = (k) => (n[k] || []).length;
+        const pick = await askChoice("Use this file's narrative settings?",
+            `It has ${plural(count('units'), 'unit')}, ${plural(count('equipment'), 'equipment entry')} and ${plural(count('custom'), 'rule')} of its own; yours would be replaced for everyone.`,
+            [{ label: "Use the file's", value: 'file', primary: true }, { label: 'Keep mine', value: 'keep' }]);
+        if (pick !== 'file') return;
+    }
+    await saveNarrative(n, 'Narrative settings taken from the file.');
+};
+
 function processJsonImport(rawText) {
     // Validate up-front so the user sees a precise error before the confirm prompt.
     const parsed = SaltCore.parseBackup(rawText);
@@ -464,6 +480,7 @@ function processJsonImport(rawText) {
             // same type and name; the rest are kept.
             const impOverlays = SaltCore.foldOverlays(imp.overlays);
             if (impOverlays.length) await saveOverlays(mergeOverlays(sharedOverlays, impOverlays));
+            await importNarrative(imp.narrative);
             await saveLocalAndSync(all, 'backup');
             // That pushed the active workspace only. Push the rest of the
             // file too: the sync below replaces local state with the server's,

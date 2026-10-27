@@ -88,6 +88,10 @@ DATA_STORE: dict = {
     # Shared like the overlays; each browser picks one to show and fetches it
     # straight from that service.
     'basemaps': [],
+    # The narrative's settings (Summary Reports > Narrative): what the enemy
+    # is called, the known units and where they operate, equipment added to
+    # the catalogue, rules switched off, and the team's own rules.
+    'narrative': {},
 }
 
 
@@ -416,6 +420,64 @@ MAX_BASEMAP_URL = 2000
 MAX_BASEMAP_LAYERS = 2000
 # What a WMS's capabilities said to ask for: version, projection, image format.
 _BASEMAP_WMS_FIELDS = {'version': 10, 'crs': 40, 'format': 60}
+MAX_NARRATIVE_NAME = 60  # the enemy's name, and each unit's
+MAX_UNITS = 50
+MAX_UNIT_PLACES = 40
+MAX_PLACE = 40
+MAX_EQUIPMENT = 500  # types added to the catalogue
+MAX_EQUIPMENT_TYPE = 40
+MAX_CUSTOM_RULES = 30
+MAX_RULE_TEXT = 120
+MAX_RULE_WORDS = 300
+# The kinds of equipment (core.js EQUIPMENT_ROLES) and the built-in rules
+# (core.js NARRATIVE_RULES) the narrative knows.
+_EQUIPMENT_ROLES = frozenset(
+    {
+        'armor',
+        'mech',
+        'recon',
+        'fires',
+        'ad',
+        'atgm',
+        'engineer',
+        'logistics',
+        'c2',
+        'ew',
+        'air',
+        'infantry',
+        'light',
+    }
+)
+_EQUIPMENT_ORIGINS = frozenset({'RU', 'CN', ''})
+_NARRATIVE_RULES = frozenset(
+    {
+        'offense',
+        'axes',
+        'forward',
+        'recon',
+        'assembly',
+        'reserve',
+        'firing',
+        'withdrawal',
+        'infiltration',
+        'airassault',
+        'amphibious',
+        'defense',
+        'antitank',
+        'deception',
+        'artillery',
+        'reconfire',
+        'deep',
+        'drones',
+        'aviation',
+        'crossing',
+        'breach',
+        'cp',
+        'adsite',
+        'ew',
+        'logistics',
+    }
+)
 # /api/wms_fetch: the server reads a WMS address for an editor's page when the
 # service won't let the page read it itself (no CORS headers).
 WMS_FETCH_MAX_URL = 4000
@@ -752,6 +814,103 @@ def _v_save_basemaps(data: dict) -> str | None:
     return None
 
 
+def _v_save_narrative(data: dict) -> str | None:
+    n = data.get('narrative')
+    if not isinstance(n, dict):
+        return 'narrative must be an object'
+    if 'enemy' in n and not _is_str(n['enemy'], MAX_NARRATIVE_NAME):
+        return f'narrative.enemy must be a string ≤{MAX_NARRATIVE_NAME} chars'
+    units = n.get('units', [])
+    if not isinstance(units, list) or len(units) > MAX_UNITS:
+        return f'narrative.units must be a list of at most {MAX_UNITS}'
+    names = set()
+    for i, u in enumerate(units):
+        if not isinstance(u, dict):
+            return f'narrative.units[{i}] must be an object'
+        name = u.get('name')
+        if not _is_str(name, MAX_NARRATIVE_NAME) or not name.strip():
+            return (
+                f'narrative.units[{i}].name must be a non-empty string ≤{MAX_NARRATIVE_NAME} chars'
+            )
+        if name.strip().lower() in names:
+            return f'narrative.units[{i}].name is used twice'
+        names.add(name.strip().lower())
+        places = u.get('places', [])
+        if (
+            not isinstance(places, list)
+            or len(places) > MAX_UNIT_PLACES
+            or not all(_is_str(p, MAX_PLACE) for p in places)
+        ):
+            return f'narrative.units[{i}].places must be at most {MAX_UNIT_PLACES} names ≤{MAX_PLACE} chars'
+        kinds = u.get('kinds', [])
+        if not isinstance(kinds, list) or not all(k in _EQUIPMENT_ROLES for k in kinds):
+            return f'narrative.units[{i}].kinds must be kinds of equipment'
+    equipment = n.get('equipment', [])
+    if not isinstance(equipment, list) or len(equipment) > MAX_EQUIPMENT:
+        return f'narrative.equipment must be a list of at most {MAX_EQUIPMENT}'
+    types = set()
+    for i, e in enumerate(equipment):
+        if not isinstance(e, dict):
+            return f'narrative.equipment[{i}] must be an object'
+        t = e.get('type')
+        if not _is_str(t, MAX_EQUIPMENT_TYPE) or not t.strip():
+            return f'narrative.equipment[{i}].type must be a non-empty string ≤{MAX_EQUIPMENT_TYPE} chars'
+        if t.strip().upper() in types:
+            return f'narrative.equipment[{i}].type is used twice'
+        types.add(t.strip().upper())
+        if e.get('role') not in _EQUIPMENT_ROLES:
+            return f'narrative.equipment[{i}].role must be a kind of equipment'
+        if e.get('origin', '') not in _EQUIPMENT_ORIGINS:
+            return f'narrative.equipment[{i}].origin must be RU, CN or empty'
+    off = n.get('off', [])
+    if not isinstance(off, list) or not all(r in _NARRATIVE_RULES for r in off):
+        return 'narrative.off must list built-in rules'
+    custom = n.get('custom', [])
+    if not isinstance(custom, list) or len(custom) > MAX_CUSTOM_RULES:
+        return f'narrative.custom must be a list of at most {MAX_CUSTOM_RULES}'
+    for i, c in enumerate(custom):
+        if not isinstance(c, dict):
+            return f'narrative.custom[{i}] must be an object'
+        if not _is_str(c.get('what'), MAX_RULE_TEXT) or not c['what'].strip():
+            return f'narrative.custom[{i}].what must be a non-empty string ≤{MAX_RULE_TEXT} chars'
+        if not _is_str(c.get('words'), MAX_RULE_WORDS) or not c['words'].strip():
+            return f'narrative.custom[{i}].words must be a non-empty string ≤{MAX_RULE_WORDS} chars'
+        if not _is_int(c.get('min')) or not 1 <= c['min'] <= 20:
+            return f'narrative.custom[{i}].min must be 1 to 20'
+        if not _is_int(c.get('hours')) or not 1 <= c['hours'] <= 168:
+            return f'narrative.custom[{i}].hours must be 1 to 168'
+    return None
+
+
+def clean_narrative(n: dict) -> dict:
+    """Known fields only, trimmed, from settings ``_v_save_narrative`` accepted."""
+    return {
+        'enemy': (n.get('enemy') or '').strip(),
+        'units': [
+            {
+                'name': u['name'].strip(),
+                'places': [p.strip() for p in u.get('places', []) if p.strip()],
+                'kinds': list(dict.fromkeys(u.get('kinds', []))),
+            }
+            for u in n.get('units', [])
+        ],
+        'equipment': [
+            {'type': e['type'].strip(), 'role': e['role'], 'origin': e.get('origin', '')}
+            for e in n.get('equipment', [])
+        ],
+        'off': sorted(set(n.get('off', []))),
+        'custom': [
+            {
+                'what': c['what'].strip(),
+                'words': c['words'].strip(),
+                'min': c['min'],
+                'hours': c['hours'],
+            }
+            for c in n.get('custom', [])
+        ],
+    }
+
+
 def _v_wms_fetch(data: dict) -> str | None:
     url = data.get('url')
     if not _is_str(url, WMS_FETCH_MAX_URL) or not url.strip().lower().startswith(
@@ -803,6 +962,7 @@ _VALIDATORS = {
     '/api/save_format': _v_save_format,
     '/api/save_overlays': _v_save_overlays,
     '/api/save_basemaps': _v_save_basemaps,
+    '/api/save_narrative': _v_save_narrative,
     '/api/wms_fetch': _v_wms_fetch,
 }
 
@@ -860,6 +1020,7 @@ def _extract_json_from_file(raw_text: str) -> dict | None:
                     # None when the file has no overlays at all (older than 2.5).
                     'overlays': d.get('overlays'),
                     'basemaps': d.get('basemaps'),
+                    'narrative': d.get('narrative'),
                 }
             # Legacy marker format: single ATO inferred from config
             ato = d.get('config', {}).get('ato', '')
@@ -871,6 +1032,7 @@ def _extract_json_from_file(raw_text: str) -> dict | None:
                 'formats': {},
                 'overlays': None,
                 'basemaps': None,
+                'narrative': None,
             }
         except (ValueError, KeyError):
             return None
@@ -925,6 +1087,7 @@ def load_data_from_disk() -> None:
         shared_overlays: list | None = None
         legacy_overlays: dict = {}
         basemaps: list = []
+        narrative: dict = {}
 
         for filepath in candidates:
             try:
@@ -950,6 +1113,8 @@ def load_data_from_disk() -> None:
                         shared_format = fmt
                     if isinstance(result.get('basemaps'), list):
                         basemaps = result['basemaps']  # the newest file's
+                    if isinstance(result.get('narrative'), dict):
+                        narrative = result['narrative']  # the newest file's
                     ovs = result.get('overlays')
                     if isinstance(ovs, list):
                         shared_overlays = fold_overlays(ovs)
@@ -971,6 +1136,7 @@ def load_data_from_disk() -> None:
                 shared_overlays if shared_overlays is not None else list(legacy_overlays.values())
             )
             DATA_STORE['basemaps'] = basemaps
+            DATA_STORE['narrative'] = narrative
             workspace_sources.clear()
             workspace_sources.update(source_by_ato)
             invalidate_sync_cache()
@@ -1008,6 +1174,7 @@ def render_backup(
     label: tuple[str, str] | None = None,
     overlays: list | None = None,
     basemaps: list | None = None,
+    narrative: dict | None = None,
 ) -> tuple[str, str] | None:
     """Return ``(filename, text)`` for a backup of the given state, or None if empty.
 
@@ -1114,6 +1281,7 @@ def render_backup(
             'formats': formats,
             'overlays': overlays or [],
             'basemaps': basemaps or [],
+            'narrative': narrative or {},
         },
         separators=(',', ':'),
         ensure_ascii=False,
@@ -1156,6 +1324,7 @@ def render_workspace_backups(
     only: set | None = None,
     overlays: list | None = None,
     basemaps: list | None = None,
+    narrative: dict | None = None,
 ) -> list[tuple[str, str, str]]:
     """One ``(ato, filename, text)`` per workspace, for those in ``only`` (None: all).
 
@@ -1176,6 +1345,7 @@ def render_workspace_backups(
             label=(ato, workspace_title(ato, reports, config)),
             overlays=overlays or [],
             basemaps=basemaps or [],
+            narrative=narrative or {},
         )
         if rendered is not None:
             out.append((ato, *rendered))
@@ -1252,6 +1422,7 @@ def save_data_to_disk() -> None:
                 only,
                 DATA_STORE.get('overlays', []),
                 DATA_STORE.get('basemaps', []),
+                DATA_STORE.get('narrative', {}),
             )
         if not files:
             return
@@ -1367,6 +1538,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                     'format': DATA_STORE.get('format', {}),
                     'overlays': DATA_STORE.get('overlays', []),
                     'basemaps': DATA_STORE.get('basemaps', []),
+                    'narrative': DATA_STORE.get('narrative', {}),
                     'sources': workspace_sources,
                 }
                 full = json.dumps(data, separators=(',', ':'))
@@ -1736,6 +1908,17 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             mark_dirty()  # every workspace's backup carries them
         self._commit(f'save_basemaps: {len(clean)} service(s)')
 
+    def _post_save_narrative(self, data: dict) -> None:
+        clean = clean_narrative(data['narrative'])
+        with data_lock:
+            DATA_STORE['narrative'] = clean
+            invalidate_sync_cache()
+            mark_dirty()  # every workspace's backup carries them
+        self._commit(
+            f'save_narrative: {len(clean["units"])} unit(s), {len(clean["equipment"])} type(s), '
+            f'{len(clean["custom"])} rule(s)'
+        )
+
     def _post_wms_fetch(self, data: dict) -> None:
         # Changes nothing here, so no save and no broadcast; logged all the
         # same, as the server reached out on an editor's behalf.
@@ -1771,6 +1954,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         '/api/save_format': _post_save_format,
         '/api/save_overlays': _post_save_overlays,
         '/api/save_basemaps': _post_save_basemaps,
+        '/api/save_narrative': _post_save_narrative,
         '/api/wms_fetch': _post_wms_fetch,
         '/api/save_profile': _post_save_profile,
     }

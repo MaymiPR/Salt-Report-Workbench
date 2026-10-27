@@ -842,12 +842,35 @@ class BrowserTests(unittest.TestCase):
             self.assertTrue(viewer.locator(sel).is_visible(), sel)
         self.pick_basemap(viewer, "Topo")
         viewer.wait_for_function("() => document.querySelectorAll('#mapBase image').length > 0")
-        # Removing one takes it out for everyone.
-        page.click("[data-base-remove='0']")
+        # A tile service's details: renamed (and still the one shown here).
+        self.open_basemaps(page)
+        self.pick_basemap(page, "Topo")
+        self.open_basemaps(page)
+        page.click("[data-base-open='1']")
+        self.assertEqual(page.input_value("#mapTileName"), "Topo")
+        page.fill("#mapTileName", "Terrain tiles")
+        page.click("#mapTileSave")
+        page.wait_for_selector("#toast-notification:has-text('Terrain tiles saved')")
+        self.assertEqual(
+            page.locator("#mapBaseSelect option").all_text_contents(),
+            ["No basemap", "Imagery", "Terrain tiles"],
+        )
+        self.assertEqual(page.input_value("#mapBaseSelect"), "Terrain tiles")
+        # No x on the rows: a service is removed from its details, and asked first.
+        self.assertEqual(page.locator("#mapBasemapForm .overlay-remove").count(), 0)
+        page.click("[data-base-open='0']")
+        page.wait_for_selector(".map-base-detail .map-layer-list")
+        self.assertTrue(page.is_checked(".map-layer-row:has-text('Imagery 2024') input"))
+        page.click("#mapBaseRemove")
+        self.assertEqual(page.text_content("#mapBaseRemove"), "Remove for everyone?")
+        self.assertEqual(page.locator("#mapBaseSelect option").count(), 3)
+        page.click("#mapBaseRemove")
         page.wait_for_selector("#toast-notification:has-text('Imagery removed')")
         self.assertEqual(
-            page.locator("#mapBaseSelect option").all_text_contents(), ["No basemap", "Topo"]
+            page.locator("#mapBaseSelect option").all_text_contents(),
+            ["No basemap", "Terrain tiles"],
         )
+        self.assertEqual(page.locator(".map-base-detail").count(), 0)
         page.evaluate("saveBasemaps([])")
 
     def test_a_wms_found_through_the_server_in_latitude_longitude(self):
@@ -935,14 +958,45 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("VERSION=1.1.1", get_map)
         x0, y0, x1, y1 = map(float, get_map.split("BBOX=")[1].split("&")[0].split(","))
         self.assertTrue(44 < x0 < x1 < 45 and 33 < y0 < y1 < 34, (x0, y0, x1, y1))
-        # Check: the service sent an image (to the server); a bad layer, its error.
+        # Check: the service sent an image (to the server), said for a few
+        # seconds; a bad layer, its error, which stays to be read.
         page.click("[data-base-check='0']")
         page.wait_for_selector(".map-base-check.ok")
         self.assertIn("map image", page.text_content(".map-base-check"))
+        page.wait_for_selector(".map-base-check", state="detached", timeout=8000)
         page.evaluate(
             f"checkBasemap({{ name: 'Range Maps', kind: 'wms', url: '{base}', layers: 'bad' }})"
         )
         page.wait_for_selector(".map-base-check:has-text('not defined')")
+        page.wait_for_timeout(4600)
+        self.assertTrue(page.locator(".map-base-check:has-text('not defined')").is_visible())
+        # Back to the same service for its layers: looked up again, those in use
+        # ticked; one the service has dropped is still there, marked.
+        caps_holder["caps"] = self.capabilities(
+            "Range Maps",
+            "1.1.1",
+            base + "?",
+            [("roads", "Roads", ["EPSG:4326"]), ("utm", "UTM only", ["EPSG:32611"])],
+        )
+        page.click("[data-base-open='0']")
+        page.wait_for_selector(".map-base-detail .map-layer-list")
+        self.assertEqual(page.locator(".map-base-add + .map-layer-list").count(), 0)
+        self.assertTrue(page.is_checked(".map-layer-row:has-text('Roads') input"))
+        gone = ".map-layer-row:has(.map-layer-name:text-is('terrain'))"
+        self.assertIn("not listed", page.text_content(gone))
+        self.assertTrue(page.is_checked(f"{gone} input"))
+        self.assertEqual(page.text_content("#mapWmsAdd"), "Save")
+        page.uncheck(f"{gone} input")
+        page.uncheck(".map-layer-row:has-text('Roads') input")
+        self.assertTrue(page.is_disabled("#mapWmsAdd"))
+        self.assertEqual(page.text_content("#mapWmsAdd"), "Tick layers to keep")
+        page.check(".map-layer-row:has-text('Roads') input")
+        page.click("#mapWmsAdd")
+        page.wait_for_selector("#toast-notification:has-text('Range Maps saved')")
+        page.wait_for_function(
+            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.length === 1 && s.basemaps[0].layers === 'roads')"
+        )
+        self.assertEqual(page.locator(".map-base-detail").count(), 0)
         page.evaluate("saveBasemaps([])")
 
     def test_the_map_view_links_the_map_and_its_table(self):
@@ -1023,9 +1077,19 @@ class BrowserTests(unittest.TestCase):
         )
         page.check("#mapOnlyInView")
         page.click("[data-map-zoom='fit']")
-        # The time slider: at its left end, only the first report.
+        # The time slider: at its left end, only the first report. Its track
+        # keeps its length as Now comes and goes.
+        track = page.locator("#mapEndRange").bounding_box()["width"]
         page.fill("#mapEndRange", "0")
         page.dispatch_event("#mapEndRange", "input")
+        self.assertEqual(page.locator("#mapEndRange").bounding_box()["width"], track)
+        self.assertEqual(
+            page.evaluate(
+                "[getComputedStyle(mapEndRange).cursor, getComputedStyle(mapEndRange).opacity]"
+            ),
+            ["pointer", "1"],
+            "a slider, not a read-only box",
+        )
         page.wait_for_function(
             "() => document.querySelectorAll('#mapSvg .map-report').length === 1"
         )
@@ -1454,6 +1518,169 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.evaluate("summaryCharts().map(c => c.id)"), ["nai", "hours", "tags"])
         page.click("#summaryPrintBtn")
         page.wait_for_function("() => !document.querySelector('iframe')")
+        # The narrative: what was seen, then what it suggests, then the gaps.
+        page.click("[data-summary-kind='narrative']")
+        page.wait_for_selector("#summaryText:has-text('NARRATIVE - ')")
+        text = page.inner_text("#summaryText")
+        for part in ("1. OBSERVED", "2. ASSESSMENT", "3. GAPS", "armor (2x T-72)", "ICD 203"):
+            self.assertIn(part, text)
+        self.assertLess(text.index("1. OBSERVED"), text.index("2. ASSESSMENT"))
+        self.assertEqual(page.evaluate("summaryCharts().map(c => c.id)"), ["nai", "tags"])
+
+    def test_the_narrative_names_units_takes_your_equipment_and_rules_and_can_be_edited(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "6x PAX", activity="digging in", location="38SMB4500082000")
+        self.log(page, "1x XYZ-9", activity="emplacing obstacles", location="38SMB4600082000")
+        self.log(page, "1x PMP", activity="bridging the wadi", location="38SMB4600083000")
+        self.log(page, "2x trucks", activity="at the ferry site", location="38SMB4500083000")
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        page.wait_for_selector("#summaryText:has-text('2. ASSESSMENT')")
+        flat = lambda: " ".join(page.inner_text("#summaryText").split())  # noqa: E731
+        self.assertIn("that enemy forces are preparing a defense in NAI 1.", flat())
+        self.assertIn("logistics (2x trucks)", flat())
+        # The settings: always there on the Narrative, a column beside the
+        # report the full height of the view; no other report has them.
+        side = page.locator("#narrSettings").bounding_box()
+        text = page.locator("#summaryText").bounding_box()
+        kinds = page.locator(".summary-col > .summary-kinds").bounding_box()
+        self.assertGreaterEqual(side["x"], text["x"] + text["width"], "beside the report")
+        self.assertLessEqual(side["y"], kinds["y"], "from the top")
+        self.assertAlmostEqual(side["y"] + side["height"], text["y"] + text["height"], delta=2)
+        page.click("[data-summary-kind='rollup']")
+        self.assertFalse(page.locator("#narrSettings").is_visible())
+        page.click("[data-summary-kind='narrative']")
+        self.assertTrue(page.locator("#narrSettings").is_visible())
+        # What the enemy is called.
+        page.fill("#narrEnemy", "OPFOR")
+        page.press("#narrEnemy", "Enter")
+        page.wait_for_selector("#toast-notification:has-text('calls them OPFOR')")
+        self.assertIn("that OPFOR are preparing a defense in NAI 1.", flat())
+        # A unit, in NAI 1: where it operates and what it has are dropdowns;
+        # Other brings up a box for places not in the list.
+        page.click("[data-narr-add]")
+        page.fill("#narrUnitName", "1-60 GMRB")
+        self.assertEqual(page.text_content("[data-narr-dd='place'] .narr-dd-value"), "Anywhere")
+        self.assertFalse(page.locator("#narrUnitOther").is_visible())
+        page.click("[data-narr-dd='place'] .narr-dd-btn")
+        page.click("[data-narr-place='NAI 1']")
+        self.assertTrue(
+            page.locator("[data-narr-place='NAI 2']").is_visible(), "stays open while picking"
+        )
+        page.click("[data-narr-place='']")
+        self.assertFalse(
+            page.locator("[data-narr-place='NAI 2']").is_visible(), "Other: the menu makes way"
+        )
+        self.assertTrue(page.locator("#narrUnitOther").is_visible())
+        self.assertEqual(page.evaluate("document.activeElement.id"), "narrUnitOther")
+        page.keyboard.type("38S MB 49")
+        page.click("[data-narr-dd='place'] .narr-dd-btn")
+        page.click("[data-narr-place='']")
+        self.assertFalse(
+            page.locator("#narrUnitOther").is_visible(), "Other off: no box, and not saved"
+        )
+        self.assertEqual(page.text_content("[data-narr-dd='place'] .narr-dd-value"), "NAI 1")
+        page.keyboard.press("Escape")
+        self.assertFalse(page.locator("[data-narr-place='NAI 1']").is_visible(), "Escape closes it")
+        page.click("[data-narr-dd='kind'] .narr-dd-btn")
+        page.click("[data-narr-kind='infantry']")
+        page.click("#narrUnitName")
+        self.assertFalse(
+            page.locator("[data-narr-kind='infantry']").is_visible(), "closed by a click elsewhere"
+        )
+        self.assertEqual(
+            page.text_content("[data-narr-dd='kind'] .narr-dd-value"), "dismounted personnel"
+        )
+        page.click("[data-narr-save]")
+        page.wait_for_selector("#toast-notification:has-text('1-60 GMRB saved')")
+        self.assertEqual(page.text_content("[data-narr-tab='units'] .narr-count"), "1")
+        self.assertIn("that elements of 1-60 GMRB are preparing a defense in NAI 1.", flat())
+        self.assertIn("Unit: from the unit list, 1-60 GMRB (NAI 1; dismounted personnel).", flat())
+        # Equipment the catalogue doesn't know: a dot on the tab, offered first.
+        self.assertTrue(page.locator("[data-narr-tab='equipment'] .narr-dot").is_visible())
+        page.click("[data-narr-tab='equipment']")
+        page.fill("#narrEqFind", "T-72B3")
+        self.assertEqual(page.text_content("#narrEqFindSays"), "Built in: armor (T-72, Russian).")
+        page.click("[data-narr-fill='XYZ-9']")
+        self.assertEqual(page.input_value("#narrEqType"), "XYZ-9")
+        self.assertEqual(page.text_content("#narrEqSays"), "Not in the catalogue.")
+        page.click("[data-narr-save]")
+        page.wait_for_selector("#toast-notification:has-text('Pick what XYZ-9 is')")
+        page.click("[data-narr-role='engineer']")
+        page.click("[data-narr-save]")
+        page.wait_for_selector("#toast-notification:has-text('XYZ-9 saved')")
+        self.assertIn("engineers (1x PMP, 1x XYZ-9)", flat())
+        self.assertNotIn("Not in the equipment catalogue", flat())
+        self.assertEqual(page.locator("[data-narr-tab='equipment'] .narr-dot").count(), 0)
+        # A rule switched off, and one of the team's own.
+        page.click("[data-narr-tab='rules']")
+        page.uncheck("[data-narr-rule='defense']")
+        page.wait_for_selector("#toast-notification:has-text('Preparing a defense: off')")
+        self.assertNotIn("preparing a defense", flat())
+        page.click("[data-narr-add]")
+        page.fill("#narrRuleWhat", "are preparing a river crossing")
+        page.fill("#narrRuleWords", "bridging, ferry")
+        page.click("[data-narr-save]")
+        page.wait_for_selector("#toast-notification:has-text('Rule saved for everyone')")
+        # Its reports (a PMP, trucks) have none of the unit's kind: said of OPFOR.
+        self.assertIn("that OPFOR are preparing a river crossing in NAI 1.", flat())
+        # A saved one opens from its row; Remove asks first, and Back leaves it.
+        page.click("[data-narr-tab='units']")
+        page.click("[data-narr-edit='0']")
+        self.assertEqual(page.input_value("#narrUnitName"), "1-60 GMRB")
+        page.click("[data-narr-remove]")
+        self.assertEqual(page.text_content("[data-narr-remove]"), "Remove for everyone?")
+        page.click("[data-narr-back]")
+        self.assertEqual(page.locator("[data-narr-edit]").count(), 1, "still there")
+        # A backup made by hand carries them.
+        kept = page.evaluate(
+            "SaltCore.parseBackup(generateBackupText(activeAto, localReports, 'Patrol', {})).data.narrative"
+        )
+        self.assertEqual((kept["enemy"], kept["units"][0]["name"]), ("OPFOR", "1-60 GMRB"))
+        # Shared: a viewer's narrative says the same, and the viewer can't change it.
+        viewer = self.open_viewer()
+        viewer.click("#summaryViewToggleBtn")
+        viewer.click("[data-summary-kind='narrative']")
+        viewer.wait_for_selector("#summaryText:has-text('river crossing')")
+        self.assertTrue(viewer.is_disabled("#narrEnemy"))
+        self.assertFalse(viewer.locator("[data-narr-add]").is_visible())
+        # Edit text: your own words, kept for Copy and Save, per workspace and
+        # through a reload, until Revert.
+        page.click("#summaryEditBtn")
+        page.fill("#summaryEditor", "MY OWN WORDING")
+        page.click("#summaryEditBtn")
+        self.assertEqual(page.inner_text("#summaryText"), "MY OWN WORDING")
+        self.assertTrue(page.locator("#summaryEdited").is_visible())
+        with page.expect_download() as dl:
+            page.click("#summarySaveBtn")
+        self.assertEqual(Path(dl.value.path()).read_bytes(), b"MY OWN WORDING")
+        page.reload()
+        page.wait_for_selector("#summaryText:has-text('MY OWN WORDING')")
+        page.click("[data-summary-kind='rollup']")
+        page.wait_for_selector("#summaryText:has-text('ROLLUP - ')")
+        page.click("[data-summary-kind='narrative']")
+        self.assertEqual(page.inner_text("#summaryText"), "MY OWN WORDING", "kept per report")
+        page.click("#summaryRevertBtn")
+        self.assertIn("2. ASSESSMENT", page.inner_text("#summaryText"))
+        self.assertFalse(page.locator("#summaryEdited").is_visible())
+        page.evaluate("saveNarrative({ enemy: '', units: [], equipment: [], off: [], custom: [] })")
+
+    def test_the_welcome_screen_hides_the_page_whichever_view_was_last(self):
+        # The map's panes set their own visibility to slide; none may show through.
+        self.context.add_init_script("localStorage.setItem('salt_log_view', 'map')")
+        page = self.context.new_page()
+        page.on("pageerror", lambda exc: self.errors.append(str(exc)))
+        page.goto(self.editor + "/")
+        page.wait_for_selector("#startupModal.show")
+        page.wait_for_timeout(800)  # past the panes' own transitions
+        shown = page.evaluate(
+            """[...document.querySelectorAll('.app-wrapper *')]
+                .filter(e => getComputedStyle(e).visibility === 'visible' && e.getClientRects().length)
+                .filter(e => { for (let n = e; n; n = n.parentElement) if (getComputedStyle(n).opacity === '0') return false; return true; })
+                .map(e => e.id || e.className)"""
+        )
+        self.assertEqual(shown, [])
 
     def test_geojson_from_arcgis_in_web_mercator_is_converted(self):
         page = self.open_editor()

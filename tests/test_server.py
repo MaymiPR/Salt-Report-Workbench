@@ -58,6 +58,7 @@ def reset_state() -> None:
             "format": {},
             "overlays": [],
             "basemaps": [],
+            "narrative": {},
         }
     )
     srv.workspace_sources.clear()
@@ -304,10 +305,54 @@ class ValidatorTests(unittest.TestCase):
         many = [{**tiles, "name": f"T{i}"} for i in range(21)]
         self.assertRejects(v, {"basemaps": many}, "too many")
 
+    # --------------------------------------------------------------------------- #
+    # Rate limiting and access control
+    # --------------------------------------------------------------------------- #
+    def test_narrative_settings_are_checked(self):
+        v = srv._v_save_narrative
+        unit = {"name": "1-60 GMRB", "places": ["NAI 1"], "kinds": ["armor"]}
+        rule = {"what": "are crossing", "words": "bridge", "min": 2, "hours": 12}
+        self.assertIsNone(v({"narrative": {}}))
+        self.assertIsNone(
+            v(
+                {
+                    "narrative": {
+                        "enemy": "OPFOR",
+                        "units": [unit],
+                        "custom": [rule],
+                        "off": ["recon"],
+                    }
+                }
+            )
+        )
+        self.assertRejects(v, {"narrative": []}, "object")
+        self.assertRejects(v, {"narrative": {"enemy": "x" * 61}}, "enemy")
+        self.assertRejects(
+            v, {"narrative": {"units": [unit, {**unit, "name": " 1-60 gmrb "}]}}, "used twice"
+        )
+        self.assertRejects(v, {"narrative": {"units": [{**unit, "kinds": ["tanks"]}]}}, "kinds")
+        self.assertRejects(v, {"narrative": {"units": [{**unit, "places": "NAI 1"}]}}, "places")
+        self.assertRejects(v, {"narrative": {"equipment": [{"type": "X", "role": "boat"}]}}, "role")
+        self.assertRejects(
+            v,
+            {"narrative": {"equipment": [{"type": "X", "role": "mech", "origin": "US"}]}},
+            "origin",
+        )
+        self.assertRejects(
+            v,
+            {
+                "narrative": {
+                    "equipment": [{"type": "x", "role": "mech"}, {"type": "X ", "role": "air"}]
+                }
+            },
+            "used twice",
+        )
+        self.assertRejects(v, {"narrative": {"off": ["everything"]}}, "built-in")
+        self.assertRejects(v, {"narrative": {"custom": [{**rule, "min": 0}]}}, "min")
+        self.assertRejects(v, {"narrative": {"custom": [{**rule, "hours": True}]}}, "hours")
+        self.assertRejects(v, {"narrative": {"custom": [{**rule, "words": " "}]}}, "words")
 
-# --------------------------------------------------------------------------- #
-# Rate limiting and access control
-# --------------------------------------------------------------------------- #
+
 class RateLimitTests(unittest.TestCase):
     def setUp(self):
         reset_state()
@@ -875,6 +920,56 @@ class HttpApiTests(unittest.TestCase):
         self.post("/api/save_basemaps", {"basemaps": []})
         self.assertEqual(self.sync()["basemaps"], [])
         status, _ = self.post("/api/save_basemaps", {"basemaps": clean}, base=self.viewer_base)
+        self.assertEqual(status, 405, "viewers cannot change them")
+
+    def test_narrative_settings_sync_and_survive_a_restart(self):
+        shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        sent = {
+            "enemy": " OPFOR ",
+            "units": [
+                {
+                    "name": " 1-60 GMRB ",
+                    "places": ["NAI 1", " NAI 2 "],
+                    "kinds": ["armor", "mech"],
+                    "x": 1,
+                }
+            ],
+            "equipment": [{"type": " BTR-4 ", "role": "mech", "origin": ""}],
+            "off": ["logistics", "logistics"],
+            "custom": [
+                {
+                    "what": "are preparing a river crossing",
+                    "words": "bridge, ferry",
+                    "min": 2,
+                    "hours": 12,
+                }
+            ],
+            "y": 2,
+        }
+        self.assertEqual(self.post("/api/save_narrative", {"narrative": sent})[0], 200)
+        clean = {
+            "enemy": "OPFOR",
+            "units": [
+                {"name": "1-60 GMRB", "places": ["NAI 1", "NAI 2"], "kinds": ["armor", "mech"]}
+            ],
+            "equipment": [{"type": "BTR-4", "role": "mech", "origin": ""}],
+            "off": ["logistics"],
+            "custom": [
+                {
+                    "what": "are preparing a river crossing",
+                    "words": "bridge, ferry",
+                    "min": 2,
+                    "hours": 12,
+                }
+            ],
+        }
+        self.assertEqual(self.sync()["narrative"], clean, "trimmed, known fields only")
+        srv.flush_pending_save()
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(self.sync()["narrative"], clean)
+        status, _ = self.post("/api/save_narrative", {"narrative": clean}, base=self.viewer_base)
         self.assertEqual(status, 405, "viewers cannot change them")
 
     def test_per_workspace_overlays_from_older_backups_are_pooled(self):

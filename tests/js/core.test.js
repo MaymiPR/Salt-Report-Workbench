@@ -995,3 +995,215 @@ test('activity filter: any picked tag, Untagged for none, and nothing picked tak
     assert.equal(core.activityMatches('moving N', new Set(['Untagged'])), false);
     assert.equal(core.activityMatches('anything', new Set()), true);
 });
+
+// --- Narrative ---
+
+test('the equipment catalogue knows Russian and Chinese systems, and plain words', () => {
+    const kit = t => { const k = core.lookupEquipment(t); return k && `${k.role} ${k.origin} ${k.name}`; };
+    assert.equal(kit('T-72B3'), 'armor RU T-72');
+    assert.equal(kit('t72'), 'armor RU T-72');
+    assert.equal(kit('T-720'), null, 'a designator is matched up to its last digit');
+    assert.equal(kit('2S19 MSTA-S'), 'fires RU 2S19');
+    assert.equal(kit('2S1'), 'fires RU 2S1', 'not 2S19');
+    assert.equal(kit('MSTA-B'), 'fires RU 2A65');
+    assert.equal(kit('BM-21 GRAD'), 'fires RU BM-21');
+    assert.equal(kit('GRADER'), null, 'names match whole words');
+    assert.equal(kit('BMP-1KSh'), 'c2 RU BMP-1KSh', 'the longer name wins');
+    assert.equal(kit('BTR-82A'), 'mech RU BTR-82');
+    assert.equal(kit('ZSU-23-4'), 'ad RU ZSU-23-4');
+    assert.equal(kit('TOR-M2'), 'ad RU Tor');
+    assert.equal(kit('Tornado-G'), 'fires RU Tornado-G');
+    assert.equal(kit('Type 99A'), 'armor CN Type 99');
+    assert.equal(kit('ZBD-04A'), 'mech CN ZBD-04');
+    assert.equal(kit('PHL-16'), 'fires CN PHL-16');
+    assert.equal(kit('HQ-9B'), 'ad CN HQ-9');
+    assert.equal(kit('TANK'), 'armor  tank');
+    assert.equal(kit('FUEL TANKER'), 'logistics  truck', 'a tanker is not a tank');
+    assert.equal(kit('TRUCK'), 'logistics  truck');
+    assert.equal(kit('PAX'), 'infantry  PAX');
+    // Every entry has a known role, and Russian, Chinese, or any army.
+    const roles = new Set(['armor', 'mech', 'recon', 'fires', 'ad', 'atgm', 'engineer', 'logistics', 'c2', 'ew', 'air', 'infantry', 'light']);
+    core.EQUIPMENT_CATALOGUE.forEach(([role, origin, name]) => {
+        assert.ok(roles.has(role), `${name}: ${role}`);
+        assert.ok(['RU', 'CN', ''].includes(origin), `${name}: ${origin}`);
+    });
+});
+
+test('a count suggests a unit size, approximately', () => {
+    assert.equal(core.echelonOf('maneuver', 2), 'section');
+    assert.equal(core.echelonOf('maneuver', 3), 'platoon');
+    assert.equal(core.echelonOf('maneuver', 10), 'company');
+    assert.equal(core.echelonOf('maneuver', 31), 'battalion');
+    assert.equal(core.echelonOf('fires', 6), 'battery');
+    assert.equal(core.echelonOf('infantry', 8), 'squad');
+    assert.equal(core.echelonOf('infantry', 0), null);
+    assert.deepEqual(core.ICD203.map(([t]) => t), ['almost no chance', 'very unlikely', 'unlikely', 'roughly even chance', 'likely', 'very likely', 'almost certain']);
+});
+
+const NARRATIVE_REPS = [
+    report({ id: 'n1', displayId: 'ALPHA011', size: '2x BRDM-2', activity: 'observing', location: '38SMB4500082000', time: '2026-10-25T20:00:00Z', user: { initials: 'AB' } }),
+    report({ id: 'n2', displayId: 'ALPHA012', size: '2x T-72, 3x BMP-2', activity: 'moving N', location: '38SMB4500082000', time: '2026-10-25T22:00:00Z', user: { initials: 'CD' } }),
+    report({ id: 'n3', displayId: 'ALPHA013', size: '6x PAX', activity: 'digging in', location: '38SMB4600082000', time: '2026-10-25T23:00:00Z', user: { initials: 'AB' } }),
+    report({ id: 'n4', displayId: 'ALPHA014', size: '1x MTU-20', activity: 'emplacing obstacles', location: '38SMB4600083000', time: '2026-10-26T01:00:00Z', user: { initials: 'CD' } }),
+    report({ id: 'n5', displayId: 'ALPHA015', size: '1x XYZ-9', activity: 'stationary', location: 'vic hill 220', time: '2026-10-26T02:00:00Z', user: { initials: 'AB' } }),
+];
+const narrative = (reps = NARRATIVE_REPS, extra = {}) => core.summaryReport('narrative', reps, OVERLAYS, { ...SUMMARY_OPTS, ...extra }).split('\n');
+
+test('the narrative says what was observed, apart from what is assessed', () => {
+    const text = narrative();
+    assert.equal(text[0], 'NARRATIVE - ALPHA (Patrol)');
+    const obs = text.indexOf('1. OBSERVED'), ass = text.indexOf('2. ASSESSMENT'), gaps = text.indexOf('3. GAPS');
+    assert.ok(obs > 0 && ass > obs && gaps > ass, text.join('\n'));
+    const observed = text.slice(obs, ass).join(' ').replace(/\s+/g, ' ');
+    assert.ok(observed.includes('5 reports from 2 observers, 252000Z to 260200Z (previous 12 hrs: 0); 4 in an NAI or OBJ, most in NAI 1 (4).'), observed);
+    assert.ok(observed.includes('Equipment reported: armor (2x T-72); mechanized infantry (3x BMP-2); reconnaissance (2x BRDM-2); engineers (1x MTU-20); dismounted personnel (6x PAX).'), observed);
+    assert.ok(observed.includes('armor and mechanized approximately platoon size (2x T-72, 3x BMP-2; ALPHA012 252200Z, NAI 1)'), observed);
+    assert.ok(observed.includes('dismounted approximately squad size (6x PAX; ALPHA013 252300Z, NAI 1)'), observed);
+    assert.ok(!/(likely|unlikely|roughly even|almost certain|chance)/i.test(observed), 'no judgment in OBSERVED');
+    assert.ok(observed.includes('Identified equipment is of Russian design (8 vehicles and systems), so the assessment uses Russian doctrine.'), observed);
+});
+
+test('each judgment has an ICD 203 term, the reports behind it, and its confidence apart', () => {
+    const text = narrative();
+    const lines = text.slice(text.indexOf('2. ASSESSMENT'), text.indexOf('3. GAPS'));
+    const assessed = lines.join(' ').replace(/\s+/g, ' ');   // as read, across the wrapped lines
+    // Recon then armor in NAI 1, with engineers there too.
+    assert.ok(assessed.includes('a. LIKELY (55-80%) that enemy forces are scouting a route through NAI 1 for armor or mechanized forces.'), assessed);
+    assert.ok(assessed.includes('reconnaissance (ALPHA011 252000Z); armor or mechanized forces within 6 hrs after it (ALPHA012 252200Z)'), assessed);
+    // Digging in, obstacles and an engineer vehicle in NAI 1.
+    assert.ok(assessed.includes('LIKELY (55-80%) that enemy forces are preparing a defense in NAI 1.'), assessed);
+    assert.ok(assessed.includes('digging in or fortifying (ALPHA013 252300Z); obstacles or mines (ALPHA014 260100Z); engineer equipment (ALPHA014 260100Z)'), assessed);
+    assert.ok(assessed.includes('Watch for: antitank weapons in position; combat vehicles halted in position.'), assessed);
+    assert.ok(assessed.includes('Doctrine (Russian equipment in these reports): Russian forces lead with reconnaissance (razvedka)'), assessed);
+    // Confidence never shares a sentence (or a line) with the likelihood.
+    lines.filter(l => /Confidence:/.test(l)).forEach(l => assert.ok(/^ {6}Confidence: (high|moderate|low) \(/.test(l), l));
+    assert.ok(assessed.includes('Confidence: moderate (3 reports from 2 observers).'), assessed);
+    assert.ok(assessed.includes('Confidence: moderate (2 reports from 2 observers).'), assessed);
+});
+
+test('the gaps: reports without a grid, and types not in the catalogue', () => {
+    const text = narrative();
+    const gaps = text.slice(text.indexOf('3. GAPS')).join('\n');
+    assert.ok(gaps.includes('   1 report without a grid: ALPHA015 260200Z.'), gaps);
+    assert.ok(gaps.includes('   Not in the equipment catalogue: XYZ-9.'), gaps);
+    assert.ok(gaps.replace(/\s+/g, ' ').includes('Likelihood terms follow ICD 203: almost no chance 1-5%'), gaps);
+});
+
+test('with no reports, the narrative says so and assesses nothing', () => {
+    const text = narrative([]);
+    assert.ok(text.includes('   No reports in this period (previous 12 hrs: 0).'), text.join('\n'));
+    assert.ok(text.includes('   None: no reports to assess.'));
+});
+
+test('the narrative is the same for the same reports, in any order', () => {
+    assert.deepEqual(narrative(), narrative([...NARRATIVE_REPS].reverse()));
+});
+
+test('the enemy can be called by another name, and units named from where they operate', () => {
+    const settings = {
+        enemy: 'OPFOR',
+        units: [
+            { name: '1-60 GMRB', places: ['nai 1'], kinds: ['armor', 'mech', 'infantry'] },
+            { name: '60th Engineer Co', places: [], kinds: ['engineer'] },
+        ],
+    };
+    const text = narrative(NARRATIVE_REPS, { narrative: settings }).join(' ').replace(/\s+/g, ' ');
+    // Recon then armor in NAI 1: armor fits 1-60 GMRB; the engineers are there too.
+    assert.ok(text.includes('LIKELY (55-80%) that elements of 1-60 GMRB or 60th Engineer Co are scouting a route through NAI 1'), text);
+    assert.ok(text.includes('Unit: from the unit list, 1-60 GMRB (nai 1; armor, mechanized infantry, dismounted personnel); 60th Engineer Co (anywhere; engineers).'), text);
+    assert.ok(text.includes('NAI 1 (area of 1-60 GMRB): 4 reports'), 'whose area, in Observed');
+    assert.ok(text.includes('Units are named from the unit list, not from the reports.'));
+    // No unit fits: the enemy's name.
+    const other = narrative(NARRATIVE_REPS, { narrative: { enemy: 'OPFOR', units: [{ name: 'X', places: ['NAI 9'], kinds: [] }] } }).join(' ');
+    assert.ok(other.includes('that OPFOR are preparing a defense in NAI 1.'), other);
+});
+
+test("the team's own equipment, rules switched off, and rules of their own", () => {
+    const team = core.teamEquipment([{ type: 'XYZ-9', role: 'ad', origin: '' }, { type: 'T-72', role: 'mech', origin: 'RU' }]);
+    assert.equal(core.lookupEquipment('XYZ-9', team).role, 'ad', 'added');
+    assert.equal(core.lookupEquipment('T-72B3', team).role, 'mech', 'put right');
+    assert.equal(core.lookupEquipment('T-72B3').role, 'armor', 'the built-in one, without');
+    const reps = [...NARRATIVE_REPS,
+        report({ id: 'n6', displayId: 'ALPHA016', size: '1x PMP', activity: 'bridging the river', location: '38SMB4500082000', time: '2026-10-26T03:00:00Z' }),
+        report({ id: 'n7', displayId: 'ALPHA017', size: '2x trucks', activity: 'at the ferry site', location: '38SMB4500082000', time: '2026-10-26T04:00:00Z' })];
+    const text = narrative(reps, { narrative: {
+        equipment: [{ type: 'XYZ-9', role: 'ad', origin: '' }],
+        off: ['recon'],
+        custom: [{ what: 'are preparing a river crossing', words: 'bridging, ferry', min: 2, hours: 12 }],
+    } }).join(' ').replace(/\s+/g, ' ');
+    assert.ok(!text.includes('Not in the equipment catalogue'), text);
+    assert.ok(text.includes('air defense (1x XYZ-9)'), text);
+    assert.ok(text.includes('logistics (2x trucks)'), 'a plain word: lower case, plural');
+    assert.ok(!text.includes('scouting a route'), 'switched off');
+    assert.ok(text.includes('ROUGHLY EVEN CHANCE (45-55%) that enemy forces are preparing a river crossing in NAI 1.'), text);
+    assert.ok(text.includes('Basis: reports of bridging, ferry within 12 hrs (ALPHA016 260300Z, ALPHA017 260400Z).'), text);
+    assert.equal(core.NARRATIVE_RULES.length, 25);
+    core.NARRATIVE_RULES.forEach(([id]) => assert.ok(core.DOCTRINE[id] && core.DOCTRINE[id].RU && core.DOCTRINE[id].CN, `${id}: doctrine for both`));
+});
+
+test('backups carry the narrative settings, when there are any', () => {
+    const n = { enemy: 'OPFOR', units: [{ name: '1-60 GMRB', places: ['NAI 1'], kinds: [] }] };
+    assert.deepEqual(core.parseBackup(core.backupText('ALPHA', [report()], 'Patrol', {}, {}, NOW, [], n)).data.narrative, n);
+    assert.deepEqual(core.parseBackup(core.allWorkspacesBackupText({ ALPHA: [report()] }, 'ALPHA', 'Patrol', {}, {}, NOW, [], n)).data.narrative, n);
+    assert.equal('narrative' in core.parseBackup(core.backupText('ALPHA', [report()], 'Patrol', {}, {}, NOW, [], {})).data, false);
+});
+
+test('the narrative wraps to the width asked for, 100 columns unless told', () => {
+    const wide = narrative(), narrow = narrative(NARRATIVE_REPS, { width: 60 });
+    assert.ok(wide.some(l => l.length > 60) && wide.every(l => l.length <= 100));
+    assert.ok(narrow.every(l => l.length <= 60), narrow.find(l => l.length > 60));
+    assert.equal(narrow.join(' ').replace(/\s+/g, ' '), wide.join(' ').replace(/\s+/g, ' '), 'the same words');
+});
+
+test('the catalogue covers variants, and no name means two things', () => {
+    const kit = t => { const k = core.lookupEquipment(t); return k && `${k.role} ${k.origin} ${k.name}`; };
+    const cases = {
+        'T-90M Proryv': 'armor RU T-90', 'BMP-1AM Basurmanin': 'mech RU BMP-1', 'Msta-SM2': 'fires RU 2S33', 'Pantsir-S1': 'ad RU Pantsir',
+        'Kornet-EM': 'atgm RU Kornet', 'Krasukha-4': 'ew RU Krasukha', 'Zala Lancet': 'fires RU Lancet', 'Kub-BLA': 'fires RU Kub-BLA',
+        Kub: 'ad RU Kub', 'Strela-10': 'ad RU Strela-10', 'Strela-1': 'ad RU Strela-1', 'Sprut-SD': 'armor RU 2S25', 'Sprut-B': 'atgm RU 2A45',
+        'T-15 Armata': 'mech RU T-15', Hind: 'air RU Mi-24', 'BMP-2K': 'c2 RU BMP-2K', 'R-330Zh': 'ew RU Zhitel',
+        'Type 96B': 'armor CN Type 96', 'Type 59-1': 'fires CN Type 59-1', 'Type 59-II': 'armor CN Type 59', 'Red Arrow 8': 'atgm CN HJ-8',
+        'SH-15': 'fires CN PCL-181', 'HQ-17A': 'ad CN HQ-17', 'Dongfeng Mengshi': 'light CN Mengshi',
+    };
+    Object.entries(cases).forEach(([t, want]) => assert.equal(kit(t), want, t));
+    ['Type 89', 'AR-15', 'HJ-80'].forEach(t => assert.equal(kit(t), null, `${t}: ambiguous or not one of them`));
+    const norm = s => String(s).toUpperCase().replace(/[^A-Z0-9]+/g, '');
+    const seen = new Map();
+    core.EQUIPMENT_CATALOGUE.forEach(([r, o, name, ...more]) => [name, ...more].forEach(k => {
+        const v = `${r} ${o} ${name}`;
+        assert.ok(!seen.has(norm(k)) || seen.get(norm(k)) === v, `${k}: ${seen.get(norm(k))} and ${v}`);
+        seen.set(norm(k), v);
+    }));
+    assert.ok(core.EQUIPMENT_CATALOGUE.length > 350);
+});
+
+// A small set of reports for one rule: the same place (NAI 1), an hour apart.
+const at1 = (rows) => rows.map(([size, activity], i) => report({ id: `d${i}`, displayId: `D${i}`, size, activity, location: '38SMB4500082000',
+    time: new Date(Date.parse('2026-10-25T20:00:00Z') + i * 1800000).toISOString(), user: { initials: i % 2 ? 'AB' : 'CD' } }));
+const said = (reps) => core.summaryReport('narrative', reps, OVERLAYS, SUMMARY_OPTS).replace(/\s+/g, ' ');
+
+test('the doctrine follows the design of the equipment reported', () => {
+    const chinese = said(at1([['2x ZBL-08', 'observing'], ['3x Type 99A, 4x ZBD-04', 'moving N'], ['1x PCL-181', 'moving N']]));
+    assert.ok(chinese.includes('Identified equipment is of Chinese design (10 vehicles and systems), so the assessment uses PLA doctrine.'), chinese);
+    assert.ok(chinese.includes('possibly a vanguard ahead of the main body'), 'PLA terms');
+    assert.ok(chinese.includes('Doctrine (Chinese equipment in these reports): PLA'), chinese);
+    const russian = said(at1([['2x BRDM-2', 'observing'], ['3x T-90M, 4x BMP-3', 'moving N'], ['1x 2S19', 'moving N']]));
+    assert.ok(russian.includes('possibly a forward detachment or advance guard'), 'Russian terms');
+    const mixed = said(at1([['3x T-72', 'moving N'], ['1x PCL-181', 'moving N'], ['2x Type 99', 'moving N'], ['1x 2S1', 'moving N']]));
+    assert.ok(mixed.includes('Equipment by design: Russian 4, Chinese 3; each judgment uses the doctrine of the equipment in its reports.'), mixed);
+    const neither = said(at1([['2x trucks', 'halted'], ['3x trucks', 'refueling']]));
+    assert.ok(!neither.includes('Doctrine ('), 'no doctrine without Russian or Chinese equipment');
+});
+
+test('the doctrine rules: crossings, breaches, UAVs spotting, EW, deep strikes, command posts', () => {
+    const t = said(at1([
+        ['1x PMP', 'emplacing bridge at the wadi'], ['2x T-72', 'halted, waiting'], ['1x smoke generator truck', 'laying smoke'],
+        ['1x UR-77', 'breaching the minefield'], ['1x Orlan-10 UAV', 'overhead'], ['2x 2S19', 'firing, shelling OBJ'],
+        ['1x Borisoglebsk-2', 'jamming'], ['1x Iskander', 'moving'], ['1x R-149', 'halted, antennas up'], ['1x Pantsir-S1', 'halted'],
+    ]));
+    for (const want of [
+        'are preparing to cross a water obstacle or gap in NAI 1', 'are preparing to breach obstacles in NAI 1',
+        'with UAVs over NAI 1 (a reconnaissance-fire complex)', 'are jamming communications, GPS and drones',
+        'deep strikes with long-range rockets or missiles', 'have a command post in NAI 1',
+    ]) assert.ok(t.includes(want), want);
+});

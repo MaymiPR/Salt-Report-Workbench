@@ -331,6 +331,10 @@ const currentOverlays = () => sharedOverlays;
 // overlays; each browser picks which one it shows.
 let sharedBasemaps = viewerAtLoad ? [] : (Array.isArray(readStored('salt_basemaps', [])) ? readStored('salt_basemaps', []) : []);
 const storeBasemaps = () => { if (!isReadOnly && !viewerAtLoad) writeStored('salt_basemaps', JSON.stringify(sharedBasemaps)); };
+// The narrative's settings (app/48-narrative.js), shared the same way.
+const asNarrative = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+let sharedNarrative = viewerAtLoad ? {} : asNarrative(readStored('salt_narrative', {}));
+const storeNarrative = () => { if (!isReadOnly && !viewerAtLoad) writeStored('salt_narrative', JSON.stringify(sharedNarrative)); };
 // What each Location box says against the overlays (grids, NAI/OBJ, nearest
 // PL, checks). Cached by text; cleared whenever the overlays change.
 const locationCache = new Map();

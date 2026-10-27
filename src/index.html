@@ -391,7 +391,8 @@
                         <li><strong>Manage basemaps&hellip; &rarr; Add WMS</strong> (editors): paste the link you use in other tools (for ArcGIS, the address ending in <code>WMSServer</code>) and press <strong>Find layers</strong>. The service's layers are listed (with a filter when there are many); tick the ones you want and <strong>Add</strong> puts them in as one basemap, named after the service (rename it in the box first if you like). It asks the service in its own terms: its WMS version, its image format, and Web Mercator when it offers it, otherwise latitude / longitude, stretched to fit. A layer it can't show (only in some other projection) says so.</li>
                         <li>Many services won't let a web page read their layer list; then the sync server reads it for you (the list says <em>read by the server</em>). If neither can reach the service, the message says so, and you can still type layer names to try.</li>
                         <li><strong>Add tiles</strong>: a name and a tile address (WMTS, ArcGIS, or XYZ: <code>{z}</code>, <code>{x}</code>, <code>{y}</code>, or <code>{TileMatrix}</code>, <code>{TileRow}</code>, <code>{TileCol}</code>, in Web Mercator).</li>
-                        <li><strong>Check</strong> beside a service asks it for a little of the map and says what came back: a map image, or the service's own error (a wrong layer name, a projection it doesn't offer, a login it wants). The &times; removes a service. The list is shared with everyone.</li>
+                        <li><strong>Check</strong> beside a service asks it for a little of the map and says what came back: a map image (the message goes after a few seconds), or the service's own error (a wrong layer name, a projection it doesn't offer, a login it wants), which stays until you check again or close the panel. The list is shared with everyone.</li>
+                        <li><strong>Layers</strong> beside a WMS opens it again: its layers are looked up afresh with the ones in use ticked (one the service no longer lists says <em>not listed</em>); tick or untick, rename it if you like, and <strong>Save</strong>. <strong>Edit</strong> beside a tile service changes its address or name. <strong>Remove</strong>, at the bottom of either, takes the service out for everyone; it asks once first.</li>
                         <li>The picker behind the layers button switches between them, or to <em>No basemap</em>; each person's pick is kept in their browser. Only the area of the map is requested, never the whole world. Each browser fetches it straight from the service, so a computer that can't reach a service shows the map without it, and says so.</li>
                         <li>Viewers have the map too, with everything but Edit and Manage basemaps&hellip; (the same list as the editors; they can't add to it).</li>
                     </ul>
@@ -421,8 +422,25 @@
                         <li><strong>Most Trafficked</strong>: the busiest NAIs and OBJs, phase lines, and 1 km grid squares, each with its count, peak hour, and most common activity, then the busiest hours. This is the written heat map.</li>
                         <li><strong>Place Activity</strong>: pick an NAI, OBJ, or phase line, and get every report there in time order, with a count, its activity, and its busiest hour.</li>
                         <li><strong>Shift Brief</strong>: the short handover. Report count against the previous shift, the most active places, activity, the last report, open items (checks and unassessed BDA), and the last five reports.</li>
+                        <li><strong>Narrative</strong>: the period in sentences, in three parts kept apart.
+                            <ul>
+                                <li><strong>Observed</strong>: what the reports say. How many and from how many observers; the equipment reported, by kind (armor, mechanized infantry, reconnaissance, artillery, air defense, engineers, logistics, and so on); whose design the identified equipment is (Russian or Chinese), and so whose doctrine the assessment uses; the largest single sighting of each kind with the unit size it suggests (always &ldquo;approximately&rdquo;: a section, platoon, company, battery, or battalion); where things headed; any firing; and each busy place in a sentence.</li>
+                                <li><strong>Assessment</strong>: what the reports suggest, from 25 fixed rules drawn from Russian and PLA tactics. <em>Maneuver</em>: preparing an offensive, an advance on several axes, a forward detachment or advance guard, reconnaissance ahead of armor, an assembly area, a second echelon or reserve, probing or attacking, withdrawal, infiltration by small groups (DRG), an air assault, an amphibious landing. <em>Defense</em>: preparing a defense, antitank positions, camouflage and deception (maskirovka). <em>Fires</em>: an artillery preparation or fire strike, UAVs spotting for artillery (a reconnaissance-fire complex), long-range strikes, loitering munitions and drones, attack aviation. <em>Support</em>: a river or gap crossing, breaching, a command post, air defense over a key site, electronic warfare, a logistics point. Rules read the equipment as well as the words: a PMP or TMM is bridging, a UR-77 breaching, an Orlan-10 a UAV, an R-149 a command vehicle, Iskander or PHL-16 long-range fires.
+                                    <br>Each judgment uses the doctrine of the army whose equipment is in its reports (else the period's): a <em>Doctrine</em> line says what that army typically does, and the judgment uses its terms where they differ (a Russian forward detachment, a PLA vanguard; DRG or special-operations teams; a reconnaissance-fire complex or reconnaissance-strike). The ten strongest are shown, and how many more there were. Each judgment says how likely it is in the intelligence community's terms (ICD 203: <em>almost no chance</em>, <em>very unlikely</em>, <em>unlikely</em>, <em>roughly even chance</em>, <em>likely</em>, <em>very likely</em>, <em>almost certain</em>), lists the reports behind it, gives its confidence (high, moderate, or low, from how many reports and observers support it) in a sentence of its own, and what to watch for that would make it firmer. Rules never go past <em>very likely</em>.</li>
+                                <li><strong>Gaps</strong>: reports without a grid, equipment not in the catalogue, and places gone quiet for 6 hours or more.</li>
+                            </ul>
+                            The equipment catalogue starts with Russian and Chinese systems (T-72, BMP-2, 2S19, ZSU-23-4, Type 99, ZBD-04, PHL-16, HQ-9, and more) and plain words (tank, truck, PAX). A type it doesn't know is listed under Gaps.</li>
+                        <li><strong>Narrative settings</strong>, in a column of their own to the right of the Narrative, the full height of the view; the report updates as you change them. Editors change them; everyone shares them, and they are kept in the backup files:
+                            <ul>
+                                <li><strong>Call them</strong>: what the narrative calls them when no unit fits, e.g. <em>OPFOR</em>. Empty: <em>enemy forces</em>.</li>
+                                <li><strong>Units</strong>: each unit's name; <em>Where it operates</em>, a dropdown of the NAIs and OBJs (pick several; none: anywhere), with <em>Other</em> for places not in it, like a 10 km square <code>11S NV 31</code>, typed in the box it brings up; and <em>What it has</em>, a dropdown of kinds of equipment (none: any). A judgment about a place in its area, with that kind of equipment in its reports, is said of &ldquo;elements of&rdquo; the unit (two or three fitting: &ldquo;elements of A or B&rdquo;), with a <em>Unit:</em> line saying it came from the unit list. Only in Assessment; Observed just notes whose area a place is.</li>
+                                <li><strong>Equipment</strong>: types in your reports that the catalogue doesn't know come first (a dot on the tab says there are some): tap one, pick what it is, Save. <em>Look up a type</em> says what the catalogue makes of any name; add your own, or put a built-in one right for your team (yours win).</li>
+                                <li><strong>Rules</strong>: switch any built-in rule on or off, and add your own: what it judges (&ldquo;are preparing a river crossing&rdquo;), the words to look for (&ldquo;bridge, ferry, PMP&rdquo;), and how many reports within how many hours in one place. Yours start at <em>roughly even chance</em>; one more report makes them <em>likely</em>, three more <em>very likely</em>.</li>
+                                <li>Tap a unit, entry or rule to change it; <strong>Remove</strong> asks once first.</li>
+                            </ul></li>
                         <li><strong>Window</strong>: the last 6, 12 (the default), or 24 hours, 7 days, All, or your own From / To. With both ends set, the same length of time just before it is the &ldquo;previous&rdquo; period.</li>
-                        <li><strong>Copy</strong> puts the text on the clipboard; <strong>Save .txt</strong> downloads it; <strong>Print</strong> prints it with its charts (Rollup and Most Trafficked: places and hours; Place Activity: that place's hours and activity), or saves a PDF through the print dialog.</li>
+                        <li><strong>Edit text</strong> turns the report into a box you can type in (any report, not just the Narrative); <strong>Done</strong> keeps your wording, which then stops following new reports until <strong>Revert</strong>. Copy, Save .txt and Print use your wording. Edits are kept in this browser, one per workspace and kind of report, through reloads.</li>
+                        <li><strong>Copy</strong> puts the text on the clipboard; <strong>Save .txt</strong> downloads it; <strong>Print</strong> prints it with its charts (Rollup and Most Trafficked: places and hours; Place Activity: that place's hours and activity; Narrative: places and activity), or saves a PDF through the print dialog.</li>
                         <li>The text comes from fixed templates and counting rules, not AI: the same reports always give the same words, and nothing is made up. Times follow your Zulu / Local mode, as DTGs.</li>
                     </ul>
                 </section>
@@ -985,51 +1003,66 @@
                                 <div class="export-panel-title"><span>Summary Reports</span></div>
                             </div>
                         </div>
-                        <div class="summary-kinds" role="group" aria-label="Report">
-                            <button type="button" class="ws-tab" data-summary-kind="rollup">Rollup</button>
-                            <button type="button" class="ws-tab" data-summary-kind="trafficked">Most Trafficked</button>
-                            <button type="button" class="ws-tab" data-summary-kind="place">Place Activity</button>
-                            <button type="button" class="ws-tab" data-summary-kind="brief">Shift Brief</button>
-                        </div>
-                        <div class="stats-filters">
-                            <div class="filter-presets" aria-label="Time window">
-                                <span class="filter-presets-label">Last</span>
-                                <button type="button" class="filter-preset-btn" data-summary-hours="6">6h</button>
-                                <button type="button" class="filter-preset-btn" data-summary-hours="12">12h</button>
-                                <button type="button" class="filter-preset-btn" data-summary-hours="24">24h</button>
-                                <button type="button" class="filter-preset-btn" data-summary-hours="168">7d</button>
-                                <button type="button" class="filter-preset-btn" data-summary-hours="0">All</button>
+                        <!-- The report's column and, on the Narrative, its settings beside it
+                             (app/48-narrative.js), the full height of the view. -->
+                        <div id="summaryLayout" class="summary-layout">
+                        <div class="summary-col">
+                            <div class="summary-kinds" role="group" aria-label="Report">
+                                <button type="button" class="ws-tab" data-summary-kind="rollup">Rollup</button>
+                                <button type="button" class="ws-tab" data-summary-kind="trafficked">Most Trafficked</button>
+                                <button type="button" class="ws-tab" data-summary-kind="place">Place Activity</button>
+                                <button type="button" class="ws-tab" data-summary-kind="brief">Shift Brief</button>
+                                <button type="button" class="ws-tab" data-summary-kind="narrative">Narrative</button>
                             </div>
-                            <div id="summaryPlaceRow" class="stats-range" hidden>
-                                <label for="summaryPlace">Place</label>
-                                <select id="summaryPlace"></select>
-                            </div>
-                        </div>
-                        <div class="filter-grid range-grid">
-                                <div class="filter-field">
-                                    <label>From <span class="filter-mode range-mode">(Zulu)</span></label>
-                                    <div class="filter-pair">
-                                        <input type="date" id="summary-from-date" class="filter-date" aria-label="From date">
-                                        <input type="text" id="summary-from-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
-                                    </div>
+                            <div class="stats-filters">
+                                <div class="filter-presets" aria-label="Time window">
+                                    <span class="filter-presets-label">Last</span>
+                                    <button type="button" class="filter-preset-btn" data-summary-hours="6">6h</button>
+                                    <button type="button" class="filter-preset-btn" data-summary-hours="12">12h</button>
+                                    <button type="button" class="filter-preset-btn" data-summary-hours="24">24h</button>
+                                    <button type="button" class="filter-preset-btn" data-summary-hours="168">7d</button>
+                                    <button type="button" class="filter-preset-btn" data-summary-hours="0">All</button>
                                 </div>
-                                <div class="filter-field">
-                                    <div class="filter-field-head">
-                                        <label>To <span class="filter-mode range-mode">(Zulu)</span></label>
-                                        <button type="button" class="cancel-btn filter-clear" data-summary-hours="0">Clear</button>
-                                    </div>
-                                    <div class="filter-pair">
-                                        <input type="date" id="summary-to-date" class="filter-date" aria-label="To date">
-                                        <input type="text" id="summary-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
-                                    </div>
+                                <div id="summaryPlaceRow" class="stats-range" hidden>
+                                    <label for="summaryPlace">Place</label>
+                                    <select id="summaryPlace"></select>
                                 </div>
                             </div>
-                        <div class="summary-actions">
-                            <button type="button" id="summaryCopyBtn" class="set-btn">Copy</button>
-                            <button type="button" id="summarySaveBtn" class="set-btn">Save .txt</button>
-                            <button type="button" id="summaryPrintBtn" class="set-btn">Print</button>
+                            <div class="filter-grid range-grid">
+                                    <div class="filter-field">
+                                        <label>From <span class="filter-mode range-mode">(Zulu)</span></label>
+                                        <div class="filter-pair">
+                                            <input type="date" id="summary-from-date" class="filter-date" aria-label="From date">
+                                            <input type="text" id="summary-from-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
+                                        </div>
+                                    </div>
+                                    <div class="filter-field">
+                                        <div class="filter-field-head">
+                                            <label>To <span class="filter-mode range-mode">(Zulu)</span></label>
+                                            <button type="button" class="cancel-btn filter-clear" data-summary-hours="0">Clear</button>
+                                        </div>
+                                        <div class="filter-pair">
+                                            <input type="date" id="summary-to-date" class="filter-date" aria-label="To date">
+                                            <input type="text" id="summary-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
+                                        </div>
+                                    </div>
+                                </div>
+                            <div class="summary-actions">
+                                <button type="button" id="summaryCopyBtn" class="set-btn">Copy</button>
+                                <button type="button" id="summarySaveBtn" class="set-btn">Save .txt</button>
+                                <button type="button" id="summaryPrintBtn" class="set-btn">Print</button>
+                                <button type="button" id="summaryEditBtn" class="cancel-btn">Edit text</button>
+                                <span id="summaryEdited" class="summary-edited" hidden>Edited, not following new reports. <button type="button" id="summaryRevertBtn" class="text-btn">Revert</button></span>
+                            </div>
+                            <div id="summaryBody" class="summary-body">
+                                <div class="summary-main">
+                                    <pre id="summaryText" class="summary-text" aria-live="polite"></pre>
+                                    <textarea id="summaryEditor" class="summary-text summary-editor" spellcheck="false" aria-label="Edit the report" hidden></textarea>
+                                </div>
+                            </div>
                         </div>
-                        <pre id="summaryText" class="summary-text" aria-live="polite"></pre>
+                        <aside id="narrSettings" class="narr-panel" aria-label="Narrative settings" hidden></aside>
+                        </div>
                     </div>
 
                     <div id="csvImportPanel">
@@ -1097,6 +1130,7 @@
     <script src="app/46-map.js"></script>
     <script src="app/47-stats.js"></script>
     <script src="app/48-summary.js"></script>
+    <script src="app/48-narrative.js"></script>
     <script src="app/49-mapview.js"></script>
     <script src="app/50-sync.js"></script>
     <script src="app/60-handlers.js"></script>

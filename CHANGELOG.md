@@ -6,6 +6,83 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Narrative** summary report: the period in sentences, under *Observed*,
+  *Assessment* and *Gaps*, kept apart so fact and judgment never mix.
+  - *Observed*: report and observer counts, the equipment reported by kind,
+    the largest single sighting of each kind with the unit size it suggests
+    (approximately: section to battalion), headings, firing, and each busy
+    place.
+  - *Assessment*: 25 fixed rules drawn from Russian and PLA tactics, in four
+    groups: maneuver (offensive, several axes, forward detachment or advance
+    guard, reconnaissance ahead of armor, assembly area, second echelon or
+    reserve, probing or attacking, withdrawal, infiltration by small groups,
+    air assault, amphibious landing), defense (defense, antitank positions,
+    camouflage and deception), fires (artillery preparation or fire strike,
+    UAVs spotting for artillery, long-range strikes, loitering munitions and
+    drones, attack aviation) and support (river or gap crossing, breaching,
+    command post, air defense over a key site, EW, logistics point). They
+    read the equipment as well as the words (a PMP is bridging, a UR-77
+    breaching, an Orlan-10 a UAV). Each judgment is in ICD 203 likelihood
+    terms with the reports it rests on, its confidence (high, moderate, low)
+    in its own sentence, and what to watch for; rules never go past *very
+    likely*. The ten strongest are shown, and how many more there were.
+  - **Equipment-aware doctrine**: each judgment uses the doctrine of the army
+    whose equipment is in its reports (Russian or Chinese; else the
+    period's), with a *Doctrine* line on what that army typically does and
+    its own terms where they differ (forward detachment or vanguard, DRG or
+    special-operations teams, reconnaissance-fire complex or
+    reconnaissance-strike). *Observed* says whose design the equipment is.
+  - *Gaps*: reports without a grid, equipment not in the catalogue, and
+    places quiet for 6 hours or more.
+  - An equipment catalogue of Russian and Chinese systems (395 types, 855
+    names with their variants, every kind from tanks to EW) plus plain words
+    (tank, truck, PAX), used to name what was reported (in the reports' own
+    style: *15x T-72, 31x trucks*), to size it, and to tell whose doctrine
+    applies.
+  - **Settings**, in a panel beside the report, which updates as you change
+    them; tabs with counts, rows you tap to open, chips to pick places and
+    kinds, on/off switches for rules.
+  - **Call them**: what the narrative calls them (*OPFOR*, say) when no unit fits.
+  - **Units**: each with the NAIs and OBJs it operates in and, optionally,
+    the kinds of equipment it has; a judgment that fits is said of "elements
+    of" the unit, in Assessment only, with a line saying it came from the
+    unit list.
+  - **Equipment**: types in your reports the catalogue doesn't know come
+    first (a dot on the tab says there are some); look up any name; add your
+    own or put built-in ones right for your team.
+  - **Rules**: switch built-in rules off, and add your own (what it judges,
+    the words to look for, how many reports within how many hours).
+  - Shared with everyone through the server (`/api/save_narrative`), one set
+    for every workspace, and kept in the backup files, the ones you export by
+    hand included (importing one whose settings differ from yours asks
+    first); editors change them, viewers see them. A server too old to keep
+    them says so.
+- **Edit text** on any summary report before you copy, save or print it:
+  your wording is kept, per workspace and kind of report and through a
+  reload (and stops following new reports), until *Revert*.
+- **Change a basemap's layers**: *Layers* beside a WMS in *Manage basemaps…*
+  opens it again, its layers looked up afresh with the ones in use ticked (a
+  layer the service no longer lists stays, marked *not listed*); tick, untick
+  or rename, and *Save*. *Edit* beside a tile service changes its address or
+  name.
+
+### Changed
+
+- **Removing a basemap** is done from its details (*Remove*, which asks
+  "Remove for everyone?" first), not with an × on its row.
+- **Check's "It works"** message goes after a few seconds; a failure stays
+  until you check again or close the panel.
+
+### Fixed
+
+- **The welcome screen** hid the page behind it only when the Report Log was
+  the last view; with the map last, the map showed through.
+- **The map's time slider**: its track no longer shortens under the thumb as
+  *Now* appears, and it has a pointer, not a "not allowed" cursor, and its
+  full color (a style meant for read-only text boxes caught it).
+
 ## [2.13.0] - 2026-10-27
 
 ### Changed
