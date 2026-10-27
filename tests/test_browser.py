@@ -1508,6 +1508,14 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.evaluate("summaryCharts().map(c => c.id)"), ["nai", "hours", "tags"])
         page.click("#summaryPrintBtn")
         page.wait_for_function("() => !document.querySelector('iframe')")
+        # The narrative: what was seen, then what it suggests, then the gaps.
+        page.click("[data-summary-kind='narrative']")
+        page.wait_for_selector("#summaryText:has-text('NARRATIVE - ')")
+        text = page.inner_text("#summaryText")
+        for part in ("1. OBSERVED", "2. ASSESSMENT", "3. GAPS", "armor (T-72 x2)", "ICD 203"):
+            self.assertIn(part, text)
+        self.assertLess(text.index("1. OBSERVED"), text.index("2. ASSESSMENT"))
+        self.assertEqual(page.evaluate("summaryCharts().map(c => c.id)"), ["nai", "tags"])
 
     def test_geojson_from_arcgis_in_web_mercator_is_converted(self):
         page = self.open_editor()

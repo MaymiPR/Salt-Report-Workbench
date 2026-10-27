@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // Summary Reports panel: a written report from a preset (Rollup, Most
-// Trafficked, Place Activity, Shift Brief) over a time window, to copy, save
+// Trafficked, Place Activity, Shift Brief, Narrative) over a time window, to copy, save
 // as .txt, or print with its charts. The text comes from SaltCore's fixed
 // templates, so the same reports always give the same words.
 // One of the ordered scripts that make up the page (see src/app/); they
@@ -93,7 +93,7 @@ const summaryCharts = () => {
         hours:   { title: `Reports by hour of day (${local ? 'local' : 'Zulu'})`, kind: 'column', items: d.hours, labelEvery: 3, fmtX: ident },
         tags:    { title: 'Activity', kind: 'bar', items: d.tags },
     };
-    const pick = { rollup: ['nai', 'obj', 'hours', 'tags'], trafficked: ['nai', 'obj', 'squares', 'hours'], place: ['hours', 'tags'], brief: [] }[summaryKind];
+    const pick = { rollup: ['nai', 'obj', 'hours', 'tags'], trafficked: ['nai', 'obj', 'squares', 'hours'], place: ['hours', 'tags'], brief: [], narrative: ['nai', 'obj', 'tags'] }[summaryKind];
     const context = summaryText.split('\n')[1].replace(/^\S+:\s+/, '');
     return pick.map(id => ({ ...all[id], id, context, shown: all[id].kind === 'bar' ? fold(all[id].items) : all[id].items }))
         .filter(c => c.items.some(i => i.value > 0));

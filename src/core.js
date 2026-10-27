@@ -1782,9 +1782,10 @@ const SUMMARY_KINDS = {
     trafficked: 'MOST TRAFFICKED',
     place:      'ACTIVITY',
     brief:      'SHIFT BRIEF',
+    narrative:  'NARRATIVE',
 };
 
-// The written report of one kind ('rollup', 'trafficked', 'place', 'brief')
+// The written report of one kind ('rollup', 'trafficked', 'place', 'brief', 'narrative')
 // over the live reports between `from` and `to` (ms; null for open ends).
 // When both ends are set, the same length of time just before is the
 // "previous" period it compares with.
@@ -1861,6 +1862,8 @@ const summaryReport = (kind, reps, overlays, opts) => {
             out.push('', 'DTG      REPORT    SIZE; ACTIVITY; LOCATION');
             out.push(...(list.length ? list.map(f => reportLine(f, local)) : ['None in this period.']));
         }
+    } else if (kind === 'narrative') {
+        out.push(...narrativeLines(cur, prev, { local, hrs, end: to === null ? now.getTime() : to, places: placesTop }));
     } else if (kind === 'brief') {
         const last = cur[cur.length - 1];
         out.push(
@@ -1882,6 +1885,373 @@ const summaryPlaces = (reps, overlays) => {
     const keys = new Set([...(overlays || []).map(o => `${o.type} ${o.name}`), ...d.nai, ...d.obj, ...d.pl].map(x => x.label || x));
     const order = { NAI: 0, OBJ: 1, PL: 2 };
     return [...keys].sort((a, b) => order[a.split(' ')[0]] - order[b.split(' ')[0]] || a.localeCompare(b, undefined, { numeric: true }));
+};
+
+// --- Narrative ---
+
+// The narrative summary: what the reports say (OBSERVED), then what they
+// suggest (ASSESSMENT), from fixed rules that cite the reports behind each
+// judgment. The same reports always give the same words, nothing is put down
+// as seen that wasn't reported, and nothing leaves the page (no AI model).
+
+// What a type in the Size field is. Starter set: Russian (and Soviet-era) and
+// Chinese systems, then plain words (truck, PAX). Each entry is
+// [role, origin, name, ...other names]. A name with a digit matches the start
+// of a type (T-72 matches T-72B3 but not T-720, and the longer BMP-1KSh wins
+// over BMP-1); one without matches a whole word (GRAD, not GRADER).
+const EQUIPMENT_ROLES = [
+    ['armor', 'armor'], ['mech', 'mechanized infantry'], ['recon', 'reconnaissance'],
+    ['fires', 'artillery and rockets'], ['ad', 'air defense'], ['atgm', 'antitank'],
+    ['engineer', 'engineers'], ['logistics', 'logistics'], ['c2', 'command and control'],
+    ['ew', 'electronic warfare'], ['air', 'aviation'], ['infantry', 'dismounted personnel'],
+    ['light', 'light vehicles'],
+];
+const eqp = (role, origin, names) => names.map(n => [role, origin, ...[].concat(n)]);
+const EQUIPMENT_CATALOGUE = [
+    // Russian and Soviet-era
+    ...eqp('armor', 'RU', ['T-55', 'T-62', 'T-64', 'T-72', 'T-80', 'T-90', 'T-14', ['BMPT', 'TERMINATOR']]),
+    ...eqp('mech', 'RU', ['BMP-1', 'BMP-2', 'BMP-3', 'BMD-1', 'BMD-2', 'BMD-3', 'BMD-4', 'BTR-50', 'BTR-60', 'BTR-70', 'BTR-80',
+        'BTR-82', 'BTR-90', 'BTR-D', 'BTR-MDM', 'MT-LB']),
+    ...eqp('recon', 'RU', ['BRDM-1', 'BRDM-2', 'BRM-1K', 'BRM-3K', ['Orlan-10', 'ORLAN'], ['Zala', 'ZALA'], ['Eleron', 'ELERON'], ['Forpost', 'FORPOST']]),
+    ...eqp('fires', 'RU', [['2S1', 'GVOZDIKA'], ['2S3', 'AKATSIYA'], ['2S4', 'TYULPAN'], ['2S5', 'GIATSINT S'], ['2S7', 'PION', 'MALKA'],
+        ['2S9', 'NONA'], ['2S19', 'MSTA S'], '2S23', ['2S31', 'VENA'], ['2S34', 'KHOSTA'], ['2S35', 'KOALITSIYA'], 'D-20', 'D-30',
+        ['2A36', 'GIATSINT B'], ['2A65', 'MSTA B'], ['BM-21', 'GRAD'], ['BM-27', 'URAGAN'], ['BM-30', 'SMERCH', '9A52'],
+        ['Tornado', 'TORNADO'], ['TOS-1', 'SOLNTSEPEK', 'BURATINO'], 'TOS-2', ['2B9', 'VASILEK'], '2B11', ['2S12', 'SANI'],
+        ['2B14', 'PODNOS'], ['Iskander', 'ISKANDER', '9K720', 'SS-26'], ['Tochka', 'TOCHKA', '9K79', 'SS-21']]),
+    ...eqp('ad', 'RU', [['ZSU-23-4', 'SHILKA'], ['ZU-23-2', 'ZU-23'], ['2S6', 'TUNGUSKA', '2K22'], ['Pantsir', 'PANTSIR', '96K6', 'SA-22'],
+        ['Osa', 'OSA', '9K33', 'SA-8'], ['Strela-10', '9K35', 'SA-13'], ['Strela-1', '9K31', 'SA-9'], ['Strela-2', '9K32', 'SA-7'],
+        ['Tor', 'TOR', '9K330', '9K331', '9K332', 'SA-15'], ['Buk', 'BUK', '9K37', '9K317', 'SA-11', 'SA-17'],
+        ['S-300', 'SA-10', 'SA-12', 'SA-20'], ['S-400', 'TRIUMF', 'SA-21'], ['Igla', 'IGLA', '9K38', '9K310', 'SA-16', 'SA-18'],
+        ['Verba', 'VERBA', '9K333', 'SA-25']]),
+    ...eqp('atgm', 'RU', [['Konkurs', 'KONKURS', '9M113', '9P148', 'AT-5'], ['Kornet', 'KORNET', '9M133', 'AT-14'],
+        ['Shturm', 'SHTURM', '9P149', 'AT-6'], ['Khrizantema', 'KHRIZANTEMA', '9P157', 'AT-15'], ['Metis', 'METIS', '9K115', 'AT-7'],
+        ['Fagot', 'FAGOT', '9K111', 'AT-4']]),
+    ...eqp('engineer', 'RU', ['MTU-20', 'MTU-72', 'IMR-2', 'IMR-3', 'BAT-2', ['UR-77', 'METEORIT'], 'GMZ-3', 'PMP', 'PP-91', 'TMM',
+        'PTS-2', 'PTS-3', 'PTS-4', 'MDK-3', 'BTM-3', 'PZM-2', 'UMZ']),
+    ...eqp('logistics', 'RU', [['Ural', 'URAL'], ['KamAZ', 'KAMAZ'], 'GAZ-66', ['ZIL-131', 'ZIL'], 'ATZ', ['BREM', 'BREM']]),
+    ...eqp('c2', 'RU', ['R-149', 'BMP-1KSh', 'R-145', 'R-142']),
+    ...eqp('ew', 'RU', [['Krasukha', 'KRASUKHA'], 'Borisoglebsk-2', ['Leer-3', 'LEER'], ['Zhitel', 'ZHITEL', 'R-330ZH'], 'Pole-21', 'RB-341V']),
+    ...eqp('air', 'RU', ['Mi-8', 'Mi-17', 'Mi-24', 'Mi-35', 'Mi-28', 'Ka-50', 'Ka-52', 'Su-25', 'Su-34']),
+    ...eqp('light', 'RU', [['UAZ-469', 'UAZ'], ['Tigr', 'TIGR', 'GAZ-2330'], ['Typhoon', 'TYPHOON', 'K-63968']]),
+    // Chinese
+    ...eqp('armor', 'CN', ['Type 59', 'Type 69', 'Type 79', 'Type 88', ['Type 96', 'ZTZ-96'], ['Type 99', 'ZTZ-99'], ['Type 15', 'ZTQ-15'], 'ZTL-11']),
+    ...eqp('mech', 'CN', [['ZBD-04', 'Type 04'], ['ZBD-86', 'Type 86'], 'ZBD-03', 'ZBD-05', ['ZSL-92', 'Type 92'], ['ZBL-08', 'Type 08', 'VN-1'],
+        'ZSD-89', 'ZSD-63']),
+    ...eqp('recon', 'CN', ['ASN-209', 'BZK-005']),
+    ...eqp('fires', 'CN', ['PLZ-05', 'PLZ-07', 'PLZ-89', 'PCL-09', 'PCL-161', 'PCL-171', 'PCL-181', 'PLL-05', 'PLL-09', 'PHL-03',
+        ['PHL-16', 'PCH-191'], 'PHL-11', 'PHZ-11', 'PHZ-89', 'PP-87', 'PP-89']),
+    ...eqp('ad', 'CN', ['PGZ-04', 'PGZ-07', 'PGZ-09', 'PGL-625', ['HQ-7', 'FM-90'], 'HQ-9', 'HQ-16', 'HQ-17', 'HQ-22', 'QW-2', 'FN-6']),
+    ...eqp('atgm', 'CN', ['HJ-8', 'HJ-9', ['HJ-10', 'AFT-10'], 'HJ-12', 'HJ-73']),
+    ...eqp('engineer', 'CN', ['Type 84']),
+    ...eqp('logistics', 'CN', [['Shaanxi', 'SHAANXI', 'SX2150', 'SX2190']]),
+    ...eqp('air', 'CN', ['Z-8', 'Z-9', ['Z-10', 'WZ-10'], ['Z-19', 'WZ-19'], 'Z-20']),
+    ...eqp('light', 'CN', [['Mengshi', 'MENGSHI', 'EQ2050']]),
+    // Plain words, any army
+    ...eqp('armor', '', [['tank', 'TANK', 'MBT']]),
+    ...eqp('mech', '', [['IFV', 'IFV', 'APC', 'BMP', 'BTR', 'ARMORED VEHICLE', 'ARMOURED VEHICLE']]),
+    ...eqp('recon', '', [['recon', 'RECON', 'SCOUT', 'BRDM', 'UAV', 'UAS', 'DRONE', 'QUADCOPTER']]),
+    ...eqp('fires', '', [['artillery', 'ARTILLERY', 'ARTY', 'HOWITZER', 'SPG', 'SP GUN', 'MORTAR', 'MLRS', 'MRL', 'ROCKET LAUNCHER']]),
+    ...eqp('ad', '', [['air defense', 'AIR DEFENSE', 'AIR DEFENCE', 'ADA', 'SAM', 'AAA', 'MANPADS']]),
+    ...eqp('atgm', '', [['ATGM', 'ATGM', 'AT TEAM']]),
+    ...eqp('engineer', '', [['engineer', 'ENGINEER', 'BULLDOZER', 'DOZER', 'EXCAVATOR', 'BACKHOE', 'BRIDGE', 'BRIDGE LAYER', 'AVLB',
+        'MINELAYER', 'MINE PLOW']]),
+    ...eqp('logistics', '', [['truck', 'TRUCK', 'LORRY', 'FUEL', 'TANKER', 'POL', 'CARGO', 'AMMO', 'WATER', 'SUPPLY', 'WRECKER', 'TRAILER']]),
+    ...eqp('c2', '', [['command post', 'COMMAND POST', 'CP', 'HQ', 'C2', 'ANTENNA']]),
+    ...eqp('ew', '', [['jammer', 'JAMMER', 'EW']]),
+    ...eqp('air', '', [['helicopter', 'HELICOPTER', 'HELO', 'HIND', 'HIP', 'HAVOC', 'HOKUM', 'AIRCRAFT', 'JET']]),
+    ...eqp('infantry', '', [['PAX', 'PAX', 'PERSONNEL', 'PERSON', 'PEOPLE', 'TROOP', 'SOLDIER', 'INFANTRY', 'DISMOUNT', 'MAN', 'MEN',
+        'FIGHTER', 'SQUAD', 'TEAM', 'INDIVIDUAL']]),
+    ...eqp('light', '', [['light vehicle', 'LIGHT VEHICLE', 'CAR', 'JEEP', 'PICKUP', 'SUV', 'TECHNICAL', 'MOTORCYCLE', 'ATV', 'UTV', 'VAN', 'SEDAN']]),
+];
+const normType = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+// Longest names first, so the most specific one wins.
+let equipmentIndex = null;
+const equipmentKeys = () => equipmentIndex || (equipmentIndex = EQUIPMENT_CATALOGUE.flatMap(([role, origin, name, ...more]) =>
+    [...new Set([name, ...more])].map(k => {
+        const words = normType(k), compact = words.replace(/ /g, '');
+        const test = /\d/.test(compact)
+            ? (w, c) => c.startsWith(compact) && !/\d/.test(c[compact.length] || '')
+            : (w) => ` ${w} `.includes(` ${words} `);
+        return { role, origin, name, len: compact.length, test };
+    })).sort((a, b) => b.len - a.len));
+const equipmentSeen = new Map();
+// { role, origin, name } for a type (T-72B3, 2S19 MSTA-S, trucks), or null.
+const lookupEquipment = (type) => {
+    const w = normType(type);
+    if (!equipmentSeen.has(w)) {
+        const hit = equipmentKeys().find(k => k.test(w, w.replace(/ /g, '')));
+        equipmentSeen.set(w, hit ? { role: hit.role, origin: hit.origin, name: hit.name } : null);
+    }
+    return equipmentSeen.get(w);
+};
+
+// Roughly what size of unit a count of one kind of system suggests, in US
+// terms as an approximation of Russian and Chinese organization (a tank or
+// BMP platoon is 3-4 vehicles, a company 10-14, a battalion 30-45; a gun
+// battery 6-8; a squad 7-10). Always "approximately": strengths vary, and
+// one report rarely sees a whole unit.
+const ECHELONS = {
+    maneuver: [[1, 'section'], [3, 'platoon'], [6, 'company (-)'], [10, 'company'], [16, 'company (+)'], [26, 'battalion'], [46, 'battalion (+)']],
+    fires:    [[1, 'section'], [2, 'platoon'], [4, 'battery'], [9, 'battery (+)'], [15, 'battalion'], [25, 'battalion (+)']],
+    ad:       [[1, 'section'], [2, 'platoon'], [5, 'battery'], [9, 'battalion']],
+    infantry: [[1, 'team'], [5, 'squad'], [13, 'platoon'], [41, 'company'], [151, 'battalion']],
+};
+const ECHELON_KIND = { armor: 'maneuver', mech: 'maneuver', recon: 'maneuver', fires: 'fires', ad: 'ad', infantry: 'infantry' };
+const ECHELON_LABEL = { maneuver: 'armor and mechanized', fires: 'artillery', ad: 'air defense', infantry: 'dismounted' };
+const echelonOf = (kind, n) => {
+    let e = null;
+    for (const [min, name] of ECHELONS[kind] || []) if (n >= min) e = name;
+    return e;
+};
+
+// The likelihood terms of ICD 203 (Analytic Standards), lowest to highest.
+// Confidence (high, moderate, low) is said separately, never in the same
+// sentence, as the standard asks.
+const ICD203 = [
+    ['almost no chance', '1-5%'], ['very unlikely', '5-20%'], ['unlikely', '20-45%'], ['roughly even chance', '45-55%'],
+    ['likely', '55-80%'], ['very likely', '80-95%'], ['almost certain', '95-99%'],
+];
+const EVEN = 3, LIKELY = 4, VERY_LIKELY = 5;   // rules never claim more than very likely
+
+const HOUR = 3600000;
+const OBSTACLE = /\b(obstacles?|mines?|minefields?|wire|berms?|ditch(es)?|abatis|tank traps?)\b/i;
+const WITHDRAW = /\b(withdraw(s|n|ing|al)?|retreat(s|ed|ing)?|pull(s|ed|ing)? back|fall(s|ing)? back|fell back|break(s|ing)? contact|disengag(e|es|ed|ing))\b/i;
+
+// What the narrative needs about a report, beyond the summaries' facts: its
+// equipment, the roles in it, its size by kind, and the areas it counts in
+// (its NAIs and OBJs, else its 10 km square, else none).
+const narrativeFacts = (f) => {
+    const els = sizeElements(f.r.size).map(e => ({ ...e, kit: lookupEquipment(e.type) }));
+    const groups = {};
+    els.forEach(e => { const k = e.kit && ECHELON_KIND[e.kit.role]; if (k) groups[k] = (groups[k] || 0) + e.count; });
+    const sq = f.a.points.length ? gridSquare(f.a.points[0].mgrs, 1) : null;
+    return {
+        ...f, els, groups,
+        roles: new Set(els.filter(e => e.kit).map(e => e.kit.role)),
+        areas: f.places.length ? f.places : sq ? [sq.replace(/ (\d) (\d)$/, ' $1$2')] : [],
+        id: f.r.displayId || f.r.id || '',
+        who: (f.r.user && f.r.user.initials) || '',
+    };
+};
+const isManeuver = (f) => f.roles.has('armor') || f.roles.has('mech');
+const byTime = (list) => [...new Set(list)].sort((x, y) => x.ms - y.ms || x.id.localeCompare(y.id));
+// The most reports among `list` (in time order) inside any `span` of time.
+const densest = (list, span) => {
+    let best = [];
+    list.forEach((f, i) => { const w = list.slice(i).filter(g => g.ms - f.ms <= span); if (w.length > best.length) best = w; });
+    return best;
+};
+
+// Lines of at most `width`, the first starting with `first`, the rest with `rest`.
+const wrapText = (text, first, rest = first, width = 100) => {
+    const lines = [];
+    let line = first;
+    String(text).split(' ').forEach(w => {
+        if (line.trim() && (line + w).length > width) { lines.push(line.trimEnd()); line = rest; }
+        line += `${w} `;
+    });
+    lines.push(line.trimEnd());
+    return lines;
+};
+
+// The judgments the reports support: each with its ICD 203 level, what is
+// judged, the signs seen (and the reports behind them), and the signs that
+// would make it firmer. Every rule looks only at the reports given.
+const narrativeJudgments = (facts, cite) => {
+    const out = [];
+    const byArea = new Map();
+    facts.forEach(f => f.areas.forEach(a => { if (!byArea.has(a)) byArea.set(a, []); byArea.get(a).push(f); }));
+    const judge = (rule, level, what, signs, extra = []) => {
+        const seen = signs.filter(([, l]) => l.length);
+        out.push({
+            rule, level: Math.min(level, VERY_LIKELY), what,
+            basis: seen.map(([s, l]) => `${s} (${cite(l)})`).join('; '),
+            list: byTime([...seen.flatMap(([, l]) => l), ...extra]),
+            watch: signs.filter(([, l]) => !l.length).map(([s]) => s),
+        });
+    };
+
+    for (const [area, list] of byArea) {
+        // Preparing a defense: digging in, obstacles, engineers, vehicles holding.
+        const dig = list.filter(f => f.act.tags.includes('Emplacing') && !OBSTACLE.test(f.r.activity || ''));
+        const obst = list.filter(f => OBSTACLE.test(f.r.activity || ''));
+        if (dig.length || obst.length) {
+            const signs = [
+                ['digging in or fortifying', dig], ['obstacles or mines', obst],
+                ['engineer equipment', list.filter(f => f.roles.has('engineer'))],
+                ['combat vehicles halted in position', list.filter(f => f.act.tags.includes('Stationary') && (isManeuver(f) || f.roles.has('fires') || f.roles.has('ad')))],
+            ];
+            const kinds = signs.filter(([, l]) => l.length).length, n = byTime(signs.flatMap(([, l]) => l)).length;
+            judge(0, kinds >= 3 && n >= 4 ? VERY_LIKELY : kinds >= 2 || n >= 3 ? LIKELY : EVEN,
+                `enemy forces are preparing a defense in ${area}`, signs);
+        }
+        // Reconnaissance, then armor or mechanized forces within 6 hours.
+        const scouts = list.filter(f => f.roles.has('recon') || f.act.tags.includes('Observing'));
+        const pairs = scouts.map(s => [s, list.filter(m => m !== s && isManeuver(m) && m.ms > s.ms && m.ms - s.ms <= 6 * HOUR)]).filter(([, l]) => l.length);
+        if (pairs.length) {
+            const lead = byTime(pairs.map(([s]) => s)), after = byTime(pairs.flatMap(([, l]) => l));
+            const support = list.filter(f => f.roles.has('fires') || f.roles.has('ad') || f.roles.has('engineer'));
+            judge(1, EVEN + (lead.length >= 2 || after.length >= 2 ? 1 : 0) + (support.length ? 1 : 0),
+                `the reconnaissance in ${area} was scouting a route for armor or mechanized forces`,
+                [['reconnaissance', lead], ['armor or mechanized forces within 6 hrs after it', after],
+                    ['artillery, air defense or engineers in the same area', support]]);
+        }
+        // A logistics site: supply vehicles halted or resupplying, again and again.
+        const supply = densest(list.filter(f => (f.roles.has('logistics') && f.act.tags.includes('Stationary')) || f.act.tags.includes('Resupplying')), 12 * HOUR);
+        if (supply.length >= 2) {
+            judge(3, supply.length >= 5 ? VERY_LIKELY : supply.length >= 3 ? LIKELY : EVEN,
+                `there is a logistics or resupply point in ${area}`,
+                [['supply vehicles halted or resupplying within 12 hrs', supply],
+                    ['fuel or ammunition vehicles', supply.filter(f => /\b(fuel|tanker|pol|ammo|ammunition|atz)\b/i.test(`${f.r.size} ${f.r.activity}`))]]);
+        }
+    }
+
+    // Preparing an offensive: artillery, air defense moving, armor massing,
+    // engineers moving, contact; at least two of them, one being artillery or
+    // the massing.
+    let focus = null, mass = [];
+    for (const [area, list] of byArea) {
+        const m = densest(list.filter(isManeuver), 12 * HOUR);
+        if (m.length > mass.length) { mass = m; focus = area; }
+    }
+    if (mass.length < 3) { mass = []; focus = null; }
+    const fires = facts.filter(f => f.roles.has('fires'));
+    const offense = [
+        ['artillery or rockets', fires],
+        ['air defense moving', facts.filter(f => f.roles.has('ad') && f.act.tags.includes('Moving'))],
+        [focus ? `armor or mechanized forces massing in ${focus} within 12 hrs` : 'armor or mechanized forces massing', mass],
+        ['engineers moving', facts.filter(f => f.roles.has('engineer') && f.act.tags.includes('Moving'))],
+        ['contact by armor or mechanized forces', facts.filter(f => isManeuver(f) && f.act.tags.includes('Firing'))],
+    ];
+    const kinds = offense.filter(([, l]) => l.length).length;
+    if (kinds >= 2 && (fires.length || mass.length)) {
+        judge(2, kinds >= 4 ? VERY_LIKELY : kinds === 3 ? LIKELY : EVEN,
+            `enemy forces are preparing offensive operations${focus ? `, centered on ${focus}` : ''}`, offense);
+    }
+    // Withdrawal, when reports say so.
+    const back = facts.filter(f => WITHDRAW.test(f.r.activity || ''));
+    if (back.length) {
+        judge(4, back.length >= 3 ? VERY_LIKELY : back.length === 2 ? LIKELY : EVEN, 'enemy forces are withdrawing',
+            [['withdrawal or breaking contact reported', back], ['covering forces left behind', []], ['obstacles or demolitions behind them', []]]);
+    }
+    // Firing: probing with small elements, or attacking with a company or more.
+    const shots = facts.filter(f => f.act.tags.includes('Firing'));
+    const big = shots.filter(f => (f.groups.maneuver || 0) >= 10);
+    if (big.length) {
+        judge(5, big.length >= 2 ? VERY_LIKELY : LIKELY, 'enemy forces are attacking with company-sized or larger elements',
+            [['firing by a company or more', big], ['artillery fire in support', []]]);
+    } else if (shots.length >= 2) {
+        judge(5, shots.length >= 4 ? VERY_LIKELY : shots.length === 3 ? LIKELY : EVEN,
+            'enemy forces are probing friendly positions with small elements',
+            [['firing by elements smaller than a company', shots], ['larger elements following up', []], ['artillery fire in support', []]]);
+    }
+    return out.sort((x, y) => y.level - x.level || y.list.length - x.list.length || x.rule - y.rule || x.what.localeCompare(y.what));
+};
+
+// Confidence in a judgment, from how many reports and observers support it
+// and whether each has a grid: high, moderate, or low.
+const confidenceOf = (list) => {
+    const who = new Set(list.map(f => f.who).filter(Boolean)).size;
+    const level = list.length >= 4 && who >= 2 && list.every(f => f.a.points.length) ? 'high'
+        : list.length >= 3 || (list.length >= 2 && who >= 2) ? 'moderate' : 'low';
+    return `${level} (${plural(list.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''})`;
+};
+
+// The narrative's sections, for the reports in the period (`cur`, in time
+// order) and the period before (`prev`, or null).
+const narrativeLines = (cur, prev, { local, hrs, end, places }) => {
+    const facts = cur.map(narrativeFacts);
+    const out = [];
+    const say = (text, first = '   ', rest = '   ') => out.push(...wrapText(text, first, rest));
+    const cite = (list, max = 4) => {
+        const l = byTime(list);
+        return l.slice(0, max).map(f => `${f.id} ${dayTime(f.ms, local)}`).join(', ') + (l.length > max ? ` and ${l.length - max} more` : '');
+    };
+
+    out.push('1. OBSERVED');
+    if (!facts.length) {
+        say(`No reports in this period${prev ? ` (previous ${hrs} hrs: ${prev.length})` : ''}.`);
+        out.push('', '2. ASSESSMENT', '   None: no reports to assess.', '');
+        return out;
+    }
+    const who = new Set(facts.map(f => f.who).filter(Boolean)).size;
+    const placed = facts.filter(f => f.places.length).length;
+    say(`${plural(facts.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''}, ${dayTime(facts[0].ms, local)} to ${dayTime(facts[facts.length - 1].ms, local)}`
+        + `${prev ? ` (previous ${hrs} hrs: ${prev.length})` : ''}; ${placed} in an NAI or OBJ`
+        + `${places.length ? `, most in ${places.slice(0, 3).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}.`);
+
+    // The equipment, by role, with the types reported and how many.
+    const roles = new Map(), unknown = new Map();
+    facts.forEach(f => f.els.forEach(e => {
+        if (!e.kit) { unknown.set(e.type, (unknown.get(e.type) || 0) + 1); return; }
+        if (!roles.has(e.kit.role)) roles.set(e.kit.role, new Map());
+        const types = roles.get(e.kit.role);
+        types.set(e.type, (types.get(e.type) || 0) + e.count);
+    }));
+    const label = Object.fromEntries(EQUIPMENT_ROLES);
+    const roleList = EQUIPMENT_ROLES.map(([r]) => r).filter(r => roles.has(r));
+    if (roleList.length) {
+        say(`Equipment reported: ${roleList.map(r => `${label[r]} (${[...roles.get(r)].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
+            .map(([t, n]) => `${t} x${n}`).join(', ')})`).join('; ')}.`);
+    }
+    // The largest single sighting of each kind, and the unit size it suggests.
+    const largest = Object.keys(ECHELONS).map(kind => {
+        const top = facts.filter(f => f.groups[kind]).sort((x, y) => y.groups[kind] - x.groups[kind] || y.ms - x.ms)[0];
+        return top && `${ECHELON_LABEL[kind]} approximately ${echelonOf(kind, top.groups[kind])} size (${top.r.size}; ${top.id} ${dayTime(top.ms, local)}${top.places.length ? `, ${top.places.join(', ')}` : ''})`;
+    }).filter(Boolean);
+    if (largest.length) say(`Largest single sightings: ${largest.join('; ')}.`);
+    // Where they headed, and any firing.
+    const heads = new Map();
+    facts.forEach(f => { if (f.act.heading) { const h = HEADINGS_8[Math.round(f.act.headingDeg / 45) % 8]; heads.set(h, (heads.get(h) || 0) + 1); } });
+    if (heads.size) say(`Movement: headed ${[...heads].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).slice(0, 3).map(([h, n]) => `${h} (${n})`).join(', ')}.`);
+    const shots = facts.filter(f => f.act.tags.includes('Firing'));
+    if (shots.length) {
+        say(`Firing: ${plural(shots.length, 'report')}: ${shots.slice(0, 5).map(f => `${f.id} ${dayTime(f.ms, local)} ${f.r.size || '-'}, ${f.r.activity || '-'}`).join('; ')}`
+            + `${shots.length > 5 ? `; and ${shots.length - 5} more` : ''}.`);
+    }
+    // Each busy place in a sentence: when, what kinds, what they were doing.
+    const at = (p) => facts.filter(f => f.places.includes(p));
+    if (places.length) {
+        out.push('   By place:');
+        places.slice(0, 6).forEach(p => {
+            const list = at(p.label);
+            const kinds = EQUIPMENT_ROLES.map(([r]) => r).filter(r => list.some(f => f.roles.has(r))).map(r => label[r]);
+            say(`${p.label}: ${plural(list.length, 'report')}, ${dayTime(list[0].ms, local)} to ${dayTime(list[list.length - 1].ms, local)}`
+                + `${kinds.length ? `; ${kinds.join(', ')}` : ''}; ${activityLine(list)}.`, '     ', '       ');
+        });
+    }
+
+    out.push('', '2. ASSESSMENT');
+    const judgments = narrativeJudgments(facts, cite).slice(0, 6);
+    if (!judgments.length) say("No assessment: the reports in this period don't match any of the patterns this tool looks for.");
+    judgments.forEach((j, i) => {
+        const [term, pct] = ICD203[j.level];
+        say(`${term.toUpperCase()} (${pct}) that ${j.what}.`, `   ${String.fromCharCode(97 + i)}. `, '      ');
+        say(`Basis: ${j.basis}.`, '      ', '      ');
+        say(`Confidence: ${confidenceOf(j.list)}.`, '      ', '      ');
+        if (j.watch.length) say(`Watch for: ${j.watch.join('; ')}.`, '      ', '      ');
+    });
+
+    // What the reports leave open.
+    out.push('', '3. GAPS');
+    const gaps = [];
+    const noGrid = facts.filter(f => !f.a.points.length);
+    if (noGrid.length) gaps.push(`${plural(noGrid.length, 'report')} without a grid: ${cite(noGrid, 6)}.`);
+    if (unknown.size) gaps.push(`Not in the equipment catalogue: ${[...unknown].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).map(([t, n]) => `${t}${n > 1 ? ` (${n})` : ''}`).join(', ')}.`);
+    if (hrs >= 12) {
+        places.forEach(p => {
+            const last = at(p.label).pop();
+            if (last && end - last.ms >= 6 * HOUR) gaps.push(`${p.label}: no reports since ${dayTime(last.ms, local)}.`);
+        });
+    }
+    if (!gaps.length) gaps.push('None.');
+    gaps.forEach(g => say(g));
+
+    out.push('');
+    say(`NOTE: OBSERVED is what the reports say; counts are as reported, and the same vehicles may be in more than one report.`
+        + ` ASSESSMENT comes from fixed rules over the cited reports. Likelihood terms follow ICD 203: `
+        + `${ICD203.map(([t, p]) => `${t} ${p}`).join(', ')}. Confidence (high, moderate, low) rests on how many reports and observers support a judgment.`, '', '');
+    return out;
 };
 
 // --- Sync bookkeeping ---
@@ -1934,7 +2304,7 @@ const SaltCore = {
     lonLatToMerc, MERC_WORLD, compass16, zipStore, crc32, shapefileParts, arcgisShapefileZip, arcgisTracksShapefileZip, tilesFor, tileZoom, tileUrl, wmsUrl, wmsCapabilitiesUrl, pickWmsCrs, pickWmsFormat, mercToLonLat, metresBetween, bearingBetween,
     asArea, analyzeLocation, locationPlan, editLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisEsriJson, arcgisCsv,
     sizeElements, gridSquare, statsData, statsCsv, PL_NEAR_METRES, workbookReportRows, statsXlsx, excelSerial, colName,
-    dtg, summaryReport, summaryPlaces,
+    dtg, summaryReport, summaryPlaces, EQUIPMENT_CATALOGUE, lookupEquipment, ECHELONS, echelonOf, ICD203,
     reportKey, knownVersions, changedReports, withUnsaved,
 };
 

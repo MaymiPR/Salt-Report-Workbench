@@ -8,6 +8,21 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Narrative** summary report: the period in sentences, under *Observed*,
+  *Assessment* and *Gaps*, kept apart so fact and judgment never mix.
+  - *Observed*: report and observer counts, the equipment reported by kind,
+    the largest single sighting of each kind with the unit size it suggests
+    (approximately: section to battalion), headings, firing, and each busy
+    place.
+  - *Assessment*: fixed rules (preparing a defense, reconnaissance ahead of
+    armor, preparing an offensive, a logistics point, withdrawal, probing or
+    attacking), each judgment in ICD 203 likelihood terms with the reports it
+    rests on, its confidence (high, moderate, low) in its own sentence, and
+    what to watch for. Rules never go past *very likely*.
+  - *Gaps*: reports without a grid, equipment not in the catalogue, and
+    places quiet for 6 hours or more.
+  - An equipment catalogue of Russian and Chinese systems plus plain words
+    (tank, truck, PAX), used to name what was reported and to size it.
 - **Change a basemap's layers**: *Layers* beside a WMS in *Manage basemaps…*
   opens it again, its layers looked up afresh with the ones in use ticked (a
   layer the service no longer lists stays, marked *not listed*); tick, untick
