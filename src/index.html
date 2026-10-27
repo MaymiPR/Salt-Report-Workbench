@@ -269,9 +269,8 @@
 
                     <p class="manual-step">Import / Export tab (default)</p>
                     <ul>
-                        <li>Pick <strong>Export</strong> or <strong>Import</strong>, pick what from the list (a line under it says what it is and how to use it), then press the one button. Your last choice is remembered in this browser.</li>
-                        <li><strong>Exports</strong> show two cards side by side: <strong>Time range</strong>, and the <strong>Options</strong> for the picked format (when it has any).</li>
-                        <li><strong>Imports: drop a file</strong> anywhere on the tab, or click the drop area to choose one. What it is gets worked out from the file: a backup (<code>.txt</code>), another tool&rsquo;s CSV (opens the column matching), or overlays (KML, KMZ, GeoJSON, or a shapefile&rsquo;s files or zip, opening the Overlays tab to review them). Several files together must all be overlays. Dragging a file over the tab switches it to Import.</li>
+                        <li>Export and Import are on the same screen. <strong>Export</strong>: pick what from the list (a line under it says what it is and how to use it) and press <strong>Export</strong>. Below it are two cards side by side: <strong>Time range</strong>, and the <strong>Options</strong> for the picked format (when it has any). Your last choice is remembered in this browser.</li>
+                        <li><strong>Import</strong> (editors): drop a file anywhere on the tab, or click the drop area to choose one. What it is gets worked out from the file: a backup (<code>.txt</code>), another tool&rsquo;s CSV (opens the column matching), or overlays (KML, KMZ, GeoJSON, or a shapefile&rsquo;s files or zip, opening the Overlays tab to review them). Several files together must all be overlays.</li>
                         <li><strong>Time range</strong>: set From and/or To to narrow what gets exported. Leave both blank to include everything.</li>
                         <li><strong>Quick presets (12h / 6h / 1h)</strong>: one click fills both pickers relative to now, respecting your active Zulu/Local time mode.</li>
                         <li><strong>Filter stats</strong>: stacked counts beneath the picker show <em>N of M unique reports</em> + <em>N of M total reports</em> (the second line includes every saved history entry). Turns blue when a filter is active.</li>
@@ -506,7 +505,7 @@
                     <p>A short thank you to the testers who put up with the bugs and kept the vibe coding going:</p>
                     <p class="manual-tester-list">You know who you are.</p>
                 </section>
-                <p class="manual-version-footer">Version 2.10 &middot; <a href="https://github.com/MaymiPR/SaltReportWorkbench" target="_blank" rel="noopener">Source code</a> (AGPL v3)</p>
+                <p class="manual-version-footer">Version 2.11 &middot; <a href="https://github.com/MaymiPR/SaltReportWorkbench" target="_blank" rel="noopener">Source code</a> (AGPL v3)</p>
             </div>
 
             <button type="button" id="manualCloseBtn" class="set-btn startup-continue-btn">Close</button>
@@ -789,17 +788,14 @@
                             </div>
                         </div>
 
-                        <!-- Tab: Import / Export — the picker, then the time range and options (exports) or a drop area (imports). -->
+                        <!-- Tab: Import / Export — both on one screen: Export (pick, time range, options), then Import (a drop area). -->
                         <div class="ws-tab-panel" data-tab-panel="export">
-                            <!-- Pick Export or Import, pick what, then one button (app/40-io.js).
-                                 The buttons below are what it presses; they stay out of sight. -->
+                            <!-- Export: pick what, then one button (app/40-io.js). The
+                                 buttons below are what it presses; they stay out of sight. -->
+                            <div class="export-block-label">Export</div>
                             <div class="io-picker">
                                 <div class="io-row">
-                                    <div class="io-modes" role="group" aria-label="Export or import">
-                                        <button type="button" class="io-mode" data-io-mode="export" aria-pressed="true">Export</button>
-                                        <button type="button" class="io-mode editor-only" data-io-mode="import" aria-pressed="false">Import</button>
-                                    </div>
-                                    <select id="ioFormatSelect" aria-label="What to export or import"></select>
+                                    <select id="ioFormatSelect" aria-label="What to export"></select>
                                     <button type="button" id="ioRunBtn" class="set-btn">Export</button>
                                 </div>
                                 <div id="ioFormatDesc" class="io-desc"></div>
@@ -810,14 +806,10 @@
                                 <button type="button" id="exportArcgisEsriBtn">Export for ArcGIS (.json)</button>
                                 <button type="button" id="exportArcgisGeojsonBtn">Export for ArcGIS (.geojson)</button>
                                 <button type="button" id="exportArcgisCsvBtn">Export for ArcGIS (.csv)</button>
-                                <button type="button" id="importBackupBtnTrigger">Import from Backup (.txt)</button>
-                                <button type="button" id="importCsvBtnTrigger">Import External CSV</button>
-                                <input type="file" id="importBackupFileInput" class="file-input-wrapper">
-                                <input type="file" id="importCsvFileInput" class="file-input-wrapper" accept=".csv">
                             </div>
 
-                            <!-- Exports: the time range and the picked format's options, side by side. -->
-                            <div class="io-cards io-export-only">
+                            <!-- The time range and the picked format's options, side by side. -->
+                            <div class="io-cards">
                                 <section class="io-card io-time">
                                     <div class="export-block-label">Time range</div>
                                     <div class="filter-field">
@@ -874,11 +866,16 @@
                                 </section>
                             </div>
 
-                            <!-- Imports: drop a file anywhere on this tab; its kind is worked out from it. -->
-                            <div id="ioDrop" class="io-drop io-import-only" role="button" tabindex="0">
+                            <!-- Import (editors): drop a file anywhere on this tab, or click to
+                                 choose one; what it is gets worked out from the file. -->
+                            <div class="io-import editor-only">
+                            <div class="export-divider"></div>
+                            <div class="export-block-label">Import</div>
+                            <div id="ioDrop" class="io-drop" role="button" tabindex="0">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
                                 <div class="io-drop-main">Drop a file here</div>
                                 <div class="io-drop-sub">A backup (.txt), another tool&rsquo;s CSV, or overlays (KML, KMZ, GeoJSON, or a shapefile&rsquo;s files or zip). Or click to choose one.</div>
+                            </div>
                             </div>
                         </div><!-- /ws-tab-panel data-tab-panel="export" -->
                     </div>

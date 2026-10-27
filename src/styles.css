@@ -713,8 +713,8 @@ body.local-mode .startup-access-divider { display: none; }
 .export-option-desc { font-size: 0.8em; color: var(--text-secondary); margin-top: 2px; }
 /* Import / Export: a segmented Export | Import, a pop-up of what, one button. */
 .io-picker { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; max-width: 760px; }
+.io-import { margin-top: 20px; }
 .io-modes { display: inline-flex; align-self: flex-start; gap: 4px; padding: 4px; background-color: var(--input-bg); border-radius: 10px; }
-.io-row .io-modes { align-self: stretch; box-sizing: border-box; }
 .io-mode { background: transparent; color: var(--text-secondary); border: none; padding: 7px 22px; border-radius: 8px; font-size: 0.86em; font-weight: 600; margin: 0; cursor: pointer; }
 .io-mode:hover { color: var(--text-primary); opacity: 1; }
 .io-mode[aria-pressed="true"] { background-color: var(--panel-bg); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }

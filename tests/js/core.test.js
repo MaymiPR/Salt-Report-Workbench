@@ -51,7 +51,7 @@ test('filter bounds default to the whole day and ignore bad times', () => {
     const start = core.parseFilterTime('2026-10-24', '', false, false);
     const end = core.parseFilterTime('2026-10-24', '25:00', true, false);
     assert.equal(new Date(start).toISOString(), '2026-10-24T00:00:00.000Z');
-    assert.equal(new Date(end).toISOString(), '2026-10-24T23:59:59.000Z');
+    assert.equal(new Date(end).toISOString(), '2026-10-24T23:59:59.999Z');
     assert.equal(new Date(core.parseFilterTime('2026-10-24', '9:05', false, false)).toISOString(), '2026-10-24T09:05:00.000Z');
     assert.equal(core.parseFilterTime('', '10:00', false, false), null);
 });

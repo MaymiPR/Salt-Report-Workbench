@@ -705,10 +705,6 @@ const needsStartupSetup = () => {
 const maybeShowStartupModal = () => { if (needsStartupSetup()) openStartupModal(); };
 
 // Import
-el.imp.backupBtn.addEventListener('click', () => el.imp.backupInput.click());
-el.imp.backupInput.addEventListener('change', e => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>{processJsonImport(ev.target.result); el.imp.backupInput.value=''; }; r.readAsText(f); });
-el.imp.csvBtn.addEventListener('click', () => el.imp.csvInput.click());
-el.imp.csvInput.addEventListener('change', e => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>{processExternalCsv(ev.target.result, f.name); el.imp.csvInput.value=''; }; r.readAsText(f); });
 
 // CSV import — column mapping view
 el.csv.closeBtn  .addEventListener('click', closeCsvImportView);
@@ -786,13 +782,8 @@ document.getElementById('exportArcgisCsvBtn').addEventListener('click', () => {
 
 el.menu.exportBtn.addEventListener('click', () => isExportViewActive ? closeExportView() : openExportView());
 
-document.querySelectorAll('[data-io-mode]').forEach(b => b.addEventListener('click', () => {
-    ioMode = b.dataset.ioMode;
-    try { localStorage.setItem('salt_io_mode', ioMode); } catch (e) { /* storage blocked: this session only */ }
-    renderIoPicker();
-}));
 el.ioPicker.select.addEventListener('change', () => {
-    try { localStorage.setItem(`salt_io_${ioMode}`, el.ioPicker.select.value); } catch (e) { /* this session only */ }
+    try { localStorage.setItem('salt_io_export', el.ioPicker.select.value); } catch (e) { /* storage blocked: this session only */ }
     renderIoPicker();
 });
 el.ioPicker.run.addEventListener('click', runIoPicker);
