@@ -1012,7 +1012,7 @@ test('the equipment catalogue knows Russian and Chinese systems, and plain words
     assert.equal(kit('BTR-82A'), 'mech RU BTR-82');
     assert.equal(kit('ZSU-23-4'), 'ad RU ZSU-23-4');
     assert.equal(kit('TOR-M2'), 'ad RU Tor');
-    assert.equal(kit('Tornado-G'), 'fires RU Tornado');
+    assert.equal(kit('Tornado-G'), 'fires RU Tornado-G');
     assert.equal(kit('Type 99A'), 'armor CN Type 99');
     assert.equal(kit('ZBD-04A'), 'mech CN ZBD-04');
     assert.equal(kit('PHL-16'), 'fires CN PHL-16');
@@ -1150,4 +1150,26 @@ test('the narrative wraps to the width asked for, 100 columns unless told', () =
     assert.ok(wide.some(l => l.length > 60) && wide.every(l => l.length <= 100));
     assert.ok(narrow.every(l => l.length <= 60), narrow.find(l => l.length > 60));
     assert.equal(narrow.join(' ').replace(/\s+/g, ' '), wide.join(' ').replace(/\s+/g, ' '), 'the same words');
+});
+
+test('the catalogue covers variants, and no name means two things', () => {
+    const kit = t => { const k = core.lookupEquipment(t); return k && `${k.role} ${k.origin} ${k.name}`; };
+    const cases = {
+        'T-90M Proryv': 'armor RU T-90', 'BMP-1AM Basurmanin': 'mech RU BMP-1', 'Msta-SM2': 'fires RU 2S33', 'Pantsir-S1': 'ad RU Pantsir',
+        'Kornet-EM': 'atgm RU Kornet', 'Krasukha-4': 'ew RU Krasukha', 'Zala Lancet': 'fires RU Lancet', 'Kub-BLA': 'fires RU Kub-BLA',
+        Kub: 'ad RU Kub', 'Strela-10': 'ad RU Strela-10', 'Strela-1': 'ad RU Strela-1', 'Sprut-SD': 'armor RU 2S25', 'Sprut-B': 'atgm RU 2A45',
+        'T-15 Armata': 'mech RU T-15', Hind: 'air RU Mi-24', 'BMP-2K': 'c2 RU BMP-2K', 'R-330Zh': 'ew RU Zhitel',
+        'Type 96B': 'armor CN Type 96', 'Type 59-1': 'fires CN Type 59-1', 'Type 59-II': 'armor CN Type 59', 'Red Arrow 8': 'atgm CN HJ-8',
+        'SH-15': 'fires CN PCL-181', 'HQ-17A': 'ad CN HQ-17', 'Dongfeng Mengshi': 'light CN Mengshi',
+    };
+    Object.entries(cases).forEach(([t, want]) => assert.equal(kit(t), want, t));
+    ['Type 89', 'AR-15', 'HJ-80'].forEach(t => assert.equal(kit(t), null, `${t}: ambiguous or not one of them`));
+    const norm = s => String(s).toUpperCase().replace(/[^A-Z0-9]+/g, '');
+    const seen = new Map();
+    core.EQUIPMENT_CATALOGUE.forEach(([r, o, name, ...more]) => [name, ...more].forEach(k => {
+        const v = `${r} ${o} ${name}`;
+        assert.ok(!seen.has(norm(k)) || seen.get(norm(k)) === v, `${k}: ${seen.get(norm(k))} and ${v}`);
+        seen.set(norm(k), v);
+    }));
+    assert.ok(core.EQUIPMENT_CATALOGUE.length > 350);
 });

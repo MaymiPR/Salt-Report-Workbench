@@ -145,9 +145,15 @@ const equipmentTab = () => {
         return drill('Equipment', e.type || 'New entry', equipmentForm(e));
     }
     const unknown = narrUnknown();
+    // The built-in catalogue, by kind: Russian and Chinese types with their
+    // variants, then the plain words.
+    const CAPS = /^(MBT|IFV|APC|BMP|BMD|BTR|MRAP|BRDM|UAV|UAS|SPG|MLRS|MRL|ADA|SAM|AAA|MANPADS|ATGM|RPG|AVLB|POL|CP|HQ|C2|EW|PAX|ATV|UTV|SUV)$/;
     const builtIn = SaltCore.EQUIPMENT_ROLES.map(([r, t]) => {
-        const names = [...new Set(SaltCore.EQUIPMENT_CATALOGUE.filter(e => e[0] === r && e[1]).map(e => e[2]))];
-        return names.length ? `<div><strong>${escapeHtml(t)}</strong>: ${escapeHtml(names.join(', '))}</div>` : '';
+        const of = (o) => SaltCore.EQUIPMENT_CATALOGUE.filter(e => e[0] === r && e[1] === o)
+            .map(([, , name, ...more]) => { const v = more.filter(m => m !== name); return v.length ? `${name} (${v.join(', ')})` : name; });
+        const armies = [['RU', 'Russian'], ['CN', 'Chinese']].map(([o, n]) => (of(o).length ? `<div><em>${n}:</em> ${escapeHtml(of(o).join('; '))}</div>` : '')).join('');
+        const plain = [...new Set(SaltCore.EQUIPMENT_CATALOGUE.filter(e => e[0] === r && !e[1]).flatMap(([, , , ...more]) => more.map(m => (CAPS.test(m) ? m : m.toLowerCase()))))];
+        return `<div class="narr-cat"><strong>${escapeHtml(t)}</strong>${armies}${plain.length ? `<div><em>Plain words:</em> ${escapeHtml(plain.join(', '))}</div>` : ''}</div>`;
     }).join('');
     return `${unknown.length && !isReadOnly ? `<div class="narr-label">In your reports, not in the catalogue</div>
             <div class="narr-chips">${unknown.map(t => `<button type="button" class="narr-chip narr-new" data-narr-fill="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join('')}</div>` : ''}
@@ -159,7 +165,7 @@ const equipmentTab = () => {
         <div class="narr-list">${narrList('equipment').map((e, i) => row(i, e.type, `${ROLE_NAMES[e.role] || e.role} · ${ORIGIN_NAMES[e.origin || '']}`)).join('')
             || '<div class="narr-empty">None yet: the built-in catalogue only.</div>'}</div>
         ${addRow('Add a type')}
-        <details class="narr-builtin"><summary>Built-in catalogue</summary>${builtIn}<div>Plain words too: tank, IFV, APC, truck, fuel, PAX, troops, mortar, howitzer, SAM, UAV, helicopter, and more.</div></details>`;
+        <details class="narr-builtin"><summary>Built-in catalogue</summary>${builtIn}</details>`;
 };
 
 // --- Rules ---
