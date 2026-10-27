@@ -269,7 +269,7 @@
 
                     <p class="manual-step">Import / Export tab (default)</p>
                     <ul>
-                        <li>Export and Import are on the same screen. <strong>Export</strong>: pick what from the list (a line under it says what it is and how to use it) and press <strong>Export</strong>. Below it are two cards side by side: <strong>Time range</strong>, and the <strong>Options</strong> for the picked format (when it has any). Your last choice is remembered in this browser.</li>
+                        <li>Export and Import are on the same screen. <strong>Export</strong>: pick what from the list (a line under it says what it is and how to use it) and press <strong>Export</strong>. Below it is the <strong>Time range</strong>; beside that, the <strong>Options</strong> for the picked format (when it has any), and <strong>Import</strong> under them. Your last choice is remembered in this browser.</li>
                         <li><strong>Import</strong> (editors): drop a file anywhere on the tab, or click the drop area to choose one. What it is gets worked out from the file: a backup (<code>.txt</code>), another tool&rsquo;s CSV (opens the column matching), or overlays (KML, KMZ, GeoJSON, or a shapefile&rsquo;s files or zip, opening the Overlays tab to review them). Several files together must all be overlays.</li>
                         <li><strong>Time range</strong>: set From and/or To to narrow what gets exported. Leave both blank to include everything.</li>
                         <li><strong>Quick presets (12h / 6h / 1h)</strong>: one click fills both pickers relative to now, respecting your active Zulu/Local time mode. <strong>Clear</strong>, after them, empties both to export everything.</li>
@@ -788,11 +788,10 @@
                             </div>
                         </div>
 
-                        <!-- Tab: Import / Export — both on one screen: Export (pick, time range, options), then Import (a drop area). -->
+                        <!-- Tab: Import / Export — one screen: pick and run an export; below, the time range, and beside it the format's options with Import (a drop area) under them. -->
                         <div class="ws-tab-panel" data-tab-panel="export">
                             <!-- Export: pick what, then one button (app/40-io.js). The
                                  buttons below are what it presses; they stay out of sight. -->
-                            <div class="export-block-label">Export</div>
                             <div class="io-picker">
                                 <div class="io-row">
                                     <select id="ioFormatSelect" aria-label="What to export"></select>
@@ -808,7 +807,8 @@
                                 <button type="button" id="exportArcgisCsvBtn">Export for ArcGIS (.csv)</button>
                             </div>
 
-                            <!-- The time range and the picked format's options, side by side. -->
+                            <!-- The time range; beside it the picked format's options, and Import
+                                 under them, filling the rest of that column. -->
                             <div class="io-cards">
                                 <section class="io-card io-time">
                                     <div class="export-block-label">Time range</div>
@@ -838,6 +838,7 @@
                                     </div>
                                 </section>
 
+                                <div class="io-side">
                                 <section class="io-card io-options">
                                     <div class="export-block-label">Options</div>
                                     <label class="export-option-row" data-io-for="backup">
@@ -862,18 +863,16 @@
                                         </div>
                                     </label>
                                 </section>
-                            </div>
 
-                            <!-- Import (editors): drop a file anywhere on this tab, or click to
-                                 choose one; what it is gets worked out from the file. -->
-                            <div class="io-import editor-only">
-                            <div class="export-divider"></div>
-                            <div class="export-block-label">Import</div>
-                            <div id="ioDrop" class="io-drop" role="button" tabindex="0">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
-                                <div class="io-drop-main">Drop a file here</div>
-                                <div class="io-drop-sub">A backup (.txt), another tool&rsquo;s CSV, or overlays (KML, KMZ, GeoJSON, or a shapefile&rsquo;s files or zip). Or click to choose one.</div>
-                            </div>
+                                <!-- Import (editors): drop a file anywhere on this tab, or click to
+                                     choose one; what it is gets worked out from the file. -->
+                                <div id="ioDrop" class="io-drop editor-only" role="button" tabindex="0">
+                                    <div class="export-block-label">Import</div>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+                                    <div class="io-drop-main">Drop a file here</div>
+                                    <div class="io-drop-sub">A backup (.txt), another tool&rsquo;s CSV, or overlays (KML, KMZ, GeoJSON, or a shapefile&rsquo;s files or zip). Or click to choose one.</div>
+                                </div>
+                                </div>
                             </div>
                         </div><!-- /ws-tab-panel data-tab-panel="export" -->
                     </div>
