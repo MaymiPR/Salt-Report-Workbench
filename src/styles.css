@@ -204,6 +204,14 @@ button:hover { opacity: 0.85; }
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     font-weight: 600;
 }
+/* Hidden as dots until Show; the button sits inside the field's right end. */
+.access-input-wrap { position: relative; }
+.access-input-wrap #startup-access-code { padding-right: 76px; }
+#startup-access-code.access-masked { -webkit-text-security: disc; }
+.access-input-wrap .access-show-btn { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); }
+/* A fixed width, so Show and Hide take the same room. */
+.access-show-btn { width: 60px; padding-left: 0; padding-right: 0; text-align: center; cursor: pointer; }
+.access-show-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .startup-access-error { display: none; color: var(--system-red); font-size: 0.82em; margin-top: 6px; line-height: 1.4; }
 .startup-access-error.show { display: block; }
 /* Viewer port has no code gate — hide the whole section + divider. */
@@ -372,6 +380,8 @@ body.local-mode .startup-access-divider { display: none; }
 .access-code-display .copy-btn {
     flex: 0 0 auto;
 }
+/* Dots can't be copied as the code; Copy does that. */
+.access-code-text.masked { user-select: none; -webkit-user-select: none; }
 .access-code-display .copy-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
