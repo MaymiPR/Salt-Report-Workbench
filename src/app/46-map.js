@@ -660,13 +660,13 @@ const renderOverlayMap = (box) => {
                     <div class="map-layers" role="group" aria-label="Layers">
                         ${MAP_LAYERS.map(([k, t]) => `<button type="button" class="map-layer-btn" data-map-layer="${k}" aria-pressed="false"><span class="map-layer-check" aria-hidden="true"></span>${t}</button>`).join('')}
                     </div>
-                    <div class="io-modes map-grids" role="group" aria-label="Which reports the heat map and dots show">
-                        <button type="button" class="io-mode" data-map-grids="latest" title="Each report once, at its latest grid">Latest grids</button>
-                        <button type="button" class="io-mode" data-map-grids="all" title="Every saved report, its updates included, at its grids">All reports</button>
-                    </div>
                     <div class="filter-presets" aria-label="Time window">
                         <span class="filter-presets-label">Window</span>
                         ${hours.map(([v, t]) => `<button type="button" class="filter-preset-btn" data-map-hours="${v}">${t}</button>`).join('')}
+                    </div>
+                    <div class="io-modes map-grids" role="group" aria-label="Which reports the heat map and dots show">
+                        <button type="button" class="io-mode" data-map-grids="latest" title="Each report once, at its latest grid">Latest grids</button>
+                        <button type="button" class="io-mode" data-map-grids="all" title="Every saved report, its updates included, at its grids">All reports</button>
                     </div>
                 </div>
                 <div class="map-zoom">
