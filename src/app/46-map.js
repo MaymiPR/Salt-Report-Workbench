@@ -19,6 +19,7 @@ let mapBaseFailed = false;
 let mapWmsTimer = null;
 let mapFrame = 0;
 let mapItems = [];             // what the pointer can hover: [{ kind, ...}] by index
+let mapLastWant = null;        // the Web Mercator box the basemap was last asked for
 
 const mapEls = () => ({
     box: document.getElementById('mapBox'), svg: document.getElementById('mapSvg'),
@@ -92,21 +93,58 @@ const drawMap = () => {
     const out = [];
     mapItems = [];
     if (mapMode === 'heat') out.push(heatLayer(reps, px, w, h));
-    out.push(overlayLayer(px));
+    out.push(overlayLayer(px, w, h));
     if (mapMode === 'tracks') out.push(trackLayer(tracks, px));
     m.svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
     m.svg.innerHTML = out.join('');
     m.note.hidden = !mapBaseFailed;
-    if (mapBaseFailed) m.note.textContent = "The basemap service didn't answer. It may not be reachable from this computer.";
+    if (mapBaseFailed) m.note.textContent = `The basemap service didn't answer. It may not be reachable from this computer.${isReadOnly ? '' : ' Basemaps... then Check says why.'}`;
     m.legend.innerHTML = mapLegend(reps, tracks);
 };
 const redrawMap = () => { cancelAnimationFrame(mapFrame); mapFrame = requestAnimationFrame(drawMap); };
 
 const pathOf = (coords, px, close) => coords.map((c, i) => { const [x, y] = px(c[0], c[1]); return `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`; }).join('') + (close ? 'Z' : '');
 
-const overlayLayer = (px) => {
+// Where a name goes so it stays on screen as the map zooms in: a shape's
+// middle, or the middle of the part of it in view; a line's end, or the middle
+// of its longest stretch in view. Null when none of it is in view.
+const LABEL_MARGIN = 28;
+const areaLabelAt = (pts, w, h) => {
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    const box = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    const mid = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2];
+    const m = LABEL_MARGIN;
+    if (mid[0] >= m && mid[0] <= w - m && mid[1] >= m && mid[1] <= h - m) return mid;
+    const v = [Math.max(box[0], m), Math.max(box[1], m), Math.min(box[2], w - m), Math.min(box[3], h - m)];
+    return v[0] <= v[2] && v[1] <= v[3] ? [(v[0] + v[2]) / 2, (v[1] + v[3]) / 2] : null;
+};
+const clipSegment = ([x0, y0], [x1, y1], [l, t, r, b]) => {
+    let u0 = 0, u1 = 1;
+    const dx = x1 - x0, dy = y1 - y0;
+    for (const [p, q] of [[-dx, x0 - l], [dx, r - x0], [-dy, y0 - t], [dy, b - y0]]) {
+        if (p === 0) { if (q < 0) return null; continue; }
+        const u = q / p;
+        if (p < 0) u0 = Math.max(u0, u); else u1 = Math.min(u1, u);
+        if (u0 > u1) return null;
+    }
+    return [[x0 + u0 * dx, y0 + u0 * dy], [x0 + u1 * dx, y0 + u1 * dy]];
+};
+const lineLabelAt = (parts, w, h) => {
+    const m = LABEL_MARGIN, view = [m, m, w - m, h - m];
+    const last = parts[0][parts[0].length - 1];
+    if (last[0] >= m && last[0] <= w - m && last[1] - 8 >= m && last[1] <= h - m) return [last[0], last[1] - 8];
+    let best = null, len = 0;
+    parts.forEach(pts => pts.slice(1).forEach((p, i) => {
+        const c = clipSegment(pts[i], p, view);
+        const l = c && Math.hypot(c[1][0] - c[0][0], c[1][1] - c[0][1]);
+        if (c && l > len) { len = l; best = [(c[0][0] + c[1][0]) / 2, (c[0][1] + c[1][1]) / 2 - 8]; }
+    }));
+    return best;
+};
+
+const overlayLayer = (px, w, h) => {
     const fill = [], lines = [], labels = [];
-    const label = (x, y, text) => labels.push(`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="map-label" text-anchor="middle">${svgEsc(text)}</text>`);
+    const label = (at, text) => at && labels.push(`<text x="${at[0].toFixed(1)}" y="${at[1].toFixed(1)}" class="map-label" text-anchor="middle">${svgEsc(text)}</text>`);
     currentOverlays().forEach(o => {
         const g = o.type === 'PL' ? o.geometry : SaltCore.asArea(o.geometry);
         const color = MAP_COLORS[o.type];
@@ -115,21 +153,18 @@ const overlayLayer = (px) => {
             const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
             const d = polys.map(rings => rings.map(r => pathOf(r, px, true)).join('')).join('');
             fill.push(`<path d="${d}" fill="${color}" fill-opacity="0.14" stroke="${color}" stroke-width="2" fill-rule="evenodd"/>`);
-            const pts = polys[0][0].map(c => px(c[0], c[1]));
-            const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-            label((Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2, key);
+            label(areaLabelAt(polys[0][0].map(c => px(c[0], c[1])), w, h), key);
         } else if (/LineString/.test(g.type)) {
             const parts = g.type === 'LineString' ? [g.coordinates] : g.coordinates;
             const d = parts.map(l => pathOf(l, px, false)).join('');
             // Black, on a white edge, so it shows on dark imagery and on the plain background.
             lines.push(`<path d="${d}" fill="none" stroke="#ffffff" stroke-width="6" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`
                 + `<path d="${d}" fill="none" stroke="${color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>`);
-            const [x, y] = px(...parts[0][parts[0].length - 1]);
-            label(x, y - 8, key);
+            label(lineLabelAt(parts.map(l => l.map(c => px(c[0], c[1]))), w, h), key);
         } else if (g.type === 'Point') {
             const [x, y] = px(...g.coordinates);
             fill.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${color}" stroke="#fff" stroke-width="1.5"/>`);
-            label(x, y - 8, key);
+            label([x, y - 8], key);
         }
     });
     return `<g class="map-overlays">${fill.join('')}${lines.join('')}</g><g class="map-labels">${labels.join('')}</g>`;
@@ -138,10 +173,10 @@ const overlayLayer = (px) => {
 // Each report once, at its latest grid: a density surface drawn on a canvas,
 // coloured with one hue from clear to bright, and laid under the graphics.
 const HEAT_RADIUS = 28;
-// Warm and sequential: clear, then orange, yellow, and near white at the
-// densest, more opaque as it rises, so the busiest places read at a glance
-// over imagery or the plain background.
-const HEAT_STOPS = [[0, [255, 159, 10, 0]], [0.12, [255, 159, 10, 70]], [0.45, [255, 159, 10, 170]], [0.75, [255, 214, 10, 215]], [1, [255, 248, 220, 235]]];
+// Blue, green, yellow, red, from fewest to most. The blue end fades in from
+// clear, so a lone report doesn't read as an OBJ, and it grows more opaque as
+// it rises, so the busiest places stand out over imagery or the plain background.
+const HEAT_STOPS = [[0, [10, 132, 255, 0]], [0.15, [10, 132, 255, 90]], [0.4, [48, 209, 88, 165]], [0.65, [255, 214, 10, 205]], [1, [255, 59, 48, 235]]];
 const heatColor = (t) => {
     if (t < 0.03) return [0, 0, 0, 0];
     const k = HEAT_STOPS.findIndex(([s]) => s >= t);
@@ -246,6 +281,7 @@ const drawBasemap = (m, ext, view, w, h) => {
     };
     const want = [Math.max(ext[0], view[0]), Math.max(ext[1], view[1]), Math.min(ext[2], view[2]), Math.min(ext[3], view[3])];
     if (want[0] >= want[2] || want[1] >= want[3]) { m.base.innerHTML = ''; return; }
+    mapLastWant = want;
     const have = new Map([...m.base.children].map(el => [el.dataset.url, el]));
     const add = (url, box) => {
         let img = have.get(url);
@@ -276,7 +312,7 @@ const drawBasemap = (m, ext, view, w, h) => {
     mapWmsTimer = setTimeout(() => {
         const pw = Math.min(2048, Math.round((want[2] - want[0]) / mpp)), ph = Math.min(2048, Math.round((want[3] - want[1]) / mpp));
         if (pw < 8 || ph < 8) return;
-        const url = SaltCore.wmsUrl(b.url, b.layers, want, pw, ph);
+        const url = SaltCore.wmsUrl(b.url, b.layers, want, pw, ph, b);
         if (m.base.querySelector(`[data-url="${CSS.escape(url)}"]`)) return;
         const img = document.createElementNS('http://www.w3.org/2000/svg', 'image');
         img.dataset.url = url;
@@ -293,29 +329,201 @@ const drawBasemap = (m, ext, view, w, h) => {
     }, 300);
 };
 
-// Editors keep the list of services: each row can be removed; the last row adds one.
+// --- Adding services ---
+
+// Which kind the form adds; and a WMS being looked up: the link, then what its
+// capabilities offer and which layers are ticked.
+let baseAddKind = 'wms';
+let wmsFind = null;   // { link, busy, error, title, version, getMap, formats, layers: [{ name, title, crs }], picked: Set, via }
+let baseCheck = null; // { name, ok, text }: what Check found for a service
+
+// Read a service address as text. The page asks first; a service that sends
+// no CORS headers refuses that, and then the sync server asks for it.
+const fetchServiceText = async (url) => {
+    try {
+        const res = await fetch(url, { credentials: 'omit' });
+        return { http: res.status, type: res.headers.get('Content-Type') || '', text: await res.text(), via: 'this browser' };
+    } catch (e) { /* refused (no CORS headers) or unreachable from here; the server tries */ }
+    if (isLocalFile) throw new Error("The service won't let this page read it, and a page opened as a file has no server to ask.");
+    const res = await postJson('/api/wms_fetch', { url });
+    if (res.status === 401) { handleUnauthorized(); throw new Error('The access code is needed again.'); }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.message || `The server answered ${res.status}.`);
+    if (body.error) throw new Error(`Neither this browser nor the server could reach it (${body.error}).`);
+    return { ...body, via: 'the server' };
+};
+
+// What a service's error page or exception says, as one short line.
+const serviceSays = (text) => String(text || '').replace(/<\?xml[^>]*>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+
+// A WMS's capabilities: its name, version, GetMap address, image formats, and
+// every named layer with the projections it offers (its own and inherited).
+const parseWmsCapabilities = (xml) => {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    const root = doc.documentElement;
+    const notCaps = "That link didn't return WMS capabilities. Paste the service's address (for ArcGIS, the one ending in WMSServer).";
+    if (!root || doc.getElementsByTagName('parsererror').length) throw new Error(notCaps);
+    const exc = doc.getElementsByTagNameNS('*', 'ServiceException')[0];
+    if (exc) throw new Error(`The service said: ${serviceSays(exc.textContent)}`);
+    if (!/Capabilities$/.test(root.localName)) throw new Error(notCaps);
+    const kids = (n, name) => (n ? [...n.children].filter(c => c.localName === name) : []);
+    const text = (n, name) => ((kids(n, name)[0] || {}).textContent || '').trim();
+    const cap = kids(root, 'Capability')[0];
+    if (!cap) throw new Error(notCaps);
+    const getMap = kids(kids(cap, 'Request')[0], 'GetMap')[0];
+    const online = getMap && getMap.getElementsByTagNameNS('*', 'OnlineResource')[0];
+    const href = online && (online.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || online.getAttribute('xlink:href') || '');
+    const layers = [];
+    const walk = (node, inherited) => {
+        const crs = [...inherited, ...[...kids(node, 'CRS'), ...kids(node, 'SRS')].flatMap(e => e.textContent.trim().split(/\s+/)).filter(Boolean)];
+        const name = text(node, 'Name');
+        if (name && layers.length < 1000) layers.push({ name, title: text(node, 'Title') || name, crs: [...new Set(crs)] });
+        kids(node, 'Layer').forEach(l => walk(l, crs));
+    };
+    kids(cap, 'Layer').forEach(l => walk(l, []));
+    if (!layers.length) throw new Error('The service lists no layers it can draw.');
+    return {
+        version: /^1\.3/.test(root.getAttribute('version') || '1.3.0') ? '1.3.0' : '1.1.1',
+        title: text(kids(root, 'Service')[0], 'Title'),
+        getMap: /^https?:\/\//i.test(href || '') ? href : '',
+        formats: kids(getMap, 'Format').map(f => f.textContent.trim()),
+        layers,
+    };
+};
+
+const findWmsLayers = async (link) => {
+    wmsFind = { link, busy: true };
+    renderOverlays();
+    try {
+        const got = await fetchServiceText(SaltCore.wmsCapabilitiesUrl(link));
+        if (got.http >= 400) throw new Error(`The service answered ${got.http}${serviceSays(got.text) ? `: ${serviceSays(got.text)}` : '.'}`);
+        const caps = parseWmsCapabilities(got.text);
+        // One layer is ticked to start with when there is only one.
+        wmsFind = { link, ...caps, via: got.via, picked: new Set(caps.layers.length === 1 ? [caps.layers[0].name] : []) };
+    } catch (e) {
+        wmsFind = { link, error: e.message || String(e) };
+    }
+    renderOverlays();
+};
+
+// A name not used yet: the service's own, then "(2)", "(3)"...
+const freeBasemapName = (want) => {
+    const base = (want || 'Basemap').trim().slice(0, 54) || 'Basemap';
+    const taken = n => sharedBasemaps.some(b => b.name.toLowerCase() === n.toLowerCase());
+    let name = base;
+    for (let i = 2; taken(name); i++) name = `${base} (${i})`;
+    return name;
+};
+
+const addBasemap = (entry) => {
+    if (sharedBasemaps.some(b => b.name.toLowerCase() === entry.name.toLowerCase())) { showToast(`There is already a service called ${entry.name}.`, true); return false; }
+    // The new one is shown here at once.
+    mapBaseChoice = entry.name;
+    try { localStorage.setItem('salt_map_base', entry.name); } catch (err) { /* this session only */ }
+    saveBasemaps([...sharedBasemaps, entry], `${entry.name} added for everyone.`);
+    return true;
+};
+
+// The ticked layers, as one service, in the projection they all offer.
+const addFoundLayers = () => {
+    const f = wmsFind;
+    const picked = f.layers.filter(l => f.picked.has(l.name));
+    if (!picked.length) { showToast('Tick the layers to add.', true); return; }
+    const crs = SaltCore.pickWmsCrs(picked.map(l => l.crs));
+    if (!crs) { showToast("Those layers aren't offered in Web Mercator or in latitude / longitude, so the map can't show them together.", true, { ms: 8000 }); return; }
+    const layers = picked.map(l => l.name).join(',');
+    if (layers.length > 2000) { showToast('Too many layers for one service; tick fewer.', true); return; }
+    const typed = (document.getElementById('mapWmsName') || {}).value;
+    const name = (typed || '').trim() || freeBasemapName(f.title || (picked.length === 1 ? picked[0].title : new URL(f.link).hostname));
+    if (addBasemap({ name, kind: 'wms', url: f.getMap || f.link.trim(), layers, version: f.version, crs, format: SaltCore.pickWmsFormat(f.formats) })) wmsFind = null;
+};
+
+// Check: ask the service for a little of the map, the way the map does, and
+// say what came back: an image, or the service's own error.
+const checkBasemap = async (b) => {
+    const tracks = SaltCore.reportTracks(mapReports());
+    const ext = mapLastWant || mapExtent(tracks) || [...SaltCore.lonLatToMerc(-0.01, -0.01), ...SaltCore.lonLatToMerc(0.01, 0.01)];
+    const url = b.kind === 'tiles'
+        ? SaltCore.tileUrl(b.url, (SaltCore.tilesFor(ext, Math.min(18, SaltCore.tileZoom((ext[2] - ext[0]) / 512)), 64) || [{ z: 0, x: 0, y: 0 }])[0])
+        : SaltCore.wmsUrl(b.url, b.layers, ext, 256, 256, b);
+    baseCheck = { name: b.name, text: 'Asking the service...' };
+    renderOverlays();
+    try {
+        const got = await fetchServiceText(url);
+        const kb = Math.max(1, Math.round((got.size || (got.text || '').length) / 1024));
+        if (got.http >= 400) baseCheck = { name: b.name, text: `The service answered ${got.http}${serviceSays(got.text) ? `: ${serviceSays(got.text)}` : '.'}` };
+        else if (/^image\//i.test(got.type)) {
+            baseCheck = { name: b.name, ok: true, text: got.via === 'this browser'
+                ? `It works: the service sent a map image (${got.type}, ${kb} KB).`
+                : `The service sent the server a map image (${got.type}, ${kb} KB), so the address and layers are right. If the map stays blank, this browser can't reach the service itself (a proxy or a certificate).` };
+        } else baseCheck = { name: b.name, text: `The service answered with ${got.type || 'something'} instead of an image: ${serviceSays(got.text) || '(empty)'}` };
+    } catch (e) {
+        baseCheck = { name: b.name, text: e.message || String(e) };
+    }
+    renderOverlays();
+};
+
+const wmsFindHtml = () => {
+    const f = wmsFind;
+    if (!f) return '';
+    if (f.busy) return '<div class="overlays-muted map-find-msg">Asking the service for its layers...</div>';
+    if (f.error) return `<div class="map-find-msg map-find-error">${escapeHtml(f.error)}</div>
+        <div class="map-form-row">
+            <input type="text" id="mapWmsManualLayers" placeholder="Layer names, comma-separated, to try anyway" maxlength="2000" spellcheck="false">
+            <input type="text" id="mapWmsManualName" placeholder="Name" maxlength="60" spellcheck="false">
+            <button type="button" id="mapWmsManualAdd" class="cancel-btn">Add anyway</button>
+        </div>`;
+    const n = f.picked.size;
+    return `<div class="map-find-head">
+            <input type="text" id="mapWmsName" value="${escapeHtml(freeBasemapName(f.title || new URL(f.link).hostname))}" maxlength="60" spellcheck="false" aria-label="Name">
+            <span class="overlays-muted">${f.layers.length} layer${f.layers.length === 1 ? '' : 's'} &middot; WMS ${f.version} &middot; read by ${escapeHtml(f.via)}</span>
+        </div>
+        ${f.layers.length > 10 ? '<input type="text" id="mapWmsFilter" class="map-layer-filter" placeholder="Filter layers" spellcheck="false">' : ''}
+        <div class="map-layer-list">${f.layers.map((l, i) => `
+            <label class="map-layer-row" data-layer-text="${escapeHtml(`${l.title} ${l.name}`.toLowerCase())}">
+                <input type="checkbox" data-layer-pick="${i}"${f.picked.has(l.name) ? ' checked' : ''}>
+                <span class="map-layer-title">${escapeHtml(l.title)}</span>
+                <code class="map-layer-name">${escapeHtml(l.name)}</code>
+                ${SaltCore.pickWmsCrs([l.crs]) ? '' : '<span class="map-layer-warn" title="Not offered in Web Mercator or latitude / longitude">can\'t show</span>'}
+            </label>`).join('')}</div>
+        <div class="map-form-row map-find-foot">
+            <button type="button" id="mapWmsAdd" class="set-btn"${n ? '' : ' disabled'}>${n > 1 ? `Add ${n} layers as one` : n ? 'Add 1 layer' : 'Tick layers to add'}</button>
+            <button type="button" id="mapWmsCancel" class="cancel-btn">Cancel</button>
+        </div>`;
+};
+
+// Editors keep the list of services: each can be checked or removed. Below,
+// a WMS is added from its link (its layers looked up), or a tile service by hand.
 const basemapForm = () => `<div class="map-basemap-form editor-only" id="mapBasemapForm" hidden>
         <div class="map-base-list">${sharedBasemaps.map((b, i) => `
             <div class="map-base-row">
                 <span class="map-base-name">${escapeHtml(b.name)}</span>
                 <span class="map-base-kind">${b.kind === 'wms' ? 'WMS' : 'Tiles'}</span>
-                <span class="map-base-url" title="${escapeHtml(b.url)}">${escapeHtml(b.url)}${b.layers ? ` &middot; ${escapeHtml(b.layers)}` : ''}</span>
+                <span class="map-base-url" title="${escapeHtml(b.url)}${b.layers ? `\n${escapeHtml(b.layers)}` : ''}">${escapeHtml(b.url)}${b.layers ? ` &middot; ${escapeHtml(b.layers)}` : ''}</span>
+                <button type="button" class="cancel-btn map-base-check-btn" data-base-check="${i}">Check</button>
                 <button type="button" class="overlay-remove" data-base-remove="${i}" title="Remove ${escapeHtml(b.name)}" aria-label="Remove ${escapeHtml(b.name)}">&times;</button>
-            </div>`).join('') || '<div class="overlays-muted">No services yet.</div>'}</div>
+            </div>${baseCheck && baseCheck.name === b.name ? `<div class="map-base-check${baseCheck.ok ? ' ok' : ''}" role="status">${escapeHtml(baseCheck.text)}</div>` : ''}`).join('') || '<div class="overlays-muted">No services yet.</div>'}</div>
+        <div class="io-modes map-add-kinds" role="group" aria-label="Add">
+            <button type="button" class="io-mode" data-base-add-kind="wms" aria-pressed="${baseAddKind === 'wms'}">Add WMS</button>
+            <button type="button" class="io-mode" data-base-add-kind="tiles" aria-pressed="${baseAddKind === 'tiles'}">Add tiles</button>
+        </div>
+        ${baseAddKind === 'wms' ? `
+        <div class="map-form-row">
+            <input type="text" id="mapWmsLink" placeholder="The service's link, as in your other map tools" maxlength="4000" spellcheck="false" value="${escapeHtml(wmsFind ? wmsFind.link : '')}">
+            <button type="button" id="mapWmsFind" class="set-btn"${wmsFind && wmsFind.busy ? ' disabled' : ''}>Find layers</button>
+        </div>
+        ${wmsFindHtml()}
+        <div class="overlays-note">Paste the link you use in other tools (for ArcGIS, the address ending in <code>WMSServer</code>). Its layers are listed; tick the ones
+            you want and they are added as one basemap, named after the service. It is drawn in Web Mercator when the service offers it,
+            otherwise in latitude / longitude.</div>` : `
         <div class="map-form-row">
             <input type="text" id="mapBaseName" placeholder="Name, e.g. Imagery" maxlength="60" spellcheck="false">
-            <select id="mapBaseKind" aria-label="Kind of service">
-                <option value="wms">WMS</option>
-                <option value="tiles">Tiles (WMTS, ArcGIS, XYZ)</option>
-            </select>
-            <input type="text" id="mapBaseUrl" placeholder="Service address" maxlength="2000" spellcheck="false">
-            <input type="text" id="mapBaseLayers" placeholder="Layers (WMS)" maxlength="300" spellcheck="false">
+            <input type="text" id="mapBaseUrl" placeholder="Tile address with {z}, {x} and {y}" maxlength="2000" spellcheck="false">
             <button type="button" id="mapBaseAdd" class="set-btn">Add</button>
         </div>
-        <div class="overlays-note">WMS: the service's address and its layer names; it is asked for EPSG:3857 images. Tiles: an address with {z}, {x} and {y}
-            (or WMTS's {TileMatrix}, {TileRow} and {TileCol}) in Web Mercator (GoogleMapsCompatible), such as an ArcGIS tile service's
-            <code>.../MapServer/tile/{z}/{y}/{x}</code>. Only the area of your graphics is requested. The list is shared with everyone;
-            each person picks which one to show.</div>
+        <div class="overlays-note">An address with {z}, {x} and {y} (or WMTS's {TileMatrix}, {TileRow} and {TileCol}) in Web Mercator (GoogleMapsCompatible),
+            such as an ArcGIS tile service's <code>.../MapServer/tile/{z}/{y}/{x}</code>.</div>`}
+        <div class="overlays-note">Only the area of your graphics is requested. The list is shared with everyone; each person picks which one to show.</div>
     </div>`;
 
 const saveBasemaps = async (list, said) => {
@@ -343,11 +551,31 @@ const basemapOptions = () => {
 
 // --- The map view in the Overlays tab ---
 
+const FULL_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg>';
+const EXIT_FULL_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4"/></svg>';
+// Full screen: the map with its controls and key fill the screen; Esc leaves.
+const toggleMapFullscreen = () => {
+    const pane = document.getElementById('mapPane');
+    if (!pane) return;
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else if (pane.requestFullscreen) pane.requestFullscreen().catch(() => showToast('This browser would not show the map full screen.', true));
+};
+document.addEventListener('fullscreenchange', () => {
+    const btn = document.getElementById('mapFullBtn');
+    if (!btn) return;
+    const on = document.fullscreenElement === document.getElementById('mapPane');
+    btn.innerHTML = on ? EXIT_FULL_ICON : FULL_ICON;
+    btn.title = on ? 'Leave full screen (Esc)' : 'Full screen';
+    btn.setAttribute('aria-label', btn.title);
+    redrawMap();
+});
+
 // Built once; later renders only redraw, so the basemap isn't fetched again.
 const renderOverlayMap = (box, header) => {
     if (!box.querySelector('#mapSvg')) {
         const hours = [[0, 'All'], [24, '24h'], [12, '12h'], [6, '6h']];
         box.innerHTML = `${header}
+            <div class="map-pane" id="mapPane">
             <div class="map-tools">
                 <div class="io-modes" role="group" aria-label="Map">
                     <button type="button" class="io-mode" data-map-mode="heat">Heat map</button>
@@ -368,15 +596,18 @@ const renderOverlayMap = (box, header) => {
                     <button type="button" data-map-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>
                     <button type="button" data-map-zoom="out" title="Zoom out" aria-label="Zoom out">&minus;</button>
                     <button type="button" data-map-zoom="fit" title="Show all" aria-label="Show all">&#10530;</button>
+                    <button type="button" data-map-zoom="full" id="mapFullBtn" title="Full screen" aria-label="Full screen">${FULL_ICON}</button>
                 </div>
                 <div id="mapNote" class="map-note" hidden></div>
                 <div id="mapTip" class="map-tip" role="status" hidden></div>
             </div>
-            <div id="mapLegend" class="map-legend"></div>`;
+            <div id="mapLegend" class="map-legend"></div>
+            </div>`;
         wireMapBox();
     } else {
         const head = box.querySelector('.overlays-head');
         if (head) head.outerHTML = header;
+        else if (header) box.insertAdjacentHTML('afterbegin', header);
     }
     box.querySelectorAll('[data-map-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mapMode === mapMode)));
     box.querySelectorAll('[data-map-hours]').forEach(b => b.classList.toggle('active', +b.dataset.mapHours === mapHours));
@@ -385,11 +616,12 @@ const renderOverlayMap = (box, header) => {
     pick.hidden = !sharedBasemaps.length;
     // The form is rebuilt from the list, keeping whether it was open and what was being typed.
     const slot = document.getElementById('mapBaseFormSlot'), old = document.getElementById('mapBasemapForm');
-    const keep = old ? { open: !old.hidden, ...Object.fromEntries(['mapBaseName', 'mapBaseKind', 'mapBaseUrl', 'mapBaseLayers'].map(id => [id, document.getElementById(id).value])) } : null;
+    const typed = old ? [...old.querySelectorAll('input[type="text"][id]')].map(i => [i.id, i.value]) : [];
     slot.innerHTML = basemapForm();
-    if (keep) {
-        document.getElementById('mapBasemapForm').hidden = !keep.open;
-        ['mapBaseName', 'mapBaseKind', 'mapBaseUrl', 'mapBaseLayers'].forEach(id => { document.getElementById(id).value = keep[id]; });
+    if (old) {
+        document.getElementById('mapBasemapForm').hidden = old.hidden;
+        typed.forEach(([id, v]) => { const i = document.getElementById(id); if (i && !(id === 'mapWmsName' && !v)) i.value = v; });
+        filterWmsLayers();
     }
     redrawMap();
 };
@@ -419,6 +651,7 @@ if (mapBody) {
         const hrs = e.target.closest('[data-map-hours]');
         if (hrs) { mapHours = +hrs.dataset.mapHours; renderOverlays(); return; }
         const zoom = e.target.closest('[data-map-zoom]');
+        if (zoom && zoom.dataset.mapZoom === 'full') { toggleMapFullscreen(); return; }
         if (zoom && mapView) {
             if (zoom.dataset.mapZoom === 'fit') mapView.mpp = Infinity;
             else mapView.mpp *= zoom.dataset.mapZoom === 'in' ? 0.5 : 2;
@@ -436,23 +669,48 @@ if (mapBody) {
             if (gone) saveBasemaps(sharedBasemaps.filter(b => b !== gone), `${gone.name} removed.`);
             return;
         }
+        const check = e.target.closest('[data-base-check]');
+        if (check) { const b = sharedBasemaps[+check.dataset.baseCheck]; if (b) checkBasemap(b); return; }
+        const kind = e.target.closest('[data-base-add-kind]');
+        if (kind) { baseAddKind = kind.dataset.baseAddKind; renderOverlays(); return; }
+        if (e.target.closest('#mapWmsFind')) {
+            const link = document.getElementById('mapWmsLink').value.trim();
+            if (!/^https?:\/\//i.test(link)) { showToast('The link must start with http:// or https://.', true); return; }
+            findWmsLayers(link);
+            return;
+        }
+        if (e.target.closest('#mapWmsAdd')) { addFoundLayers(); return; }
+        if (e.target.closest('#mapWmsCancel')) { wmsFind = null; renderOverlays(); return; }
+        if (e.target.closest('#mapWmsManualAdd')) {
+            const layers = document.getElementById('mapWmsManualLayers').value.trim();
+            if (!layers) { showToast('Type the layer names to try.', true); return; }
+            const name = document.getElementById('mapWmsManualName').value.trim() || freeBasemapName(new URL(wmsFind.link).hostname);
+            if (addBasemap({ name, kind: 'wms', url: wmsFind.link, layers })) wmsFind = null;
+            return;
+        }
         if (e.target.closest('#mapBaseAdd')) {
             const name = document.getElementById('mapBaseName').value.trim();
-            const kind = document.getElementById('mapBaseKind').value;
             const url = document.getElementById('mapBaseUrl').value.trim();
-            const layers = document.getElementById('mapBaseLayers').value.trim();
             if (!name) { showToast('Give the service a name.', true); return; }
-            if (sharedBasemaps.some(b => b.name.toLowerCase() === name.toLowerCase())) { showToast(`There is already a service called ${name}.`, true); return; }
             if (!/^https?:\/\//i.test(url)) { showToast('The address must start with http:// or https://.', true); return; }
-            if (kind === 'tiles' && !/\{(z|TileMatrix)\}/i.test(url)) { showToast('A tile address needs {z}, {x} and {y} (or {TileMatrix}, {TileCol}, {TileRow}).', true); return; }
-            ['mapBaseName', 'mapBaseUrl', 'mapBaseLayers'].forEach(id => { document.getElementById(id).value = ''; });
-            // The new one is shown here at once.
-            mapBaseChoice = name;
-            try { localStorage.setItem('salt_map_base', name); } catch (err) { /* this session only */ }
-            saveBasemaps([...sharedBasemaps, { name, kind, url, ...(layers && kind === 'wms' ? { layers } : {}) }], `${name} added for everyone.`);
+            if (!/\{(z|TileMatrix)\}/i.test(url)) { showToast('A tile address needs {z}, {x} and {y} (or {TileMatrix}, {TileCol}, {TileRow}).', true); return; }
+            if (addBasemap({ name, kind: 'tiles', url })) ['mapBaseName', 'mapBaseUrl'].forEach(id => { document.getElementById(id).value = ''; });
         }
     });
+    mapBody.addEventListener('input', e => { if (e.target.id === 'mapWmsFilter') filterWmsLayers(); });
+    mapBody.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && e.target.id === 'mapWmsLink') { e.preventDefault(); document.getElementById('mapWmsFind').click(); }
+    });
     mapBody.addEventListener('change', e => {
+        const pick = e.target.closest('[data-layer-pick]');
+        if (pick && wmsFind && wmsFind.layers) {
+            const l = wmsFind.layers[+pick.dataset.layerPick];
+            pick.checked ? wmsFind.picked.add(l.name) : wmsFind.picked.delete(l.name);
+            const n = wmsFind.picked.size, btn = document.getElementById('mapWmsAdd');
+            btn.disabled = !n;
+            btn.textContent = n > 1 ? `Add ${n} layers as one` : n ? 'Add 1 layer' : 'Tick layers to add';
+            return;
+        }
         if (e.target.id === 'mapBaseSelect') {
             mapBaseChoice = e.target.value;
             mapBaseFailed = false;
@@ -461,6 +719,12 @@ if (mapBody) {
         }
     });
 }
+
+// Only the layers matching what's typed in the filter.
+const filterWmsLayers = () => {
+    const q = ((document.getElementById('mapWmsFilter') || {}).value || '').trim().toLowerCase();
+    document.querySelectorAll('.map-layer-row').forEach(r => { r.hidden = !!q && !r.dataset.layerText.includes(q); });
+};
 
 // The map itself (made afresh with the view): wheel zooms around the
 // pointer, dragging pans, double-click zooms in; hovering a track tells it.

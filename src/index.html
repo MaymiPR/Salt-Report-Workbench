@@ -154,6 +154,7 @@
                     <h3>Log a New Report</h3>
                     <ul>
                         <li>Fill in <strong>Size</strong>, <strong>Activity</strong>, <strong>Location</strong> (required), plus <strong>Time</strong> (optional). The <strong>Analysis</strong> box is hidden by default; enable it per workspace from the Builder tab if you use it.</li>
+                        <li><strong>MGRS Lock</strong> (Settings menu, per browser): set your grid zone and 100 km square once (<code>11S NV</code>, in the box that appears in front of Location) and type just the digits: <code>39697 06762</code> is logged as <code>11S NV 39697 06762</code>. Each comma-separated part that is only an even run of digits gets it; full grids, place names and odd numbers (<code>Hill 205</code>) are left alone. The NAI / OBJ / PL hints work from the full grid as you type.</li>
                         <li><strong>Multiple grids auto-separate</strong>: type several MGRS coordinates in Location without commas (<code>12ABC123456 21CBA321654</code>, spaced digits fine too) and commas are inserted between them on log. If you type your own commas, or mix in free text, nothing is changed.</li>
                         <li><strong>Time field</strong>: type <code>HHMM</code> and it auto-formats to <code>HH:MM</code> on blur. Leave it blank and the report gets stamped with the current time when you submit. A typed time gets today&rsquo;s date, unless it is more than an hour ahead of now, in which case it is taken as yesterday&rsquo;s: in Zulu mode the day rolls over during a US evening, so <code>23:50</code> typed at <code>00:30Z</code> means forty minutes ago.</li>
                         <li>Press the blue <strong>Log New Report</strong> button or hit <kbd>Enter</kbd> from any field.</li>
@@ -245,7 +246,7 @@
                     <ul>
                         <li><strong>Folder</strong>: Workspaces (import and export, loaded workspaces, the report builder, overlays, your identity).</li>
                         <li><strong>Bar chart</strong>: Statistics. <strong>Page</strong>: Summary Reports.</li>
-                        <li><strong>Gear</strong>: Settings: layout, Zulu or Local time, the title separator, BDA, Select All / Deselect All, the User Manual, and Clear Workspace.</li>
+                        <li><strong>Gear</strong>: Settings: layout, Zulu or Local time, the title separator, BDA, MGRS Lock, Select All / Deselect All, the User Manual, and Clear Workspace.</li>
                         <li>The icon of the view on screen is blue; click it again to go back to the Report Log.</li>
                     </ul>
                 </section>
@@ -299,7 +300,7 @@
 
                 <section class="manual-section">
                     <h3>Report Builder</h3>
-                    <p>Open the <strong>Workspaces</strong> icon (the folder), then the <strong>Builder</strong> tab. It controls how reports are composed: the order of the form fields and the exact shape of the copied report text. The format is saved <strong>per workspace and synced to everyone</strong>, so the whole team writes reports the same way.</p>
+                    <p>Open the <strong>Workspaces</strong> icon (the folder), then the <strong>Builder</strong> tab. It controls how reports are composed: the order of the form fields and the exact shape of the copied report text. There is <strong>one format for every workspace</strong>, synced to everyone, so the whole team writes reports the same way. Switching or starting a workspace keeps it; it changes only when someone edits it here. Importing a backup takes the file's format only while yours is still the stock SALT one.</p>
                     <ul>
                         <li>A format is an ordered list of lines. Drag a line (or use the arrow buttons) to move it; the &#10005; removes it.</li>
                         <li>The <strong>Identifier</strong> line is special: at the top it renders as the header (like it always has); anywhere lower it renders as a <code>U:</code> line. That is the whole difference between the two presets.</li>
@@ -324,10 +325,11 @@
                         <li>With BDA shown, every report row gets a <strong>BDA</strong> pill in the Action column. Click it to expand the report&rsquo;s BDA panel, the same way history expands.</li>
                         <li><strong>The panel is a checklist, not a blank form.</strong> It lists the report&rsquo;s own elements already paired with their grids, one row each. Assess an element with a single click on <code>DEST</code>, <code>DMG</code>, <code>MOB</code>, <code>SUPP</code>, <code>NONE</code>, or <code>?</code>. A ten-item report is ten clicks, no typing.</li>
                         <li><strong>Pairing</strong>: when the number of Size elements matches the number of Location grids they pair in order; when there&rsquo;s a single grid every element shares it; otherwise the grid is left blank for you to fill. Both fields stay editable on every row.</li>
+                        <li><strong>Some of an element</strong>: the number box in front of each row starts at all that's left. Change it to log part of it: 3 destroyed of <code>40x T-72</code> logs <code>3x T-72</code> and leaves <code>37x T-72</code> on the checklist for later. What you type or pick in the checklist stays put when another operator's change redraws the table.</li>
                         <li>Picks are <strong>staged, not saved</strong>. The button reads <em>Log 3 Assessments</em> and commits them all at once as a single sync push. Click a chosen effect again to unstage that row.</li>
                         <li>Assessed elements drop off the checklist, so it always shows only what&rsquo;s outstanding. When nothing is left it says so.</li>
-                        <li><strong>A roll-up strip above the table</strong> totals the whole workspace: elements assessed out of every element in its reports, then a count per outcome and one for <em>Unassessed</em>. Click an outcome to show only the reports carrying it (Unassessed: reports with elements still to assess); click it again to see everything. Viewers get the strip too, so the read-only port shows the state of the fight at a glance.</li>
-                        <li><strong>The pill shows status at a glance</strong>: hollow when nothing is assessed, <code>BDA 2/3</code> while partial, solid once complete, colored by the worst outcome recorded (red destroyed, orange damaged or mobility kill, yellow suppressed, gray no effect or unknown). Hover it for the full count.</li>
+                        <li><strong>A roll-up strip above the table</strong> totals the whole workspace, counting each vehicle or item (<code>40x T-72</code> is 40): how many are assessed out of all of them in its reports, then a count per outcome and one for <em>Unassessed</em>. Click an outcome to show only the reports carrying it (Unassessed: reports with elements still to assess); click it again to see everything. Viewers get the strip too, so the read-only port shows the state of the fight at a glance.</li>
+                        <li><strong>The pill shows status at a glance</strong>: hollow when nothing is assessed, <code>BDA 3/40</code> while partial, solid once complete, colored by the worst outcome recorded (red destroyed, orange damaged or mobility kill, yellow suppressed, gray no effect or unknown). Hover it for the full count.</li>
                         <li><strong>Assessments can be revised.</strong> Click a logged assessment&rsquo;s effect badge and the effect buttons appear in its place with the current value marked; pick another to change it (Damaged &rarr; Destroyed, or back). The revision is re-stamped with the current time and whoever made it, and a toast confirms the change.</li>
                         <li>Each assessment is stamped with the time and your identity, and can be deleted from the same panel.</li>
                         <li>Assessments sync to every connected browser, append to the copied report text as <code>BDA n:</code> lines, are written into backup files, and appear in <strong>CSV exports</strong> as <code>BDA #n</code> rows (target in Size, effect in Activity, coords in MGRS).</li>
@@ -362,21 +364,26 @@
                     </ul>
                     <p class="manual-step">Export for ArcGIS (Import / Export tab)</p>
                     <ul>
-                        <li><strong>.json</strong> (Esri JSON, the surest): in ArcGIS Pro run <em>JSON To Features</em> on it. Every field's type is written in the file, so nothing is guessed. <strong>.geojson</strong>: the same tool; text longer than 254 characters is cut, since ArcGIS gives GeoJSON text fields 255. <strong>.csv</strong>: run <em>XY Table To Point</em> with <code>lon</code> as X and <code>lat</code> as Y (WGS 1984). All three hold the same rows; the time filter applies.</li>
+                        <li><strong>Shapefile (.zip)</strong>, the easiest: unzip it, then drag the <code>.shp</code> onto the map in ArcGIS Pro, or browse to it from a folder connection; ArcGIS Online takes the zip as it is. In WGS 1984, text in UTF-8; field names are cut to the format's 10 characters (<code>head_deg</code>, <code>prec_m</code>) and text to 254. ArcGIS Pro can't drag in <code>.json</code> or <code>.geojson</code> files or show them in a folder connection: those need the tool below.</li>
+                        <li><strong>.json</strong> (Esri JSON, every character of text): in ArcGIS Pro run <em>JSON To Features</em> on it. Every field's type is written in the file, so nothing is guessed. <strong>.geojson</strong>: the same tool; text longer than 254 characters is cut, since ArcGIS gives GeoJSON text fields 255. <strong>.csv</strong>: run <em>XY Table To Point</em> with <code>lon</code> as X and <code>lat</code> as Y (WGS 1984). All four hold the same rows; the time filter applies.</li>
                         <li>One point per grid, at the centre of the square the grid names. Each carries the report's identifier, time, Size, Activity, its tags and heading (<code>heading_deg</code>, for rotating arrow symbols), the MGRS, the NAI and OBJ (with <code>nai_from</code> / <code>obj_from</code>: <em>typed</em> or <em>grid</em>), the nearest phase line and its distance in metres, any <code>loc_check</code>, the BDA, and custom fields. Reports with no readable grid are left out, and the message says how many.</li>
                         <li><strong>Heat map</strong>: select the new layer, open <em>Symbology</em>, and choose <em>Heat Map</em>. For analysis, <em>Kernel Density</em> or <em>Optimized Hot Spot Analysis</em> run on the same layer.</li>
-                        <li><strong>ArcGIS tracks (.json or .geojson)</strong>: one line per report that moved, from its first grid through its updates to its latest, in the order reported. Each carries its identifier, Size, Activity, start and end times, the number of positions, the length in metres, and the direction (<code>bearing_deg</code>, <code>direction</code>). In ArcGIS Pro, give the layer a line symbol with an arrow at its end to show the way it went. A report that never moved is not a line; it is in the points.</li>
+                        <li><strong>ArcGIS tracks (Shapefile .zip, .json or .geojson)</strong>: one line per report that moved, from its first grid through its updates to its latest, in the order reported. Each carries its identifier, Size, Activity, start and end times, the number of positions, the length in metres, and the direction (<code>bearing_deg</code>, <code>direction</code>). In ArcGIS Pro, give the layer a line symbol with an arrow at its end to show the way it went. A report that never moved is not a line; it is in the points.</li>
                         <li>The points hold each report <strong>once</strong> (per grid it names), as it is now: its earlier updates are not extra points, so a heat map counts each formation once. For a CSV to load into another tool that plots every row, tick <strong>Latest version only</strong> on <em>Reports for Excel (.csv)</em>.</li>
                     </ul>
                     <p class="manual-step">The map (Overlays tab &rarr; Map)</p>
                     <ul>
                         <li>The overlays drawn on a map: <strong>NAIs green, OBJs blue, phase lines black</strong> (with a white edge, so they show on any background). The tags under each Location use the same colours.</li>
-                        <li><strong>Heat map</strong>: where the reports are thickest, counting each report once at its latest grid (a report with several grids is shared between them). <strong>Track map</strong>: each report's path from its first position through its updates to its latest, with an arrow for the way it went; a report at one grid is a dot (with a short arrow when its Activity gives a heading). Hover a track for its report, distance, direction and times.</li>
+                        <li><strong>Heat map</strong>: where the reports are thickest, blue through green and yellow to red at the busiest, counting each report once at its latest grid (a report with several grids is shared between them). <strong>Track map</strong>: each report's path from its first position through its updates to its latest, with an arrow for the way it went; a report at one grid is a dot (with a short arrow when its Activity gives a heading). Hover a track for its report, distance, direction and times.</li>
                         <li><strong>Window</strong>: All, or the last 24, 12, or 6 hours. The map covers the workspace on screen.</li>
-                        <li>Scroll to zoom, drag to move, double-click to zoom in; <strong>+</strong>, <strong>&minus;</strong> and the arrows button (show all). The map covers your overlays and reports and can't be zoomed out past them.</li>
-                        <li><strong>Basemaps&hellip;</strong> (editors): add as many services as you use, each with a name: WMS (its address and layer names; it is asked for EPSG:3857 images) or tiles (WMTS, ArcGIS, or XYZ: an address with <code>{z}</code>, <code>{x}</code>, <code>{y}</code>, or <code>{TileMatrix}</code>, <code>{TileRow}</code>, <code>{TileCol}</code>, in Web Mercator). The &times; removes one. The list is shared with everyone.</li>
+                        <li>Scroll to zoom, drag to move, double-click to zoom in; <strong>+</strong>, <strong>&minus;</strong> and the arrows button (show all). The map covers your overlays and reports and can't be zoomed out past them. Names stay on screen as you zoom in: a shape's name moves to the part of it in view.</li>
+                        <li><strong>Full screen</strong>: the corners button under the zoom buttons fills the screen with the map, its controls and key; <kbd>Esc</kbd> or the button again leaves.</li>
+                        <li><strong>Basemaps&hellip; &rarr; Add WMS</strong> (editors): paste the link you use in other tools (for ArcGIS, the address ending in <code>WMSServer</code>) and press <strong>Find layers</strong>. The service's layers are listed (with a filter when there are many); tick the ones you want and <strong>Add</strong> puts them in as one basemap, named after the service (rename it in the box first if you like). It asks the service in its own terms: its WMS version, its image format, and Web Mercator when it offers it, otherwise latitude / longitude, stretched to fit. A layer it can't show (only in some other projection) says so.</li>
+                        <li>Many services won't let a web page read their layer list; then the sync server reads it for you (the list says <em>read by the server</em>). If neither can reach the service, the message says so, and you can still type layer names to try.</li>
+                        <li><strong>Add tiles</strong>: a name and a tile address (WMTS, ArcGIS, or XYZ: <code>{z}</code>, <code>{x}</code>, <code>{y}</code>, or <code>{TileMatrix}</code>, <code>{TileRow}</code>, <code>{TileCol}</code>, in Web Mercator).</li>
+                        <li><strong>Check</strong> beside a service asks it for a little of the map and says what came back: a map image, or the service's own error (a wrong layer name, a projection it doesn't offer, a login it wants). The &times; removes a service. The list is shared with everyone.</li>
                         <li>The <strong>basemap picker</strong> beside the window switches between them, or to <em>No basemap</em>; each person's pick is kept in their browser. Only the area of the map is requested, never the whole world. Each browser fetches it straight from the service, so a computer that can't reach a service shows the map without it, and says so.</li>
-                        <li>Viewers get the map too, and pick from the same list, but can't change it.</li>
+                        <li>Viewers have it as the <strong>Map</strong> tab: the map alone, with heat or tracks, the window, full screen, and the basemap picker (the same list as the editors; they can't add to it).</li>
                     </ul>
                     <p class="manual-modes"><strong>Locally:</strong> Overlays and the basemap are kept in this browser, for every workspace in it, and work the same way.</p>
                     <p class="manual-modes"><strong>With sync server:</strong> Overlays and the basemap sync to every editor and viewer and are restored on server restart. Viewers can see the map and export for ArcGIS, but not change either.</p>
@@ -387,8 +394,8 @@
                     <p>Open with the <strong>Statistics</strong> icon (the bar chart). It follows the log live. Viewers get it too.</p>
                     <ul>
                         <li><strong>Scope</strong>: <em>This ATO</em> (the workspace on screen) or <em>All ATOs</em> (every loaded workspace together). All ATOs adds a <strong>Reports per ATO</strong> chart, and its exports are named <code>All_ATOs</code>. Remembered in this browser.</li>
-                        <li><strong>Window</strong>: All, the last 7 days, 24, 12, or 6 hours, or your own From / To (in your Zulu or Local mode). Every number and chart covers the same window.</li>
-                        <li><strong>Headline numbers</strong>: reports, how many have a grid, how many are in an NAI or OBJ, how many have a <em>Check</em> to look at, and BDA assessed.</li>
+                        <li><strong>Window</strong>: All, the last 7 days, 24, 12, or 6 hours, or your own From / To (date and time, in your Zulu or Local mode), laid out as in the Workspaces time filter; <strong>Clear</strong> above the To time goes back to all. Every number and chart covers the same window.</li>
+                        <li><strong>Headline numbers</strong>: reports, how many have a grid, how many are in an NAI or OBJ, how many have a <em>Check</em> to look at, and BDA assessed (vehicles and items).</li>
                         <li><strong>Charts</strong>: reports per NAI, per OBJ, and at each phase line (typed, or a grid within 1 km of the line); the busiest grid squares (<strong>Squares</strong>: 10 km or 1 km); reports by hour of day and by day; activity tags; the heading of moving reports; what was reported by type, counted from Size (<code>2x T-72, 4 BMP-2</code>); and BDA outcomes. Each report counts once per place, square, or tag it names; history is not counted. Long lists show their top ten and an <em>Other</em> bar.</li>
                         <li>Hover a bar (or Tab to it) for its number. <strong>Table</strong> shows every value under the chart.</li>
                         <li><strong>PNG</strong>, <strong>SVG</strong>, and <strong>CSV</strong> on each chart export it, on a light background for slides and print, with its title, workspace, and window written in. <strong>Export All</strong> saves every chart as PNG and SVG, and all the numbers in one CSV, together in one zip file.</li>
@@ -496,7 +503,7 @@
                     <p>A short thank you to the testers who put up with the bugs and kept the vibe coding going:</p>
                     <p class="manual-tester-list">You know who you are.</p>
                 </section>
-                <p class="manual-version-footer">Version 2.9 &middot; <a href="https://github.com/MaymiPR/SaltReportWorkbench" target="_blank" rel="noopener">Source code</a> (AGPL v3)</p>
+                <p class="manual-version-footer">Version 2.10 &middot; <a href="https://github.com/MaymiPR/SaltReportWorkbench" target="_blank" rel="noopener">Source code</a> (AGPL v3)</p>
             </div>
 
             <button type="button" id="manualCloseBtn" class="set-btn startup-continue-btn">Close</button>
@@ -529,7 +536,11 @@
                     </div>
 
                     <div class="form-header-row">
-                        <h2 id="form-title">New Report</h2>
+                        <div class="form-title-block">
+                            <h2 id="form-title">New Report</h2>
+                            <!-- While updating: which report, in full (app/30-form.js). -->
+                            <div id="formEditingNote" class="form-editing-note" hidden></div>
+                        </div>
                         <input type="number" id="reportStartNum" min="1" placeholder="Number">
                     </div>
 
@@ -543,7 +554,11 @@
                                 <input type="text" id="activity" placeholder="Activity" maxlength="500">
                             </div>
                             <div class="input-group">
-                                <input type="text" id="location" placeholder="Location" maxlength="500">
+                                <div class="location-row">
+                                    <!-- MGRS Lock (Settings): the grid zone and square put in front of grids typed as digits. -->
+                                    <input type="text" id="mgrsPrefix" class="mgrs-prefix" placeholder="11S NV" maxlength="8" spellcheck="false" aria-label="Locked grid zone and square" title="Grid zone and 100 km square, put in front of grids typed as digits">
+                                    <input type="text" id="location" placeholder="Location" maxlength="500">
+                                </div>
                                 <!-- What Log / Update will add from the overlays, and what disagrees (app/30-form.js). -->
                                 <div id="locationHints" class="loc-hints" hidden></div>
                             </div>
@@ -599,6 +614,7 @@
                             <button id="toggleTimeFormatBtn"></button>
                             <button id="toggleSepBtn"></button>
                             <button id="toggleBdaBtn"></button>
+                            <button id="toggleMgrsLockBtn"></button>
                             <hr>
                             <button id="selectAllBtn">Select All</button>
                             <button id="deselectAllBtn">Deselect All</button>
@@ -676,7 +692,7 @@
                             <button type="button" class="ws-tab active" data-tab="export" role="tab" aria-selected="true">Import / Export</button>
                             <button type="button" class="ws-tab" data-tab="workspaces" role="tab" aria-selected="false">Workspaces</button>
                             <button type="button" class="ws-tab" data-tab="builder" role="tab" aria-selected="false">Builder</button>
-                            <button type="button" class="ws-tab" data-tab="overlays" role="tab" aria-selected="false">Overlays</button>
+                            <button type="button" class="ws-tab" data-tab="overlays" role="tab" aria-selected="false"><span class="for-editors">Overlays</span><span class="for-viewers">Map</span></button>
                             <button type="button" class="ws-tab ws-tab-icon" data-tab="identity" role="tab" aria-selected="false" title="Identity" aria-label="Identity">
                                 <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 12C14.2091 12 16 10.2091 16 8C16 5.79086 14.2091 4 12 4C9.79086 4 8 5.79086 8 8C8 10.2091 9.79086 12 12 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 21V19C20 16.7909 18.2091 15 16 15H8C5.79086 15 4 16.7909 4 19V21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                             </button>
@@ -764,7 +780,7 @@
                         <!-- Tab: Overlays — NAI / OBJ / PL shapes for the workspace (rendered by app/45-overlays.js). -->
                         <div class="ws-tab-panel" data-tab-panel="overlays" style="display:none;">
                             <div class="export-block">
-                                <div class="export-block-label">Overlays <span id="overlaysScopeNote"></span></div>
+                                <div class="export-block-label"><span class="for-editors">Overlays <span id="overlaysScopeNote"></span></span><span class="for-viewers">Map</span></div>
                                 <div id="overlaysBody" class="overlays-body"></div>
                                 <input type="file" id="overlaysFileInput" class="file-input-wrapper" accept=".kml,.kmz,.geojson,.json,.zip,.shp,.shx,.dbf,.prj,.cpg" multiple>
                             </div>
@@ -810,7 +826,10 @@
                                         </div>
                                     </div>
                                     <div class="filter-field">
-                                        <label>To <span class="filter-mode" id="export-to-mode">(Z)</span></label>
+                                        <div class="filter-field-head">
+                                            <label>To <span class="filter-mode" id="export-to-mode">(Z)</span></label>
+                                            <button type="button" id="exportClearFilterBtn" class="cancel-btn filter-clear">Clear</button>
+                                        </div>
                                         <div class="filter-pair">
                                             <input type="date" id="export-to-date" class="filter-date" aria-label="To date">
                                             <input type="text" id="export-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
@@ -825,7 +844,6 @@
                                 </div>
                                 <div class="filter-meta">
                                     <span id="export-filter-count" class="filter-count-line">All reports will be exported.</span>
-                                    <button id="exportClearFilterBtn" class="cancel-btn">Clear</button>
                                 </div>
                             </div>
 
@@ -880,14 +898,6 @@
                                 <button type="button" class="filter-preset-btn" data-stats-hours="12">12h</button>
                                 <button type="button" class="filter-preset-btn" data-stats-hours="6">6h</button>
                             </div>
-                            <div class="stats-range">
-                                <label>From</label>
-                                <input type="date" id="stats-from-date" class="filter-date" aria-label="From date">
-                                <input type="text" id="stats-from-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
-                                <label>To</label>
-                                <input type="date" id="stats-to-date" class="filter-date" aria-label="To date">
-                                <input type="text" id="stats-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
-                            </div>
                             <div class="filter-presets" aria-label="Grid square size">
                                 <span class="filter-presets-label">Squares</span>
                                 <button type="button" class="filter-preset-btn" data-stats-squares="1">10 km</button>
@@ -895,6 +905,25 @@
                             </div>
                             <button type="button" id="statsExportAllBtn" class="set-btn">Export All</button>
                         </div>
+                        <div class="filter-grid range-grid">
+                                <div class="filter-field">
+                                    <label>From <span class="filter-mode range-mode">(Zulu)</span></label>
+                                    <div class="filter-pair">
+                                        <input type="date" id="stats-from-date" class="filter-date" aria-label="From date">
+                                        <input type="text" id="stats-from-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
+                                    </div>
+                                </div>
+                                <div class="filter-field">
+                                    <div class="filter-field-head">
+                                        <label>To <span class="filter-mode range-mode">(Zulu)</span></label>
+                                        <button type="button" class="cancel-btn filter-clear" data-stats-hours="0">Clear</button>
+                                    </div>
+                                    <div class="filter-pair">
+                                        <input type="date" id="stats-to-date" class="filter-date" aria-label="To date">
+                                        <input type="text" id="stats-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
+                                    </div>
+                                </div>
+                            </div>
                         <div id="statsBody" class="stats-body"></div>
                     </div>
 
@@ -921,19 +950,30 @@
                                 <button type="button" class="filter-preset-btn" data-summary-hours="168">7d</button>
                                 <button type="button" class="filter-preset-btn" data-summary-hours="0">All</button>
                             </div>
-                            <div class="stats-range">
-                                <label>From</label>
-                                <input type="date" id="summary-from-date" class="filter-date" aria-label="From date">
-                                <input type="text" id="summary-from-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
-                                <label>To</label>
-                                <input type="date" id="summary-to-date" class="filter-date" aria-label="To date">
-                                <input type="text" id="summary-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
-                            </div>
                             <div id="summaryPlaceRow" class="stats-range" hidden>
                                 <label for="summaryPlace">Place</label>
                                 <select id="summaryPlace"></select>
                             </div>
                         </div>
+                        <div class="filter-grid range-grid">
+                                <div class="filter-field">
+                                    <label>From <span class="filter-mode range-mode">(Zulu)</span></label>
+                                    <div class="filter-pair">
+                                        <input type="date" id="summary-from-date" class="filter-date" aria-label="From date">
+                                        <input type="text" id="summary-from-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
+                                    </div>
+                                </div>
+                                <div class="filter-field">
+                                    <div class="filter-field-head">
+                                        <label>To <span class="filter-mode range-mode">(Zulu)</span></label>
+                                        <button type="button" class="cancel-btn filter-clear" data-summary-hours="0">Clear</button>
+                                    </div>
+                                    <div class="filter-pair">
+                                        <input type="date" id="summary-to-date" class="filter-date" aria-label="To date">
+                                        <input type="text" id="summary-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
+                                    </div>
+                                </div>
+                            </div>
                         <div class="summary-actions">
                             <button type="button" id="summaryCopyBtn" class="set-btn">Copy</button>
                             <button type="button" id="summarySaveBtn" class="set-btn">Save .txt</button>

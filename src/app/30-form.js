@@ -82,36 +82,23 @@ const collectCustomValues = () => {
     return out;
 };
 
-// A workspace with no format of its own adopts the operator's current one, so
-// a Builder change isn't lost the moment you switch to a new ATO. The adopted
-// format is persisted for that workspace too, so every client converges on the
-// same shape instead of each falling back to its own local preference.
-const ensureWorkspaceFormat = () => {
-    if (!activeAto || isReadOnly) return;
-    const own = workspaceFormats[activeAto];
-    if (own) {
-        // Remember the shape we're actually working in, so the next new
-        // workspace inherits this rather than the last one we happened to edit.
-        writeStored(_LAST_FORMAT_KEY, JSON.stringify(own));
-        return;
-    }
-    const carry = readStored(_LAST_FORMAT_KEY, null);
-    if (!carry || !Array.isArray(carry.lines) || !carry.lines.length) return;
-    // Nothing worth carrying if it's just the stock preset.
-    if (JSON.stringify(carry.lines) === JSON.stringify(FORMAT_PRESETS['salt'])) return;
-    saveWorkspaceFormat(carry);
+// Keep a format here without telling the server (it came from the server, or
+// is about to be sent): the form and the log follow it.
+const adoptFormat = (format) => {
+    sharedFormat = isFormat(format) ? format : null;
+    if (!viewerAtLoad) writeStored('salt_format', JSON.stringify(currentFormat()));
+    applyFormFieldOrder();
+    renderLog();
 };
 
-// Persist a format change for the active workspace: local cache + server.
+// Persist a format change (every workspace): local cache + server.
 const saveWorkspaceFormat = (format) => {
-    if (!activeAto) return;
-    workspaceFormats[activeAto] = format;
-    writeStored('salt_ws_formats', JSON.stringify(workspaceFormats));
-    writeStored(_LAST_FORMAT_KEY, JSON.stringify(format));
+    sharedFormat = format;
+    writeStored('salt_format', JSON.stringify(format));
     applyFormFieldOrder();
     // Custom fields own table columns now, so the log has to repaint too.
     renderLog();
-    postJson('/api/save_format', { ato: activeAto, format }).catch(() => {});
+    postJson('/api/save_format', { format }).catch(() => {});
 };
 
 // --- Location against the overlays ---
@@ -121,7 +108,7 @@ const saveWorkspaceFormat = (format) => {
 const renderLocationHints = () => {
     const box = document.getElementById('locationHints');
     if (!box) return;
-    const text = el.form.location.value;
+    const text = lockedLocation(el.form.location.value);
     const ovs = currentOverlays();
     const plan = ovs.length && text.trim() ? SaltCore.locationPlan(text, ovs) : { add: [], conflicts: [] };
     const near = plan.add.some(k => k.startsWith('PL ')) ? locationInfo(text).nearestPl : null;
@@ -130,7 +117,7 @@ const renderLocationHints = () => {
         ...plan.conflicts.map(c => `<span class="loc-hint warn" title="When you log, you pick which to keep.">${escapeHtml(c.message)}</span>`),
     ];
     box.innerHTML = chips.join('');
-    box.hidden = !chips.length;
+    box.hidden = !ovs.length;
 };
 
 // The Location box with the places its grid is in added, and each typed
@@ -176,6 +163,7 @@ const resetForm = () => {
     el.form.root.reset();
     el.form.reportId.value = '';
     el.form.title.textContent = 'New Report';
+    el.form.editingNote.hidden = true;
     el.form.logBtn.textContent = 'Log New Report';
     el.form.logBtn.style.display  = '';
     el.form.editPair.style.display = 'none';
@@ -195,7 +183,13 @@ const loadReportForEditing = (reportId) => {
     document.querySelectorAll('.selected-row').forEach(r => r.classList.remove('selected-row'));
     const rowEl = [...el.log.body.rows].find(tr => tr.dataset.id === report.id);
     if (rowEl) rowEl.classList.add('selected-row');
-    el.form.title.textContent = `Updating ${formatFullId(report)}`;
+    // The short ID always fits; the full identifier and what the report says go
+    // on the line below, cut to fit, whole on hover.
+    el.form.title.textContent = `Updating ${report.displayId || formatFullId(report)}`;
+    const note = [formatFullId(report), report.size, report.activity].filter(Boolean).join(' · ');
+    el.form.editingNote.textContent = note;
+    el.form.editingNote.title = note;
+    el.form.editingNote.hidden = false;
     el.form.reportId.value    = report.id;
     el.form.startNum.value = reportNum(report) || 1;
     el.form.size.value     = report.size;

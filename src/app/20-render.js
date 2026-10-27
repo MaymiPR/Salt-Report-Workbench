@@ -31,6 +31,21 @@ const syncCustomColumns = () => {
 // an inline add-form. Target quick-picks are parsed from the report's own
 // Size elements and Location grids.
 
+// What was typed or picked in open checklists, so a redraw (a sync from
+// another operator) doesn't throw it away: "reportId|row key" -> the row's values.
+let bdaDrafts = new Map();
+const keepBdaDrafts = () => {
+    bdaDrafts = new Map();
+    el.log.body.querySelectorAll('.bda-wrap:not([data-logged]) .bda-check-row').forEach(row => {
+        const id = row.closest('.bda-wrap').querySelector('[data-bda-commit]').dataset.bdaCommit;
+        const picked = row.querySelector('.bda-eff-btn.picked');
+        bdaDrafts.set(`${id}|${row.dataset.key}`, {
+            qty: row.querySelector('.bda-ck-qty').value, target: row.querySelector('.bda-ck-target').value,
+            coords: row.querySelector('.bda-ck-coords').value, effect: picked ? picked.dataset.bdaEff : '',
+        });
+    });
+};
+
 const buildBdaRow = (report) => {
     const tr = document.createElement('tr');
     tr.className = 'bda-sub-row';
@@ -51,17 +66,21 @@ const buildBdaRow = (report) => {
         </div>`;
     }).join('');
     // Checklist: one row per element from the report, already paired with its
-    // grid. Elements that already have an assessment are dropped so the list
-    // only ever shows what's still outstanding.
-    const assessed = new Set((report.bda || []).map(b => (b.target || '').toLowerCase()));
-    const pending  = bdaElements(report).filter(e => !assessed.has(e.target.toLowerCase()));
-    const effBtns  = (i) => BDA_EFFECTS.map(e =>
-        `<button type="button" class="bda-eff-btn bda-eff-${e.cls}" data-bda-eff="${e.name}" data-row="${i}" title="${e.name}">${e.key}</button>`).join('');
-    const rows = pending.map((e, i) => `<div class="bda-check-row" data-row="${i}">
-        <input type="text" class="bda-ck-target" value="${escapeHtml(e.target)}" maxlength="200" aria-label="Target">
-        <input type="text" class="bda-ck-coords" value="${escapeHtml(e.coords)}" placeholder="Coords" maxlength="200" aria-label="Coords">
-        <span class="bda-eff-group">${effBtns(i)}</span>
-    </div>`).join('');
+    // grid, less what has been assessed of it, so the list only ever shows
+    // what's still outstanding. How many to log defaults to all that's left.
+    const pending  = SaltCore.bdaPending(report);
+    const effBtns  = (i, picked) => BDA_EFFECTS.map(e =>
+        `<button type="button" class="bda-eff-btn bda-eff-${e.cls}${e.name === picked ? ' picked' : ''}" data-bda-eff="${e.name}" data-row="${i}" title="${e.name}">${e.key}</button>`).join('');
+    const rows = pending.map((e, i) => {
+        const key = `${e.type.toLowerCase()}#${i}`;
+        const d = bdaDrafts.get(`${report.id}|${key}`) || { qty: e.remaining, target: e.type, coords: e.coords, effect: '' };
+        return `<div class="bda-check-row${d.effect ? ' staged' : ''}" data-row="${i}" data-key="${escapeHtml(key)}" data-counted="${e.counted || e.remaining > 1 ? 1 : 0}">
+        <input type="number" class="bda-ck-qty" value="${escapeHtml(Math.min(e.remaining, d.qty))}" min="1" max="${e.remaining}" aria-label="How many of ${e.remaining}" title="How many of the ${e.remaining} left">
+        <input type="text" class="bda-ck-target" value="${escapeHtml(d.target)}" maxlength="200" aria-label="Target">
+        <input type="text" class="bda-ck-coords" value="${escapeHtml(d.coords)}" placeholder="Coords" maxlength="200" aria-label="Coords">
+        <span class="bda-eff-group">${effBtns(i, d.effect)}</span>
+    </div>`;
+    }).join('');
     td.innerHTML = `<div class="bda-wrap">
         ${entries ? `<div class="bda-list">${entries}</div>` : ''}
         <div class="bda-add">
@@ -72,6 +91,7 @@ const buildBdaRow = (report) => {
         </div>
     </div>`;
     tr.appendChild(td);
+    refreshBdaCommit(td.querySelector('.bda-wrap'));
     return tr;
 };
 
@@ -95,10 +115,13 @@ const commitBdaEntries = (reportId, wrap) => {
     wrap.querySelectorAll('.bda-check-row').forEach(row => {
         const picked = row.querySelector('.bda-eff-btn.picked');
         if (!picked) return;
-        const target = row.querySelector('.bda-ck-target').value.trim();
-        if (!target) return;
+        const type = row.querySelector('.bda-ck-target').value.trim();
+        if (!type) return;
+        // How many: at least one, at most what was left; the rest stay on the list.
+        const qtyBox = row.querySelector('.bda-ck-qty');
+        const qty = Math.max(1, Math.min(+qtyBox.max || 1, Math.round(+qtyBox.value) || 1));
         adds.push({
-            target,
+            target: row.dataset.counted === '1' || qty > 1 ? `${qty}x ${type}` : type,
             coords: row.querySelector('.bda-ck-coords').value.trim(),
             effect: picked.dataset.bdaEff,
             time: iso, user: userProfile || null,
@@ -107,6 +130,7 @@ const commitBdaEntries = (reportId, wrap) => {
         });
     });
     if (!adds.length) { showToast('Pick an effect for at least one element.', true); return; }
+    wrap.dataset.logged = '1';  // its picks are done with: not kept over the redraw
     report.bda = [...(report.bda || []), ...adds];
     report.lastModified = now;
     reportsByAto[activeAto] = localReports;
@@ -158,7 +182,7 @@ const renderBdaRollup = (live) => {
     const roll = SaltCore.bdaRollup(live);
     const chip = (key, label, n, cls) =>
         `<button type="button" class="bda-chip bda-eff-${cls}${bdaFilter === key ? ' active' : ''}${n ? '' : ' empty'}" data-bda-filter="${escapeHtml(key)}" title="${bdaFilter === key ? 'Show every report' : 'Show only these reports'}">${escapeHtml(label)} <strong>${n}</strong></button>`;
-    box.innerHTML = `<span class="bda-rollup-total" title="Elements assessed, out of every element in this workspace's reports">BDA <strong>${roll.done}</strong> / ${roll.total}</span>`
+    box.innerHTML = `<span class="bda-rollup-total" title="Vehicles and items assessed, out of all of them in this workspace's reports">BDA <strong>${roll.done}</strong> / ${roll.total}</span>`
         + BDA_EFFECTS.map(e => chip(e.name, e.name, roll.byEffect[e.name], e.cls)).join('')
         + chip('unassessed', 'Unassessed', roll.unassessed, 'none');
 };
@@ -188,6 +212,7 @@ const locationTags = (text, id) => {
 };
 
 const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
+    keepBdaDrafts();
     let rows = localReports.filter(r => !r.deleted);
     el.log.count.textContent = `${rows.length} unique reports`;
     // Total = each live report + its history entries. Deleted excluded.
@@ -276,7 +301,7 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
                         : (total && done < total) ? `BDA ${done}/${total}`
                         : `BDA ${done}`;
             const tip   = done === 0 ? 'No assessments yet'
-                        : (total && done < total) ? `${done} of ${total} elements assessed`
+                        : (total && done < total) ? `${done} of ${total} assessed`
                         : `All ${done} assessed`;
             bdaBtn = `<button class="bda-btn ${state}${worstCls ? ' bda-worst-' + worstCls : ''}${openBdaRows.has(report.id) ? ' open' : ''}" data-bda-id="${escapeHtml(report.id)}" title="${tip}">${label}</button>`;
         }
@@ -314,7 +339,6 @@ const loadConfig = () => {
     el.config.title.value = localConfig.title || '';
     setAtoState(!!(localConfig.ato && localConfig.title));
     // A brand-new workspace inherits the format you were just using.
-    ensureWorkspaceFormat();
     // Form field order follows the active workspace's format.
     applyFormFieldOrder();
 };
@@ -371,4 +395,11 @@ const updateTimeBtnText   = () => { el.menu.timeBtn.textContent   = timeDisplayM
 // Label shows the option you switch TO (same convention as the time/layout buttons).
 const updateSepBtnText    = () => { el.menu.sepBtn.textContent    = atoTitleSep === 'dash' ? 'Title Separator: Space' : 'Title Separator: Dash'; };
 const updateBdaBtnText    = () => { el.menu.bdaBtn.textContent    = bdaMode ? 'Hide BDA' : 'Show BDA'; };
+const updateMgrsLockUi    = () => {
+    el.menu.mgrsLockBtn.textContent = mgrsLock ? `MGRS Lock: On${mgrsLockPrefix ? ` (${mgrsLockPrefix})` : ''}` : 'MGRS Lock: Off';
+    document.body.classList.toggle('mgrs-lock', mgrsLock);
+    const box = document.getElementById('mgrsPrefix');
+    if (box && document.activeElement !== box) box.value = mgrsLockPrefix;
+    el.form.location.placeholder = mgrsLock ? 'Location (grid digits, e.g. 39697 06762)' : 'Location';
+};
 const applyLayoutMode     = () => { document.body.classList.toggle('scrollable-layout', el.layout.grid.classList.contains('horizontal-layout')); updateLayoutBtnText(); };

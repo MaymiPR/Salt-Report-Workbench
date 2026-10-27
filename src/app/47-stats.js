@@ -165,6 +165,7 @@ const renderStats = () => {
     const scope = statsScope === 'all' ? `All ATOs (${atos})` : (ato || 'No workspace');
     const context = `${scope} · ${phrase} · ${reps.length} report${reps.length === 1 ? '' : 's'}`;
     s.subtitle.textContent = context;
+    s.panel.querySelectorAll('.range-mode').forEach(n => { n.textContent = local ? '(Local)' : '(Zulu)'; });
     document.querySelectorAll('[data-stats-squares]').forEach(b => b.classList.toggle('active', +b.dataset.statsSquares === statsSquareDigits));
     document.querySelectorAll('[data-stats-scope]').forEach(b => b.classList.toggle('active', b.dataset.statsScope === statsScope));
     // Reports per ATO, largest first: only across every workspace.

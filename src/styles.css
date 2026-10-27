@@ -30,8 +30,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI"
 .container { max-width: 1600px; width: 100%; margin: 0 auto; position: relative; padding-bottom: 20px; box-sizing: border-box; }
 
 h2 { font-size: 1.35em; font-weight: 600; margin-top: 0; margin-bottom: 0; letter-spacing: -0.02em; }
-/* Two-panel grid: 340px form / fit-content(1100px) report, centered as a unit. */
-.grid-container { display: grid; grid-template-columns: 340px fit-content(1100px); grid-template-rows: calc(105vh - 100px); gap: 24px; justify-content: center; align-items: stretch; }
+/* Two-panel grid: 340px form / report, centered as a unit. The report panel is
+   1100px (or what's left) whatever it shows, so switching views never resizes it. */
+.grid-container { display: grid; grid-template-columns: 340px minmax(0, 1100px); grid-template-rows: calc(105vh - 100px); gap: 24px; justify-content: center; align-items: stretch; }
 /* Horizontal layout: stack to one column, form auto / report 1fr. */
 .grid-container.horizontal-layout { grid-template-columns: 1fr; grid-template-rows: auto; justify-content: stretch; }
 .form-section, .report-section { padding: 30px; background-color: var(--panel-bg); border-radius: 20px; border: 1px solid var(--glass-border); min-width: 0; box-sizing: border-box; }
@@ -116,6 +117,9 @@ button:hover { opacity: 0.85; }
 
 .form-header-row { display: flex; justify-content: flex-start; align-items: center; margin-bottom: 20px; margin-top: 0; padding-top: 15px; border-top: 1px solid var(--divider); gap: 10px; }
 #form-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.form-title-block { display: flex; flex-direction: column; min-width: 0; flex: 0 1 auto; }
+.form-editing-note { margin-top: 2px; font-size: 0.78em; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.form-editing-note[hidden] { display: none; }
 
 /* Search bar fills the slack between title and the right-hand button cluster. */
 .search-bar-wrapper { position: relative; flex: 1 1 auto; min-width: 0; margin: 0; display: flex; align-items: center; }
@@ -383,7 +387,7 @@ body.local-mode .startup-access-divider { display: none; }
 .view-icon:focus-visible { outline: 2px solid var(--system-blue); outline-offset: 1px; }
 .report-header, .export-panel-header { padding-right: 64px; min-height: 62px; box-sizing: border-box; }
 .data-management-menu { position: relative; }
-#dataMgmtMenu { display: none; position: absolute; right: 0; top: calc(100% + 8px); overflow-y: auto; background-color: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: 14px; padding: 6px; z-index: 20; min-width: 250px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+#dataMgmtMenu { display: none; position: absolute; right: 0; top: calc(100% + 8px); overflow-y: auto; box-sizing: border-box; background-color: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: 14px; padding: 6px; z-index: 20; min-width: 250px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
 #dataMgmtMenu button { width: 100%; text-align: left; background: transparent; font-size: 0.9em; margin: 0; border-radius: 8px; padding: 10px 14px; color: var(--text-primary); font-weight: 500; }
 #dataMgmtMenu hr { border: none; border-top: 1px solid var(--divider); margin: 5px 0; }
 #dataMgmtMenu button:hover { background: var(--system-blue); }
@@ -645,6 +649,13 @@ body.local-mode .startup-access-divider { display: none; }
 .filter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px; }
 @media (max-width: 600px) { .filter-grid { grid-template-columns: 1fr; } }
 .filter-field label { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+/* The To field's label row also holds Clear, above the To time: each field is
+   as wide as its date and time, so Clear lines up with the time's right edge. */
+.filter-grid .filter-field { justify-self: start; }
+.filter-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; min-height: 24px; }
+.filter-field-head label { margin: 0; }
+.filter-field label { min-height: 24px; }
+.filter-clear { margin: 0; width: auto; padding: 3px 12px; font-size: 0.78em; border-radius: 8px; }
 .filter-mode { font-size: 0.95em; color: var(--system-blue); font-weight: 700; letter-spacing: 0.3px; text-transform: none; }
 .filter-pair { display: flex; gap: 8px; align-items: stretch; }
 .filter-pair input { box-sizing: border-box; padding: 11px 14px; border: 1.5px solid transparent; border-radius: 12px; background-color: var(--input-bg); color: var(--text-primary); font-size: 0.95em; font-family: inherit; transition: border-color 0.2s, background-color 0.2s; color-scheme: dark; margin: 0; }
@@ -767,6 +778,7 @@ body.read-only .ws-tab[data-tab="identity"],
 body.read-only #set-profile-btn,
 /* Settings-menu items that have no purpose in a read-only session. */
 body.read-only #toggleLayoutBtn,
+body.read-only #toggleMgrsLockBtn,
 body.read-only #selectAllBtn,
 body.read-only #deselectAllBtn,
 body.read-only #clearAllBtn { display: none !important; }
@@ -1129,19 +1141,44 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-base-select { width: auto; min-width: 150px; margin: 0; padding: 7px 34px 7px 12px; font-size: 0.85em; border-radius: 10px; }
 .map-base-select[hidden] { display: none; }
 .map-base-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
-.map-base-row { display: grid; grid-template-columns: minmax(80px, auto) 52px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 4px 6px; border-bottom: 1px solid var(--divider); font-size: 0.85em; }
+.map-base-row { display: grid; grid-template-columns: minmax(80px, auto) 52px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 4px 6px; border-bottom: 1px solid var(--divider); font-size: 0.85em; }
+.map-base-check-btn { margin: 0; width: auto; padding: 4px 10px; font-size: 0.85em; }
+.map-base-check { margin: 4px 6px 6px; padding: 7px 10px; border-radius: 8px; font-size: 0.82em; line-height: 1.4; background: rgba(255, 159, 10, 0.12); color: var(--text-primary); border: 1px solid rgba(255, 159, 10, 0.35); }
+.map-base-check.ok { background: rgba(48, 209, 88, 0.12); border-color: rgba(48, 209, 88, 0.35); }
+.map-add-kinds { margin: 4px 0 10px; }
+.map-find-msg { margin: 0 0 8px; font-size: 0.85em; }
+.map-find-error { padding: 7px 10px; border-radius: 8px; background: rgba(255, 69, 58, 0.12); border: 1px solid rgba(255, 69, 58, 0.35); color: var(--text-primary); line-height: 1.4; }
+.map-find-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; font-size: 0.85em; }
+.map-find-head input { flex: 0 1 260px; margin: 0; padding: 8px 12px; font-size: 0.95em; background: var(--panel-bg); }
+.map-layer-filter { margin: 0 0 6px; padding: 7px 12px; font-size: 0.85em; background: var(--panel-bg); border: 1px solid var(--divider) !important; }
+.map-layer-list { max-height: 220px; overflow-y: auto; border-radius: 10px; background: var(--panel-bg); padding: 4px; margin-bottom: 8px; }
+.map-layer-row { display: flex; align-items: center; gap: 8px; margin: 0; padding: 5px 8px; border-radius: 7px; font-size: 0.85em; font-weight: 400; color: var(--text-primary); cursor: pointer; }
+.map-layer-row[hidden] { display: none; }
+.map-layer-row:hover { background: var(--input-bg-hover); }
+.map-layer-row input { margin: 0; flex: 0 0 auto; }
+.map-layer-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-layer-name { flex: 0 1 auto; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 0.9em; }
+.map-layer-warn { flex: 0 0 auto; color: var(--system-orange, #ff9f0a); font-size: 0.85em; }
+.map-find-foot { margin-bottom: 4px; }
 .map-base-name { font-weight: 600; }
 .map-base-kind { color: var(--text-secondary); }
 .map-base-url { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, Consolas, monospace; font-size: 0.92em; }
-.map-form-row #mapBaseName { flex: 0 1 170px; }
+.map-form-row #mapBaseName, .map-form-row #mapWmsManualName { flex: 0 1 170px; }
 .map-basemap-form { background: var(--input-bg); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
 .map-form-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .map-form-row select { width: auto; min-width: 150px; margin: 0; padding: 9px 34px 9px 12px; font-size: 0.88em; }
 .map-form-row input { flex: 1 1 240px; margin: 0; padding: 9px 12px; font-size: 0.88em; background: var(--panel-bg); }
-.map-form-row #mapBaseLayers { flex: 0 1 180px; }
 .map-form-row button { margin: 0; width: auto; padding: 9px 18px; }
 .map-box { position: relative; height: max(380px, calc(100vh - 380px)); border-radius: 12px; overflow: hidden; background: #2a2b2e; border: 1px solid var(--divider); touch-action: none; cursor: grab; user-select: none; }
 .map-box.dragging { cursor: grabbing; }
+/* Full screen: the controls on top, the map filling the rest, the key below. */
+.map-pane:fullscreen { display: flex; flex-direction: column; padding: 20px; background: var(--panel-bg); box-sizing: border-box; }
+.map-pane:fullscreen .map-box { flex: 1 1 auto; height: auto; min-height: 0; }
+.map-box .map-zoom svg { position: static; display: block; width: 14px; height: 14px; margin: auto; }
+/* Viewers see the Overlays tab as the map. */
+.for-viewers { display: none; }
+body.read-only .for-viewers { display: inline; }
+body.read-only .for-editors { display: none; }
 .map-box svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .map-label { font: 600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; fill: #f5f5f7; stroke: #000; stroke-width: 3px; stroke-opacity: 0.75; paint-order: stroke; pointer-events: none; }
 .map-label-track { font-weight: 500; font-size: 10px; text-anchor: start; }
@@ -1155,7 +1192,7 @@ circle.map-hit { pointer-events: all; }
 .map-tip { position: absolute; z-index: 2; max-width: 280px; padding: 8px 10px; border-radius: 10px; background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); font-size: 0.8em; line-height: 1.45; pointer-events: none; }
 .map-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 0.8em; color: var(--text-secondary); }
 .map-key { display: inline-flex; align-items: center; gap: 6px; }
-.map-ramp { display: inline-block; width: 46px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, rgba(255, 159, 10, 0.27), rgba(255, 159, 10, 0.67) 40%, rgba(255, 214, 10, 0.84) 70%, rgba(255, 248, 220, 0.92)); }
+.map-ramp { display: inline-block; width: 46px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, rgba(10, 132, 255, 0.35), rgba(48, 209, 88, 0.65) 35%, rgba(255, 214, 10, 0.8) 65%, rgba(255, 59, 48, 0.92)); }
 [data-map-mode][aria-pressed="true"] { background-color: var(--panel-bg); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
 
 .overlay-group { background: var(--input-bg); border-radius: 12px; padding: 10px 12px 2px; margin-bottom: 12px; }
@@ -1181,7 +1218,15 @@ button.loc-tag { border: none; margin: 0; width: auto; font-family: inherit; tex
 button.loc-tag.warn:hover { background: rgba(255, 159, 10, 0.26); }
 
 /* Under the Location box while typing: what Log / Update will add, and what disagrees. */
-.loc-hints { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 12px 2px; }
+/* Below the Location box, clear of its edge. While overlays are loaded the
+   row keeps its room even when empty, so a chip appearing doesn't move the form. */
+/* MGRS Lock: the locked zone and square sit in front of the Location box. */
+.location-row { display: flex; gap: 8px; }
+.location-row #location { flex: 1 1 auto; min-width: 0; }
+.mgrs-prefix { display: none; flex: 0 0 92px; width: 92px !important; text-align: center; text-transform: uppercase; font-weight: 600; letter-spacing: 0.3px; color: var(--system-blue) !important; }
+body.mgrs-lock .mgrs-prefix { display: block; }
+.mgrs-prefix.invalid { border-color: var(--system-red) !important; }
+.loc-hints { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 0 2px; min-height: 22px; }
 .loc-hints[hidden] { display: none; }
 .loc-hint { font-size: 0.78em; font-weight: 600; padding: 3px 10px; border-radius: 100px; border: none; margin: 0; width: auto; background: rgba(10, 132, 255, 0.14); color: var(--system-blue); cursor: pointer; font-family: inherit; line-height: 1.4; }
 .loc-hint:hover { background: rgba(10, 132, 255, 0.26); }
@@ -1206,8 +1251,8 @@ button.loc-tag.warn:hover { background: rgba(255, 159, 10, 0.26); }
 .stats-filters #statsExportAllBtn { margin: 0 0 0 auto; width: auto; padding: 8px 16px; font-size: 0.85em; }
 .stats-range { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .stats-range label { margin: 0 2px 0 4px; font-size: 0.8em; color: var(--text-secondary); }
-.stats-range input { width: auto; margin: 0; padding: 6px 8px; font-size: 0.85em; }
-.stats-range .filter-time { width: 64px; }
+/* Statistics and Summary: the From / To pickers laid out as in Workspaces. */
+.range-grid { max-width: 620px; margin-bottom: 16px; }
 .filter-preset-btn.active { background-color: rgba(10, 132, 255, 0.18); color: var(--system-blue); }
 .stats-body { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
 .stats-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 16px; }
@@ -1332,6 +1377,7 @@ body.read-only .bda-effect:hover { filter: none; }
 .bda-check-row.staged { background-color: rgba(255, 159, 10, 0.07); border-color: rgba(255, 159, 10, 0.25); }
 .bda-check-row input { box-sizing: border-box; padding: 6px 10px; font-size: 0.84em; border-radius: 8px; }
 .bda-check-row .bda-ck-target { flex: 2 1 150px; min-width: 0; font-weight: 500; }
+.bda-check-row .bda-ck-qty { flex: 0 0 62px; width: 62px; text-align: center; padding: 6px 4px; }
 .bda-check-row .bda-ck-coords { flex: 2 1 130px; min-width: 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.78em; }
 .bda-eff-group { display: inline-flex; gap: 3px; flex: 0 0 auto; margin-left: auto; }
 .bda-eff-btn {

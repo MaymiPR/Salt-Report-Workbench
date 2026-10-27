@@ -203,14 +203,26 @@ class BrowserTests(unittest.TestCase):
         self.log(page, "1x truck")
         page.click("#dataMgmtBtn")
         page.click("#toggleBdaBtn")
-        self.assertIn("BDA 0 / 3", page.locator("#bdaRollup").text_content())
-        # Assess the first element of the first report as destroyed.
+        self.assertIn("BDA 0 / 7", page.locator("#bdaRollup").text_content())
+        # Assess the first element of the first report as destroyed: all four.
         page.click(
             "#reportLogBody tr[data-id]:has(.col-size:has-text('4x T-72, 2x BMP-2')) .bda-btn"
         )
         page.click(".bda-check-row[data-row='0'] .bda-eff-btn[data-bda-eff='Destroyed']")
         page.click(".bda-commit-btn")
-        page.wait_for_selector("#bdaRollup:has-text('BDA 1 / 3')")
+        page.wait_for_selector("#bdaRollup:has-text('BDA 4 / 7')")
+        # One of the two BMP-2s damaged: the other stays on the checklist.
+        self.assertEqual(page.input_value(".bda-check-row[data-row='0'] .bda-ck-target"), "BMP-2")
+        page.fill(".bda-check-row[data-row='0'] .bda-ck-qty", "1")
+        page.click(".bda-check-row[data-row='0'] .bda-eff-btn[data-bda-eff='Damaged']")
+        # A redraw (another operator's sync) keeps what was typed and picked.
+        page.evaluate("renderLog()")
+        self.assertEqual(page.input_value(".bda-check-row[data-row='0'] .bda-ck-qty"), "1")
+        self.assertEqual(page.text_content(".bda-commit-btn"), "Log 1 Assessment")
+        page.click(".bda-commit-btn")
+        page.wait_for_selector("#bdaRollup:has-text('BDA 5 / 7')")
+        self.assertEqual(page.input_value(".bda-check-row[data-row='0'] .bda-ck-qty"), "1")
+        self.assertIn("1x BMP-2", page.locator(".bda-list").text_content())
         page.click("#bdaRollup [data-bda-filter='Destroyed']")
         self.assertEqual(self.sizes(page), ["4x T-72, 2x BMP-2"])
         page.click("#bdaRollup [data-bda-filter='Destroyed']")
@@ -388,6 +400,22 @@ class BrowserTests(unittest.TestCase):
             ["38S MB 45000 82000", "38S MB 55000 82000"],
         )
         self.assertAlmostEqual(esri["features"][0]["geometry"]["y"], 33.2759, places=3)
+        # Shapefile: a zip of its parts, which ArcGIS Pro drags in once unzipped.
+        with page.expect_download() as dl:
+            self.run_io(page, "export", "arcgis-shp")
+        self.assertTrue(dl.value.suggested_filename.endswith("_arcgis.zip"))
+        with zipfile.ZipFile(dl.value.path()) as z:
+            names = sorted(z.namelist())
+            self.assertEqual(
+                [n.rsplit(".", 1)[1] for n in names], ["cpg", "dbf", "prj", "shp", "shx"]
+            )
+            stem = names[0].rsplit(".", 1)[0]
+            self.assertRegex(stem, r"^[A-Za-z][A-Za-z0-9_]*$")
+            shp, dbf = z.read(stem + ".shp"), z.read(stem + ".dbf")
+        self.assertEqual(struct.unpack(">i", shp[:4])[0], 9994)
+        self.assertEqual(struct.unpack("<i", shp[32:36])[0], 1, "points")
+        self.assertEqual(struct.unpack("<I", dbf[4:8])[0], 2, "two points")
+        self.assertIn(b"38S MB 45000 82000", dbf)
 
     def test_overlays_are_shared_and_unload_by_group(self):
         page = self.open_editor()
@@ -615,28 +643,77 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-map-zoom='out']")
         page.wait_for_function(f"() => Math.abs(mapView.mpp - {before}) < 1e-6")
 
-    def add_basemap(self, page, name, kind, url, layers=""):
+    def open_basemaps(self, page, kind):
         if not page.locator("#mapBasemapForm").is_visible():
             page.click("#mapBaseEdit")
+        page.click(f"[data-base-add-kind='{kind}']")
+
+    def add_tiles(self, page, name, url):
+        self.open_basemaps(page, "tiles")
         page.fill("#mapBaseName", name)
-        page.select_option("#mapBaseKind", kind)
         page.fill("#mapBaseUrl", url)
-        page.fill("#mapBaseLayers", layers)
         page.click("#mapBaseAdd")
         page.wait_for_selector(f"#toast-notification:has-text('{name} added')")
+
+    def add_wms(self, page, link, titles):
+        """Look a WMS up from its link, tick the layers with these titles, add them."""
+        self.open_basemaps(page, "wms")
+        page.fill("#mapWmsLink", link)
+        page.click("#mapWmsFind")
+        page.wait_for_selector(".map-layer-list, .map-find-error")
+        self.assertEqual(
+            page.locator(".map-find-error").count(), 0, page.evaluate("JSON.stringify(wmsFind)")
+        )
+        for t in titles:
+            page.check(f".map-layer-row:has(.map-layer-title:text-is('{t}')) input")
+        page.click("#mapWmsAdd")
+        page.wait_for_selector("#toast-notification:has-text('added for everyone')")
+
+    @staticmethod
+    def capabilities(title, version, get_map, layers):
+        """A WMS capabilities document: `layers` are (name, title, [crs...])."""
+        tag = "CRS" if version == "1.3.0" else "SRS"
+        root = "WMS_Capabilities" if version == "1.3.0" else "WMT_MS_Capabilities"
+        body = "".join(
+            f"<Layer><Name>{n}</Name><Title>{t}</Title>{''.join(f'<{tag}>{c}</{tag}>' for c in crs)}</Layer>"
+            for n, t, crs in layers
+        )
+        return (
+            f'<?xml version="1.0"?><{root} version="{version}" xmlns:xlink="http://www.w3.org/1999/xlink">'
+            f"<Service><Name>WMS</Name><Title>{title}</Title></Service><Capability><Request><GetMap>"
+            "<Format>image/jpeg</Format><Format>image/png</Format><DCPType><HTTP><Get>"
+            f'<OnlineResource xlink:type="simple" xlink:href="{get_map}"/></Get></HTTP></DCPType>'
+            f"</GetMap></Request><Layer><Title>Root</Title>{body}</Layer></Capability></{root}>"
+        )
 
     def test_basemaps_are_shared_switchable_and_asked_for_the_graphics_only(self):
         page = self.open_editor()
         self.import_overlays(page)
         asked = []
 
+        caps = self.capabilities(
+            "Imagery",
+            "1.3.0",
+            "http://basemap.test/wms?map=ops&amp;",
+            [("imagery", "Imagery 2024", ["EPSG:4326", "EPSG:3857"])],
+        )
+
         def serve(route):
+            if "GetCapabilities" in route.request.url:
+                # A service that lets the page read it (CORS): no server needed.
+                route.fulfill(
+                    status=200,
+                    content_type="text/xml",
+                    body=caps,
+                    headers={"Access-Control-Allow-Origin": "*"},
+                )
+                return
             asked.append(route.request.url)
             route.fulfill(status=200, content_type="image/png", body=self.PNG_1PX)
 
         self.context.route("http://basemap.test/**", serve)
         self.open_map(page)
-        self.add_basemap(page, "Imagery", "wms", "http://basemap.test/wms?map=ops", "imagery")
+        self.add_wms(page, "http://basemap.test/wms", [])  # its one layer comes ticked
         page.wait_for_function("() => document.querySelectorAll('#mapBase image').length === 1")
         url = asked[-1]
         for part in ("REQUEST=GetMap", "LAYERS=imagery", "CRS=EPSG:3857", "map=ops"):
@@ -647,7 +724,7 @@ class BrowserTests(unittest.TestCase):
         self.assertLess(y1 - y0, 40000)
         # A second service: added, and shown at once; the picker switches between them.
         asked.clear()
-        self.add_basemap(page, "Topo", "tiles", "http://basemap.test/tiles/{z}/{x}/{y}.png")
+        self.add_tiles(page, "Topo", "http://basemap.test/tiles/{z}/{x}/{y}.png")
         page.wait_for_function(
             "() => [...document.querySelectorAll('#mapBase image')].some(i => i.dataset.url.includes('/tiles/'))"
         )
@@ -664,15 +741,26 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_function(
             "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.map(b => b.name).join() === 'Imagery,Topo')"
         )
-        # Viewers get the same list to pick from, and can't change it.
+        # Viewers get the map alone (its mode, window and basemap picker), the
+        # same list to pick from, and can't change it.
         viewer = self.open_viewer()
         viewer.click("#exportViewToggleBtn")
+        self.assertEqual(viewer.inner_text(".ws-tab[data-tab='overlays']"), "Map")
         viewer.click(".ws-tab[data-tab='overlays']")
-        viewer.click("[data-overlay-view='map']")
         viewer.wait_for_function(
             "() => document.querySelectorAll('#mapBaseSelect option').length === 3"
         )
         self.assertFalse(viewer.locator("#mapBaseEdit").is_visible())
+        self.assertEqual(
+            viewer.locator(".overlays-head, [data-overlay-view], #overlaysImportBtn").count(), 0
+        )
+        for sel in (
+            "[data-map-mode='heat']",
+            "[data-map-mode='tracks']",
+            "[data-map-hours='6']",
+            "[data-map-zoom='full']",
+        ):
+            self.assertTrue(viewer.locator(sel).is_visible(), sel)
         viewer.select_option("#mapBaseSelect", "Topo")
         viewer.wait_for_function("() => document.querySelectorAll('#mapBase image').length > 0")
         # Removing one takes it out for everyone.
@@ -682,6 +770,196 @@ class BrowserTests(unittest.TestCase):
             page.locator("#mapBaseSelect option").all_text_contents(), ["No basemap", "Topo"]
         )
         page.evaluate("saveBasemaps([])")
+
+    def test_a_wms_found_through_the_server_in_latitude_longitude(self):
+        import http.server as hs
+        import threading
+
+        seen = []
+        caps_holder = {}
+
+        class Fake(hs.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                seen.append(self.path)
+                if "GetCapabilities" in self.path:
+                    body, ctype = caps_holder["caps"].encode(), "text/xml"
+                elif "LAYERS=bad" in self.path:
+                    body, ctype = (
+                        b"<ServiceException>Layer bad is not defined</ServiceException>",
+                        "text/xml",
+                    )
+                else:
+                    body, ctype = BrowserTests.PNG_1PX, "image/png"
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        fake = hs.ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+        threading.Thread(target=fake.serve_forever, daemon=True).start()
+        self.addCleanup(fake.shutdown)
+        base = f"http://127.0.0.1:{fake.server_port}/ows"
+        caps_holder["caps"] = self.capabilities(
+            "Range Maps",
+            "1.1.1",
+            base + "?",
+            [
+                ("roads", "Roads", ["EPSG:4326"]),
+                ("terrain", "Terrain", ["EPSG:4326", "EPSG:32611"]),
+                ("utm", "UTM only", ["EPSG:32611"]),
+            ],
+        )
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        self.open_basemaps(page, "wms")
+        page.fill("#mapWmsLink", base + "?service=WMS&request=GetMap&layers=old")
+        page.click("#mapWmsFind")
+        page.wait_for_selector(".map-layer-list")
+        self.assertIn("read by the server", page.text_content(".map-find-head"))
+        self.assertEqual(page.input_value("#mapWmsName"), "Range Maps", "named after the service")
+        self.assertIn("can't show", page.text_content(".map-layer-row:has-text('UTM only')"))
+        page.check(".map-layer-row:has-text('Roads') input")
+        page.check(".map-layer-row:has-text('Terrain') input")
+        self.assertEqual(page.text_content("#mapWmsAdd"), "Add 2 layers as one")
+        page.click("#mapWmsAdd")
+        page.wait_for_selector("#toast-notification:has-text('Range Maps added')")
+        page.wait_for_function(
+            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.some(b => b.name === 'Range Maps'))"
+        )
+        entry = page.evaluate(
+            "fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.find(b => b.name === 'Range Maps'))"
+        )
+        self.assertEqual(
+            {k: entry[k] for k in ("layers", "version", "crs", "format", "url")},
+            {
+                "layers": "roads,terrain",
+                "version": "1.1.1",
+                "crs": "EPSG:4326",
+                "format": "image/png",
+                "url": base + "?",
+            },
+        )
+        # The map asks in the service's terms: SRS, longitude first.
+        page.wait_for_function("() => document.querySelectorAll('#mapBase image').length === 1")
+        get_map = next(p for p in reversed(seen) if "GetMap" in p)
+        self.assertIn("SRS=EPSG:4326", get_map)
+        self.assertIn("VERSION=1.1.1", get_map)
+        x0, y0, x1, y1 = map(float, get_map.split("BBOX=")[1].split("&")[0].split(","))
+        self.assertTrue(44 < x0 < x1 < 45 and 33 < y0 < y1 < 34, (x0, y0, x1, y1))
+        # Check: the service sent an image (to the server); a bad layer, its error.
+        page.click("[data-base-check='0']")
+        page.wait_for_selector(".map-base-check.ok")
+        self.assertIn("map image", page.text_content(".map-base-check"))
+        page.evaluate(
+            f"checkBasemap({{ name: 'Range Maps', kind: 'wms', url: '{base}', layers: 'bad' }})"
+        )
+        page.wait_for_selector(".map-base-check:has-text('not defined')")
+        page.evaluate("saveBasemaps([])")
+
+    def test_map_full_screen_and_names_on_screen_when_zoomed(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        labels = lambda: page.locator("#mapSvg .map-labels text").all_text_contents()  # noqa: E731
+        self.assertIn("NAI 1", labels())
+        # Zoomed far into NAI 1's corner, its middle is off screen; the name stays.
+        page.evaluate("""() => {
+            const o = currentOverlays().find(o => o.name === '1' && o.type === 'NAI');
+            const ring = SaltCore.asArea(o.geometry).coordinates[0];
+            const [x, y] = SaltCore.lonLatToMerc(ring[0][0], ring[0][1]);
+            mapView = { cx: x, cy: y, mpp: 2 };
+            drawMap();
+        }""")
+        self.assertIn("NAI 1", labels())
+        page.click("[data-map-zoom='full']")
+        page.wait_for_function(
+            "() => document.fullscreenElement && document.fullscreenElement.id === 'mapPane'"
+        )
+        self.assertEqual(page.get_attribute("#mapFullBtn", "title"), "Leave full screen (Esc)")
+        page.evaluate("document.exitFullscreen()")
+        page.wait_for_function("() => !document.fullscreenElement")
+
+    def test_the_format_stays_when_switching_workspaces(self):
+        page = self.open_editor(ato="FORMATA")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='builder']")
+        page.fill("#builderNewLetter", "W")
+        page.fill("#builderNewLabel", "Weather")
+        page.click("#builderAddBtn")
+        page.wait_for_selector("#salt-fields [data-custom-label='W']")
+        page.click("#exportViewToggleBtn")
+        page.click("#setAtoBtn")
+        page.fill("#atoDesignator", "FORMATB")
+        page.click("#setAtoBtn")
+        page.wait_for_function("() => activeAto === 'FORMATB'")
+        self.assertEqual(
+            page.locator("#salt-fields [data-custom-label='W']").count(),
+            1,
+            "kept in a new workspace",
+        )
+        page.wait_for_function(
+            "() => fetch('/api/sync').then(r => r.json()).then(s => (s.format.lines || []).some(l => l.label === 'W'))"
+        )
+        # Another browser, in yet another workspace, has it too.
+        second = self.browser.new_context()
+        self.addCleanup(second.close)
+        other = second.new_page()
+        other.on("pageerror", lambda exc: self.errors.append(str(exc)))
+        other.goto(self.editor + "/")
+        other.fill("#startup-initials", "CD")
+        other.fill("#startup-ato", "FORMATC")
+        other.fill("#startup-title", "Patrol")
+        other.click("#startupContinueBtn")
+        other.wait_for_selector("#salt-fields [data-custom-label='W']")
+        page.evaluate("saveWorkspaceFormat(defaultFormat())")
+        page.wait_for_function(
+            "() => fetch('/api/sync').then(r => r.json()).then(s => !(s.format.lines || []).some(l => l.label === 'W'))"
+        )
+
+    def test_updating_shows_which_report_and_the_panel_keeps_its_width(self):
+        page = self.open_editor(title="A very long workspace title for this patrol")
+        page.set_viewport_size({"width": 1440, "height": 900})
+        self.log(page, "2x BMP", activity="moving north along the wadi")
+        page.click("#reportLogBody tr[data-id] .col-size:has-text('2x BMP')")
+        self.assertEqual(page.text_content("#form-title"), f"Updating {self.ato}001")
+        note = page.text_content("#formEditingNote")
+        self.assertIn("2x BMP", note)
+        self.assertIn(f"{self.ato}001", note)
+        page.click("#cancelButton")
+        self.assertTrue(page.locator("#formEditingNote").is_hidden())
+        widths = []
+        for btn in (None, "#exportViewToggleBtn", "#statsViewToggleBtn", "#summaryViewToggleBtn"):
+            if btn:
+                page.click(btn)
+            widths.append(round(page.locator(".report-section").bounding_box()["width"]))
+        self.assertEqual(len(set(widths)), 1, widths)
+
+    def test_mgrs_lock_fills_in_the_zone_and_square(self):
+        page = self.open_editor()
+        self.assertFalse(page.locator("#mgrsPrefix").is_visible(), "off until turned on")
+        page.click("#dataMgmtBtn")
+        page.click("#toggleMgrsLockBtn")
+        page.wait_for_function("() => document.activeElement.id === 'mgrsPrefix'")
+        page.fill("#mgrsPrefix", "38smb")
+        page.click("#size")
+        self.assertEqual(page.input_value("#mgrsPrefix"), "38S MB")
+        self.assertEqual(page.text_content("#toggleMgrsLockBtn"), "MGRS Lock: On (38S MB)")
+        self.log(page, "1x BTR", location="45000 82000, vic the bridge")
+        page.wait_for_selector(
+            "#reportLogBody .col-location:has-text('38S MB 45000 82000, vic the bridge')"
+        )
+        # Kept across a reload; off again leaves typed digits alone.
+        page.reload()
+        self.assertEqual(page.input_value("#mgrsPrefix"), "38S MB")
+        page.click("#dataMgmtBtn")
+        page.click("#toggleMgrsLockBtn")
+        self.assertFalse(page.locator("#mgrsPrefix").is_visible())
+        self.assertEqual(page.evaluate("lockedLocation('45000 82000')"), "45000 82000")
 
     def test_tracks_export_and_latest_only_csv(self):
         page = self.open_editor()

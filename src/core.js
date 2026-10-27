@@ -196,6 +196,28 @@ const reportText = (report, format, sep) => {
 // the 1-2 digit zone number of the NEXT coordinate ("...456 12 ABD..." must
 // break before the 12, not absorb it).
 const MGRS_RE = /\d{1,2}\s*[A-Za-z]{3}(?:\s*\d+(?![0-9A-Za-z])(?!\s+[A-Za-z]{3}))+/g;
+// A locked grid prefix: the grid zone and 100 km square ("11S NV"), from how
+// an operator types it ("11snv", "11S NV"). Null when it isn't one.
+const mgrsPrefix = (text) => {
+    const m = /^\s*(\d{1,2})\s*([C-HJ-NP-X])\s*([A-HJ-NP-Z])\s*([A-HJ-NP-V])\s*$/i.exec(String(text || ''));
+    if (!m || +m[1] < 1 || +m[1] > 60) return null;
+    return `${+m[1]}${m[2]} ${m[3]}${m[4]}`.toUpperCase();
+};
+// The Location with the locked prefix put in front of each grid typed as its
+// digits alone ("39697 06762" or "3969706762", any even count); full grids,
+// place names and odd numbers ("Hill 205", "205") are left as they are.
+const applyMgrsPrefix = (text, prefix) => {
+    const p = mgrsPrefix(prefix), s = String(text || '');
+    if (!p) return s;
+    return s.split(',').map(seg => {
+        const t = seg.trim(), lead = seg.slice(0, seg.length - seg.trimStart().length);
+        let m = /^(\d{1,5})\s+(\d{1,5})$/.exec(t);
+        if (m && m[1].length === m[2].length) return `${lead}${p} ${m[1]} ${m[2]}`;
+        if (/^\d{2,10}$/.test(t) && t.length % 2 === 0) return `${lead}${p} ${t.slice(0, t.length / 2)} ${t.slice(t.length / 2)}`;
+        return seg;
+    }).join(',');
+};
+
 const normalizeLocation = (loc) => {
     const s = String(loc || '').trim();
     if (!s || s.includes(',')) return s;
@@ -236,11 +258,45 @@ const bdaElements = (report) => {
     }));
 };
 
-// Roll-up used by the pill: how many elements are assessed and the worst
-// outcome recorded so far.
+// An element or an assessment as a count and a type: "40x T-72" -> 40 of
+// T-72, "4 BMP-2" -> 4, "truck" -> 1. A number run into a name ("2S19") is
+// part of the name.
+const bdaCount = (text) => {
+    const s = String(text || '').trim();
+    const m = /^(\d+)\s*(?:x\s*|\s+)(\S.*)$/i.exec(s);
+    return m && +m[1] > 0 ? { count: +m[1], type: m[2].trim(), counted: true } : { count: 1, type: s, counted: false };
+};
+// Types match whatever the case, spacing, or a plural "s" ("T-72s").
+const bdaTypeKey = (type) => {
+    let t = String(type || '').trim().replace(/\s+/g, ' ').toUpperCase();
+    if (/[^SU]S$/.test(t) && !/SS$/.test(t)) t = t.slice(0, -1);
+    return t;
+};
+
+// What is still to assess: each element less what has been assessed of its
+// type (taken from the elements in order), so 3x destroyed of "40x T-72"
+// leaves "37x T-72". `remaining` of `total`, and the element as it now reads.
+const bdaPending = (report) => {
+    const assessed = {};
+    (report.bda || []).forEach(b => {
+        const c = bdaCount(b.target), k = bdaTypeKey(c.type);
+        if (k) assessed[k] = (assessed[k] || 0) + c.count;
+    });
+    return bdaElements(report).map(e => {
+        const c = bdaCount(e.target), k = bdaTypeKey(c.type);
+        const off = Math.min(c.count, assessed[k] || 0);
+        if (k) assessed[k] = (assessed[k] || 0) - off;
+        const remaining = c.count - off;
+        return { ...e, type: c.type, counted: c.counted, total: c.count, remaining, target: off ? `${remaining}x ${c.type}` : e.target };
+    }).filter(e => e.remaining > 0);
+};
+
+// Roll-up used by the pill: how many are assessed (counting each vehicle or
+// item, so 3 of "40x T-72" is 3 of 40) and the worst outcome recorded so far.
+const bdaUnits = (report) => bdaElements(report).reduce((s, e) => s + bdaCount(e.target).count, 0);
 const bdaSummary = (report) => {
-    const done  = (report.bda || []).length;
-    const total = Math.max(bdaElements(report).length, done);
+    const done  = (report.bda || []).reduce((s, b) => s + bdaCount(b.target).count, 0);
+    const total = Math.max(bdaUnits(report), done);
     let worst = -1;
     (report.bda || []).forEach(b => {
         const i = BDA_EFFECTS.findIndex(e => e.name === b.effect);
@@ -249,9 +305,9 @@ const bdaSummary = (report) => {
     return { done, total, worstCls: worst > -1 ? BDA_EFFECTS[worst].cls : '' };
 };
 
-// Roll-up for a whole workspace: elements assessed out of every element in
-// its live reports, assessments by effect (an effect the app doesn't know
-// counts as Unknown), and how many elements have no assessment yet.
+// Roll-up for a whole workspace: vehicles and items assessed out of all of
+// them in its live reports, how many had each effect (an effect the app
+// doesn't know counts as Unknown), and how many have no assessment yet.
 const bdaRollup = (reps) => {
     const byEffect = {};
     BDA_EFFECTS.forEach(e => { byEffect[e.name] = 0; });
@@ -260,7 +316,7 @@ const bdaRollup = (reps) => {
         if (r.deleted) return;
         const s = bdaSummary(r);
         done += s.done; total += s.total;
-        (r.bda || []).forEach(b => { byEffect[b.effect in byEffect ? b.effect : 'Unknown']++; });
+        (r.bda || []).forEach(b => { byEffect[b.effect in byEffect ? b.effect : 'Unknown'] += bdaCount(b.target).count; });
     });
     return { done, total, unassessed: total - done, byEffect };
 };
@@ -983,19 +1039,64 @@ const tileUrl = (template, { z, x, y }) => String(template)
     .replace(/\{(z|TileMatrix)\}/gi, z).replace(/\{(x|TileCol)\}/gi, x)
     .replace(/\{-y\}/gi, 2 ** z - 1 - y).replace(/\{(y|TileRow)\}/gi, y);
 
+// Web Mercator metres back to longitude and latitude.
+const mercToLonLat = (x, y) => [x / MERC_R * 180 / Math.PI, (2 * Math.atan(Math.exp(y / MERC_R)) - Math.PI / 2) * 180 / Math.PI];
+
+// The projections a WMS can draw our map in, best first: Web Mercator under
+// its several names (same metres), then longitude / latitude, which the map
+// stretches to fit (true to well under a pixel over an area the size of a
+// training area).
+const WMS_MERC_CRS = ['EPSG:3857', 'EPSG:900913', 'EPSG:102100', 'EPSG:102113', 'EPSG:3785'];
+const WMS_CRS_ORDER = [...WMS_MERC_CRS, 'EPSG:4326', 'CRS:84'];
+// The projection every chosen layer offers (each a list of codes), or null.
+const pickWmsCrs = (lists) => {
+    const sets = (lists || []).map(l => new Set((l || []).map(c => String(c).trim().toUpperCase())));
+    return WMS_CRS_ORDER.find(c => sets.length && sets.every(s => s.has(c))) || null;
+};
+// The image format to ask for: PNG if offered, then JPEG, then the first.
+const pickWmsFormat = (formats) => {
+    const f = (formats || []).map(String);
+    return f.find(x => /^image\/png$/i.test(x)) || f.find(x => /^image\/png/i.test(x)) || f.find(x => /jpe?g/i.test(x)) || f[0] || 'image/png';
+};
+
+// A service address's parameters, split off: [path, [[key, value], ...]].
+const splitQuery = (url) => {
+    const [path, query = ''] = String(url).trim().split('?');
+    return [path, query.split('&').filter(Boolean).map(kv => { const i = kv.indexOf('='); return i < 0 ? [kv, ''] : [kv.slice(0, i), kv.slice(i + 1)]; })];
+};
+const WMS_KEYS = new Set(['SERVICE', 'VERSION', 'REQUEST', 'LAYERS', 'STYLES', 'CRS', 'SRS', 'BBOX', 'WIDTH', 'HEIGHT', 'FORMAT', 'TRANSPARENT']);
+
+// The GetCapabilities address for a link to a WMS, whatever request the link
+// was for: its own parameters (a map=, a token) are kept.
+const wmsCapabilitiesUrl = (link) => {
+    const [path, params] = splitQuery(link);
+    const keep = params.filter(([k]) => !WMS_KEYS.has(k.toUpperCase())).map(([k, v]) => `${k}=${v}`);
+    return `${path}?${[...keep, 'SERVICE=WMS', 'REQUEST=GetCapabilities'].join('&')}`;
+};
+
 // A WMS GetMap address for a Web Mercator box: the service's address (its
-// own parameters kept, ours replacing any of the same name), PNG, EPSG:3857.
-const wmsUrl = (base, layers, [x0, y0, x1, y1], width, height) => {
-    const [path, query = ''] = String(base).split('?');
+// own parameters kept, ours replacing any of the same name). The version,
+// projection and format are the service's (from its capabilities); without
+// them, 1.3.0, EPSG:3857 and PNG. In longitude / latitude, 1.3.0's EPSG:4326
+// lists latitude first.
+const wmsUrl = (base, layers, [x0, y0, x1, y1], width, height, { version = '1.3.0', crs = 'EPSG:3857', format = 'image/png' } = {}) => {
+    const [path, params] = splitQuery(base);
+    const code = String(crs).toUpperCase();
+    let bbox;
+    if (WMS_MERC_CRS.includes(code)) bbox = [x0, y0, x1, y1].map(v => v.toFixed(2));
+    else {
+        const [lon0, lat0] = mercToLonLat(x0, y0), [lon1, lat1] = mercToLonLat(x1, y1);
+        bbox = (version === '1.3.0' && code === 'EPSG:4326' ? [lat0, lon0, lat1, lon1] : [lon0, lat0, lon1, lat1]).map(v => v.toFixed(7));
+    }
     const ours = {
-        SERVICE: 'WMS', VERSION: '1.3.0', REQUEST: 'GetMap', LAYERS: layers || '', STYLES: '',
-        CRS: 'EPSG:3857', BBOX: [x0, y0, x1, y1].map(v => v.toFixed(2)).join(','),
-        WIDTH: Math.round(width), HEIGHT: Math.round(height), FORMAT: 'image/png', TRANSPARENT: 'FALSE',
+        SERVICE: 'WMS', VERSION: version, REQUEST: 'GetMap', LAYERS: layers || '', STYLES: '',
+        [version === '1.3.0' ? 'CRS' : 'SRS']: crs, BBOX: bbox.join(','),
+        WIDTH: Math.round(width), HEIGHT: Math.round(height), FORMAT: format, TRANSPARENT: 'FALSE',
     };
-    const keep = query.split('&').filter(kv => kv && !(kv.split('=')[0].toUpperCase() in ours) && kv.split('=')[0].toUpperCase() !== 'SRS');
+    const keep = params.filter(([k]) => !WMS_KEYS.has(k.toUpperCase())).map(([k, v]) => `${k}=${v}`);
     if (!layers) {
-        const had = query.split('&').find(kv => kv.split('=')[0].toUpperCase() === 'LAYERS');
-        if (had) ours.LAYERS = decodeURIComponent(had.split('=').slice(1).join('='));
+        const had = params.find(([k]) => k.toUpperCase() === 'LAYERS');
+        if (had) ours.LAYERS = decodeURIComponent(had[1]);
     }
     const enc = v => encodeURIComponent(v).replace(/%2C/gi, ',').replace(/%3A/gi, ':').replace(/%2F/gi, '/');
     return `${path}?${[...keep, ...Object.entries(ours).map(([k, v]) => `${k}=${enc(v)}`)].join('&')}`;
@@ -1133,6 +1234,157 @@ const arcgisCsv = (rows) => {
     const cell = v => (v === null || v === undefined) ? '' : typeof v === 'number' ? String(v) : csvField(v);
     return cols.join(',') + '\r\n' + rows.map(r => cols.map(c => cell(r[c])).join(',')).join('\r\n') + '\r\n';
 };
+
+// --- Shapefile export ---
+
+// A zip of files stored as they are (no compression): what a shapefile's
+// parts travel in. `files`: [{ name, data: Uint8Array }].
+const CRC_TABLE = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+    return t;
+})();
+const crc32 = (bytes) => { let c = 0xffffffff; for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+const zipStore = (files, now = new Date()) => {
+    const enc = new TextEncoder();
+    const time = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+    const date = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+    const locals = [], centrals = [];
+    let offset = 0;
+    files.forEach(({ name, data }) => {
+        const nm = enc.encode(name), crc = crc32(data);
+        const head = (sig, central) => {
+            const b = new Uint8Array((central ? 46 : 30) + nm.length), v = new DataView(b.buffer);
+            let o = 0;
+            const u32 = x => { v.setUint32(o, x, true); o += 4; }, u16 = x => { v.setUint16(o, x, true); o += 2; };
+            u32(sig);
+            if (central) u16(20);           // made by
+            u16(20); u16(0x0800); u16(0);   // version needed; UTF-8 names; stored
+            u16(time); u16(date); u32(crc); u32(data.length); u32(data.length); u16(nm.length); u16(0);
+            if (central) { u16(0); u16(0); u16(0); u32(0); u32(offset); }
+            b.set(nm, o);
+            return b;
+        };
+        const local = head(0x04034b50, false);
+        centrals.push(head(0x02014b50, true));
+        locals.push(local, data);
+        offset += local.length + data.length;
+    });
+    const cdSize = centrals.reduce((s, b) => s + b.length, 0);
+    const end = new Uint8Array(22), ev = new DataView(end.buffer);
+    ev.setUint32(0, 0x06054b50, true); ev.setUint16(8, files.length, true); ev.setUint16(10, files.length, true);
+    ev.setUint32(12, cdSize, true); ev.setUint32(16, offset, true);
+    const out = new Uint8Array(offset + cdSize + 22);
+    let o = 0;
+    [...locals, ...centrals, end].forEach(b => { out.set(b, o); o += b.length; });
+    return out;
+};
+
+const WGS84_PRJ = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
+// Field names a shapefile can hold (10 characters at most), for the ArcGIS
+// rows' longer names; the rest are cut to 10 and kept apart with a number.
+const SHP_FIELD_NAMES = { heading_deg: 'head_deg', precision_m: 'prec_m', bearing_deg: 'bearing' };
+const shpFieldNames = (cols) => {
+    const used = new Set();
+    return cols.map(c => {
+        const base = (SHP_FIELD_NAMES[c] || c).replace(/[^A-Za-z0-9_]/g, '_').slice(0, 10) || 'field';
+        let name = base;
+        for (let i = 2; used.has(name.toLowerCase()); i++) name = base.slice(0, 10 - String(i).length - 1) + '_' + i;
+        used.add(name.toLowerCase());
+        return name;
+    });
+};
+
+// The text of a value cut to `max` bytes of UTF-8 without splitting a character.
+const utf8Cut = (enc, s, max) => {
+    let b = enc.encode(s);
+    if (b.length <= max) return b;
+    let cut = max;
+    while (cut > 0 && (b[cut] & 0xc0) === 0x80) cut--;
+    return b.subarray(0, cut);
+};
+
+// A shapefile in WGS 1984: points or lines (PolyLine), with a .dbf of the
+// rows' attributes (UTF-8, said so in the .cpg). Numbers are numeric fields;
+// text is cut to the format's 254 characters. `shapes` are [lon, lat] for
+// points, or lists of them for lines, one per row.
+const shapefileParts = (rows, shapes, kind) => {
+    const enc = new TextEncoder();
+    const cols = rows.length ? Object.keys(rows[0]) : [];
+    const names = shpFieldNames(cols);
+    const fields = cols.map((c, i) => {
+        const vals = rows.map(r => r[c]).filter(v => v !== null && v !== undefined && v !== '');
+        if (vals.length && vals.every(v => typeof v === 'number' && isFinite(v))) {
+            const dec = vals.every(Number.isInteger) ? 0 : 7;
+            return { col: c, name: names[i], type: 'N', len: dec ? 19 : 18, dec };
+        }
+        const len = Math.min(254, Math.max(1, ...vals.map(v => enc.encode(String(v)).length)));
+        return { col: c, name: names[i], type: 'C', len, dec: 0 };
+    });
+    // .dbf
+    const recLen = 1 + fields.reduce((s, f) => s + f.len, 0), headLen = 32 + 32 * fields.length + 1;
+    const dbf = new Uint8Array(headLen + recLen * rows.length + 1), dv = new DataView(dbf.buffer);
+    const now = new Date();
+    dbf[0] = 0x03; dbf[1] = now.getFullYear() - 1900; dbf[2] = now.getMonth() + 1; dbf[3] = now.getDate();
+    dv.setUint32(4, rows.length, true); dv.setUint16(8, headLen, true); dv.setUint16(10, recLen, true);
+    fields.forEach((f, i) => {
+        const o = 32 + 32 * i;
+        dbf.set(enc.encode(f.name), o);
+        dbf[o + 11] = f.type.charCodeAt(0); dbf[o + 16] = f.len; dbf[o + 17] = f.dec;
+    });
+    dbf[headLen - 1] = 0x0d;
+    rows.forEach((r, k) => {
+        let o = headLen + k * recLen;
+        dbf.fill(0x20, o, o + recLen);
+        o++;
+        fields.forEach(f => {
+            const v = r[f.col];
+            if (f.type === 'N') {
+                if (typeof v === 'number' && isFinite(v)) { const s = v.toFixed(f.dec).slice(0, f.len); dbf.set(enc.encode(s), o + f.len - s.length); }
+            } else if (v !== null && v !== undefined) {
+                dbf.set(utf8Cut(enc, String(v), f.len), o);
+            }
+            o += f.len;
+        });
+    });
+    dbf[dbf.length - 1] = 0x1a;
+    // .shp and .shx
+    const paths = shapes.map(s => (kind === 'point' ? [s] : s));
+    const sizes = paths.map(p => (kind === 'point' ? 20 : 44 + 4 + 16 * p.length));
+    const shpLen = 100 + sizes.reduce((s, n) => s + 8 + n, 0), shxLen = 100 + 8 * rows.length;
+    const shp = new Uint8Array(shpLen), shx = new Uint8Array(shxLen);
+    const sv = new DataView(shp.buffer), xv = new DataView(shx.buffer);
+    const all = paths.flat();
+    const box = all.length ? [Math.min(...all.map(p => p[0])), Math.min(...all.map(p => p[1])), Math.max(...all.map(p => p[0])), Math.max(...all.map(p => p[1]))] : [0, 0, 0, 0];
+    [[sv, shpLen], [xv, shxLen]].forEach(([v, len]) => {
+        v.setInt32(0, 9994); v.setInt32(24, len / 2); v.setInt32(28, 1000, true); v.setInt32(32, kind === 'point' ? 1 : 3, true);
+        box.forEach((n, i) => v.setFloat64(36 + 8 * i, n, true));
+    });
+    let o = 100;
+    paths.forEach((p, i) => {
+        xv.setInt32(100 + 8 * i, o / 2); xv.setInt32(104 + 8 * i, sizes[i] / 2);
+        sv.setInt32(o, i + 1); sv.setInt32(o + 4, sizes[i] / 2);
+        const c = o + 8;
+        if (kind === 'point') {
+            sv.setInt32(c, 1, true); sv.setFloat64(c + 4, p[0][0], true); sv.setFloat64(c + 12, p[0][1], true);
+        } else {
+            const xs = p.map(q => q[0]), ys = p.map(q => q[1]);
+            sv.setInt32(c, 3, true);
+            [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)].forEach((n, j) => sv.setFloat64(c + 4 + 8 * j, n, true));
+            sv.setInt32(c + 36, 1, true); sv.setInt32(c + 40, p.length, true); sv.setInt32(c + 44, 0, true);
+            p.forEach((q, j) => { sv.setFloat64(c + 48 + 16 * j, q[0], true); sv.setFloat64(c + 56 + 16 * j, q[1], true); });
+        }
+        o += 8 + sizes[i];
+    });
+    return { shp, shx, dbf, prj: enc.encode(WGS84_PRJ), cpg: enc.encode('UTF-8') };
+};
+
+// The ArcGIS points (one per grid) or tracks (one line per report that moved)
+// as a zipped shapefile named `name`: ArcGIS Pro adds the .shp once it is
+// unzipped, and ArcGIS Online takes the zip as it is.
+const shapefileZip = (name, parts, now) => zipStore(['shp', 'shx', 'dbf', 'prj', 'cpg'].map(ext => ({ name: `${name}.${ext}`, data: parts[ext] })), now);
+const arcgisShapefileZip = (rows, name, now) => shapefileZip(name, shapefileParts(rows, rows.map(r => [r.lon, r.lat]), 'point'), now);
+const arcgisTracksShapefileZip = (rows, name, now) => shapefileZip(name, shapefileParts(rows.map(attrsOf), rows.map(r => r.path), 'line'), now);
 
 // --- Statistics ---
 
@@ -1331,7 +1583,7 @@ const summaryReport = (kind, reps, overlays, opts) => {
         out.push('', '5. NOTABLE (firing or emplacing)');
         out.push(...(notable.length ? notable.map(f => `   ${reportLine(f, local)}`) : ['   None.']));
         out.push('', '6. BDA', d.kpis.bdaDone
-            ? `   ${d.kpis.bdaDone} of ${plural(d.kpis.bdaTotal, 'element')} assessed: ${countList(d.bda.filter(b => b.value && b.label !== 'Unassessed'))}.`
+            ? `   ${d.kpis.bdaDone} of ${plural(d.kpis.bdaTotal, 'item')} assessed: ${countList(d.bda.filter(b => b.value && b.label !== 'Unassessed'))}.`
             : '   None assessed.');
         const checks = cur.filter(f => f.a.checks.length);
         out.push('', '7. TO CHECK');
@@ -1367,7 +1619,7 @@ const summaryReport = (kind, reps, overlays, opts) => {
             `MOST ACTIVE:  ${[...placesTop, ...d.pl].sort((x, y) => y.value - x.value).slice(0, 3).map(p => `${p.label} (${p.value})`).join(', ') || 'none named'}`,
             `ACTIVITY:     ${activityLine(cur)}`,
             `LAST REPORT:  ${last ? reportLine(last, local) : 'none'}`,
-            `OPEN ITEMS:   ${plural(cur.filter(f => f.a.checks.length).length, 'check')} to look at; ${plural(unassessed, 'BDA element')} unassessed`,
+            `OPEN ITEMS:   ${plural(cur.filter(f => f.a.checks.length).length, 'check')} to look at; ${plural(unassessed, 'BDA item')} unassessed`,
             '', 'LAST 5 REPORTS',
             ...(cur.length ? cur.slice(-5).reverse().map(f => `  ${reportLine(f, local)}`) : ['  None.']),
         );
@@ -1423,14 +1675,14 @@ const withUnsaved = (serverReps, unsavedReps) => {
 const SaltCore = {
     pad2, dateFields, clockValue, fileStamp, toTimeString, autoColon, parseFilterTime, typedTime, submittedTime, parseCsvTime,
     escapeHtml, safeColor, safeFilename,
-    atoPrefix, reportNum, formatFullId, reportText, normalizeLocation,
-    BDA_EFFECTS, bdaElements, bdaSummary, bdaRollup,
+    atoPrefix, reportNum, formatFullId, reportText, normalizeLocation, mgrsPrefix, applyMgrsPrefix,
+    BDA_EFFECTS, bdaElements, bdaSummary, bdaRollup, bdaCount, bdaPending,
     backupFilename, foldOverlays, backupText, allWorkspacesBackupText, parseBackup,
     parseCsv, reportsCsv, mtiCsvs,
     utmToLatLon, gridToLatLon, findGrids, findRefs, overlayRef, geometryContains, metresToGeometry,
     webMercatorToLonLat, readDbf, shapefileProjection, parseShapefile,
     reportTracks, heatPoints, arcgisTrackRows, arcgisTracksGeoJson, arcgisTracksEsriJson,
-    lonLatToMerc, MERC_WORLD, compass16, tilesFor, tileZoom, tileUrl, wmsUrl, metresBetween, bearingBetween,
+    lonLatToMerc, MERC_WORLD, compass16, zipStore, crc32, shapefileParts, arcgisShapefileZip, arcgisTracksShapefileZip, tilesFor, tileZoom, tileUrl, wmsUrl, wmsCapabilitiesUrl, pickWmsCrs, pickWmsFormat, mercToLonLat, metresBetween, bearingBetween,
     asArea, analyzeLocation, locationPlan, editLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisEsriJson, arcgisCsv,
     sizeElements, gridSquare, statsData, statsCsv, PL_NEAR_METRES,
     dtg, summaryReport, summaryPlaces,

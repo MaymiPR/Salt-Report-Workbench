@@ -27,6 +27,8 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 import webbrowser
 from datetime import datetime, timezone
 from typing import ClassVar
@@ -75,7 +77,10 @@ DATA_STORE: dict = {
     'workspaces': {},
     'config': {'ato': '', 'title': ''},
     'profiles': {},
-    'formats': {},  # ato -> report-format dict (builder); synced to all clients
+    # The report format (Builder), one for every workspace; it changes only
+    # when an operator edits it. Synced to all clients. Backup files still
+    # carry it per workspace ({ato: format}), as older versions read it.
+    'format': {},
     # NAI / OBJ / PL features, imported from KML, KMZ, GeoJSON or shapefile.
     # One set shared by every workspace (graphics outlast a single ATO).
     'overlays': [],
@@ -408,7 +413,14 @@ MAX_OVERLAY_LABEL = 100
 MAX_BASEMAPS = 20
 MAX_BASEMAP_NAME = 60
 MAX_BASEMAP_URL = 2000
-MAX_BASEMAP_LAYERS = 300
+MAX_BASEMAP_LAYERS = 2000
+# What a WMS's capabilities said to ask for: version, projection, image format.
+_BASEMAP_WMS_FIELDS = {'version': 10, 'crs': 40, 'format': 60}
+# /api/wms_fetch: the server reads a WMS address for an editor's page when the
+# service won't let the page read it itself (no CORS headers).
+WMS_FETCH_MAX_URL = 4000
+WMS_FETCH_MAX_BYTES = 5 * 1024 * 1024
+WMS_FETCH_TIMEOUT = 15
 MAX_OVERLAY_POINTS = 200_000  # coordinate pairs per workspace, all features together
 _FORMAT_LINE_TYPES = {'id', 'size', 'activity', 'location', 'time', 'analysis', 'custom'}
 # Report fields /api/edit_report may overwrite. History and BDA change through
@@ -624,8 +636,6 @@ def _v_save_profile(data: dict) -> str | None:
 
 
 def _v_save_format(data: dict) -> str | None:
-    if err := _check_ato(data):
-        return err
     fmt = data.get('format')
     if not isinstance(fmt, dict):
         return 'format must be an object'
@@ -736,7 +746,49 @@ def _v_save_basemaps(data: dict) -> str | None:
             return f'basemaps[{i}].url must be an http(s) address ≤{MAX_BASEMAP_URL} chars'
         if 'layers' in b and not _is_str(b['layers'], MAX_BASEMAP_LAYERS):
             return f'basemaps[{i}].layers must be a string ≤{MAX_BASEMAP_LAYERS} chars'
+        for field, most in _BASEMAP_WMS_FIELDS.items():
+            if field in b and not _is_str(b[field], most):
+                return f'basemaps[{i}].{field} must be a string ≤{most} chars'
     return None
+
+
+def _v_wms_fetch(data: dict) -> str | None:
+    url = data.get('url')
+    if not _is_str(url, WMS_FETCH_MAX_URL) or not url.strip().lower().startswith(
+        ('http://', 'https://')
+    ):
+        return f'url must be an http(s) address ≤{WMS_FETCH_MAX_URL} chars'
+    return None
+
+
+def wms_fetch(url: str) -> dict:
+    """GET a WMS address and say what came back: the HTTP status, the content
+    type, the size, and the text when it is text (capabilities, or a service
+    error). Never raises; a failure to connect comes back as ``error``."""
+    req = urllib.request.Request(
+        url.strip(), headers={'User-Agent': 'SALT-Report-Workbench', 'Accept': '*/*'}
+    )
+
+    def answer(status: int, ctype: str, body: bytes) -> dict:
+        textual = not ctype.lower().startswith('image/')
+        return {
+            'http': status,
+            'type': ctype,
+            'size': len(body),
+            'truncated': len(body) > WMS_FETCH_MAX_BYTES,
+            'text': body[:WMS_FETCH_MAX_BYTES].decode('utf-8', 'replace') if textual else '',
+        }
+
+    try:
+        with urllib.request.urlopen(req, timeout=WMS_FETCH_TIMEOUT) as res:
+            return answer(
+                res.status, res.headers.get('Content-Type', ''), res.read(WMS_FETCH_MAX_BYTES + 1)
+            )
+    except urllib.error.HTTPError as e:
+        body = e.read(WMS_FETCH_MAX_BYTES + 1) if e.fp else b''
+        return answer(e.code, e.headers.get('Content-Type', '') if e.headers else '', body)
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        return {'error': str(getattr(e, 'reason', e)) or type(e).__name__}
 
 
 # Path -> validator. A new POST route needs an entry here and one in
@@ -751,6 +803,7 @@ _VALIDATORS = {
     '/api/save_format': _v_save_format,
     '/api/save_overlays': _v_save_overlays,
     '/api/save_basemaps': _v_save_basemaps,
+    '/api/wms_fetch': _v_wms_fetch,
 }
 
 
@@ -864,7 +917,8 @@ def load_data_from_disk() -> None:
         # Newest mtime wins — matches the runtime invariant that the most recent ATO/Title is active.
         latest_config = {'ato': '', 'title': ''}
         source_by_ato: dict = {}
-        merged_formats: dict = {}
+        # The format: the newest file's, for its active workspace if it has one.
+        shared_format: dict = {}
         # The newest file in the shared form decides the overlays. Files from
         # before they were shared (per-workspace dicts) are pooled, and used
         # only when no file has the shared form yet.
@@ -890,12 +944,10 @@ def load_data_from_disk() -> None:
                         # most recent backup file holding it.
                         source_by_ato[key] = fname
                     merged_profiles.update(result.get('profiles', {}))
-                    merged_formats.update(
-                        {
-                            (k or '').strip().upper(): v
-                            for k, v in (result.get('formats') or {}).items()
-                        }
-                    )
+                    if (
+                        fmt := pick_format(result.get('formats'), result.get('config'))
+                    ) is not None:
+                        shared_format = fmt
                     if isinstance(result.get('basemaps'), list):
                         basemaps = result['basemaps']  # the newest file's
                     ovs = result.get('overlays')
@@ -914,7 +966,7 @@ def load_data_from_disk() -> None:
             DATA_STORE['workspaces'] = all_workspaces
             DATA_STORE['profiles'] = merged_profiles
             DATA_STORE['config'] = latest_config
-            DATA_STORE['formats'] = merged_formats
+            DATA_STORE['format'] = shared_format
             DATA_STORE['overlays'] = (
                 shared_overlays if shared_overlays is not None else list(legacy_overlays.values())
             )
@@ -922,6 +974,30 @@ def load_data_from_disk() -> None:
             workspace_sources.clear()
             workspace_sources.update(source_by_ato)
             invalidate_sync_cache()
+
+
+def pick_format(formats, config) -> dict | None:
+    """The format a backup file holds: its active workspace's, else any. None when it has none.
+
+    Files from before the format was shared hold one per workspace; files since
+    hold the same one for each.
+    """
+    if not isinstance(formats, dict):
+        return None
+    good = {
+        (k or '').strip().upper(): v
+        for k, v in formats.items()
+        if isinstance(v, dict) and isinstance(v.get('lines'), list) and v['lines']
+    }
+    if not good:
+        return None
+    active = ((config or {}).get('ato') or '').strip().upper()
+    return good.get(active) or next(iter(good.values()))
+
+
+def formats_for(workspaces: dict, fmt: dict | None) -> dict:
+    """The shared format under each workspace's name, the shape backup files keep."""
+    return {ato: fmt for ato in workspaces} if fmt else {}
 
 
 def render_backup(
@@ -1172,7 +1248,7 @@ def save_data_to_disk() -> None:
                 DATA_STORE.get('workspaces', {}),
                 DATA_STORE.get('config', {}),
                 DATA_STORE.get('profiles', {}),
-                DATA_STORE.get('formats', {}),
+                formats_for(DATA_STORE.get('workspaces', {}), DATA_STORE.get('format')),
                 only,
                 DATA_STORE.get('overlays', []),
                 DATA_STORE.get('basemaps', []),
@@ -1288,7 +1364,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                     'workspaces': DATA_STORE['workspaces'],
                     'config': DATA_STORE['config'],
                     'profiles': DATA_STORE['profiles'],
-                    'formats': DATA_STORE.get('formats', {}),
+                    'format': DATA_STORE.get('format', {}),
                     'overlays': DATA_STORE.get('overlays', []),
                     'basemaps': DATA_STORE.get('basemaps', []),
                     'sources': workspace_sources,
@@ -1519,7 +1595,6 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             return
         with data_lock:
             DATA_STORE['workspaces'].pop(ato, None)
-            DATA_STORE.get('formats', {}).pop(ato, None)
             workspace_sources.pop(ato, None)
             cfg = DATA_STORE.get('config') or {}
             if (cfg.get('ato') or '').strip().upper() == ato:
@@ -1615,16 +1690,13 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         self._commit('save_config (unchanged)')
 
     def _post_save_format(self, data: dict) -> None:
-        ato = (data.get('ato') or '').strip().upper()
-        fmt = data.get('format')
-        if not ato or not isinstance(fmt, dict):
-            self._bad_request('Missing ato or format.')
-            return
+        # One format for every workspace; an older page's ATO is ignored.
+        fmt = data['format']
         with data_lock:
-            DATA_STORE.setdefault('formats', {})[ato] = fmt
+            DATA_STORE['format'] = fmt
             invalidate_sync_cache()
-            mark_dirty(ato)
-        self._commit(f'save_format {ato}')
+            mark_dirty()  # every workspace's file carries it
+        self._commit('save_format')
 
     def _post_save_overlays(self, data: dict) -> None:
         # Known fields only, like save_config. An empty list is kept (not
@@ -1654,6 +1726,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 'kind': b['kind'],
                 'url': b['url'].strip(),
                 **({'layers': b['layers'].strip()} if b.get('layers') else {}),
+                **{f: b[f].strip() for f in _BASEMAP_WMS_FIELDS if b.get(f)},
             }
             for b in data.get('basemaps') or []
         ]
@@ -1662,6 +1735,13 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             invalidate_sync_cache()
             mark_dirty()  # every workspace's backup carries them
         self._commit(f'save_basemaps: {len(clean)} service(s)')
+
+    def _post_wms_fetch(self, data: dict) -> None:
+        # Changes nothing here, so no save and no broadcast; logged all the
+        # same, as the server reached out on an editor's behalf.
+        url = data['url'].strip()
+        audit(self._actor(), f'wms_fetch {url.split("?", 1)[0][:200]}')
+        self._send_json({'status': 'success', **wms_fetch(url)})
 
     def _post_save_profile(self, data: dict) -> None:
         profile = data.get('profile')
@@ -1691,6 +1771,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         '/api/save_format': _post_save_format,
         '/api/save_overlays': _post_save_overlays,
         '/api/save_basemaps': _post_save_basemaps,
+        '/api/wms_fetch': _post_wms_fetch,
         '/api/save_profile': _post_save_profile,
     }
 

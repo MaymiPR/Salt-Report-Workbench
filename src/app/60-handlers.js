@@ -29,6 +29,9 @@ async function handleFormSubmit(mode) {
         showToast('Please fill in: ' + missing.join(', '), true);
         return;
     }
+    // With MGRS Lock on, grids typed as digits get the locked zone and square.
+    const locked = lockedLocation(el.form.location.value);
+    if (locked !== el.form.location.value) el.form.location.value = locked;
     // Name the NAI / OBJ / PL the grid is in, and settle any that disagree.
     const settled = await settleLocation(el.form.location.value);
     if (settled === null) { el.form.location.focus(); return; }
@@ -865,6 +868,32 @@ el.menu.sepBtn.addEventListener('click', () => {
     const bp = document.querySelector('[data-tab-panel="builder"]');
     if (bp && bp.style.display !== 'none') renderBuilderPreview();
     showToast(`ATO/Title separator: ${atoTitleSep}.`);
+});
+el.menu.mgrsLockBtn.addEventListener('click', () => {
+    mgrsLock = !mgrsLock;
+    writeStored('salt_mgrs_lock', mgrsLock ? 'on' : 'off');
+    updateMgrsLockUi();
+    renderLocationHints();
+    el.menu.panel.style.display = 'none';
+    if (mgrsLock && !mgrsLockPrefix) { document.getElementById('mgrsPrefix').focus(); showToast('MGRS Lock on. Set the grid zone and square (e.g. 11S NV) beside Location.'); }
+    else showToast(mgrsLock ? `MGRS Lock on: grids typed as digits get ${mgrsLockPrefix}.` : 'MGRS Lock off.');
+});
+// The locked prefix: kept as typed while typing, tidied ("11S NV") on leaving.
+const mgrsPrefixBox = document.getElementById('mgrsPrefix');
+mgrsPrefixBox.addEventListener('input', () => {
+    const p = SaltCore.mgrsPrefix(mgrsPrefixBox.value);
+    mgrsPrefixBox.classList.toggle('invalid', !!mgrsPrefixBox.value.trim() && !p);
+    if (p || !mgrsPrefixBox.value.trim()) {
+        mgrsLockPrefix = p || '';
+        writeStored('salt_mgrs_prefix', mgrsLockPrefix);
+        updateMgrsLockUi();
+        renderLocationHints();
+    }
+});
+mgrsPrefixBox.addEventListener('blur', () => {
+    if (mgrsPrefixBox.value.trim() && !SaltCore.mgrsPrefix(mgrsPrefixBox.value)) showToast('Use the grid zone and 100 km square, e.g. 11S NV.', true);
+    else mgrsPrefixBox.value = mgrsLockPrefix;
+    mgrsPrefixBox.classList.remove('invalid');
 });
 el.menu.bdaBtn.addEventListener('click', () => { bdaMode = !bdaMode; bdaFilter = null; writeStored('salt_bda_mode', bdaMode ? 'on' : 'off'); document.body.classList.toggle('bda-mode', bdaMode); updateBdaBtnText(); renderLog(); el.menu.panel.style.display='none'; showToast(bdaMode ? 'BDA tracking shown.' : 'BDA tracking hidden.'); });
 

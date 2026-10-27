@@ -41,6 +41,7 @@ const renderSummary = () => {
     });
     s.text.textContent = summaryText;
     s.subtitle.textContent = `${ato || 'No workspace'} · ${plural(live.length, 'report')} in the workspace`;
+    s.panel.querySelectorAll('.range-mode').forEach(n => { n.textContent = timeDisplayMode === 'local' ? '(Local)' : '(Zulu)'; });
 };
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 

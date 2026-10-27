@@ -17,9 +17,9 @@ const generateReportText = (report) => SaltCore.reportText(report, currentFormat
 const getCsvFilename = (ato, title) => `${SaltCore.backupFilename(ato, title)}_${fileStamp(new Date(), timeDisplayMode === 'local')}`;
 
 const generateBackupText = (ato, reps, title, profiles) =>
-    SaltCore.backupText(ato, reps, title, profiles, workspaceFormats, new Date(), sharedOverlays);
+    SaltCore.backupText(ato, reps, title, profiles, formatsFor([ato]), new Date(), sharedOverlays);
 const generateAllAtosBackupText = (workspaces, activeAto, title, profiles) =>
-    SaltCore.allWorkspacesBackupText(workspaces, activeAto, title, profiles, workspaceFormats, new Date(), sharedOverlays);
+    SaltCore.allWorkspacesBackupText(workspaces, activeAto, title, profiles, formatsFor(Object.keys(workspaces)), new Date(), sharedOverlays);
 
 const triggerDownload = (filename, content, type = 'text/plain;charset=utf-8') => {
     const blob = new Blob([content], { type }), a = document.createElement('a');
@@ -328,14 +328,18 @@ const IO_FORMATS = {
           desc: 'Every report with its updates, BDA, report format and the overlays. Opens in Notepad; Import it on any workbench.' },
         { id: 'csv', label: 'Reports for Excel (.csv)', btn: 'exportPanelCsvBtn', needs: 'csv',
           desc: 'One row per report, and one per saved update (or, with Latest version only, just the report), with the time filter below.' },
+        { id: 'arcgis-shp', label: 'ArcGIS points (Shapefile .zip)', run: () => exportForArcgis('shp'),
+          desc: 'One point per grid of each report as it is now (its updates are not extra points), for heat maps. Unzip it, then drag the .shp into ArcGIS Pro or browse to it from a folder connection. ArcGIS Online takes the zip as it is. Text longer than 254 characters is cut.' },
         { id: 'arcgis-esri', label: 'ArcGIS points (.json, Esri JSON)', btn: 'exportArcgisEsriBtn',
-          desc: 'One point per grid of each report as it is now (its updates are not extra points), for heat maps. ArcGIS Pro: JSON To Features. The surest way into Pro.' },
+          desc: 'The same points with every character of text. ArcGIS Pro does not drag these in: run JSON To Features on the file.' },
         { id: 'arcgis-geojson', label: 'ArcGIS points (.geojson)', btn: 'exportArcgisGeojsonBtn',
-          desc: 'The same points as GeoJSON, for JSON To Features or other GIS. Text longer than 254 characters is cut.' },
+          desc: 'The same points as GeoJSON, for other GIS, or JSON To Features in ArcGIS Pro. Text longer than 254 characters is cut.' },
         { id: 'arcgis-csv', label: 'ArcGIS points (.csv)', btn: 'exportArcgisCsvBtn',
           desc: 'The same points as a table: XY Table To Point, with lon as X and lat as Y (WGS 1984).' },
+        { id: 'tracks-shp', label: 'ArcGIS tracks (Shapefile .zip)', run: () => exportForArcgis('tracks-shp'),
+          desc: 'One line per report that moved, from its first grid through its updates to the latest, for an arrow at the end (Symbology: a line with an end arrow). Unzip it, then drag the .shp into ArcGIS Pro.' },
         { id: 'tracks-esri', label: 'ArcGIS tracks (.json, Esri JSON)', run: () => exportForArcgis('tracks-esri'),
-          desc: 'One line per report that moved, from its first grid through its updates to the latest, for an arrow at the end (Symbology: a line with an end arrow). JSON To Features.' },
+          desc: 'The same tracks as Esri JSON, for JSON To Features.' },
         { id: 'tracks-geojson', label: 'ArcGIS tracks (.geojson)', run: () => exportForArcgis('tracks-geojson'),
           desc: 'The same tracks as GeoJSON lines, drawn first to latest.' },
     ],
@@ -423,13 +427,12 @@ function processJsonImport(rawText) {
                 writeStored('salt_last_active_ato', activeAto);
                 setAtoState(true);
             }
-            // Restore per-workspace report formats bundled in the backup.
-            if (imp.formats && typeof imp.formats === 'object') {
-                workspaceFormats = { ...workspaceFormats, ...imp.formats };
-                writeStored('salt_ws_formats', JSON.stringify(workspaceFormats));
-                for (const [fAto, fFmt] of Object.entries(imp.formats)) {
-                    try { await postJson('/api/save_format', { ato: fAto, format: fFmt }); } catch(e){}
-                }
+            // The file's report format is taken only while this one is still
+            // the stock one: an operator's own format changes only in the Builder.
+            if (imp.formats && typeof imp.formats === 'object' && isStockFormat()) {
+                const own = Object.values(imp.formats).filter(isFormat);
+                const fFmt = (imp.config && isFormat(imp.formats[imp.config.ato]) && imp.formats[imp.config.ato]) || own[0];
+                if (fFmt) saveWorkspaceFormat(fFmt);
             }
             // And the overlays (NAI / OBJ / PL): the file's replace any of the
             // same type and name; the rest are kept.

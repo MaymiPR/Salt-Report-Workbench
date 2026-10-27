@@ -55,7 +55,7 @@ def reset_state() -> None:
             "workspaces": {},
             "config": {"ato": "", "title": ""},
             "profiles": {},
-            "formats": {},
+            "format": {},
             "overlays": [],
             "basemaps": [],
         }
@@ -705,10 +705,37 @@ class HttpApiTests(unittest.TestCase):
             [h["size"] for h in self.sync()["workspaces"]["ALPHA"][0]["history"]], ["v2"]
         )
 
-    def test_formats_round_trip_through_sync(self):
+    def test_format_is_shared_and_survives_a_restart(self):
+        shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        self.post("/api/save_reports", {"ato": "BRAVO", "reports": [report("b1", "BRAVO001")]})
         fmt = {"preset": "salt-u", "lines": [{"type": "size"}, {"type": "id"}]}
+        # An older page still names its workspace; the format is one all the same.
         self.assertEqual(self.post("/api/save_format", {"ato": "alpha", "format": fmt})[0], 200)
-        self.assertEqual(self.sync()["formats"], {"ALPHA": fmt})
+        self.assertEqual(self.sync()["format"], fmt)
+        fmt2 = {"preset": "custom", "lines": [{"type": "id"}, {"type": "custom", "label": "W"}]}
+        self.assertEqual(self.post("/api/save_format", {"format": fmt2})[0], 200)
+        self.assertEqual(self.sync()["format"], fmt2)
+        # Every workspace's file carries it, and it comes back after a restart.
+        srv.flush_pending_save()
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(self.sync()["format"], fmt2)
+        # Unloading a workspace leaves it.
+        self.post("/api/unload_ato", {"ato": "ALPHA"})
+        self.assertEqual(self.sync()["format"], fmt2)
+        status, _ = self.post("/api/save_format", {"format": fmt}, base=self.viewer_base)
+        self.assertEqual(status, 405, "viewers cannot change it")
+
+    def test_format_from_older_per_workspace_files(self):
+        a = {"preset": "salt", "lines": [{"type": "id"}, {"type": "size"}]}
+        b = {"preset": "salt-u", "lines": [{"type": "size"}, {"type": "id"}]}
+        self.assertEqual(srv.pick_format({"ALPHA": a, "bravo": b}, {"ato": "BRAVO"}), b)
+        self.assertEqual(srv.pick_format({"ALPHA": a}, {"ato": "BRAVO"}), a)
+        self.assertIsNone(srv.pick_format({}, {}))
+        self.assertIsNone(srv.pick_format({"ALPHA": {"lines": []}}, {}))
+        self.assertEqual(srv.formats_for({"A": [], "B": []}, a), {"A": a, "B": a})
+        self.assertEqual(srv.formats_for({"A": []}, {}), {})
 
     def test_overlays_sync_and_clear(self):
         self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
@@ -728,7 +755,7 @@ class HttpApiTests(unittest.TestCase):
         shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)  # only this test's files
         self.post("/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol"}})
         self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
-        self.post("/api/save_reports", {"ato": "BRAVO", "reports": [report(id="b1")]})
+        self.post("/api/save_reports", {"ato": "BRAVO", "reports": [report("b1", "BRAVO001")]})
         srv.flush_pending_save()
         self.post("/api/save_overlays", {"overlays": [NAI1, PL_BLUE]})
         srv.flush_pending_save()
@@ -742,6 +769,82 @@ class HttpApiTests(unittest.TestCase):
         # Unloading a workspace leaves the shared set alone.
         self.post("/api/unload_ato", {"ato": "ALPHA"})
         self.assertEqual(self.sync()["overlays"], [NAI1, PL_BLUE])
+
+    def test_basemap_wms_fields_are_kept(self):
+        wms = {
+            "name": "Ops",
+            "kind": "wms",
+            "url": "http://s/wms",
+            "layers": "0,1",
+            "version": "1.1.1",
+            "crs": " EPSG:4326 ",
+            "format": "image/jpeg",
+            "junk": 1,
+        }
+        self.assertEqual(self.post("/api/save_basemaps", {"basemaps": [wms]})[0], 200)
+        self.assertEqual(
+            self.sync()["basemaps"],
+            [
+                {
+                    "name": "Ops",
+                    "kind": "wms",
+                    "url": "http://s/wms",
+                    "layers": "0,1",
+                    "version": "1.1.1",
+                    "crs": "EPSG:4326",
+                    "format": "image/jpeg",
+                }
+            ],
+        )
+        self.assertIn("crs", srv._v_save_basemaps({"basemaps": [{**wms, "crs": 3857}]}))
+        self.assertIn("version", srv._v_save_basemaps({"basemaps": [{**wms, "version": "x" * 11}]}))
+        self.post("/api/save_basemaps", {"basemaps": []})
+
+    def test_wms_fetch_reads_a_service_for_the_page(self):
+        import http.server as hs
+        import threading
+
+        class Fake(hs.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                if "GetCapabilities" in self.path:
+                    body, ctype, code = b"<WMS_Capabilities version='1.3.0'/>", "text/xml", 200
+                elif "GetMap" in self.path:
+                    body, ctype, code = (
+                        b"<ServiceException>Layer x not defined</ServiceException>",
+                        "application/vnd.ogc.se_xml",
+                        200,
+                    )
+                else:
+                    body, ctype, code = b"gone", "text/plain", 404
+                self.send_response(code)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        fake = hs.HTTPServer(("127.0.0.1", 0), Fake)
+        threading.Thread(target=fake.serve_forever, daemon=True).start()
+        try:
+            base = f"http://127.0.0.1:{fake.server_port}/wms"
+            status, body = self.post(
+                "/api/wms_fetch", {"url": base + "?SERVICE=WMS&REQUEST=GetCapabilities"}
+            )
+            self.assertEqual((status, body["http"], body["type"]), (200, 200, "text/xml"))
+            self.assertIn("WMS_Capabilities", body["text"])
+            _, body = self.post("/api/wms_fetch", {"url": base + "?REQUEST=GetMap"})
+            self.assertIn("not defined", body["text"])
+            _, body = self.post("/api/wms_fetch", {"url": base + "?other"})
+            self.assertEqual(body["http"], 404)
+        finally:
+            fake.shutdown()
+        _, body = self.post("/api/wms_fetch", {"url": "http://127.0.0.1:1/nothing"})
+        self.assertIn("error", body)
+        self.assertEqual(self.post("/api/wms_fetch", {"url": "file:///c:/windows/win.ini"})[0], 400)
+        status, _ = self.post("/api/wms_fetch", {"url": base}, base=self.viewer_base)
+        self.assertEqual(status, 405, "not on the viewer port")
 
     def test_basemaps_sync_and_survive_a_restart(self):
         shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)

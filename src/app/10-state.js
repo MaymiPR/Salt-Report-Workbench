@@ -10,6 +10,7 @@ const el = {
         root:      document.getElementById('saltForm'),
         reportId:  document.getElementById('reportId'),
         title:     document.getElementById('form-title'),
+        editingNote: document.getElementById('formEditingNote'),
         logBtn:    document.getElementById('logButton'),
         editBtn:   document.getElementById('editButton'),
         updateBtn: document.getElementById('updateButton'),
@@ -73,6 +74,7 @@ const el = {
         timeBtn:   document.getElementById('toggleTimeFormatBtn'),
         sepBtn:    document.getElementById('toggleSepBtn'),
         bdaBtn:    document.getElementById('toggleBdaBtn'),
+        mgrsLockBtn: document.getElementById('toggleMgrsLockBtn'),
         exportBtn: document.getElementById('exportViewToggleBtn'),
         clearBtn:  document.getElementById('clearAllBtn'),
     },
@@ -273,8 +275,9 @@ let timeDisplayMode  = localStorage.getItem('salt_time_mode')  || 'zulu';
 let atoTitleSep      = localStorage.getItem('salt_ato_title_sep') || 'dash';
 
 // --- Report format (builder) ---
-// A format is an ordered list of lines, stored per-workspace and synced via
-// the server so the whole team composes reports the same way.
+// A format is an ordered list of lines: one for every workspace, synced via
+// the server so the whole team composes reports the same way. It changes only
+// when an operator edits it in the Builder, never by switching workspaces.
 // Built-in line types: id, size, activity, location, time, analysis.
 // The `id` line renders as the header when first, or as a `U:` line when
 // placed lower (SALT-U). Custom lines carry a label; their values live on
@@ -285,15 +288,18 @@ const FORMAT_PRESETS = {
     'salt':   [{type:'id'},{type:'size'},{type:'activity'},{type:'location'},{type:'time'}],
     'salt-u': [{type:'size'},{type:'activity'},{type:'location'},{type:'time'},{type:'id'}],
 };
-let workspaceFormats = readStored('salt_ws_formats', {});
-// The last format this operator actually worked with. A workspace that has no
-// format of its own adopts this, so Builder changes survive an ATO switch.
-const _LAST_FORMAT_KEY = 'salt_last_format';
+const isFormat = f => !!(f && Array.isArray(f.lines) && f.lines.length);
+// Browsers from before it was shared kept one per workspace and the last one
+// worked with; that last one carries over.
+let sharedFormat = readStored('salt_format', null);
+if (!isFormat(sharedFormat)) sharedFormat = readStored('salt_last_format', null);
+if (!isFormat(sharedFormat)) sharedFormat = null;
+try { localStorage.removeItem('salt_ws_formats'); localStorage.removeItem('salt_last_format'); } catch (e) {}
 const defaultFormat  = () => ({ preset: 'salt', lines: FORMAT_PRESETS['salt'].map(l => ({...l})) });
-const currentFormat  = () => {
-    const f = activeAto && workspaceFormats[activeAto];
-    return (f && Array.isArray(f.lines) && f.lines.length) ? f : defaultFormat();
-};
+const currentFormat  = () => sharedFormat || defaultFormat();
+const isStockFormat  = () => !sharedFormat || JSON.stringify(sharedFormat.lines) === JSON.stringify(FORMAT_PRESETS['salt']);
+// Backup files keep the format under each workspace's name, as older versions read it.
+const formatsFor = (atos) => Object.fromEntries(atos.map(a => [a, currentFormat()]));
 
 // --- Overlays ---
 // NAI / OBJ / PL features, one set shared by every workspace: imported in the
@@ -330,6 +336,13 @@ const locationInfo = (text) => {
 // Hidden until enabled from the ellipsis menu. Assessments live on each
 // report under `bda: []` and sync like everything else.
 let bdaMode = localStorage.getItem('salt_bda_mode') === 'on';
+// MGRS Lock (per browser): a grid zone and 100 km square ("11S NV") put in
+// front of grids typed as digits alone, so operators type "39697 06762".
+let mgrsLock = localStorage.getItem('salt_mgrs_lock') === 'on';
+let mgrsLockPrefix = SaltCore.mgrsPrefix(localStorage.getItem('salt_mgrs_prefix') || '') || '';
+document.body.classList.toggle('mgrs-lock', mgrsLock);
+// The Location as it will be logged: with the locked prefix, when it is on.
+const lockedLocation = (text) => (mgrsLock && mgrsLockPrefix ? SaltCore.applyMgrsPrefix(text, mgrsLockPrefix) : text);
 document.body.classList.toggle('bda-mode', bdaMode);
 // Chip picked in the roll-up strip: an effect name, 'unassessed', or null.
 let bdaFilter = null;
@@ -413,7 +426,7 @@ const setupMenuToggle = (btn, menu) => btn.addEventListener('click', e => {
         const panel = btn.closest('.report-section, .form-section');
         const bottom = Math.min(window.innerHeight, panel ? panel.getBoundingClientRect().bottom : Infinity);
         const room = bottom - menu.getBoundingClientRect().top - 12;
-        if (menu.scrollHeight > room) menu.style.maxHeight = `${Math.max(160, room)}px`;
+        if (menu.scrollHeight > room) menu.style.maxHeight = `${Math.max(80, room)}px`;
     }
 });
 
