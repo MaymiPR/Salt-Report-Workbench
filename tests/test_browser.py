@@ -1552,16 +1552,46 @@ class BrowserTests(unittest.TestCase):
         page.press("#narrEnemy", "Enter")
         page.wait_for_selector("#toast-notification:has-text('calls them OPFOR')")
         self.assertIn("that OPFOR are preparing a defense in NAI 1.", flat())
-        # A unit, in NAI 1: places and kinds are chips to tap.
+        # A unit, in NAI 1: where it operates and what it has are dropdowns;
+        # Other brings up a box for places not in the list.
         page.click("[data-narr-add]")
         page.fill("#narrUnitName", "1-60 GMRB")
+        self.assertEqual(page.text_content("[data-narr-dd='place'] .narr-dd-value"), "Anywhere")
+        self.assertFalse(page.locator("#narrUnitOther").is_visible())
+        page.click("[data-narr-dd='place'] .narr-dd-btn")
         page.click("[data-narr-place='NAI 1']")
-        self.assertEqual(page.get_attribute("[data-narr-place='NAI 1']", "aria-pressed"), "true")
+        self.assertTrue(
+            page.locator("[data-narr-place='NAI 2']").is_visible(), "stays open while picking"
+        )
+        page.click("[data-narr-place='']")
+        self.assertFalse(
+            page.locator("[data-narr-place='NAI 2']").is_visible(), "Other: the menu makes way"
+        )
+        self.assertTrue(page.locator("#narrUnitOther").is_visible())
+        self.assertEqual(page.evaluate("document.activeElement.id"), "narrUnitOther")
+        page.keyboard.type("38S MB 49")
+        page.click("[data-narr-dd='place'] .narr-dd-btn")
+        page.click("[data-narr-place='']")
+        self.assertFalse(
+            page.locator("#narrUnitOther").is_visible(), "Other off: no box, and not saved"
+        )
+        self.assertEqual(page.text_content("[data-narr-dd='place'] .narr-dd-value"), "NAI 1")
+        page.keyboard.press("Escape")
+        self.assertFalse(page.locator("[data-narr-place='NAI 1']").is_visible(), "Escape closes it")
+        page.click("[data-narr-dd='kind'] .narr-dd-btn")
+        page.click("[data-narr-kind='infantry']")
+        page.click("#narrUnitName")
+        self.assertFalse(
+            page.locator("[data-narr-kind='infantry']").is_visible(), "closed by a click elsewhere"
+        )
+        self.assertEqual(
+            page.text_content("[data-narr-dd='kind'] .narr-dd-value"), "dismounted personnel"
+        )
         page.click("[data-narr-save]")
         page.wait_for_selector("#toast-notification:has-text('1-60 GMRB saved')")
         self.assertEqual(page.text_content("[data-narr-tab='units'] .narr-count"), "1")
         self.assertIn("that elements of 1-60 GMRB are preparing a defense in NAI 1.", flat())
-        self.assertIn("Unit: from the unit list, 1-60 GMRB (NAI 1).", flat())
+        self.assertIn("Unit: from the unit list, 1-60 GMRB (NAI 1; dismounted personnel).", flat())
         # Equipment the catalogue doesn't know: a dot on the tab, offered first.
         self.assertTrue(page.locator("[data-narr-tab='equipment'] .narr-dot").is_visible())
         page.click("[data-narr-tab='equipment']")
@@ -1588,7 +1618,8 @@ class BrowserTests(unittest.TestCase):
         page.fill("#narrRuleWords", "bridging, ferry")
         page.click("[data-narr-save]")
         page.wait_for_selector("#toast-notification:has-text('Rule saved for everyone')")
-        self.assertIn("that elements of 1-60 GMRB are preparing a river crossing in NAI 1.", flat())
+        # Its reports (a PMP, trucks) have none of the unit's kind: said of OPFOR.
+        self.assertIn("that OPFOR are preparing a river crossing in NAI 1.", flat())
         # A saved one opens from its row; Remove asks first, and Back leaves it.
         page.click("[data-narr-tab='units']")
         page.click("[data-narr-edit='0']")

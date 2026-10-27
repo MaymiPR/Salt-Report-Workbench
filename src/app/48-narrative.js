@@ -11,12 +11,10 @@
 let narrTab = 'units';
 let narrOpen = null;        // the item open in the panel: { index (-1: a new one), fill? }
 let narrRemoving = false;   // its Remove has asked "for everyone?"
-let narrMoreKinds = false;  // the unit form shows every kind, not just the usual ones
 let narrBuilt = null;       // what the panel was last built from, so a sync doesn't rebuild it under the cursor
 
 const narrList = (k) => (Array.isArray(sharedNarrative[k]) ? sharedNarrative[k] : []);
 const ROLE_NAMES = Object.fromEntries(SaltCore.EQUIPMENT_ROLES);
-const USUAL_KINDS = ['armor', 'mech', 'recon', 'fires', 'ad', 'engineer', 'logistics'];
 const ORIGIN_NAMES = { '': 'Any army', RU: 'Russian', CN: 'Chinese' };
 const CHEVRON = '<svg class="narr-chevron" viewBox="0 0 8 14" width="7" height="12" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
@@ -69,20 +67,43 @@ const drill = (back, title, body) => `<button type="button" class="narr-back" da
 
 // --- Units ---
 
+// A dropdown that picks several: its button says what's picked (or `none`),
+// its menu ticks each option; it stays open while you pick, and closes on a
+// click elsewhere or Escape. `options` are [value, label, on].
+const ddLabel = (dd) => {
+    const on = [...dd.querySelectorAll('[role="option"][aria-selected="true"]')].map(o => o.dataset.label);
+    dd.querySelector('.narr-dd-value').textContent = on.join(', ') || dd.dataset.none;
+};
+const dropdown = (name, attr, none, options) => {
+    const on = options.filter(([, , o]) => o).map(([, l]) => l);
+    return `<div class="narr-dd" data-narr-dd="${name}" data-none="${escapeHtml(none)}">
+        <button type="button" class="narr-dd-btn" aria-haspopup="listbox" aria-expanded="false">
+            <span class="narr-dd-value">${escapeHtml(on.join(', ') || none)}</span>
+            <svg viewBox="0 0 12 8" width="10" height="7" aria-hidden="true"><path d="M1 1.5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="narr-dd-menu" role="listbox" aria-multiselectable="true" hidden>${options.map(([v, l, o]) =>
+            `<button type="button" role="option" ${attr}="${escapeHtml(v)}" data-label="${escapeHtml(l)}" aria-selected="${!!o}">${escapeHtml(l)}</button>`).join('')}</div>
+    </div>`;
+};
+const closeDropdowns = (except = null) => document.querySelectorAll('.narr-dd').forEach(dd => {
+    if (dd === except) return;
+    dd.querySelector('.narr-dd-menu').hidden = true;
+    dd.querySelector('.narr-dd-btn').setAttribute('aria-expanded', 'false');
+});
+
 const unitForm = (u) => {
     const known = narrPlaces();
     const on = new Set((u.places || []).map(p => p.toUpperCase()));
     const other = (u.places || []).filter(p => !known.some(k => k.toUpperCase() === p.toUpperCase()));
     const kinds = new Set(u.kinds || []);
-    const shown = narrMoreKinds ? SaltCore.EQUIPMENT_ROLES.map(([r]) => r) : [...new Set([...USUAL_KINDS, ...kinds])];
+    // Other: places not in the list (a 10 km square, say), typed in the box it brings up.
     return `<div class="narr-form">
         <input type="text" id="narrUnitName" value="${escapeHtml(u.name || '')}" placeholder="Unit, e.g. 1-60 GMRB" maxlength="60" spellcheck="false" aria-label="Unit">
-        <div class="narr-label">Where it operates<span>None picked: anywhere</span></div>
-        <div class="narr-chips">${known.map(p => chip('data-narr-place', p, p, on.has(p.toUpperCase()))).join('')}</div>
-        <input type="text" id="narrUnitOther" value="${escapeHtml(other.join(', '))}" placeholder="Other places, e.g. 11S NV 31" maxlength="400" spellcheck="false" aria-label="Other places, comma-separated">
-        <div class="narr-label">What it has<span>None picked: any</span></div>
-        <div class="narr-chips">${shown.map(r => chip('data-narr-kind', r, ROLE_NAMES[r], kinds.has(r))).join('')}
-            ${narrMoreKinds ? '' : '<button type="button" class="narr-chip narr-more" data-narr-more>More&hellip;</button>'}</div>
+        <div class="narr-label">Where it operates</div>
+        ${dropdown('place', 'data-narr-place', 'Anywhere', [...known.map(p => [p, p, on.has(p.toUpperCase())]), ['', 'Other', other.length > 0]])}
+        <input type="text" id="narrUnitOther" value="${escapeHtml(other.join(', '))}" placeholder="Other places, e.g. 11S NV 31" maxlength="400" spellcheck="false" aria-label="Other places, comma-separated"${other.length ? '' : ' hidden'}>
+        <div class="narr-label">What it has</div>
+        ${dropdown('kind', 'data-narr-kind', 'Any equipment', SaltCore.EQUIPMENT_ROLES.map(([r, t]) => [r, t, kinds.has(r)]))}
         ${formFoot(narrOpen.index >= 0)}
     </div>`;
 };
@@ -184,7 +205,7 @@ const renderNarrSettings = () => {
     const box = document.getElementById('narrSettings');
     if (!box || box.hidden) return;
     const typing = box.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
-    const key = JSON.stringify([sharedNarrative, narrTab, narrOpen, narrRemoving, narrMoreKinds, isReadOnly, narrPlaces(), narrUnknown()]);
+    const key = JSON.stringify([sharedNarrative, narrTab, narrOpen, narrRemoving, isReadOnly, narrPlaces(), narrUnknown()]);
     if (key === narrBuilt || ((typing || narrOpen) && narrBuilt)) return;
     narrBuilt = key;
     const counts = narrCounts(), unknown = narrUnknown().length;
@@ -214,11 +235,14 @@ const openNarrSettings = (open) => {
 // What the open form says, as an entry; null (and a toast) when it won't do.
 const readNarrForm = () => {
     const val = id => (document.getElementById(id) || {}).value || '';
-    const picked = attr => [...document.querySelectorAll(`[${attr}][aria-pressed="true"]`)].map(b => b.getAttribute(attr));
+    const picked = attr => [...document.querySelectorAll(`[${attr}][aria-pressed="true"], [${attr}][aria-selected="true"]`)].map(b => b.getAttribute(attr));
     if (narrTab === 'units') {
         const name = val('narrUnitName').trim();
         if (!name) { showToast('Give the unit a name.', true); return null; }
-        const places = [...new Set([...picked('data-narr-place'), ...val('narrUnitOther').split(',').map(p => p.trim()).filter(Boolean)])];
+        // Other ('' in the list) brings in what's typed in its box.
+        const listed = picked('data-narr-place');
+        const typed = listed.includes('') ? val('narrUnitOther').split(',').map(p => p.trim()).filter(Boolean) : [];
+        const places = [...new Set([...listed.filter(Boolean), ...typed])];
         if (places.some(p => p.length > 40)) { showToast('A place name is at most 40 characters.', true); return null; }
         return { name, places: places.slice(0, 40), kinds: picked('data-narr-kind') };
     }
@@ -251,7 +275,7 @@ const saveNarrForm = () => {
     const box = document.getElementById('narrSettings');
     if (!box) return;
     const rerender = () => { narrBuilt = null; renderNarrSettings(); };
-    const go = (open) => { narrOpen = open; narrRemoving = false; narrMoreKinds = false; rerender(); };
+    const go = (open) => { narrOpen = open; narrRemoving = false; rerender(); };
     document.getElementById('narrSettingsBtn').addEventListener('click', () => openNarrSettings(box.hidden));
     box.addEventListener('click', e => {
         if (e.target.closest('[data-narr-close]')) { openNarrSettings(false); return; }
@@ -267,7 +291,27 @@ const saveNarrForm = () => {
         const fill = e.target.closest('[data-narr-fill]');
         if (fill) { go({ index: -1, fill: fill.dataset.narrFill }); return; }
         if (e.target.closest('[data-narr-back]')) { go(null); return; }
-        if (e.target.closest('[data-narr-more]')) { narrMoreKinds = true; rerender(); return; }
+        // A dropdown: its button opens or closes it; an option is ticked or not.
+        const ddBtn = e.target.closest('.narr-dd-btn');
+        if (ddBtn) {
+            const dd = ddBtn.closest('.narr-dd'), menu = dd.querySelector('.narr-dd-menu');
+            closeDropdowns(dd);
+            menu.hidden = !menu.hidden;
+            ddBtn.setAttribute('aria-expanded', String(!menu.hidden));
+            return;
+        }
+        const opt = e.target.closest('.narr-dd [role="option"]');
+        if (opt) {
+            opt.setAttribute('aria-selected', String(opt.getAttribute('aria-selected') !== 'true'));
+            ddLabel(opt.closest('.narr-dd'));
+            // Other: the menu makes way for the box to type the places in.
+            if (opt.dataset.narrPlace === '') {
+                const box = document.getElementById('narrUnitOther');
+                box.hidden = opt.getAttribute('aria-selected') !== 'true';
+                if (!box.hidden) { closeDropdowns(); box.focus(); }
+            }
+            return;
+        }
         // A chip: on or off; in a one-choice group, the others go off.
         const c = e.target.closest('.narr-chip[aria-pressed]');
         if (c) {
@@ -301,7 +345,10 @@ const saveNarrForm = () => {
         if (e.target.id === 'narrEqType') document.getElementById('narrEqSays').textContent = lookupSays(e.target.value);
         if (e.target.id === 'narrEqFind') document.getElementById('narrEqFindSays').textContent = lookupSays(e.target.value);
     });
+    // A click anywhere but in a dropdown closes it.
+    document.addEventListener('click', e => { if (!e.target.closest('.narr-dd')) closeDropdowns(); });
     box.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && box.querySelector('.narr-dd-menu:not([hidden])')) { closeDropdowns(); return; }
         if (e.key === 'Escape' && narrOpen) { go(null); return; }
         if (e.key !== 'Enter' || e.target.tagName !== 'INPUT') return;
         e.preventDefault();
