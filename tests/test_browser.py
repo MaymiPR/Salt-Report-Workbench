@@ -499,8 +499,11 @@ class BrowserTests(unittest.TestCase):
             ),
             "exportClearFilterBtn",
         )
-        page.click("[data-preset-hours='6']")
+        page.click("[data-preset-hours='24']")
         self.assertNotEqual(page.input_value("#export-from-date"), "")
+        self.assertNotEqual(
+            page.input_value("#export-from-date"), page.input_value("#export-to-date")
+        )
         page.click("#exportClearFilterBtn")
         self.assertEqual(page.input_value("#export-from-date"), "")
         # The list holds exports only; clicking the drop area chooses files to import.
