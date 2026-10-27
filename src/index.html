@@ -272,7 +272,7 @@
                         <li>Export and Import are on the same screen. <strong>Export</strong>: pick what from the list (a line under it says what it is and how to use it) and press <strong>Export</strong>. Below it is the <strong>Time range</strong>; beside that, the <strong>Options</strong> for the picked format (when it has any), and <strong>Import</strong> under them. Your last choice is remembered in this browser.</li>
                         <li><strong>Import</strong> (editors): drop a file anywhere on the tab, or click the drop area to choose one. What it is gets worked out from the file: a backup (<code>.txt</code>), another tool&rsquo;s CSV (opens the column matching), or overlays (KML, KMZ, GeoJSON, or a shapefile&rsquo;s files or zip, opening the Overlays tab to review them). Several files together must all be overlays.</li>
                         <li><strong>Time range</strong>: set From and/or To to narrow what gets exported. Leave both blank to include everything.</li>
-                        <li><strong>Quick presets (24h / 12h / 6h / 1h)</strong>: one click fills both pickers relative to now, respecting your active Zulu/Local time mode. <strong>Clear</strong>, after them, empties both to export everything.</li>
+                        <li><strong>Quick presets (24h / 12h / 6h / 1h)</strong>: one click fills both pickers relative to now, respecting your active Zulu/Local time mode. <strong>Clear</strong>, at the top right of the card once a range is set, empties both to export everything.</li>
                         <li><strong>Filter stats</strong>: stacked counts beneath the picker show <em>N of M unique reports</em> + <em>N of M total reports</em> (the second line includes every saved history entry). Turns blue when a filter is active.</li>
                         <li><strong>Export Backup (.txt)</strong>: full snapshot with human-readable content at the top and machine-readable JSON at the bottom. Re-import to merge it back in.</li>
                         <li><strong>Export CSV</strong>: flat tabular export. The Identifier column matches the table (<code>Patrol - ALPHA001</code>, following the Title Separator). Current report appears first, then each history entry on its own row labeled <code>Update #N (Old)</code>, then each BDA assessment as a <code>BDA #N</code> row (target in Size, effect in Activity, coords in MGRS). Custom builder fields are appended as extra columns after Analysis.</li>
@@ -811,7 +811,12 @@
                                  under them, filling the rest of that column. -->
                             <div class="io-cards">
                                 <section class="io-card io-time">
-                                    <div class="export-block-label">Time range</div>
+                                    <!-- Clear empties the whole range, so it sits by the range's name;
+                                         it shows only while there is something to clear. -->
+                                    <div class="io-card-head">
+                                        <div class="export-block-label">Time range</div>
+                                        <button type="button" id="exportClearFilterBtn" class="text-btn">Clear</button>
+                                    </div>
                                     <div class="filter-field">
                                         <label>From <span class="filter-mode" id="export-from-mode">(Z)</span></label>
                                         <div class="filter-pair">
@@ -832,7 +837,6 @@
                                         <button type="button" class="filter-preset-btn" data-preset-hours="12">12h</button>
                                         <button type="button" class="filter-preset-btn" data-preset-hours="6">6h</button>
                                         <button type="button" class="filter-preset-btn" data-preset-hours="1">1h</button>
-                                        <button type="button" id="exportClearFilterBtn" class="cancel-btn filter-clear">Clear</button>
                                     </div>
                                     <div class="filter-meta">
                                         <span id="export-filter-count" class="filter-count-line">All reports will be exported.</span>

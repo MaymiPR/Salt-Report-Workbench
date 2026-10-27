@@ -729,6 +729,12 @@ body.local-mode .startup-access-divider { display: none; }
 /* The column beside the time range: options on top, Import filling the rest. */
 .io-side { flex: 1 1 280px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .io-card .filter-field + .filter-field { margin-top: 10px; }
+.io-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.io-card-head .export-block-label { margin: 0; }
+/* A plain blue text button, as Apple uses for Clear and Edit in a section header. */
+.text-btn { width: auto; margin: 0; padding: 0; border: none; background: none; color: var(--system-blue); font-size: 0.86em; font-weight: 500; line-height: 1.4; cursor: pointer; }
+.text-btn:hover { opacity: 0.7; background: none; }
+.text-btn:active { transform: none; opacity: 0.5; }
 .io-card .filter-presets { margin-top: 12px; }
 .io-card .filter-meta { padding-top: 8px; }
 /* Imports: one drop area; the whole tab takes a dropped file. */

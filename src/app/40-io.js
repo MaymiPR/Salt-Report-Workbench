@@ -60,6 +60,7 @@ const renderExportPreview = () => {
             `<span class="filter-count-detail">${totalWithHistory} of ${totalAllHistory} total reports</span>`;
     }
     el.exp.filterCount.classList.toggle('active', hasFilter);
+    el.exp.clearBtn.hidden = !hasFilter;
 };
 
 // Loaded Workspaces list — rendered into both the panel tab and the

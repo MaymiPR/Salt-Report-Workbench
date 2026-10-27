@@ -20,8 +20,8 @@ All notable changes to this project are documented here. The format follows
 - The Import / Export tab is one screen, with no Export / Import switch:
   pick and run an export; under that the time range, and beside it the
   format's options with Import (only a drop area) filling the rest of that
-  column. The time range gets a 24h preset, and its Clear sits after the
-  24h / 12h / 6h / 1h presets.
+  column. The time range gets a 24h preset, and its Clear is a blue text
+  button at the top right of the card, shown once a range is set.
 - Statistics: *Export All* is now *Charts (.zip)*, beside *Export to Excel*.
 
 ### Fixed
