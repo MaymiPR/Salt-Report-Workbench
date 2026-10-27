@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-10-26
+
 ### Added
 
 - **Find a WMS's layers**: paste the link you use in other tools and press
@@ -478,7 +480,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Ruff, pre-commit, EditorConfig, and a Makefile.
 - README, architecture notes, and contributing, security, and conduct guides.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.9.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.10.0...HEAD
+[2.10.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.9.0...v2.10.0
 [2.9.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.8.0...v2.9.0
 [2.8.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.7.2...v2.8.0
 [2.7.2]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.7.1...v2.7.2
