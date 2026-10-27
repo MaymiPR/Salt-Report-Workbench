@@ -665,9 +665,7 @@ class BrowserTests(unittest.TestCase):
     )
 
     def open_map(self, page):
-        page.click("#exportViewToggleBtn")
-        page.click(".ws-tab[data-tab='overlays']")
-        page.click("[data-overlay-view='map']")
+        page.click("#mapViewToggleBtn")
         page.wait_for_selector("#mapSvg .map-overlays path")
 
     def test_the_overlay_map_heat_and_tracks(self):
@@ -803,20 +801,18 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_function(
             "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.map(b => b.name).join() === 'Imagery,Topo')"
         )
-        # Viewers get the map alone (its mode, window and basemap picker), the
-        # same list to pick from, and can't change it.
+        # Viewers get the Map view too (its modes, window and basemap picker), the
+        # same list to pick from, and can't change it; the Overlays tab isn't theirs.
         viewer = self.open_viewer()
         viewer.click("#exportViewToggleBtn")
-        self.assertEqual(viewer.inner_text(".ws-tab[data-tab='overlays']"), "Map")
-        viewer.click(".ws-tab[data-tab='overlays']")
+        self.assertFalse(viewer.locator(".ws-tab[data-tab='overlays']").is_visible())
+        viewer.click("#mapViewToggleBtn")
         viewer.wait_for_function(
             "() => document.querySelectorAll('#mapBaseSelect option').length === 3"
         )
         self.assertFalse(viewer.locator("#mapBaseEdit").is_visible())
-        self.assertEqual(
-            viewer.locator(".overlays-head, [data-overlay-view], #overlaysImportBtn").count(), 0
-        )
         for sel in (
+            "[data-map-mode='reports']",
             "[data-map-mode='heat']",
             "[data-map-mode='tracks']",
             "[data-map-hours='6']",
@@ -928,6 +924,102 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector(".map-base-check:has-text('not defined')")
         page.evaluate("saveBasemaps([])")
 
+    def test_the_map_view_links_the_map_and_its_table(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
+        self.log(page, "1x truck", activity="parked", location="38SMB5500082000")
+        self.open_map(page)
+        page.click("[data-map-mode='reports']")
+        page.wait_for_selector("#mapSvg .map-report")
+        self.assertEqual(page.locator("#mapSvg .map-report").count(), 2)
+        page.wait_for_selector("#mapTableBody tr[data-map-row] >> nth=1")
+
+        def rows():
+            return page.locator(
+                "#mapTableBody tr[data-map-row] td:nth-child(2)"
+            ).all_text_contents()
+
+        self.assertEqual(sorted(rows()), ["1x truck", "2x BMP"])
+        # A dot opens the report's card and picks its row.
+        i = page.evaluate("mapItems.findIndex(x => x.t.report.size === '2x BMP')")
+        page.click(f"#mapSvg [data-map-item='{i}'] .map-hit")
+        page.wait_for_selector("#mapCard:not([hidden])")
+        self.assertIn("2x BMP", page.text_content("#mapCard"))
+        self.assertIn("2x BMP", page.text_content("#mapTableBody tr.selected-row"))
+        page.wait_for_selector("#mapSvg .map-selected")
+        # Show in table flashes the row; Edit puts the report in the form.
+        page.click("[data-card-act='table']")
+        page.wait_for_selector("#mapTableBody tr.flash")
+        page.click("[data-card-act='edit']")
+        self.assertIn("Updating", page.text_content("#form-title"))
+        page.click("#cancelButton")
+        page.click("[data-card-act='close']")
+        self.assertTrue(page.locator("#mapCard").is_hidden())
+        # A row puts the map on its report, zooming in from all the way out.
+        page.click("[data-map-zoom='fit']")
+        page.wait_for_function("() => mapView.mpp >= mapFitMpp * 0.99")
+        page.click("#mapTableBody tr[data-map-row]:has-text('1x truck')")
+        page.wait_for_function("() => mapView.mpp < mapFitMpp * 0.5")
+        self.assertIn("1x truck", page.text_content("#mapCard"))
+        ring = page.locator("#mapSvg .map-selected circle").first.bounding_box()
+        box = page.locator("#mapBox").bounding_box()
+        self.assertTrue(box["x"] < ring["x"] < box["x"] + box["width"], (ring, box))
+        self.assertTrue(box["y"] < ring["y"] < box["y"] + box["height"], (ring, box))
+        page.click("[data-card-act='close']")
+        # Clicking inside NAI 1 narrows the table to it; its chip widens it again.
+        page.click("[data-map-zoom='fit']")
+        page.evaluate("document.querySelector('.map-view').scrollTop = 0")
+        page.wait_for_timeout(300)
+        xy = page.evaluate("""() => {
+            const r = document.getElementById('mapBox').getBoundingClientRect();
+            const [x, y] = SaltCore.lonLatToMerc(44.36, 33.262);
+            return [r.left + 1 + (x - mapView.cx) / mapView.mpp + (r.width - 2) / 2, r.top + 1 + (mapView.cy - y) / mapView.mpp + (r.height - 2) / 2];
+        }""")
+        page.mouse.click(*xy)
+        page.wait_for_selector(".map-place-chip:has-text('NAI 1')")
+        self.assertEqual(rows(), ["2x BMP"])
+        page.click(".map-place-chip")
+        page.wait_for_selector("#mapTableBody tr[data-map-row] >> nth=1")
+        # Busiest places in the side list do the same.
+        page.click(".map-side-place:has-text('NAI 1')")
+        page.wait_for_selector(".map-place-chip:has-text('NAI 1')")
+        page.click(".map-side-place:has-text('NAI 1')")
+        page.wait_for_selector(".map-place-chip", state="detached")
+        # Only what's on the map: zoomed onto one report, the table holds just it.
+        page.evaluate("""() => {
+            const t = mapLastDraw.tracks.find(x => x.report.size === '1x truck'), p = t.points[0];
+            [mapView.cx, mapView.cy] = SaltCore.lonLatToMerc(p.lon, p.lat); mapView.mpp = 1; drawMap();
+        }""")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#mapTableBody tr[data-map-row]').length === 1"
+        )
+        page.uncheck("#mapOnlyInView")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#mapTableBody tr[data-map-row]').length === 2"
+        )
+        page.check("#mapOnlyInView")
+        page.click("[data-map-zoom='fit']")
+        # The time slider: at its left end, only the first report.
+        page.fill("#mapEndRange", "0")
+        page.dispatch_event("#mapEndRange", "input")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#mapSvg .map-report').length === 1"
+        )
+        self.assertTrue(page.locator("#mapEndNow").is_visible())
+        page.click("#mapEndNow")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#mapSvg .map-report').length === 2"
+        )
+        self.assertEqual(page.text_content("#mapEndLabel"), "Now")
+        # A viewer's card has no Edit.
+        viewer = self.open_viewer()
+        viewer.click("#mapViewToggleBtn")
+        viewer.wait_for_selector("#mapSvg .map-report")
+        viewer.locator("#mapTableBody tr[data-map-row]").first.click()
+        viewer.wait_for_selector("#mapCard:not([hidden])")
+        self.assertFalse(viewer.locator("[data-card-act='edit']").is_visible())
+
     def test_map_full_screen_and_names_on_screen_when_zoomed(self):
         page = self.open_editor()
         self.import_overlays(page)
@@ -947,7 +1039,8 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_function(
             "() => document.fullscreenElement && document.fullscreenElement.id === 'mapPane'"
         )
-        self.assertEqual(page.get_attribute("#mapFullBtn", "title"), "Leave full screen (Esc)")
+        # The button changes when the browser says full screen began.
+        page.wait_for_selector("#mapFullBtn[title='Leave full screen (Esc)']")
         page.evaluate("document.exitFullscreen()")
         page.wait_for_function("() => !document.fullscreenElement")
 
@@ -1000,7 +1093,13 @@ class BrowserTests(unittest.TestCase):
         page.click("#cancelButton")
         self.assertTrue(page.locator("#formEditingNote").is_hidden())
         widths = []
-        for btn in (None, "#exportViewToggleBtn", "#statsViewToggleBtn", "#summaryViewToggleBtn"):
+        for btn in (
+            None,
+            "#exportViewToggleBtn",
+            "#mapViewToggleBtn",
+            "#statsViewToggleBtn",
+            "#summaryViewToggleBtn",
+        ):
             if btn:
                 page.click(btn)
             widths.append(round(page.locator(".report-section").bounding_box()["width"]))

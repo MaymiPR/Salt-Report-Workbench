@@ -194,7 +194,6 @@ const readOverlayFile = async (file) => {
 const SHAPE_LABEL = { Polygon: 'Area', MultiPolygon: 'Area', LineString: 'Line', MultiLineString: 'Line', Point: 'Point', MultiPoint: 'Point' };
 let overlayReview = null;  // { rows: [{ label, geometry, type }], files: [names] }
 // The tab shows the overlays as a list or on a map (app/46-map.js). Per browser.
-let overlayView = localStorage.getItem('salt_overlay_view') === 'map' ? 'map' : 'list';
 
 // The overlay a review row becomes with the type picked for it.
 const reviewOverlay = (row) => {
@@ -316,19 +315,13 @@ const renderOverlays = () => {
     }
 
     const list = currentOverlays();
-    // Viewers get the map alone: its mode, window and basemap picker.
-    if (isReadOnly) { renderOverlayMap(box, ''); return; }
+    // The map of them is the Map view (app/49-mapview.js).
     const header = `<div class="overlays-head">
-        <div class="io-modes" role="group" aria-label="Show as">
-            <button type="button" class="io-mode" data-overlay-view="list" aria-pressed="${overlayView === 'list'}">List</button>
-            <button type="button" class="io-mode" data-overlay-view="map" aria-pressed="${overlayView === 'map'}">Map</button>
-        </div>
         <div class="overlays-actions editor-only">
             <button type="button" id="overlaysImportBtn" class="set-btn">Import KML / KMZ / GeoJSON / SHP</button>
             ${list.length ? '<button type="button" id="overlaysClearBtn" class="cancel-btn">Unload All</button>' : ''}
         </div>
     </div>`;
-    if (overlayView === 'map') { renderOverlayMap(box, header); return; }
     // How many of the shown workspace's live reports each place appears in,
     // typed or by grid (a phase line: typed, or a grid near it).
     const uses = {};
@@ -374,14 +367,6 @@ const overlaysFileInput = document.getElementById('overlaysFileInput');
 if (overlaysBody && overlaysFileInput) {
     overlaysBody.addEventListener('click', e => {
         if (e.target.closest('#overlaysImportBtn')) { overlaysFileInput.click(); return; }
-        const view = e.target.closest('[data-overlay-view]');
-        if (view) {
-            overlayView = view.dataset.overlayView;
-            try { localStorage.setItem('salt_overlay_view', overlayView); } catch (err) { /* this session only */ }
-            overlaysBody.innerHTML = '';  // the map is built afresh
-            renderOverlays();
-            return;
-        }
         if (e.target.closest('#overlaysReviewAddBtn')) { finishOverlayImport(); return; }
         if (e.target.closest('#overlaysReviewCancelBtn')) { overlayReview = null; renderOverlays(); return; }
         if (e.target.closest('#overlaysClearBtn')) {

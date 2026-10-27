@@ -225,6 +225,7 @@ const renderStats = () => {
 const openStatsView = () => {
     if (isExportViewActive) closeExportView();
     closeSummaryView();
+    closeMapView();
     isStatsViewActive = true;
     setViewIcon('statsViewToggleBtn', true);
     el.log.view.style.display = 'none';

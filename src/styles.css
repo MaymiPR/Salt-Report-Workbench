@@ -375,17 +375,17 @@ body.local-mode .startup-access-divider { display: none; }
     cursor: not-allowed;
 }
 
-/* The view switcher: Workspaces, Statistics, Summary Reports, and Settings
-   as a 2x2 square at the top right of the report panel, in every view. Each
+/* The view switcher: Workspaces, Map, Statistics, Summary Reports, and
+   Settings in a row at the top right of the report panel, in every view. Each
    view's header leaves room for it. */
 .report-section { position: relative; }
-.view-switcher { position: absolute; top: 30px; right: 30px; z-index: 30; display: grid; grid-template-columns: repeat(2, 22px); grid-auto-rows: 22px; gap: 4px; }
+.view-switcher { position: absolute; top: 30px; right: 30px; z-index: 30; display: flex; gap: 5px; }
 .view-icon { width: 22px; height: 22px; margin: 0; padding: 0; border: none; border-radius: 7px; background: var(--input-bg); color: var(--text-secondary); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background-color 0.15s, color 0.15s; }
 .view-icon svg { width: 14px; height: 14px; display: block; }
 .view-icon:hover { background: var(--input-bg-hover); color: var(--text-primary); }
 .view-icon.active, .data-management-menu:has(#dataMgmtMenu[style*="block"]) #dataMgmtBtn { background: rgba(10, 132, 255, 0.22); color: var(--system-blue); }
 .view-icon:focus-visible { outline: 2px solid var(--system-blue); outline-offset: 1px; }
-.report-header, .export-panel-header { padding-right: 64px; min-height: 62px; box-sizing: border-box; }
+.report-header, .export-panel-header { padding-right: 148px; min-height: 52px; box-sizing: border-box; }
 .data-management-menu { position: relative; }
 #dataMgmtMenu { display: none; position: absolute; right: 0; top: calc(100% + 8px); overflow-y: auto; box-sizing: border-box; background-color: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: 14px; padding: 6px; z-index: 20; min-width: 250px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
 #dataMgmtMenu button { width: 100%; text-align: left; background: transparent; font-size: 0.9em; margin: 0; border-radius: 8px; padding: 10px 14px; color: var(--text-primary); font-weight: 500; }
@@ -772,10 +772,11 @@ body.read-only .view-only-badge { display: inline-block; }
 /* Hide form, show sidebar in column 1 (grid auto-placement skips display:none). */
 body.read-only .form-section        { display: none; }
 body.read-only .workspaces-sidebar  { display: flex; }
-/* Viewers get Import / Export (exports only) and Overlays (to see the map);
-   the sidebar stands in for the Workspaces tab, and the rest change things. */
+/* Viewers get Import / Export (exports only); the sidebar stands in for the
+   Workspaces tab, the Map view shows the overlays, and the rest change things. */
 body.read-only .ws-tab[data-tab="workspaces"],
-body.read-only .ws-tab[data-tab="builder"]                             { display: none !important; }
+body.read-only .ws-tab[data-tab="builder"],
+body.read-only .ws-tab[data-tab="overlays"]                            { display: none !important; }
 body.read-only #exportPanel .ws-tab-panel[data-tab-panel="workspaces"] { display: none !important; }
 /* Sidebar list scrolls internally so total height matches the report panel. */
 body.read-only .workspaces-sidebar .workspaces-list {
@@ -1269,6 +1270,60 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .choice-buttons button:hover { filter: brightness(1.12); }
 
 /* --- Statistics panel --- */
+/* --- Map view: the map, what's on it beside it, and its reports under it --- */
+#mapPanel { display: none; flex-direction: column; flex: 1; min-height: 0; }
+.map-view { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
+.map-view-top { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 14px; align-items: start; }
+.map-view .map-box { height: clamp(320px, 52vh, 620px); }
+.map-label-time { font-weight: 500; font-size: 10px; fill: #ffd60a; }
+.map-selected.flash circle { animation: map-ring 0.8s ease-out 2; }
+@keyframes map-ring { 50% { r: 20px; } }
+.map-side { display: flex; flex-direction: column; gap: 14px; }
+.map-side-tiles { display: grid; gap: 8px; }
+.map-side-tile { background: var(--input-bg); border-radius: 12px; padding: 10px 12px; }
+.map-side-label { font-size: 0.75em; color: var(--text-secondary); }
+.map-side-value { font-size: 1.35em; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.map-side-block { border-top: 1px solid var(--divider); padding-top: 10px; }
+.map-side-head { font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); margin-bottom: 4px; }
+.map-side-row { display: flex; justify-content: space-between; gap: 8px; font-size: 0.85em; color: var(--text-primary); padding: 4px 0; }
+.map-side-row strong { font-variant-numeric: tabular-nums; }
+button.map-side-row { width: 100%; margin: 0; padding: 4px 6px; border: none; border-radius: 6px; background: none; text-align: left; font-weight: 500; cursor: pointer; }
+button.map-side-row:hover, .map-side-place.active { background: rgba(10, 132, 255, 0.15); color: var(--system-blue); }
+.map-side-empty { font-size: 0.8em; color: var(--text-secondary); }
+.map-table-block { margin-top: 16px; }
+.map-table-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.map-table-head h4 { margin: 0; font-size: 0.92em; font-weight: 600; color: var(--text-primary); }
+.map-only-toggle { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 0.82em; color: var(--text-secondary); cursor: pointer; user-select: none; }
+.map-place-chip { width: auto; margin: 0; padding: 3px 10px; border: none; border-radius: 100px; background: rgba(10, 132, 255, 0.18); color: var(--system-blue); font-size: 0.78em; font-weight: 600; }
+.map-table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+.map-table th { position: sticky; top: 0; padding: 6px 8px; border-bottom: 1px solid var(--divider); background: var(--panel-bg); color: var(--text-secondary); font-size: 0.85em; font-weight: 600; text-align: left; }
+.map-table td { padding: 7px 8px; border-bottom: 1px solid var(--divider); color: var(--text-primary); vertical-align: top; overflow-wrap: anywhere; }
+.map-table tr[data-map-row] { cursor: pointer; }
+.map-table tr[data-map-row]:hover td { background: var(--input-bg); }
+.map-table tr.selected-row td { background: rgba(10, 132, 255, 0.16); }
+.map-table tr.flash td { animation: map-row-flash 1.5s ease; }
+@keyframes map-row-flash { 0%, 40% { background: rgba(10, 132, 255, 0.4); } }
+.map-table-empty td { padding: 18px; color: var(--text-secondary); text-align: center; }
+/* The card of a report clicked on the map. */
+.map-card { position: absolute; z-index: 3; width: 260px; max-height: calc(100% - 16px); overflow: auto; box-sizing: border-box; padding: 10px 12px; border-radius: 12px; background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); font-size: 0.82em; cursor: default; user-select: text; }
+.map-card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; color: var(--text-primary); }
+.map-card-close { flex: 0 0 auto; width: 22px; height: 22px; margin: 0; padding: 0; border: none; border-radius: 50%; background: var(--input-bg); color: var(--text-secondary); font-size: 1em; line-height: 1; }
+.map-card-row { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 6px; padding: 3px 0; }
+.map-card-row span { color: var(--text-secondary); }
+.map-card-row div { color: var(--text-primary); overflow-wrap: anywhere; }
+.map-card-actions { display: flex; gap: 16px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--divider); }
+/* The time slider under the map. */
+.map-time { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 0.82em; color: var(--text-secondary); }
+.map-time input[type="range"] { flex: 1; min-width: 0; margin: 0; padding: 0; accent-color: var(--system-blue); }
+.map-time label { margin: 0; line-height: 1; }
+.map-time-label { min-width: 110px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+@media (max-width: 1250px) {
+    .map-view-top { grid-template-columns: minmax(0, 1fr); }
+    .map-side { flex-direction: row; flex-wrap: wrap; }
+    .map-side > * { flex: 1 1 180px; }
+    .map-side-tiles { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+}
+
 #statsPanel { display: none; flex-direction: column; flex: 1; min-height: 0; }
 .stats-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-bottom: 16px; }
 .stats-filters .filter-presets { margin: 0; }

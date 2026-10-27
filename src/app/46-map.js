@@ -1,15 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// The overlay map (Overlays tab, Map): the shared NAIs, OBJs and phase lines
-// in Web Mercator, over an optional WMS or tile basemap fetched only for the
-// area the graphics cover, with a heat map or a track map of the shown
-// workspace's reports. Plain SVG drawn in screen pixels; no map library.
+// The map drawn in the Map view (app/49-mapview.js): the shared NAIs, OBJs
+// and phase lines in Web Mercator, over an optional WMS or tile basemap fetched
+// only for the area the graphics cover, with the shown workspace's reports as
+// dots, a heat map, or tracks. Plain SVG drawn in screen pixels; no map library.
 // One of the ordered scripts that make up the page (see src/app/); they
 // share one top-level scope, so names declared earlier are visible here.
 
 const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', track: '#ff9f0a' };
-let mapMode = localStorage.getItem('salt_map_mode') === 'tracks' ? 'tracks' : 'heat';
-let mapHours = 0;              // the window, in hours back from now; 0 for all
+const MAP_MODES = ['reports', 'heat', 'tracks'];
+let mapMode = MAP_MODES.includes(localStorage.getItem('salt_map_mode')) ? localStorage.getItem('salt_map_mode') : 'reports';
+let mapHours = 0;              // the window, in hours back from its end; 0 for all
+let mapEnd = null;             // the window's end (ms), set by the time slider; null for now
+let mapSelected = '';          // the report picked on the map or in its table, by id
+let mapPlace = '';             // the NAI / OBJ / PL picked on the map ('NAI 1'), or ''
+let mapLastDraw = null;        // what the last drawing showed: { view, tracks, reps }
+let mapFlashUntil = 0;         // the picked report's ring pulses until then (ms)
+let mapFitMpp = Infinity;      // metres per pixel with the whole area in view
+// Set by the Map view: told after each drawing, and of a click on the map.
+let mapDrawnHook = () => {};
+let mapClickHook = () => {};
 let mapView = null;            // { cx, cy, mpp }: centre (Web Mercator metres) and metres per pixel
 // The basemap this browser shows, by name: 'off' for none, '' for the first.
 let mapBaseChoice = localStorage.getItem('salt_map_base') || '';
@@ -25,13 +35,17 @@ const mapEls = () => ({
     box: document.getElementById('mapBox'), svg: document.getElementById('mapSvg'),
     base: document.getElementById('mapBase'), tip: document.getElementById('mapTip'),
     note: document.getElementById('mapNote'), legend: document.getElementById('mapLegend'),
+    card: document.getElementById('mapCard'),
 });
 
-// The reports the map shows: the shown workspace's, in the window.
+// The reports the map shows: the shown workspace's, in the window (the last
+// `mapHours` before its end, or all up to its end).
 const mapReports = () => {
     let reps = localReports.filter(r => !r.deleted);
+    const end = mapEnd;
+    if (end !== null) reps = reps.filter(r => r.time && new Date(r.time).getTime() <= end);
     if (mapHours) {
-        const from = Date.now() - mapHours * 3600000;
+        const from = (end === null ? Date.now() : end) - mapHours * 3600000;
         reps = reps.filter(r => r.time && new Date(r.time).getTime() >= from);
     }
     return reps;
@@ -55,6 +69,7 @@ const mapExtent = (tracks) => {
 // Keep the view inside the extent: no zooming out past it, no panning off it.
 const clampMapView = (ext, w, h) => {
     const fit = Math.max((ext[2] - ext[0]) / w, (ext[3] - ext[1]) / h);
+    mapFitMpp = fit;
     const v = mapView;
     v.mpp = Math.min(fit, Math.max(0.25, v.mpp));
     const hw = w * v.mpp / 2, hh = h * v.mpp / 2;
@@ -80,6 +95,8 @@ const drawMap = () => {
         m.note.textContent = 'Import overlays, or log reports with grids, to see the map.';
         m.note.hidden = false;
         m.legend.innerHTML = '';
+        mapLastDraw = { view: null, tracks, reps };
+        mapDrawnHook();
         return;
     }
     // A new report or overlay keeps the view where it is (inside the new area).
@@ -95,11 +112,15 @@ const drawMap = () => {
     if (mapMode === 'heat') out.push(heatLayer(reps, px, w, h));
     out.push(overlayLayer(px, w, h));
     if (mapMode === 'tracks') out.push(trackLayer(tracks, px));
+    if (mapMode === 'reports') out.push(reportLayer(tracks, px));
+    out.push(selectionLayer(tracks, px));
     m.svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
     m.svg.innerHTML = out.join('');
     m.note.hidden = !mapBaseFailed;
     if (mapBaseFailed) m.note.textContent = `The basemap service didn't answer. It may not be reachable from this computer.${isReadOnly ? '' : ' Basemaps... then Check says why.'}`;
     m.legend.innerHTML = mapLegend(reps, tracks);
+    mapLastDraw = { view, tracks, reps };
+    mapDrawnHook();
 };
 const redrawMap = () => { cancelAnimationFrame(mapFrame); mapFrame = requestAnimationFrame(drawMap); };
 
@@ -149,17 +170,18 @@ const overlayLayer = (px, w, h) => {
         const g = o.type === 'PL' ? o.geometry : SaltCore.asArea(o.geometry);
         const color = MAP_COLORS[o.type];
         const key = `${o.type} ${o.name}`;
+        const picked = key === mapPlace;
         if (/Polygon/.test(g.type)) {
             const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
             const d = polys.map(rings => rings.map(r => pathOf(r, px, true)).join('')).join('');
-            fill.push(`<path d="${d}" fill="${color}" fill-opacity="0.14" stroke="${color}" stroke-width="2" fill-rule="evenodd"/>`);
+            fill.push(`<path d="${d}" fill="${color}" fill-opacity="${picked ? 0.3 : 0.14}" stroke="${color}" stroke-width="${picked ? 4 : 2}" fill-rule="evenodd"/>`);
             label(areaLabelAt(polys[0][0].map(c => px(c[0], c[1])), w, h), key);
         } else if (/LineString/.test(g.type)) {
             const parts = g.type === 'LineString' ? [g.coordinates] : g.coordinates;
             const d = parts.map(l => pathOf(l, px, false)).join('');
             // Black, on a white edge, so it shows on dark imagery and on the plain background.
             lines.push(`<path d="${d}" fill="none" stroke="#ffffff" stroke-width="6" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`
-                + `<path d="${d}" fill="none" stroke="${color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>`);
+                + `<path d="${d}" fill="none" stroke="${picked ? MAP_COLORS.track : color}" stroke-width="${picked ? 4 : 3}" stroke-linejoin="round" stroke-linecap="round"/>`);
             label(lineLabelAt(parts.map(l => l.map(c => px(c[0], c[1]))), w, h), key);
         } else if (g.type === 'Point') {
             const [x, y] = px(...g.coordinates);
@@ -249,8 +271,33 @@ const trackLayer = (tracks, px) => {
                 + `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="10" fill="transparent" class="map-hit"/></g>`);
         }
         if (labelled && t.moved) out.push(`<text x="${(ex + 9).toFixed(1)}" y="${(ey + 4).toFixed(1)}" class="map-label map-label-track">${svgEsc(t.report.displayId || '')}</text>`);
+        // The picked track: when it was at each position.
+        if (t.moved && t.report.id === mapSelected) {
+            const local = timeDisplayMode === 'local';
+            pts.forEach((p, k) => {
+                const d = new Date(t.points[k].time);
+                if (!isNaN(d.getTime())) out.push(`<text x="${(p[0] - 7).toFixed(1)}" y="${(p[1] - 8).toFixed(1)}" class="map-label map-label-time" text-anchor="end">${svgEsc(SaltCore.clockValue(d, local).replace(':', '') + (local ? 'L' : 'Z'))}</text>`);
+            });
+        }
     });
     return `<g class="map-tracks">${out.join('')}</g>`;
+};
+
+// Each report as a dot at its latest grid, to click.
+const reportLayer = (tracks, px) => `<g class="map-reports">${tracks.map(t => {
+    const i = mapItems.push({ kind: 'report', t }) - 1;
+    const p = t.points[t.points.length - 1], [x, y] = px(p.lon, p.lat);
+    return `<g class="map-report" data-map-item="${i}"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" fill="${MAP_COLORS.track}" stroke="#fff" stroke-width="1.5"/>`
+        + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="transparent" class="map-hit"/></g>`;
+}).join('')}</g>`;
+
+// A ring round the picked report, in every mode.
+const selectionLayer = (tracks, px) => {
+    const t = mapSelected && tracks.find(x => x.report.id === mapSelected);
+    if (!t) return '';
+    const p = t.points[t.points.length - 1], [x, y] = px(p.lon, p.lat);
+    return `<g class="map-selected${Date.now() < mapFlashUntil ? ' flash' : ''}" pointer-events="none"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="none" stroke="#fff" stroke-width="4"/>`
+        + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="none" stroke="${MAP_COLORS.OBJ}" stroke-width="2.5"/></g>`;
 };
 
 // The key: what each colour is, and what the heat or the tracks count.
@@ -259,8 +306,10 @@ const mapLegend = (reps, tracks) => {
         ? `<line x1="1" y1="5" x2="17" y2="5" stroke="#fff" stroke-width="4"/><line x1="1" y1="5" x2="17" y2="5" stroke="${color}" stroke-width="2"/>`
         : `<rect x="1" y="1" width="16" height="8" rx="2" fill="${color}" fill-opacity="0.3" stroke="${color}" stroke-width="1.5"/>`}</svg>`;
     const key = (inner, text) => `<span class="map-key">${inner}${text}</span>`;
+    const dot = `<svg width="18" height="10" aria-hidden="true"><circle cx="9" cy="5" r="4" fill="${MAP_COLORS.track}" stroke="#fff" stroke-width="1.2"/></svg>`;
     const what = mapMode === 'heat'
         ? key('<span class="map-ramp"></span>', `Fewer to more reports (${Math.round(SaltCore.heatPoints(reps).reduce((s, p) => s + p.w, 0))}, each once, at its latest grid)`)
+        : mapMode === 'reports' ? key(dot, `Report, at its latest grid (${tracks.length})`)
         : key(swatch(MAP_COLORS.track, true), `Track, first to latest (${tracks.filter(t => t.moved).length} moved, ${tracks.filter(t => !t.moved).length} at one grid)`);
     return key(swatch(MAP_COLORS.NAI), 'NAI') + key(swatch(MAP_COLORS.OBJ), 'OBJ') + key(swatch(MAP_COLORS.PL, true), 'PL') + what;
 };
@@ -393,7 +442,7 @@ const parseWmsCapabilities = (xml) => {
 
 const findWmsLayers = async (link) => {
     wmsFind = { link, busy: true };
-    renderOverlays();
+    renderMapView();
     try {
         const got = await fetchServiceText(SaltCore.wmsCapabilitiesUrl(link));
         if (got.http >= 400) throw new Error(`The service answered ${got.http}${serviceSays(got.text) ? `: ${serviceSays(got.text)}` : '.'}`);
@@ -403,7 +452,7 @@ const findWmsLayers = async (link) => {
     } catch (e) {
         wmsFind = { link, error: e.message || String(e) };
     }
-    renderOverlays();
+    renderMapView();
 };
 
 // A name not used yet: the service's own, then "(2)", "(3)"...
@@ -447,7 +496,7 @@ const checkBasemap = async (b) => {
         ? SaltCore.tileUrl(b.url, (SaltCore.tilesFor(ext, Math.min(18, SaltCore.tileZoom((ext[2] - ext[0]) / 512)), 64) || [{ z: 0, x: 0, y: 0 }])[0])
         : SaltCore.wmsUrl(b.url, b.layers, ext, 256, 256, b);
     baseCheck = { name: b.name, text: 'Asking the service...' };
-    renderOverlays();
+    renderMapView();
     try {
         const got = await fetchServiceText(url);
         const kb = Math.max(1, Math.round((got.size || (got.text || '').length) / 1024));
@@ -460,7 +509,7 @@ const checkBasemap = async (b) => {
     } catch (e) {
         baseCheck = { name: b.name, text: e.message || String(e) };
     }
-    renderOverlays();
+    renderMapView();
 };
 
 const wmsFindHtml = () => {
@@ -530,7 +579,7 @@ const saveBasemaps = async (list, said) => {
     sharedBasemaps = list;
     mapBaseFailed = false;
     storeBasemaps();
-    renderOverlays();
+    renderMapView();
     if (isLocalFile) return;
     try {
         const res = await postJson('/api/save_basemaps', { basemaps: list });
@@ -549,7 +598,7 @@ const basemapOptions = () => {
         + sharedBasemaps.map(b => `<option value="${escapeHtml(b.name)}"${on && on.name === b.name ? ' selected' : ''}>${escapeHtml(b.name)}</option>`).join('');
 };
 
-// --- The map view in the Overlays tab ---
+// --- The map's own controls ---
 
 const FULL_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg>';
 const EXIT_FULL_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4"/></svg>';
@@ -571,15 +620,16 @@ document.addEventListener('fullscreenchange', () => {
 });
 
 // Built once; later renders only redraw, so the basemap isn't fetched again.
-const renderOverlayMap = (box, header) => {
+const renderOverlayMap = (box) => {
     if (!box.querySelector('#mapSvg')) {
         const hours = [[0, 'All'], [24, '24h'], [12, '12h'], [6, '6h']];
-        box.innerHTML = `${header}
+        box.innerHTML = `
             <div class="map-pane" id="mapPane">
             <div class="map-tools">
-                <div class="io-modes" role="group" aria-label="Map">
+                <div class="io-modes" role="group" aria-label="Show reports as">
+                    <button type="button" class="io-mode" data-map-mode="reports">Reports</button>
                     <button type="button" class="io-mode" data-map-mode="heat">Heat map</button>
-                    <button type="button" class="io-mode" data-map-mode="tracks">Track map</button>
+                    <button type="button" class="io-mode" data-map-mode="tracks">Tracks</button>
                 </div>
                 <div class="filter-presets" aria-label="Time window">
                     <span class="filter-presets-label">Window</span>
@@ -600,14 +650,17 @@ const renderOverlayMap = (box, header) => {
                 </div>
                 <div id="mapNote" class="map-note" hidden></div>
                 <div id="mapTip" class="map-tip" role="status" hidden></div>
+                <div id="mapCard" class="map-card" hidden></div>
+            </div>
+            <div class="map-time">
+                <label for="mapEndRange">Up to</label>
+                <input type="range" id="mapEndRange" min="0" max="1000" step="1" value="1000" aria-label="Show reports up to this time">
+                <span id="mapEndLabel" class="map-time-label"></span>
+                <button type="button" id="mapEndNow" class="text-btn" hidden>Now</button>
             </div>
             <div id="mapLegend" class="map-legend"></div>
             </div>`;
         wireMapBox();
-    } else {
-        const head = box.querySelector('.overlays-head');
-        if (head) head.outerHTML = header;
-        else if (header) box.insertAdjacentHTML('afterbegin', header);
     }
     box.querySelectorAll('[data-map-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mapMode === mapMode)));
     box.querySelectorAll('[data-map-hours]').forEach(b => b.classList.toggle('active', +b.dataset.mapHours === mapHours));
@@ -637,19 +690,19 @@ const trackTip = (t) => {
     return lines.join('<br>');
 };
 
-// The tab's controls, delegated from the Overlays body (wired once).
-const mapBody = document.getElementById('overlaysBody');
+// The map's controls, delegated from the Map view (wired once).
+const mapBody = document.getElementById('mapHost');
 if (mapBody) {
     mapBody.addEventListener('click', e => {
         const mode = e.target.closest('[data-map-mode]');
         if (mode) {
             mapMode = mode.dataset.mapMode;
             try { localStorage.setItem('salt_map_mode', mapMode); } catch (err) { /* this session only */ }
-            renderOverlays();
+            renderMapView();
             return;
         }
         const hrs = e.target.closest('[data-map-hours]');
-        if (hrs) { mapHours = +hrs.dataset.mapHours; renderOverlays(); return; }
+        if (hrs) { mapHours = +hrs.dataset.mapHours; renderMapView(); return; }
         const zoom = e.target.closest('[data-map-zoom]');
         if (zoom && zoom.dataset.mapZoom === 'full') { toggleMapFullscreen(); return; }
         if (zoom && mapView) {
@@ -672,7 +725,7 @@ if (mapBody) {
         const check = e.target.closest('[data-base-check]');
         if (check) { const b = sharedBasemaps[+check.dataset.baseCheck]; if (b) checkBasemap(b); return; }
         const kind = e.target.closest('[data-base-add-kind]');
-        if (kind) { baseAddKind = kind.dataset.baseAddKind; renderOverlays(); return; }
+        if (kind) { baseAddKind = kind.dataset.baseAddKind; renderMapView(); return; }
         if (e.target.closest('#mapWmsFind')) {
             const link = document.getElementById('mapWmsLink').value.trim();
             if (!/^https?:\/\//i.test(link)) { showToast('The link must start with http:// or https://.', true); return; }
@@ -680,7 +733,7 @@ if (mapBody) {
             return;
         }
         if (e.target.closest('#mapWmsAdd')) { addFoundLayers(); return; }
-        if (e.target.closest('#mapWmsCancel')) { wmsFind = null; renderOverlays(); return; }
+        if (e.target.closest('#mapWmsCancel')) { wmsFind = null; renderMapView(); return; }
         if (e.target.closest('#mapWmsManualAdd')) {
             const layers = document.getElementById('mapWmsManualLayers').value.trim();
             if (!layers) { showToast('Type the layer names to try.', true); return; }
@@ -744,8 +797,8 @@ const wireMapBox = () => {
     m.box.addEventListener('dblclick', e => { if (!e.target.closest('.map-zoom')) zoomAt(e, 0.5); });
     let drag = null;
     m.box.addEventListener('pointerdown', e => {
-        if (e.button !== 0 || e.target.closest('.map-zoom') || !mapView) return;
-        drag = { x: e.clientX, y: e.clientY, cx: mapView.cx, cy: mapView.cy };
+        if (e.button !== 0 || e.target.closest('.map-zoom, .map-card') || !mapView) return;
+        drag = { x: e.clientX, y: e.clientY, cx: mapView.cx, cy: mapView.cy, item: e.target.closest('[data-map-item]') };
         m.box.setPointerCapture(e.pointerId);
         m.box.classList.add('dragging');
     });
@@ -759,7 +812,7 @@ const wireMapBox = () => {
         }
         const g = e.target.closest('[data-map-item]');
         const item = g && mapItems[+g.dataset.mapItem];
-        if (!item) { m.tip.hidden = true; return; }
+        if (!item || !m.card.hidden) { m.tip.hidden = true; return; }
         m.tip.innerHTML = trackTip(item.t);
         const [x, y] = at(e);
         m.tip.hidden = false;
@@ -767,7 +820,17 @@ const wireMapBox = () => {
         m.tip.style.top = `${Math.max(6, y - m.tip.offsetHeight - 10)}px`;
     });
     const end = () => { drag = null; m.box.classList.remove('dragging'); };
-    m.box.addEventListener('pointerup', end);
+    m.box.addEventListener('pointerup', e => {
+        const d = drag;
+        end();
+        // A press that didn't move is a click: on a report, a place, or nothing.
+        if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return;
+        const item = d.item && mapItems[+d.item.dataset.mapItem];
+        const [x, y] = at(e), w = m.box.clientWidth, h = m.box.clientHeight;
+        const merc = [mapView.cx + (x - w / 2) * mapView.mpp, mapView.cy - (y - h / 2) * mapView.mpp];
+        m.tip.hidden = true;
+        mapClickHook({ item, at: [x, y], lonLat: SaltCore.mercToLonLat(merc[0], merc[1]), mpp: mapView.mpp });
+    });
     m.box.addEventListener('pointercancel', end);
     m.box.addEventListener('pointerleave', () => { if (!drag) m.tip.hidden = true; });
     new ResizeObserver(() => redrawMap()).observe(m.box);
