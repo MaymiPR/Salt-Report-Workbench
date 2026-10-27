@@ -756,6 +756,9 @@ const renderOverlayMap = (box) => {
                         <button type="button" class="io-mode" data-map-grids="latest" title="Each report once, at its latest grid">Latest grids</button>
                         <button type="button" class="io-mode" data-map-grids="all" title="Every saved report, its updates included, at its grids">All reports</button>
                     </div>
+                    <!-- On its own line under the controls, however many rows they wrap to. -->
+                    <span class="map-tools-break" aria-hidden="true"></span>
+                    <div id="mapNote" class="map-note" hidden></div>
                 </div>
                 <div class="map-zoom">
                     <button type="button" data-map-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>
@@ -772,7 +775,6 @@ const renderOverlayMap = (box) => {
                     <button type="button" id="mapBaseEdit" class="text-btn editor-only">Manage basemaps&hellip;</button>
                     <div id="mapBaseFormSlot"></div>
                 </div>
-                <div id="mapNote" class="map-note" hidden></div>
                 <div id="mapTip" class="map-tip" role="status" hidden></div>
                 <div id="mapHint" class="map-hint" hidden>${/Mac/i.test(navigator.platform) ? '&#8984;' : 'Ctrl'} + scroll to zoom the map</div>
                 <div id="mapCard" class="map-card" hidden></div>

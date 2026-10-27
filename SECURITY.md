@@ -43,8 +43,18 @@ a determined attacker on that network.
   the access code, and the code is the only credential.
 - **Access to the host.** Backups in `Auto Backups/` are plain text. Protect the
   machine and the folder according to your data-handling rules.
-- **Sensitive data in the browser.** Clients keep a copy of the reports in
-  browser storage for offline use. Clear it on shared machines.
+- **Sensitive data in the browser.** Editors' browsers keep a copy of the
+  reports in browser storage for offline use, and any summary text they edited
+  (Summary Reports, Edit text). Viewers keep no reports. Clear browser data on
+  shared machines.
+- **The server reaching other addresses for editors.** `/api/wms_fetch` (editor
+  port only) makes the server GET any http or https address an editor's page
+  sends and return the text, up to 5 MB, so a WMS that doesn't allow a web page
+  to read it can still be added. Anyone with the access code can use it to see
+  what the server's machine can reach that their own can't, such as addresses
+  on another network the host is connected to. Each use is written to the audit
+  log. Run the server on a machine whose network position you're comfortable
+  sharing with your editors.
 
 `--no-access-code` removes the editor gate entirely and is meant only for a
 fully trusted, isolated network.

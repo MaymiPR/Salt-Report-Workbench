@@ -1207,6 +1207,27 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.get_attribute("[data-map-layer='heat']", "aria-pressed"), "false")
         self.assertEqual(page.get_attribute("[data-map-grids='all']", "aria-pressed"), "true")
 
+    def test_the_basemap_notice_sits_under_the_controls_however_they_wrap(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
+        self.open_map(page)
+        page.wait_for_selector("#mapSvg image.map-heat")
+        # A basemap that didn't answer, on a map narrow enough to wrap its controls.
+        for width in (1700, 1100):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.evaluate("mapBaseFailed = true; redrawMap()")
+            page.wait_for_selector("#mapNote", state="visible")
+            page.wait_for_timeout(500)  # the sidebar's slide
+            note = page.locator("#mapNote").bounding_box()
+            lowest = page.evaluate(
+                "Math.max(...[...document.querySelectorAll('#mapBox .map-tools > :not(#mapNote):not(.map-tools-break)')]"
+                ".map(e => e.getBoundingClientRect().bottom))"
+            )
+            self.assertGreaterEqual(note["y"], lowest, width)
+        page.evaluate("mapBaseFailed = false; redrawMap()")
+        page.wait_for_selector("#mapNote", state="hidden")
+
     def test_the_wheel_scrolls_past_the_map_and_ctrl_wheel_zooms(self):
         page = self.open_editor()
         self.import_overlays(page)

@@ -6,6 +6,61 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **30 more narrative rules (55 in all)**, researched from open sources (US Army
+  ATP 7-100.1 and 7-100.3, TRADOC, RUSI, RAND, and Russian practice in Ukraine
+  since 2022), each with its Russian and PLA doctrine and its own on/off switch:
+  - Maneuver: a fixing attack with the main effort elsewhere, reconnaissance in
+    force, delivering an assault group by armored vehicle, infantry building up
+    near the line, an assault on motorcycles and light vehicles, assault groups
+    in built-up areas, exploiting a breakthrough, envelopment or encirclement,
+    pursuit, a counterattack.
+  - Defense: a company strongpoint, a fortified line in depth, a security zone
+    or screen, remote mining.
+  - Fires: persistent drone surveillance, counter-battery fire, shoot and scoot,
+    tanks as fire support, thermobaric fires, strikes on command and sensors,
+    suppressing air defense, drones cutting supply routes, glide bombs.
+  - Support: chemical-defense and smoke troops, logistics pushing forward, a
+    railhead, resupply by drone, a helicopter refueling point, casualty
+    evacuation, regrouping after an attack.
+- **A much larger equipment catalogue**: about 780 Russian and Chinese types
+  (from 395), about 1,700 names with variants. It now covers loitering munitions
+  and FPV families, radars, EW, chemical-defense, engineer, recovery and
+  ambulance vehicles, glide bombs and missiles, and the 2025 PLA parade systems.
+  ZBL-09 is now a name for the Type 08 IFV (the same vehicle as ZBL-08; VN-1 is
+  its export version).
+
+### Changed
+
+- The doctrine text of 20 existing rules follows current practice. Russian
+  assault detachments replace battalion tactical groups. PLA terms appear where
+  they apply: "one point, two sides", annihilation zones, the firepower strike.
+  Fiber-optic FPVs, glide bombs and hardened headquarters are mentioned.
+- Rules read more of what reports say: UAVs count as reconnaissance ahead of
+  armor, and loitering munitions as fire after a UAV. 30 or more infantry
+  firing is company-sized, and small groups on light vehicles count as
+  infiltration.
+- Manual, README, architecture and security notes and the shipped README brought
+  up to date. The Map has its own section in the manual,
+  and the README has new screenshots.
+
+### Fixed
+
+- The basemap notice ("The basemap service didn't answer...") no longer sits
+  behind *Latest grids / All reports* when the map's controls wrap to two rows.
+  It is now its own line under the controls.
+- Types that matched the wrong thing or nothing:
+  - KamAZ-63968 (Typhoon) was a truck, and Shaanxi Y-8 / Y-9 aircraft were
+    trucks.
+  - HQ-series air defense the catalogue didn't list was a command post.
+  - GAZ-233014 (Tigr), GAZ-39371 (Vodnik), and variants after a hyphen and a
+    digit (Kornet-D 9P163-3, 2B14-1) were not recognized.
+- "Fire support", a firing position and a cease-fire are no longer read as
+  contact by the narrative, and a withdrawal is no longer read as an advance.
+- "Type 84" is no longer in the catalogue: it names five different Chinese
+  systems. Its bridge-layer is listed as WZ-621 and GQL-110.
+
 ## [2.14.0] - 2026-10-27
 
 ### Added
