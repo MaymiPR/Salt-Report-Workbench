@@ -33,6 +33,13 @@ registry:
 - **Two ways in.** Editors join with an access code that changes each launch.
   Observers use a separate read-only port that refuses every write.
 
+## How it was made
+
+S.A.L.T. Report Workbench was created entirely with Claude (Anthropic's AI):
+every line of code, the brand assets and this documentation. The operators who
+use it shaped what it does through field testing, as recorded in
+[CHANGELOG.md](CHANGELOG.md).
+
 ## Features
 
 ### Live reporting
@@ -200,13 +207,6 @@ macOS and Linux, `make check` runs everything CI runs. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for setup and conventions, and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the code layout and how sync
 works.
-
-## How it was made
-
-S.A.L.T. Report Workbench was created entirely with Claude (Anthropic's AI):
-every line of code, the brand assets and this documentation. The operators who
-use it shaped what it does through field testing, as recorded in
-[CHANGELOG.md](CHANGELOG.md).
 
 ## Security and license
 
