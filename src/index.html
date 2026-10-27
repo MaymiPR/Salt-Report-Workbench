@@ -269,8 +269,10 @@
 
                     <p class="manual-step">Import / Export tab (default)</p>
                     <ul>
-                        <li>Pick <strong>Export</strong> or <strong>Import</strong>, pick what from the list (a line under it says what it is and how to use it), then press the one button. The time filter shows for exports; each option shows with the format it changes. Your last choice is remembered in this browser.</li>
-                        <li><strong>Filter by Time Range</strong>: set From and/or To to narrow what gets exported. Leave both blank to include everything.</li>
+                        <li>Pick <strong>Export</strong> or <strong>Import</strong>, pick what from the list (a line under it says what it is and how to use it), then press the one button. Your last choice is remembered in this browser.</li>
+                        <li><strong>Exports</strong> show two cards side by side: <strong>Time range</strong>, and the <strong>Options</strong> for the picked format (when it has any).</li>
+                        <li><strong>Imports: drop a file</strong> anywhere on the tab, or click the drop area to choose one. What it is gets worked out from the file: a backup (<code>.txt</code>), another tool&rsquo;s CSV (opens the column matching), or overlays (KML, KMZ, GeoJSON, or a shapefile&rsquo;s files or zip, opening the Overlays tab to review them). Several files together must all be overlays. Dragging a file over the tab switches it to Import.</li>
+                        <li><strong>Time range</strong>: set From and/or To to narrow what gets exported. Leave both blank to include everything.</li>
                         <li><strong>Quick presets (12h / 6h / 1h)</strong>: one click fills both pickers relative to now, respecting your active Zulu/Local time mode.</li>
                         <li><strong>Filter stats</strong>: stacked counts beneath the picker show <em>N of M unique reports</em> + <em>N of M total reports</em> (the second line includes every saved history entry). Turns blue when a filter is active.</li>
                         <li><strong>Export Backup (.txt)</strong>: full snapshot with human-readable content at the top and machine-readable JSON at the bottom. Re-import to merge it back in.</li>
@@ -396,9 +398,10 @@
                         <li><strong>Scope</strong>: <em>This ATO</em> (the workspace on screen) or <em>All ATOs</em> (every loaded workspace together). All ATOs adds a <strong>Reports per ATO</strong> chart, and its exports are named <code>All_ATOs</code>. Remembered in this browser.</li>
                         <li><strong>Window</strong>: All, the last 7 days, 24, 12, or 6 hours, or your own From / To (date and time, in your Zulu or Local mode), laid out as in the Workspaces time filter; <strong>Clear</strong> above the To time goes back to all. Every number and chart covers the same window.</li>
                         <li><strong>Headline numbers</strong>: reports, how many have a grid, how many are in an NAI or OBJ, how many have a <em>Check</em> to look at, and BDA assessed (vehicles and items).</li>
-                        <li><strong>Charts</strong>: reports per NAI, per OBJ, and at each phase line (typed, or a grid within 1 km of the line); the busiest grid squares (<strong>Squares</strong>: 10 km or 1 km); reports by hour of day and by day; activity tags; the heading of moving reports; what was reported by type, counted from Size (<code>2x T-72, 4 BMP-2</code>); and BDA outcomes. Each report counts once per place, square, or tag it names; history is not counted. Long lists show their top ten and an <em>Other</em> bar.</li>
+                        <li><strong>Charts</strong>: reports per NAI, per OBJ, and at each phase line (typed, or a grid within 1 km of the line); reports by hour of day and by day; activity tags; the heading of moving reports; what was reported by type, counted from Size (<code>2x T-72, 4 BMP-2</code>); and BDA outcomes. Each report counts once per place or tag it names; history is not counted. Long lists show their top ten and an <em>Other</em> bar.</li>
                         <li>Hover a bar (or Tab to it) for its number. <strong>Table</strong> shows every value under the chart.</li>
-                        <li><strong>PNG</strong>, <strong>SVG</strong>, and <strong>CSV</strong> on each chart export it, on a light background for slides and print, with its title, workspace, and window written in. <strong>Export All</strong> saves every chart as PNG and SVG, and all the numbers in one CSV, together in one zip file.</li>
+                        <li><strong>PNG</strong>, <strong>SVG</strong>, and <strong>CSV</strong> on each chart export it, on a light background for slides and print, with its title, workspace, and window written in. <strong>Charts (.zip)</strong> saves every chart as PNG and SVG, and all the numbers in one CSV, together in one zip file.</li>
+                        <li><strong>Export to Excel</strong> saves one workbook (<code>.xlsx</code>). The <em>Statistics</em> sheet has the headline numbers, then each chart&rsquo;s table with an Excel chart drawn from it beside it: change a number and the chart follows; restyle it like any Excel chart. A bar chart shows the top ten; its table has every value. The <em>Reports</em> sheet is the report table for the same window, one row per report as it is now, with what the app reads from it (NAI / OBJ / PL, activity tags, heading, BDA, how many updates) and times as real dates, as an Excel table you can sort and filter.</li>
                     </ul>
                 </section>
 
@@ -786,16 +789,16 @@
                             </div>
                         </div>
 
-                        <!-- Tab: Import / Export — action grid, time filter, options. -->
+                        <!-- Tab: Import / Export — the picker, then the time range and options (exports) or a drop area (imports). -->
                         <div class="ws-tab-panel" data-tab-panel="export">
                             <!-- Pick Export or Import, pick what, then one button (app/40-io.js).
                                  The buttons below are what it presses; they stay out of sight. -->
                             <div class="io-picker">
-                                <div class="io-modes" role="group" aria-label="Export or import">
-                                    <button type="button" class="io-mode" data-io-mode="export" aria-pressed="true">Export</button>
-                                    <button type="button" class="io-mode editor-only" data-io-mode="import" aria-pressed="false">Import</button>
-                                </div>
                                 <div class="io-row">
+                                    <div class="io-modes" role="group" aria-label="Export or import">
+                                        <button type="button" class="io-mode" data-io-mode="export" aria-pressed="true">Export</button>
+                                        <button type="button" class="io-mode editor-only" data-io-mode="import" aria-pressed="false">Import</button>
+                                    </div>
                                     <select id="ioFormatSelect" aria-label="What to export or import"></select>
                                     <button type="button" id="ioRunBtn" class="set-btn">Export</button>
                                 </div>
@@ -813,11 +816,10 @@
                                 <input type="file" id="importCsvFileInput" class="file-input-wrapper" accept=".csv">
                             </div>
 
-                            <div class="export-divider io-export-only"></div>
-
-                            <div class="export-block io-export-only">
-                                <div class="export-block-label">Filter by Time Range</div>
-                                <div class="filter-grid">
+                            <!-- Exports: the time range and the picked format's options, side by side. -->
+                            <div class="io-cards io-export-only">
+                                <section class="io-card io-time">
+                                    <div class="export-block-label">Time range</div>
                                     <div class="filter-field">
                                         <label>From <span class="filter-mode" id="export-from-mode">(Z)</span></label>
                                         <div class="filter-pair">
@@ -835,43 +837,48 @@
                                             <input type="text" id="export-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
                                         </div>
                                     </div>
-                                </div>
-                                <div class="filter-presets" aria-label="Quick range presets">
-                                    <span class="filter-presets-label">Last</span>
-                                    <button type="button" class="filter-preset-btn" data-preset-hours="12">12h</button>
-                                    <button type="button" class="filter-preset-btn" data-preset-hours="6">6h</button>
-                                    <button type="button" class="filter-preset-btn" data-preset-hours="1">1h</button>
-                                </div>
-                                <div class="filter-meta">
-                                    <span id="export-filter-count" class="filter-count-line">All reports will be exported.</span>
-                                </div>
+                                    <div class="filter-presets" aria-label="Quick range presets">
+                                        <span class="filter-presets-label">Last</span>
+                                        <button type="button" class="filter-preset-btn" data-preset-hours="12">12h</button>
+                                        <button type="button" class="filter-preset-btn" data-preset-hours="6">6h</button>
+                                        <button type="button" class="filter-preset-btn" data-preset-hours="1">1h</button>
+                                    </div>
+                                    <div class="filter-meta">
+                                        <span id="export-filter-count" class="filter-count-line">All reports will be exported.</span>
+                                    </div>
+                                </section>
+
+                                <section class="io-card io-options">
+                                    <div class="export-block-label">Options</div>
+                                    <label class="export-option-row" data-io-for="backup">
+                                        <input type="checkbox" id="exportAllAtosToggle">
+                                        <div>
+                                            <div class="export-option-text">Export All ATOs</div>
+                                            <div class="export-option-desc">Backup includes every loaded workspace, not just the active one</div>
+                                        </div>
+                                    </label>
+                                    <label class="export-option-row" data-io-for="csv">
+                                        <input type="checkbox" id="exportLatestOnlyToggle">
+                                        <div>
+                                            <div class="export-option-text">Latest version only</div>
+                                            <div class="export-option-desc">One row per report, without its earlier updates: for tools that put every row on a map</div>
+                                        </div>
+                                    </label>
+                                    <label class="export-option-row" data-io-for="csv">
+                                        <input type="checkbox" id="exportMtiToggle">
+                                        <div>
+                                            <div class="export-option-text">MTI Export</div>
+                                            <div class="export-option-desc">Splits CSV into separate tracked and wheeled files</div>
+                                        </div>
+                                    </label>
+                                </section>
                             </div>
 
-                            <div class="export-divider io-options"></div>
-
-                            <div class="export-block io-options">
-                                <div class="export-block-label">Options</div>
-                                <label class="export-option-row" data-io-for="backup">
-                                    <input type="checkbox" id="exportAllAtosToggle">
-                                    <div>
-                                        <div class="export-option-text">Export All ATOs</div>
-                                        <div class="export-option-desc">Backup includes every loaded workspace, not just the active one</div>
-                                    </div>
-                                </label>
-                                <label class="export-option-row" data-io-for="csv">
-                                    <input type="checkbox" id="exportLatestOnlyToggle">
-                                    <div>
-                                        <div class="export-option-text">Latest version only</div>
-                                        <div class="export-option-desc">One row per report, without its earlier updates: for tools that put every row on a map</div>
-                                    </div>
-                                </label>
-                                <label class="export-option-row" data-io-for="csv">
-                                    <input type="checkbox" id="exportMtiToggle">
-                                    <div>
-                                        <div class="export-option-text">MTI Export</div>
-                                        <div class="export-option-desc">Splits CSV into separate tracked and wheeled files</div>
-                                    </div>
-                                </label>
+                            <!-- Imports: drop a file anywhere on this tab; its kind is worked out from it. -->
+                            <div id="ioDrop" class="io-drop io-import-only" role="button" tabindex="0">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+                                <div class="io-drop-main">Drop a file here</div>
+                                <div class="io-drop-sub">A backup (.txt), another tool&rsquo;s CSV, or overlays (KML, KMZ, GeoJSON, or a shapefile&rsquo;s files or zip). Or click to choose one.</div>
                             </div>
                         </div><!-- /ws-tab-panel data-tab-panel="export" -->
                     </div>
@@ -898,12 +905,10 @@
                                 <button type="button" class="filter-preset-btn" data-stats-hours="12">12h</button>
                                 <button type="button" class="filter-preset-btn" data-stats-hours="6">6h</button>
                             </div>
-                            <div class="filter-presets" aria-label="Grid square size">
-                                <span class="filter-presets-label">Squares</span>
-                                <button type="button" class="filter-preset-btn" data-stats-squares="1">10 km</button>
-                                <button type="button" class="filter-preset-btn" data-stats-squares="2">1 km</button>
+                            <div class="stats-export">
+                                <button type="button" id="statsExcelBtn" class="set-btn" title="One workbook: every chart, drawn by Excel from its numbers, and the reports">Export to Excel</button>
+                                <button type="button" id="statsExportAllBtn" class="cancel-btn" title="Every chart as PNG and SVG, with their numbers in one CSV">Charts (.zip)</button>
                             </div>
-                            <button type="button" id="statsExportAllBtn" class="set-btn">Export All</button>
                         </div>
                         <div class="filter-grid range-grid">
                                 <div class="filter-field">

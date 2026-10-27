@@ -24,6 +24,7 @@ import tempfile
 import time
 import unittest
 import urllib.request
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
@@ -507,6 +508,52 @@ class BrowserTests(unittest.TestCase):
         viewer.click("#exportViewToggleBtn")
         self.assertFalse(viewer.locator("[data-io-mode='import']").is_visible())
         self.assertEqual(viewer.text_content("#ioRunBtn"), "Export")
+
+    def test_import_by_dropping_a_file(self):
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        with page.expect_download() as dl:
+            self.run_io(page, "export", "backup")
+        backup = Path(dl.value.path()).read_text(encoding="utf-8")
+        tab = "#exportPanel [data-tab-panel='export']"
+        # A file dragged over the tab switches it to Import and shows the drop area.
+        page.click("[data-io-mode='export']")
+        self.assertFalse(page.locator("#ioDrop").is_visible())
+        dt = page.evaluate_handle(
+            "(text) => { const dt = new DataTransfer(); dt.items.add(new File([text], 'Patrol backup.txt')); return dt; }",
+            backup,
+        )
+        page.dispatch_event(tab, "dragover", {"dataTransfer": dt})
+        self.assertEqual(page.get_attribute("[data-io-mode='import']", "aria-pressed"), "true")
+        self.assertTrue(page.locator("#ioDrop").is_visible())
+        page.dispatch_event(tab, "drop", {"dataTransfer": dt})
+        self.assertIn("backup", page.text_content("#confirmation-message").lower())
+        page.click("#confirmActionBtn")
+        page.wait_for_selector("#toast-notification:has-text('Import successful')")
+        # Chosen from the drop area: a CSV goes to column matching...
+        if not page.evaluate("isExportViewActive"):
+            page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        page.click("[data-io-mode='import']")
+        csv = self.tmp / "other tool.csv"
+        csv.write_text("Name,Count,MGRS\nA1,2x BTR,18SUJ1234\n", encoding="utf-8")
+        page.set_input_files("#ioDropInput", str(csv))
+        page.wait_for_selector("#csvImportPanel", state="visible")
+        self.assertIn("other tool.csv", page.text_content("#csvImportSubtitle"))
+        page.click("#closeCsvImportBtn")
+        # ...and overlay files to the Overlays tab, to review.
+        if not page.evaluate("isExportViewActive"):
+            page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        page.click("[data-io-mode='import']")
+        page.set_input_files("#ioDropInput", str(self.overlay_kmz()))
+        page.wait_for_selector("#overlaysBody .overlay-type-select")
+        # A CSV and an overlay together can't go in as one import.
+        page.click(".ws-tab[data-tab='export']")
+        page.set_input_files("#ioDropInput", [str(csv), str(self.overlay_kmz())])
+        page.wait_for_selector("#toast-notification:has-text('Drop one backup or CSV at a time')")
 
     def test_horizontal_layout_fits_the_window(self):
         page = self.open_editor()
@@ -1046,6 +1093,23 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("nai.png", names)
         self.assertIn("hours.svg", names)
         self.assertIn('"NAI 1",2', csv)
+        self.assertEqual(
+            page.locator(".stats-card[data-chart='squares']").count(), 0, "no grid squares chart"
+        )
+        # One Excel workbook: a chart per card with data, and the reports.
+        with page.expect_download() as dl:
+            page.click("#statsExcelBtn")
+        self.assertTrue(dl.value.suggested_filename.endswith(".xlsx"))
+        with zipfile.ZipFile(dl.value.path()) as zf:
+            self.assertIsNone(zf.testzip())
+            parts = {n: zf.read(n).decode("utf-8") for n in zf.namelist()}
+        for text in parts.values():
+            ET.fromstring(text)  # every part is well-formed XML
+        charts = [n for n in parts if n.startswith("xl/charts/")]
+        self.assertEqual(len(charts), page.locator(".stats-card svg").count())
+        self.assertIn("Reports per NAI", parts["xl/charts/chart1.xml"])
+        self.assertIn('ref="A1:', parts["xl/tables/table1.xml"])
+        self.assertIn("2x T-72", parts["xl/sharedStrings.xml"])
         # Live: a report logged from the form shows up without reopening.
         page.click("#statsViewToggleBtn")
         self.log(page, "1x truck", activity="parked", location="38SMB4500082100")

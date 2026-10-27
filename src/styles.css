@@ -712,16 +712,31 @@ body.local-mode .startup-access-divider { display: none; }
 .export-option-text { font-size: 0.92em; color: var(--text-primary); line-height: 1.4; }
 .export-option-desc { font-size: 0.8em; color: var(--text-secondary); margin-top: 2px; }
 /* Import / Export: a segmented Export | Import, a pop-up of what, one button. */
-.io-picker { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; max-width: 560px; }
+.io-picker { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; max-width: 760px; }
 .io-modes { display: inline-flex; align-self: flex-start; gap: 4px; padding: 4px; background-color: var(--input-bg); border-radius: 10px; }
+.io-row .io-modes { align-self: stretch; box-sizing: border-box; }
 .io-mode { background: transparent; color: var(--text-secondary); border: none; padding: 7px 22px; border-radius: 8px; font-size: 0.86em; font-weight: 600; margin: 0; cursor: pointer; }
 .io-mode:hover { color: var(--text-primary); opacity: 1; }
 .io-mode[aria-pressed="true"] { background-color: var(--panel-bg); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
 .io-mode:active { transform: none; }
-.io-row { display: flex; gap: 10px; align-items: stretch; }
-.io-row select { flex: 1; min-width: 0; margin: 0; height: 46px; padding: 0 40px 0 16px; font-weight: 500; cursor: pointer; }
-.io-row #ioRunBtn { flex: 0 0 auto; min-width: 120px; margin: 0; }
+.io-row { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; }
+.io-row select { flex: 1 1 240px; min-width: 0; margin: 0; height: 42px; padding: 0 40px 0 16px; font-weight: 500; cursor: pointer; }
+.io-row #ioRunBtn { flex: 0 0 auto; min-width: 110px; margin: 0; padding-top: 0; padding-bottom: 0; }
 .io-desc { font-size: 0.85em; color: var(--text-secondary); line-height: 1.45; min-height: 2.9em; }
+/* Exports: the time range and the format's options as two cards side by side. */
+.io-cards { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.io-card { border: 1px solid var(--divider); border-radius: 14px; padding: 14px 16px; box-sizing: border-box; }
+.io-time { flex: 0 0 auto; }
+.io-options { flex: 1 1 280px; max-width: 470px; }
+.io-card .filter-field + .filter-field { margin-top: 10px; }
+.io-card .filter-presets { margin-top: 12px; }
+.io-card .filter-meta { padding-top: 8px; }
+/* Imports: one drop area; the whole tab takes a dropped file. */
+.io-drop { max-width: 760px; box-sizing: border-box; border: 1.5px dashed var(--divider); border-radius: 14px; padding: 26px 20px; text-align: center; color: var(--text-secondary); cursor: pointer; transition: border-color 0.15s, background-color 0.15s; }
+.io-drop svg { width: 26px; height: 26px; display: block; margin: 0 auto 8px; }
+.io-drop-main { font-size: 0.95em; font-weight: 600; color: var(--text-primary); }
+.io-drop-sub { font-size: 0.82em; margin-top: 4px; line-height: 1.45; }
+.io-drop:hover, .io-drop:focus-visible, .io-dropping .io-drop { border-color: var(--system-blue); background-color: rgba(10, 132, 255, 0.08); outline: none; }
 .export-option-row + .export-option-row { margin-top: 10px; }
 #exportPanel [hidden] { display: none !important; }
 
@@ -1248,7 +1263,8 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 #statsPanel { display: none; flex-direction: column; flex: 1; min-height: 0; }
 .stats-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-bottom: 16px; }
 .stats-filters .filter-presets { margin: 0; }
-.stats-filters #statsExportAllBtn { margin: 0 0 0 auto; width: auto; padding: 8px 16px; font-size: 0.85em; }
+.stats-export { display: flex; gap: 8px; margin-left: auto; }
+.stats-export button { margin: 0; width: auto; padding: 8px 16px; font-size: 0.85em; }
 .stats-range { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .stats-range label { margin: 0 2px 0 4px; font-size: 0.8em; color: var(--text-secondary); }
 /* Statistics and Summary: the From / To pickers laid out as in Workspaces. */
