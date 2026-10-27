@@ -1471,6 +1471,237 @@ const statsData = (reps, overlays, { local, squareDigits = 1 } = {}) => {
 const statsCsv = (sections) => sections.map(({ title, items }) =>
     [csvField(title), ...items.map(i => `${csvField(i.label)},${i.value}`)].join('\r\n')).join('\r\n\r\n') + '\r\n';
 
+// --- Excel workbook ---
+
+// The report table as rows for a spreadsheet: one row per report as it is
+// now, with what the app reads from it (places, activity tags, heading, BDA).
+// A time is { date: Excel serial } so Excel sorts and filters it as a date;
+// in Local mode it is the browser's local time.
+const excelSerial = (ms, local) => {
+    const off = local ? new Date(ms).getTimezoneOffset() * 60000 : 0;
+    return (ms - off) / 86400000 + 25569;
+};
+const workbookReportRows = (reps, overlays, { local, idOf, customLabels = [] }) => {
+    const header = ['Identifier', 'Status', 'By', 'Size', 'Activity', 'Location', `Time (${local ? 'Local' : 'Z'})`, 'Analysis',
+        'NAI / OBJ / PL', 'Activity tags', 'Heading', 'BDA assessed', 'Updates', ...customLabels];
+    const rows = (reps || []).filter(r => !r.deleted).sort((a, b) => reportNum(a) - reportNum(b)).map(r => {
+        const a = analyzeLocation(r.location, overlays);
+        const act = classifyActivity(r.activity);
+        const ms = new Date(r.time).getTime();
+        const b = bdaSummary(r);
+        return [idOf(r), r.updated ? 'Updated' : 'Original', (r.user && r.user.initials) || '', r.size || '', r.activity || '',
+            r.location || '', isNaN(ms) ? '' : { date: excelSerial(ms, local) }, r.yourAnalysis || '',
+            [...a.nai.keys, ...a.obj.keys, ...a.pls].join(', '), act.tags.join(', '), act.heading || '',
+            b.done ? `${b.done} of ${b.total}` : '', (r.history || []).length,
+            ...customLabels.map(c => (r.custom || {})[c] || '')];
+    });
+    return { header, rows };
+};
+
+// A workbook (.xlsx) of the Statistics panel: a Statistics sheet with the
+// headline numbers and each chart's table beside an Excel chart drawn from
+// it (so it can be restyled and updates when a number is changed), and a
+// Reports sheet holding the report table as an Excel table with filters.
+// Written by hand, as the zip of XML parts an .xlsx is, so nothing needs a
+// library. Styled to match the app: system font, one blue, no borders.
+//   opts: { title, context, kpis: [{ label, value }],
+//           charts: [{ title, note, unit, kind: 'bar' | 'column', axis, items: [{ label, value }] }],
+//           reports: { header, rows } }
+const XLSX_BLUE = '007AFF', XLSX_INK = '1D1D1F', XLSX_INK2 = '6E6E73', XLSX_GRID = 'E5E5EA', XLSX_AXIS = 'D2D2D7';
+const XLSX_FONT = 'Segoe UI';
+const XLSX_BAR_MAX = 10;  // a bar chart shows the top ten; its table has them all
+const xmlText = (s) => String(s).replace(/[^\x09\x0A\x0D\x20-퟿-�\uD800-􏰀-\uDFFF]/g, '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const colName = (i) => { let s = ''; for (i++; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + (i - 1) % 26) + s; return s; };
+const XML_HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+const NS_MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+const NS_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const NS_A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+const NS_C = 'http://schemas.openxmlformats.org/drawingml/2006/chart';
+const REL = (t) => `${NS_REL}/${t}`;
+const relsXml = (rels) => `${XML_HEAD}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`
+    + rels.map(([id, type, target]) => `<Relationship Id="${id}" Type="${type}" Target="${target}"/>`).join('') + '</Relationships>';
+
+// Cell styles (the order of cellXfs below).
+const XS = { plain: 0, head: 1, title: 2, muted: 3, date: 4, section: 5, kpi: 6 };
+const XLSX_STYLES = `${XML_HEAD}<styleSheet xmlns="${NS_MAIN}">`
+    + '<numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm"/></numFmts>'
+    + '<fonts count="5">'
+    + [[false, 10, XLSX_INK], [true, 10, XLSX_INK], [true, 18, XLSX_INK], [false, 10, XLSX_INK2], [true, 12, XLSX_INK]]
+        .map(([b, sz, c]) => `<font>${b ? '<b/>' : ''}<sz val="${sz}"/><color rgb="FF${c}"/><name val="${XLSX_FONT}"/><family val="2"/></font>`).join('')
+    + '</fonts>'
+    + '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
+    + `<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FF${XLSX_AXIS}"/></bottom><diagonal/></border></borders>`
+    + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+    + '<cellXfs count="7">'
+    + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+    + '<xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1"/>'
+    + '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+    + '<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+    + '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="left"/></xf>'
+    + '<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+    + '<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left"/></xf>'
+    + '</cellXfs>'
+    + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+    + '<dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/></styleSheet>';
+
+// Text properties for a chart part: size in hundredths of a point.
+const chartTx = (sz, color, bold = false) => `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="${sz}" b="${bold ? 1 : 0}">`
+    + `<a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:latin typeface="${XLSX_FONT}"/></a:defRPr></a:pPr><a:endParaRPr lang="en-US"/></a:p></c:txPr>`;
+const noLine = '<a:ln><a:noFill/></a:ln>';
+const strCache = (vals) => `<c:strCache><c:ptCount val="${vals.length}"/>${vals.map((v, i) => `<c:pt idx="${i}"><c:v>${xmlText(v)}</c:v></c:pt>`).join('')}</c:strCache>`;
+
+// One chart part. `at` = { sheet, catCol, valCol, headRow, first, last } in
+// sheet cells (rows 1-based) for its formulas.
+const chartXml = (chart, at) => {
+    const ref = (col, r0, r1) => `'${at.sheet}'!$${col}$${r0}${r1 === undefined ? '' : `:$${col}$${r1}`}`;
+    const items = chart.items.slice(0, chart.kind === 'bar' ? XLSX_BAR_MAX : undefined);
+    const last = at.first + items.length - 1;
+    const bar = chart.kind === 'bar';
+    const peak = items.reduce((b, it, i) => (it.value > items[b].value ? i : b), 0);
+    // Bars carry their values; columns read off the axis, with the peak labelled.
+    const labelOpts = (show) => `<c:showLegendKey val="0"/><c:showVal val="${show ? 1 : 0}"/><c:showCatName val="0"/><c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/>`;
+    const dLbls = bar
+        ? `<c:dLbls><c:spPr><a:noFill/>${noLine}</c:spPr>${chartTx(900, XLSX_INK, true)}<c:dLblPos val="outEnd"/>${labelOpts(true)}</c:dLbls>`
+        : `<c:dLbls><c:dLbl><c:idx val="${peak}"/><c:spPr><a:noFill/>${noLine}</c:spPr>${chartTx(900, XLSX_INK, true)}<c:dLblPos val="outEnd"/>${labelOpts(true)}</c:dLbl>${labelOpts(false)}</c:dLbls>`;
+    const axisLine = `<c:spPr><a:ln w="9525"><a:solidFill><a:srgbClr val="${XLSX_AXIS}"/></a:solidFill></a:ln></c:spPr>`;
+    const ticks = '<c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/>';
+    return `${XML_HEAD}<c:chartSpace xmlns:c="${NS_C}" xmlns:a="${NS_A}" xmlns:r="${NS_REL}">`
+        + '<c:date1904 val="0"/><c:lang val="en-US"/><c:roundedCorners val="0"/><c:chart>'
+        + `<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="1200" b="1"/></a:pPr><a:r><a:rPr lang="en-US" sz="1200" b="1">`
+        + `<a:solidFill><a:srgbClr val="${XLSX_INK}"/></a:solidFill><a:latin typeface="${XLSX_FONT}"/></a:rPr><a:t>${xmlText(chart.title)}</a:t></a:r></a:p></c:rich></c:tx>`
+        + '<c:overlay val="0"/></c:title><c:autoTitleDeleted val="0"/><c:plotArea><c:layout/>'
+        + `<c:barChart><c:barDir val="${bar ? 'bar' : 'col'}"/><c:grouping val="clustered"/><c:varyColors val="0"/>`
+        + `<c:ser><c:idx val="0"/><c:order val="0"/><c:tx><c:strRef><c:f>${ref(at.valCol, at.headRow)}</c:f>${strCache([chart.unit])}</c:strRef></c:tx>`
+        + `<c:spPr><a:solidFill><a:srgbClr val="${XLSX_BLUE}"/></a:solidFill>${noLine}</c:spPr><c:invertIfNegative val="0"/>${dLbls}`
+        + `<c:cat><c:strRef><c:f>${ref(at.catCol, at.first, last)}</c:f>${strCache(items.map(i => i.label))}</c:strRef></c:cat>`
+        + `<c:val><c:numRef><c:f>${ref(at.valCol, at.first, last)}</c:f><c:numCache><c:formatCode>General</c:formatCode><c:ptCount val="${items.length}"/>`
+        + items.map((it, i) => `<c:pt idx="${i}"><c:v>${Number(it.value) || 0}</c:v></c:pt>`).join('') + '</c:numCache></c:numRef></c:val></c:ser>'
+        + `<c:gapWidth val="${bar ? 60 : 50}"/><c:axId val="1001"/><c:axId val="1002"/></c:barChart>`
+        // Bars read top down, largest first, as in the app.
+        + `<c:catAx><c:axId val="1001"/><c:scaling><c:orientation val="${bar ? 'maxMin' : 'minMax'}"/></c:scaling><c:delete val="0"/><c:axPos val="${bar ? 'l' : 'b'}"/>`
+        + `<c:numFmt formatCode="General" sourceLinked="1"/>${ticks}${axisLine}${chartTx(900, XLSX_INK2)}`
+        + '<c:crossAx val="1002"/><c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/><c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>'
+        + `<c:valAx><c:axId val="1002"/><c:scaling><c:orientation val="minMax"/><c:min val="0"/></c:scaling><c:delete val="${bar ? 1 : 0}"/><c:axPos val="${bar ? 'b' : 'l'}"/>`
+        + (bar ? '' : `<c:majorGridlines><c:spPr><a:ln w="9525"><a:solidFill><a:srgbClr val="${XLSX_GRID}"/></a:solidFill></a:ln></c:spPr></c:majorGridlines>`)
+        + `<c:numFmt formatCode="0" sourceLinked="0"/>${ticks}<c:spPr>${noLine}</c:spPr>${chartTx(900, XLSX_INK2)}`
+        + '<c:crossAx val="1001"/><c:crosses val="autoZero"/><c:crossBetween val="between"/></c:valAx>'
+        + `<c:spPr><a:noFill/>${noLine}</c:spPr></c:plotArea><c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart>`
+        + `<c:spPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>${noLine}</c:spPr>${chartTx(900, XLSX_INK2)}</c:chartSpace>`;
+};
+
+const statsXlsx = ({ title = 'Statistics', context = '', kpis = [], charts = [], reports = { header: [], rows: [] } }, now = new Date()) => {
+    const strings = [], stringIdx = new Map();
+    const sst = (s) => { s = String(s).slice(0, 32767); if (!stringIdx.has(s)) { stringIdx.set(s, strings.length); strings.push(s); } return stringIdx.get(s); };
+    // A cell: number, string, { date }, or empty; `s` is its style.
+    const cell = (ref, v, s = XS.plain) => {
+        if (v === '' || v === null || v === undefined) return '';
+        if (typeof v === 'number') return `<c r="${ref}" s="${s}"><v>${v}</v></c>`;
+        if (typeof v === 'object' && 'date' in v) return `<c r="${ref}" s="${XS.date}"><v>${v.date}</v></c>`;
+        return `<c r="${ref}" s="${s}" t="s"><v>${sst(v)}</v></c>`;
+    };
+    const rowXml = (r, cells, ht) => `<row r="${r}"${ht ? ` ht="${ht}" customHeight="1"` : ''}>${cells.map(([c, v, s]) => cell(`${colName(c)}${r}`, v, s)).join('')}</row>`;
+    const colsXml = (widths) => `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>`;
+    const sheetHead = (pane) => `${XML_HEAD}<worksheet xmlns="${NS_MAIN}" xmlns:r="${NS_REL}"><sheetViews><sheetView workbookViewId="0" showGridLines="0">${pane}</sheetView></sheetViews>`
+        + '<sheetFormatPr defaultRowHeight="15" customHeight="1"/>';
+
+    // Statistics sheet: title, headline numbers, then one section per chart,
+    // its table in A:B and its chart from column D, on the same rows.
+    const SHEET = 'Statistics', ROW_PX = 20, CHART_W_PX = 600;
+    const rows = [rowXml(1, [[0, title, XS.title]], 30), rowXml(2, [[0, context, XS.muted]])];
+    let r = 4;
+    if (kpis.length) {
+        rows.push(rowXml(r++, [[0, 'Headline numbers', XS.section]], 20));
+        kpis.forEach(k => rows.push(rowXml(r++, [[0, k.label, XS.muted], [1, k.value, XS.kpi]], 20)));
+        r++;
+    }
+    const anchors = [], chartParts = [];
+    charts.forEach((ch, i) => {
+        const start = r;
+        rows.push(rowXml(r++, [[0, ch.title, XS.section]], 20));
+        const shortened = ch.kind === 'bar' && ch.items.length > XLSX_BAR_MAX;
+        const note = [ch.note, shortened ? `The chart shows the top ${XLSX_BAR_MAX}.` : ''].filter(Boolean).join(' ');
+        if (note) rows.push(rowXml(r++, [[0, note, XS.muted]]));
+        const headRow = r;
+        rows.push(rowXml(r++, [[0, ch.axis || (ch.kind === 'bar' ? 'Item' : 'When'), XS.head], [1, ch.unit, XS.head]]));
+        const first = r;
+        ch.items.forEach(it => rows.push(rowXml(r++, [[0, String(it.label)], [1, Number(it.value) || 0]])));
+        const shown = shortened ? XLSX_BAR_MAX : ch.items.length;
+        const heightPx = ch.kind === 'bar' ? Math.max(200, 70 + 26 * shown) : 280;
+        chartParts.push(chartXml(ch, { sheet: SHEET, catCol: 'A', valCol: 'B', headRow, first }));
+        anchors.push({ row: start - 1, cx: CHART_W_PX * 9525, cy: heightPx * 9525, id: i + 1 });
+        r = Math.max(r, start + Math.ceil(heightPx / ROW_PX)) + 2;
+    });
+    const statsSheet = sheetHead('') + colsXml([30, 12, 3]) + `<sheetData>${rows.join('')}</sheetData>`
+        + '<pageMargins left="0.5" right="0.5" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>'
+        + (anchors.length ? '<drawing r:id="rId1"/>' : '') + '</worksheet>';
+    const drawing = `${XML_HEAD}<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="${NS_A}">`
+        + anchors.map(a => `<xdr:oneCellAnchor><xdr:from><xdr:col>3</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${a.row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>`
+            + `<xdr:ext cx="${a.cx}" cy="${a.cy}"/><xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${a.id + 1}" name="Chart ${a.id}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>`
+            + '<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">'
+            + `<c:chart xmlns:c="${NS_C}" xmlns:r="${NS_REL}" r:id="rId${a.id}"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:oneCellAnchor>`).join('')
+        + '</xdr:wsDr>';
+
+    // Reports sheet: the table, header frozen, as an Excel table with filters.
+    const { header, rows: repRows } = reports;
+    // Table column names must be unique and non-empty.
+    const seen = new Set();
+    const heads = header.map((h, i) => { let n = String(h).trim() || `Column ${i + 1}`; while (seen.has(n.toLowerCase())) n += ' 2'; seen.add(n.toLowerCase()); return n; });
+    const lastCol = colName(Math.max(heads.length, 1) - 1);
+    const hasTable = heads.length > 0 && repRows.length > 0;
+    const tableRef = `A1:${lastCol}${repRows.length + 1}`;
+    const widths = heads.map(h => ({ Identifier: 18, Status: 10, By: 6, Size: 22, Activity: 28, Location: 30, Analysis: 36, 'NAI / OBJ / PL': 18, 'Activity tags': 20, Heading: 9, 'BDA assessed': 13, Updates: 9 }[h] || (/^Time/.test(h) ? 17 : 16)));
+    const reportsSheet = sheetHead('<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/>')
+        + (widths.length ? colsXml(widths) : '')
+        + `<sheetData>${[rowXml(1, heads.map((h, c) => [c, h, XS.head]), 20), ...repRows.map((row, i) => rowXml(i + 2, row.map((v, c) => [c, v])))].join('')}</sheetData>`
+        + '<pageMargins left="0.5" right="0.5" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>'
+        + (hasTable ? '<tableParts count="1"><tablePart r:id="rId1"/></tableParts>' : '') + '</worksheet>';
+    const table = `${XML_HEAD}<table xmlns="${NS_MAIN}" id="1" name="ReportTable" displayName="ReportTable" ref="${tableRef}" totalsRowShown="0">`
+        + `<autoFilter ref="${tableRef}"/><tableColumns count="${heads.length}">${heads.map((h, i) => `<tableColumn id="${i + 1}" name="${xmlText(h)}"/>`).join('')}</tableColumns>`
+        + '<tableStyleInfo name="TableStyleLight1" showFirstColumn="0" showLastColumn="0" showRowStripes="1" showColumnStripes="0"/></table>';
+
+    const shared = `${XML_HEAD}<sst xmlns="${NS_MAIN}" count="${strings.length}" uniqueCount="${strings.length}">`
+        + strings.map(s => `<si><t xml:space="preserve">${xmlText(s)}</t></si>`).join('') + '</sst>';
+    const CT = 'application/vnd.openxmlformats-officedocument';
+    const types = `${XML_HEAD}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">`
+        + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'
+        + `<Override PartName="/xl/workbook.xml" ContentType="${CT}.spreadsheetml.sheet.main+xml"/>`
+        + `<Override PartName="/xl/worksheets/sheet1.xml" ContentType="${CT}.spreadsheetml.worksheet+xml"/>`
+        + `<Override PartName="/xl/worksheets/sheet2.xml" ContentType="${CT}.spreadsheetml.worksheet+xml"/>`
+        + `<Override PartName="/xl/styles.xml" ContentType="${CT}.spreadsheetml.styles+xml"/>`
+        + `<Override PartName="/xl/sharedStrings.xml" ContentType="${CT}.spreadsheetml.sharedStrings+xml"/>`
+        + (hasTable ? `<Override PartName="/xl/tables/table1.xml" ContentType="${CT}.spreadsheetml.table+xml"/>` : '')
+        + (anchors.length ? `<Override PartName="/xl/drawings/drawing1.xml" ContentType="${CT}.drawing+xml"/>` : '')
+        + chartParts.map((_, i) => `<Override PartName="/xl/charts/chart${i + 1}.xml" ContentType="${CT}.drawingml.chart+xml"/>`).join('')
+        + '</Types>';
+    const workbook = `${XML_HEAD}<workbook xmlns="${NS_MAIN}" xmlns:r="${NS_REL}"><bookViews><workbookView activeTab="0"/></bookViews>`
+        + '<sheets><sheet name="Statistics" sheetId="1" r:id="rId1"/><sheet name="Reports" sheetId="2" r:id="rId2"/></sheets></workbook>';
+    const enc = new TextEncoder();
+    const files = [
+        ['[Content_Types].xml', types],
+        ['_rels/.rels', relsXml([['rId1', REL('officeDocument'), 'xl/workbook.xml']])],
+        ['xl/workbook.xml', workbook],
+        ['xl/_rels/workbook.xml.rels', relsXml([['rId1', REL('worksheet'), 'worksheets/sheet1.xml'], ['rId2', REL('worksheet'), 'worksheets/sheet2.xml'],
+            ['rId3', REL('styles'), 'styles.xml'], ['rId4', REL('sharedStrings'), 'sharedStrings.xml']])],
+        ['xl/styles.xml', XLSX_STYLES],
+        ['xl/worksheets/sheet1.xml', statsSheet],
+        ['xl/worksheets/sheet2.xml', reportsSheet],
+        ...(anchors.length ? [
+            ['xl/worksheets/_rels/sheet1.xml.rels', relsXml([['rId1', REL('drawing'), '../drawings/drawing1.xml']])],
+            ['xl/drawings/drawing1.xml', drawing],
+            ['xl/drawings/_rels/drawing1.xml.rels', relsXml(chartParts.map((_, i) => [`rId${i + 1}`, REL('chart'), `../charts/chart${i + 1}.xml`]))],
+            ...chartParts.map((x, i) => [`xl/charts/chart${i + 1}.xml`, x]),
+        ] : []),
+        ...(hasTable ? [
+            ['xl/worksheets/_rels/sheet2.xml.rels', relsXml([['rId1', REL('table'), '../tables/table1.xml']])],
+            ['xl/tables/table1.xml', table],
+        ] : []),
+        // Written last: the strings every sheet above used.
+        ['xl/sharedStrings.xml', shared],
+    ];
+    return zipStore(files.map(([name, text]) => ({ name, data: enc.encode(text) })), now);
+};
+
 // --- Summary reports ---
 
 // Written reports built from fixed templates and counting rules, so the same
@@ -1684,7 +1915,7 @@ const SaltCore = {
     reportTracks, heatPoints, arcgisTrackRows, arcgisTracksGeoJson, arcgisTracksEsriJson,
     lonLatToMerc, MERC_WORLD, compass16, zipStore, crc32, shapefileParts, arcgisShapefileZip, arcgisTracksShapefileZip, tilesFor, tileZoom, tileUrl, wmsUrl, wmsCapabilitiesUrl, pickWmsCrs, pickWmsFormat, mercToLonLat, metresBetween, bearingBetween,
     asArea, analyzeLocation, locationPlan, editLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisEsriJson, arcgisCsv,
-    sizeElements, gridSquare, statsData, statsCsv, PL_NEAR_METRES,
+    sizeElements, gridSquare, statsData, statsCsv, PL_NEAR_METRES, workbookReportRows, statsXlsx, excelSerial, colName,
     dtg, summaryReport, summaryPlaces,
     reportKey, knownVersions, changedReports, withUnsaved,
 };

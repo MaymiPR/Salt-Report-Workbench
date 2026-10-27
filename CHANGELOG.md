@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Export to Excel** in Statistics: one workbook with the headline numbers,
+  each chart's table beside an Excel chart drawn from it (editable, and it
+  follows the numbers), and the reports in the window as an Excel table.
+- **Drop a file to import it**: on the Import / Export tab, drop (or choose) a
+  backup, another tool's CSV, or overlay files; what it is gets worked out
+  from the file.
+
+### Changed
+
+- The Import / Export tab is laid out more compactly: one row to pick and
+  run, then the time range and the format's options as two cards side by side.
+- Statistics: *Export All* is now *Charts (.zip)*, beside *Export to Excel*.
+
+### Removed
+
+- The busiest grid squares chart and its 10 km / 1 km switch, from
+  Statistics. The Most Trafficked summary still lists grid squares.
+
 ## [2.10.0] - 2026-10-26
 
 ### Added

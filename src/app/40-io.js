@@ -367,6 +367,7 @@ const renderIoPicker = () => {
     p.desc.textContent = f.desc;
     // The time filter is for exports; each option shows with the format it changes.
     document.querySelectorAll('#exportPanel .io-export-only').forEach(n => { n.hidden = ioMode !== 'export'; });
+    document.querySelectorAll('#exportPanel .io-import-only').forEach(n => { n.hidden = ioMode !== 'import'; });
     const needs = ioMode === 'export' ? f.needs : null;
     document.querySelectorAll('#exportPanel [data-io-for]').forEach(n => { n.hidden = n.dataset.ioFor !== needs; });
     document.querySelectorAll('#exportPanel .io-options').forEach(n => { n.hidden = !needs; });
@@ -381,6 +382,52 @@ const runIoPicker = () => {
     }
     document.getElementById(f.btn).click();
 };
+
+// A dropped (or chosen) file imported as what it is: a backup, another
+// tool's CSV, or overlays (several overlay files go in together, as a
+// shapefile's parts do). A file with another name is read as a backup when
+// it is one.
+const OVERLAY_FILE = /\.(kml|kmz|geojson|json|zip|shp|shx|dbf|prj|cpg)$/i;
+const importFiles = (fileList) => {
+    if (isReadOnly) { showToast('View-only mode. Importing is disabled here.', true); return; }
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const read = (f, then) => { const r = new FileReader(); r.onload = ev => then(String(ev.target.result)); r.readAsText(f); };
+    const shapes = files.filter(f => OVERLAY_FILE.test(f.name));
+    if (shapes.length === files.length) { switchWorkspacesTab('overlays'); startOverlayImport(shapes); return; }
+    if (files.length > 1) { showToast('Drop one backup or CSV at a time. Several files together must all be overlays.', true); return; }
+    const f = files[0];
+    if (/\.csv$/i.test(f.name)) { read(f, text => processExternalCsv(text, f.name)); return; }
+    read(f, text => {
+        if (/\.txt$/i.test(f.name) || text.includes('SALT_BACKUP')) processJsonImport(text);
+        else showToast(`Can't tell what ${f.name} is. Pick what it is from the list and press Import…`, true);
+    });
+};
+(() => {
+    const tab = document.querySelector('#exportPanel [data-tab-panel="export"]');
+    const drop = document.getElementById('ioDrop');
+    if (!tab || !drop) return;
+    const chooser = Object.assign(document.createElement('input'), { type: 'file', id: 'ioDropInput', multiple: true, hidden: true });
+    chooser.addEventListener('change', () => { const files = chooser.files; importFiles(files); chooser.value = ''; });
+    tab.appendChild(chooser);
+    drop.addEventListener('click', () => chooser.click());
+    drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooser.click(); } });
+    const hasFiles = e => !isReadOnly && e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+    tab.addEventListener('dragover', e => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        // A file dragged in means an import: show the drop area.
+        if (ioMode !== 'import') { ioMode = 'import'; renderIoPicker(); }
+        tab.classList.add('io-dropping');
+    });
+    tab.addEventListener('dragleave', e => { if (!tab.contains(e.relatedTarget)) tab.classList.remove('io-dropping'); });
+    tab.addEventListener('drop', e => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        tab.classList.remove('io-dropping');
+        importFiles(e.dataTransfer.files);
+    });
+})();
 
 const openExportView = () => {
     closeStatsView();

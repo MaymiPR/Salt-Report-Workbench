@@ -100,10 +100,10 @@ const chartSvg = (chart, themeName, header) => {
 // --- The panel ---
 
 let isStatsViewActive = false;
-let statsSquareDigits = 1;  // 1: 10 km squares, 2: 1 km
 // The workspace on screen, or every loaded one ('all'). Per browser.
 let statsScope = localStorage.getItem('salt_stats_scope') === 'all' ? 'all' : 'ato';
 let statsCharts = [];       // what is on screen, for hover and export
+let statsKpis = [];         // the headline numbers on screen, for the workbook
 
 const FOLD_AT = 10;  // longer lists show their top ten and an "Other" bar
 const fold = (items) => (items.length <= FOLD_AT + 1 ? items : [
@@ -161,19 +161,17 @@ const renderStats = () => {
     const ato = shownAto();
     const { reps, phrase, atoOf, atos } = statsWindow();
     const local = timeDisplayMode === 'local';
-    const d = SaltCore.statsData(reps, currentOverlays(), { local, squareDigits: statsSquareDigits });
+    const d = SaltCore.statsData(reps, currentOverlays(), { local });
     const scope = statsScope === 'all' ? `All ATOs (${atos})` : (ato || 'No workspace');
     const context = `${scope} · ${phrase} · ${reps.length} report${reps.length === 1 ? '' : 's'}`;
     s.subtitle.textContent = context;
     s.panel.querySelectorAll('.range-mode').forEach(n => { n.textContent = local ? '(Local)' : '(Zulu)'; });
-    document.querySelectorAll('[data-stats-squares]').forEach(b => b.classList.toggle('active', +b.dataset.statsSquares === statsSquareDigits));
     document.querySelectorAll('[data-stats-scope]').forEach(b => b.classList.toggle('active', b.dataset.statsScope === statsScope));
     // Reports per ATO, largest first: only across every workspace.
     const perAto = new Map();
     reps.forEach(r => perAto.set(atoOf.get(r), (perAto.get(atoOf.get(r)) || 0) + 1));
     const atoItems = [...perAto].map(([label, value]) => ({ label: label || 'ATO', value }))
         .sort((x, y) => y.value - x.value || x.label.localeCompare(y.label, undefined, { numeric: true }));
-    const km = statsSquareDigits === 1 ? 10 : 1;
     const ident = x => x;
     statsCharts = [
         ...(statsScope === 'all' ? [{ id: 'ato', title: 'Reports per ATO', kind: 'bar', items: atoItems, empty: 'No reports.' }] : []),
@@ -181,13 +179,11 @@ const renderStats = () => {
         { id: 'obj', title: 'Reports per OBJ', kind: 'bar', items: d.obj, empty: 'No OBJ typed or found by grid.' },
         { id: 'pl', title: 'Reports at each phase line', kind: 'bar', items: d.pl, empty: 'No phase line typed or near a grid.',
           note: `Typed, or a grid within ${SaltCore.PL_NEAR_METRES / 1000} km of the line` },
-        { id: 'squares', title: `Busiest ${km} km grid squares`, kind: 'bar', items: d.squares, empty: 'No readable grids.',
-          note: d.coarse ? `${d.coarse} grid${d.coarse === 1 ? '' : 's'} too coarse for ${km} km squares not counted` : '' },
         { id: 'hours', title: `Reports by hour of day (${local ? 'local' : 'Zulu'})`, kind: 'column', items: d.hours, labelEvery: 3, fmtX: ident,
-          tipX: h => `${h}:00–${h}:59${local ? 'L' : 'Z'}` },
-        { id: 'days', title: 'Reports by day', kind: 'column', items: d.days, labelEvery: Math.max(1, Math.ceil(d.days.length / 8)), fmtX: dayLabel },
-        { id: 'tags', title: 'Activity', kind: 'bar', items: d.tags, note: 'A report can carry several tags' },
-        { id: 'headings', title: 'Heading of moving reports', kind: 'column', items: d.headings, labelEvery: 1, fmtX: ident },
+          tipX: h => `${h}:00–${h}:59${local ? 'L' : 'Z'}`, axis: `Hour (${local ? 'L' : 'Z'})` },
+        { id: 'days', title: 'Reports by day', kind: 'column', items: d.days, labelEvery: Math.max(1, Math.ceil(d.days.length / 8)), fmtX: dayLabel, axis: 'Day' },
+        { id: 'tags', title: 'Activity', kind: 'bar', items: d.tags, note: 'A report can carry several tags', axis: 'Activity' },
+        { id: 'headings', title: 'Heading of moving reports', kind: 'column', items: d.headings, labelEvery: 1, fmtX: ident, axis: 'Heading' },
         { id: 'equipment', title: 'Reported by type, from Size', kind: 'bar', items: d.equipment, empty: 'No sizes to count.', unit: 'Count',
           note: 'Summed across reports, so the same vehicles reported twice count twice' },
         ...(d.bda.length ? [{ id: 'bda', title: 'BDA outcomes', kind: 'bar', items: d.bda, unit: 'Elements',
@@ -196,7 +192,12 @@ const renderStats = () => {
                   shown: c.kind === 'bar' ? fold(c.items) : c.items, hasData: c.items.some(i => i.value > 0) }));
 
     const k = d.kpis;
-    const tile = (label, value) => `<div class="stats-tile"><div class="stats-tile-label">${label}</div><div class="stats-tile-value">${value}</div></div>`;
+    statsKpis = [
+        { label: 'Reports', value: k.reports }, { label: 'With a grid', value: k.withGrid },
+        { label: 'In an NAI or OBJ', value: k.inPlace }, { label: 'Checks to look at', value: k.checks },
+        ...(k.bdaDone ? [{ label: 'BDA assessed', value: `${k.bdaDone} of ${k.bdaTotal}` }] : []),
+    ];
+    const tile =(label, value) => `<div class="stats-tile"><div class="stats-tile-label">${label}</div><div class="stats-tile-value">${value}</div></div>`;
     const card = (c) => `
         <section class="stats-card" data-chart="${c.id}">
             <div class="stats-card-head">
@@ -317,6 +318,29 @@ const exportAllStats = async () => {
     showToast(`Exported ${charts.length} charts as PNG and SVG, with their numbers in one CSV.`);
 };
 
+// One Excel workbook: the headline numbers and every chart (drawn by Excel
+// from its table, so it stays editable), and the reports in the window.
+const exportStatsXlsx = () => {
+    const { reps } = statsWindow();
+    if (!reps.length) { showToast('Nothing to export in this window.', true); return; }
+    const local = timeDisplayMode === 'local';
+    const customLabels = [...new Set([
+        ...currentFormat().lines.filter(l => l.type === 'custom').map(l => l.label),
+        ...reps.flatMap(r => Object.keys(r.custom || {})),
+    ])];
+    const charts = statsCharts.filter(c => c.hasData).map(c => ({
+        title: c.title, note: c.note || '', unit: c.unit, kind: c.kind, axis: c.axis,
+        items: c.items.map(i => ({ label: (c.kind === 'column' ? c.fmtX : c.tipX)(i.label), value: i.value })),
+    }));
+    const bytes = SaltCore.statsXlsx({
+        title: 'Statistics', context: statsCharts.length ? statsCharts[0].context : '',
+        kpis: statsKpis, charts,
+        reports: SaltCore.workbookReportRows(reps, currentOverlays(), { local, idOf: formatFullId, customLabels }),
+    });
+    triggerDownload(`${statsFileBase()}.xlsx`, bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    showToast(`Exported ${charts.length} charts and ${reps.length} report${reps.length === 1 ? '' : 's'} to Excel.`);
+};
+
 // --- Wiring ---
 
 (() => {
@@ -325,6 +349,9 @@ const exportAllStats = async () => {
     document.getElementById('statsViewToggleBtn').addEventListener('click', () => (isStatsViewActive ? closeStatsView() : openStatsView()));
     document.getElementById('statsExportAllBtn').addEventListener('click', () => {
         exportAllStats().catch(e => showToast('Export error: ' + e.message, true));
+    });
+    document.getElementById('statsExcelBtn').addEventListener('click', () => {
+        try { exportStatsXlsx(); } catch (e) { showToast('Export error: ' + e.message, true); }
     });
     [s.fromDate, s.toDate, s.fromTime, s.toTime].forEach(n => { n.addEventListener('change', renderStats); n.addEventListener('input', renderStats); });
     [s.fromTime, s.toTime].forEach(n => n.addEventListener('blur', e => { if (autoColonTime(e.target)) renderStats(); }));
@@ -338,8 +365,6 @@ const exportAllStats = async () => {
             renderStats();
             return;
         }
-        const sq = e.target.closest('[data-stats-squares]');
-        if (sq) { statsSquareDigits = +sq.dataset.statsSquares; renderStats(); return; }
         const act = e.target.closest('[data-stats-act]');
         if (act) {
             const cardEl = act.closest('.stats-card');

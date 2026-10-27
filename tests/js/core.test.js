@@ -893,3 +893,78 @@ test('a locked grid prefix goes in front of grids typed as digits', () => {
     assert.equal(core.applyMgrsPrefix('Hill 205, 205, 39 067', '11S NV'), 'Hill 205, 205, 39 067', 'not grids');
     assert.equal(core.applyMgrsPrefix('39697 06762', ''), '39697 06762', 'no prefix set');
 });
+
+// The files in a zip of stored entries, by name.
+const unzipStored = (zip) => {
+    const v = new DataView(zip.buffer, zip.byteOffset, zip.byteLength), out = {};
+    for (let o = 0; v.getUint32(o, true) === 0x04034b50;) {
+        const size = v.getUint32(o + 18, true), nl = v.getUint16(o + 26, true), xl = v.getUint16(o + 28, true);
+        const name = new TextDecoder().decode(zip.subarray(o + 30, o + 30 + nl));
+        out[name] = new TextDecoder().decode(zip.subarray(o + 30 + nl + xl, o + 30 + nl + xl + size));
+        o += 30 + nl + xl + size;
+    }
+    return out;
+};
+
+test('the report table for a workbook: one row per report, times as Excel dates', () => {
+    assert.equal(core.excelSerial(Date.UTC(1970, 0, 1), false), 25569);
+    assert.equal(core.excelSerial(Date.UTC(2026, 9, 24, 6, 0), false), 46319.25);
+    assert.deepEqual(['A', 'Z', 'AA', 'AZ', 'BA'].map((_, i) => core.colName([0, 25, 26, 51, 52][i])), ['A', 'Z', 'AA', 'AZ', 'BA']);
+    const reps = [
+        report({ id: 'r2', displayId: 'ALPHA002', location: '18SUJ2337106519, NAI 1', activity: 'moving N', custom: { Weather: 'rain' },
+                 history: [{ size: '1x T-72' }], updated: true, user: { initials: 'AB' } }),
+        report({ deleted: true, id: 'gone' }),
+        report({ time: 'not a time' }),
+    ];
+    const t = core.workbookReportRows(reps, [], { local: false, idOf: r => r.displayId, customLabels: ['Weather'] });
+    assert.deepEqual(t.header.slice(0, 7), ['Identifier', 'Status', 'By', 'Size', 'Activity', 'Location', 'Time (Z)']);
+    assert.equal(t.header[t.header.length - 1], 'Weather');
+    assert.equal(t.rows.length, 2, 'deleted reports left out');
+    const [first, second] = t.rows;
+    assert.equal(first[0], 'ALPHA001', 'in report order');
+    assert.equal(second[1], 'Updated');
+    assert.equal(second[2], 'AB');
+    assert.deepEqual(second[6], { date: core.excelSerial(Date.parse('2026-10-24T04:12:00Z'), false) });
+    assert.equal(second[8], 'NAI 1');
+    assert.equal(second[9], 'Moving');
+    assert.equal(second[10], 'N');
+    assert.equal(second[12], 1, 'one saved update');
+    assert.equal(second[13], 'rain');
+    assert.equal(first[6], '', 'no date when the time cannot be read');
+});
+
+test('the Statistics workbook: its parts, the tables its charts are drawn from, and the report table', () => {
+    const charts = [
+        { title: 'Reports per NAI', unit: 'Reports', kind: 'bar', items: Array.from({ length: 12 }, (_, i) => ({ label: `NAI ${i + 1}`, value: 12 - i })) },
+        { title: 'Reports by hour <Z> & more', unit: 'Reports', kind: 'column', axis: 'Hour (Z)', items: [{ label: '00', value: 1 }, { label: '01', value: 3 }] },
+    ];
+    const reports = { header: ['Identifier', 'Time (Z)', 'Identifier'], rows: [['ALPHA001', { date: 46319.25 }, 'x'], ['ALPHA002', '', 'y']] };
+    const files = unzipStored(core.statsXlsx({ context: 'ALPHA · all reports', kpis: [{ label: 'Reports', value: 2 }], charts, reports }, NOW));
+    assert.equal(Object.keys(files)[0], '[Content_Types].xml', 'content types first');
+    for (const part of ['xl/workbook.xml', 'xl/styles.xml', 'xl/sharedStrings.xml', 'xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml',
+                        'xl/drawings/drawing1.xml', 'xl/charts/chart1.xml', 'xl/charts/chart2.xml', 'xl/tables/table1.xml']) {
+        assert.ok(files[part], part);
+        assert.ok(files['[Content_Types].xml'].includes(`PartName="/${part}"`), `${part} has a content type`);
+    }
+    // The bar chart shows the top ten; its table holds all twelve.
+    const bar = files['xl/charts/chart1.xml'];
+    assert.match(bar, /<c:barDir val="bar"\/>/);
+    assert.match(bar, /'Statistics'!\$A\$\d+:\$A\$\d+/);
+    const [, r0, r1] = /'Statistics'!\$B\$(\d+):\$B\$(\d+)/.exec(bar);
+    assert.equal(+r1 - +r0 + 1, 10);
+    assert.match(files['xl/sharedStrings.xml'], /The chart shows the top 10/);
+    assert.match(files['xl/charts/chart2.xml'], /<c:barDir val="col"\/>/);
+    assert.match(files['xl/charts/chart2.xml'], /Reports by hour &lt;Z&gt; &amp; more/, 'text escaped');
+    assert.match(files['xl/charts/chart2.xml'], /<c:roundedCorners val="0"\/>/);
+    // The report table: header row, unique column names, its range, a date cell.
+    const table = files['xl/tables/table1.xml'];
+    assert.match(table, /ref="A1:C3"/);
+    assert.match(table, /name="Identifier 2"/, 'repeated names made unique');
+    assert.match(files['xl/worksheets/sheet2.xml'], /<c r="B2" s="4"><v>46319.25<\/v><\/c>/);
+    assert.match(files['xl/worksheets/sheet2.xml'], /state="frozen"/);
+    assert.match(files['xl/sharedStrings.xml'], /<t xml:space="preserve">ALPHA · all reports<\/t>/);
+    // No reports and no charts: still a workbook, without a table or drawing.
+    const empty = unzipStored(core.statsXlsx({ charts: [], reports: { header: ['A'], rows: [] } }, NOW));
+    assert.ok(!empty['xl/tables/table1.xml'] && !empty['xl/drawings/drawing1.xml']);
+    assert.ok(!empty['[Content_Types].xml'].includes('table1'));
+});
