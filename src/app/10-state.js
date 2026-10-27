@@ -91,12 +91,6 @@ const el = {
         cancelBtn:  document.getElementById('cancelActionBtn'),
         message:    document.getElementById('confirmation-message'),
     },
-    imp: {
-        backupBtn:   document.getElementById('importBackupBtnTrigger'),
-        backupInput: document.getElementById('importBackupFileInput'),
-        csvBtn:      document.getElementById('importCsvBtnTrigger'),
-        csvInput:    document.getElementById('importCsvFileInput'),
-    },
     exp: {
         panel:       document.getElementById('exportPanel'),
         fromDate:    document.getElementById('export-from-date'),

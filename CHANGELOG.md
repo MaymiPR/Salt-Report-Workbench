@@ -17,9 +17,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- The Import / Export tab is laid out more compactly: one row to pick and
-  run, then the time range and the format's options as two cards side by side.
+- The Import / Export tab is one screen, with no Export / Import switch:
+  Export (pick, run, then the time range and the format's options as two
+  cards side by side), and below it Import, which is only the drop area.
 - Statistics: *Export All* is now *Charts (.zip)*, beside *Export to Excel*.
+
+### Fixed
+
+- A To time now takes in the whole of its minute: a report logged in the last
+  second of it was left out of exports, statistics and summaries.
 
 ### Removed
 

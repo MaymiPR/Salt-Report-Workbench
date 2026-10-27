@@ -46,6 +46,7 @@ const autoColon = (text) => {
 
 // Combine "YYYY-MM-DD" + "HH:MM" into ms epoch, in local time or Zulu.
 // Missing or invalid time means 00:00 (start) or 23:59 (end); no date, null.
+// An end takes in the whole of its minute, to the last millisecond.
 const parseFilterTime = (dateStr, timeStr, isEnd, local) => {
     if (!dateStr) return null;
     const t   = (timeStr || '').trim();
@@ -59,8 +60,8 @@ const parseFilterTime = (dateStr, timeStr, isEnd, local) => {
         safe = isEnd ? '23:59' : '00:00';
     }
     const iso = local
-        ? `${dateStr}T${safe}:${isEnd ? '59' : '00'}`
-        : `${dateStr}T${safe}:${isEnd ? '59' : '00'}Z`;
+        ? `${dateStr}T${safe}:${isEnd ? '59.999' : '00'}`
+        : `${dateStr}T${safe}:${isEnd ? '59.999' : '00'}Z`;
     const ms = new Date(iso).getTime();
     return isNaN(ms) ? null : ms;
 };

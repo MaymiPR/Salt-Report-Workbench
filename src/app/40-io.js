@@ -319,9 +319,9 @@ const initBuilderHandlers = () => {
 };
 initBuilderHandlers();
 
-// --- Import / Export picker ---
-// One list per direction; each entry presses one of the (hidden) action
-// buttons, or opens an overlay import. `needs` names the option it shows.
+// --- Export picker ---
+// Each entry presses one of the (hidden) action buttons, or runs an export
+// itself. `needs` names the option it shows. Imports are the drop area below.
 const IO_FORMATS = {
     export: [
         { id: 'backup', label: 'Backup (.txt)', btn: 'exportPanelBackupBtn', needs: 'backup',
@@ -343,44 +343,24 @@ const IO_FORMATS = {
         { id: 'tracks-geojson', label: 'ArcGIS tracks (.geojson)', run: () => exportForArcgis('tracks-geojson'),
           desc: 'The same tracks as GeoJSON lines, drawn first to latest.' },
     ],
-    import: [
-        { id: 'backup', label: 'Backup (.txt)', btn: 'importBackupBtnTrigger',
-          desc: 'Reports, report format and overlays from a workbench backup. Reports merge with what is here.' },
-        { id: 'csv', label: 'Another tool\'s CSV', btn: 'importCsvBtnTrigger',
-          desc: 'Match its columns to SALT fields, then import the rows into a workspace.' },
-        { id: 'overlays', label: 'Overlays (KML, KMZ, GeoJSON, SHP)', overlays: true,
-          desc: 'NAIs, OBJs and phase lines, shared by every workspace. Opens the Overlays tab to review them.' },
-    ],
 };
-let ioMode = localStorage.getItem('salt_io_mode') === 'import' && !isReadOnly ? 'import' : 'export';
-const ioFormat = () => IO_FORMATS[ioMode].find(f => f.id === el.ioPicker.select.value) || IO_FORMATS[ioMode][0];
+const ioFormat = () => IO_FORMATS.export.find(f => f.id === el.ioPicker.select.value) || IO_FORMATS.export[0];
 const renderIoPicker = () => {
     const p = el.ioPicker;
     if (!p.select) return;
-    if (isReadOnly) ioMode = 'export';
-    const remembered = localStorage.getItem(`salt_io_${ioMode}`);
-    p.select.innerHTML = IO_FORMATS[ioMode].map(f => `<option value="${f.id}">${escapeHtml(f.label)}</option>`).join('');
-    if (IO_FORMATS[ioMode].some(f => f.id === remembered)) p.select.value = remembered;
+    const remembered = localStorage.getItem('salt_io_export');
+    p.select.innerHTML = IO_FORMATS.export.map(f => `<option value="${f.id}">${escapeHtml(f.label)}</option>`).join('');
+    if (IO_FORMATS.export.some(f => f.id === remembered)) p.select.value = remembered;
     const f = ioFormat();
-    document.querySelectorAll('[data-io-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.ioMode === ioMode)));
-    p.run.textContent = ioMode === 'export' ? 'Export' : 'Import…';
     p.desc.textContent = f.desc;
-    // The time filter is for exports; each option shows with the format it changes.
-    document.querySelectorAll('#exportPanel .io-export-only').forEach(n => { n.hidden = ioMode !== 'export'; });
-    document.querySelectorAll('#exportPanel .io-import-only').forEach(n => { n.hidden = ioMode !== 'import'; });
-    const needs = ioMode === 'export' ? f.needs : null;
-    document.querySelectorAll('#exportPanel [data-io-for]').forEach(n => { n.hidden = n.dataset.ioFor !== needs; });
-    document.querySelectorAll('#exportPanel .io-options').forEach(n => { n.hidden = !needs; });
+    // Each option shows with the format it changes.
+    document.querySelectorAll('#exportPanel [data-io-for]').forEach(n => { n.hidden = n.dataset.ioFor !== f.needs; });
+    document.querySelectorAll('#exportPanel .io-options').forEach(n => { n.hidden = !f.needs; });
 };
 const runIoPicker = () => {
     const f = ioFormat();
-    if (f.run) { f.run(); return; }
-    if (f.overlays) {
-        switchWorkspacesTab('overlays');
-        document.getElementById('overlaysFileInput').click();
-        return;
-    }
-    document.getElementById(f.btn).click();
+    if (f.run) f.run();
+    else document.getElementById(f.btn).click();
 };
 
 // A dropped (or chosen) file imported as what it is: a backup, another
@@ -400,7 +380,7 @@ const importFiles = (fileList) => {
     if (/\.csv$/i.test(f.name)) { read(f, text => processExternalCsv(text, f.name)); return; }
     read(f, text => {
         if (/\.txt$/i.test(f.name) || text.includes('SALT_BACKUP')) processJsonImport(text);
-        else showToast(`Can't tell what ${f.name} is. Pick what it is from the list and press Import…`, true);
+        else showToast(`Can't tell what ${f.name} is. Import takes a backup (.txt), a CSV, or overlay files.`, true);
     });
 };
 (() => {
@@ -416,8 +396,6 @@ const importFiles = (fileList) => {
     tab.addEventListener('dragover', e => {
         if (!hasFiles(e)) return;
         e.preventDefault();
-        // A file dragged in means an import: show the drop area.
-        if (ioMode !== 'import') { ioMode = 'import'; renderIoPicker(); }
         tab.classList.add('io-dropping');
     });
     tab.addEventListener('dragleave', e => { if (!tab.contains(e.relatedTarget)) tab.classList.remove('io-dropping'); });

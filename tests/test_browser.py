@@ -151,9 +151,8 @@ class BrowserTests(unittest.TestCase):
             raise AssertionError(f"{size!r} never appeared: {state}") from exc
 
     @staticmethod
-    def run_io(page, mode, what):
-        """Pick an export or import in the Import / Export tab and press its button."""
-        page.click(f"[data-io-mode='{mode}']")
+    def run_io(page, what):
+        """Pick an export in the Import / Export tab and press its button."""
         page.select_option("#ioFormatSelect", what)
         page.click("#ioRunBtn")
 
@@ -382,7 +381,7 @@ class BrowserTests(unittest.TestCase):
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='export']")  # the panel reopens on the last tab used
         with page.expect_download() as dl:
-            self.run_io(page, "export", "arcgis-geojson")
+            self.run_io(page, "arcgis-geojson")
         self.assertTrue(dl.value.suggested_filename.endswith("_arcgis.geojson"))
         data = json.loads(Path(dl.value.path()).read_text(encoding="utf-8"))
         props = [f["properties"] for f in data["features"]]
@@ -400,7 +399,7 @@ class BrowserTests(unittest.TestCase):
         )
         # Esri JSON: the same points, every field's type written out.
         with page.expect_download() as dl:
-            self.run_io(page, "export", "arcgis-esri")
+            self.run_io(page, "arcgis-esri")
         self.assertTrue(dl.value.suggested_filename.endswith("_arcgis.json"))
         esri = json.loads(Path(dl.value.path()).read_text(encoding="utf-8"))
         self.assertEqual(esri["geometryType"], "esriGeometryPoint")
@@ -411,7 +410,7 @@ class BrowserTests(unittest.TestCase):
         self.assertAlmostEqual(esri["features"][0]["geometry"]["y"], 33.2759, places=3)
         # Shapefile: a zip of its parts, which ArcGIS Pro drags in once unzipped.
         with page.expect_download() as dl:
-            self.run_io(page, "export", "arcgis-shp")
+            self.run_io(page, "arcgis-shp")
         self.assertTrue(dl.value.suggested_filename.endswith("_arcgis.zip"))
         with zipfile.ZipFile(dl.value.path()) as z:
             names = sorted(z.namelist())
@@ -477,12 +476,14 @@ class BrowserTests(unittest.TestCase):
         counts = dict(r.split("	") for r in rows)
         self.assertEqual((counts.get("SCOPEA"), counts.get("SCOPEB")), ("2", "1"))
 
-    def test_import_export_is_one_picker(self):
+    def test_export_and_import_share_one_screen(self):
         page = self.open_editor()
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='export']")
         shown = lambda sel: page.locator(sel).is_visible()  # noqa: E731
-        page.click("[data-io-mode='export']")
+        # Export and Import together: no switch between them.
+        self.assertEqual(page.locator("[data-io-mode]").count(), 0)
+        self.assertTrue(shown("#ioDrop"))
         page.select_option("#ioFormatSelect", "backup")
         self.assertEqual(page.text_content("#ioRunBtn"), "Export")
         self.assertEqual((shown("#exportAllAtosToggle"), shown("#exportMtiToggle")), (True, False))
@@ -490,23 +491,21 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual((shown("#exportAllAtosToggle"), shown("#exportMtiToggle")), (False, True))
         page.select_option("#ioFormatSelect", "arcgis-esri")
         self.assertFalse(shown("#exportMtiToggle"))
-        self.assertTrue(shown("#export-from-date"), "the time filter is for exports")
-        page.click("[data-io-mode='import']")
-        self.assertEqual(page.text_content("#ioRunBtn"), "Import…")
-        self.assertFalse(shown("#export-from-date"))
-        page.select_option("#ioFormatSelect", "overlays")
+        self.assertTrue(shown("#export-from-date"))
+        # The list holds exports only; clicking the drop area chooses files to import.
+        options = page.locator("#ioFormatSelect option").evaluate_all("os => os.map(o => o.value)")
+        self.assertNotIn("overlays", options)
         with page.expect_file_chooser() as fc:
-            page.click("#ioRunBtn")
+            page.click("#ioDrop")
         self.assertTrue(fc.value.is_multiple())
-        self.assertTrue(shown("#overlaysBody"), "it opened the Overlays tab")
         # The choice is remembered; viewers only export.
         page.reload()
         page.wait_for_function("() => isExportViewActive")  # the view on screen is restored too
         page.click(".ws-tab[data-tab='export']")
-        self.assertEqual(page.get_attribute("[data-io-mode='import']", "aria-pressed"), "true")
+        self.assertEqual(page.input_value("#ioFormatSelect"), "arcgis-esri")
         viewer = self.open_viewer()
         viewer.click("#exportViewToggleBtn")
-        self.assertFalse(viewer.locator("[data-io-mode='import']").is_visible())
+        self.assertFalse(viewer.locator("#ioDrop").is_visible())
         self.assertEqual(viewer.text_content("#ioRunBtn"), "Export")
 
     def test_import_by_dropping_a_file(self):
@@ -515,19 +514,16 @@ class BrowserTests(unittest.TestCase):
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='export']")
         with page.expect_download() as dl:
-            self.run_io(page, "export", "backup")
+            self.run_io(page, "backup")
         backup = Path(dl.value.path()).read_text(encoding="utf-8")
+        # A file dropped anywhere on the tab is imported as what it is.
         tab = "#exportPanel [data-tab-panel='export']"
-        # A file dragged over the tab switches it to Import and shows the drop area.
-        page.click("[data-io-mode='export']")
-        self.assertFalse(page.locator("#ioDrop").is_visible())
         dt = page.evaluate_handle(
             "(text) => { const dt = new DataTransfer(); dt.items.add(new File([text], 'Patrol backup.txt')); return dt; }",
             backup,
         )
         page.dispatch_event(tab, "dragover", {"dataTransfer": dt})
-        self.assertEqual(page.get_attribute("[data-io-mode='import']", "aria-pressed"), "true")
-        self.assertTrue(page.locator("#ioDrop").is_visible())
+        self.assertIn("io-dropping", page.get_attribute(tab, "class"))
         page.dispatch_event(tab, "drop", {"dataTransfer": dt})
         self.assertIn("backup", page.text_content("#confirmation-message").lower())
         page.click("#confirmActionBtn")
@@ -536,7 +532,6 @@ class BrowserTests(unittest.TestCase):
         if not page.evaluate("isExportViewActive"):
             page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='export']")
-        page.click("[data-io-mode='import']")
         csv = self.tmp / "other tool.csv"
         csv.write_text("Name,Count,MGRS\nA1,2x BTR,18SUJ1234\n", encoding="utf-8")
         page.set_input_files("#ioDropInput", str(csv))
@@ -547,7 +542,6 @@ class BrowserTests(unittest.TestCase):
         if not page.evaluate("isExportViewActive"):
             page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='export']")
-        page.click("[data-io-mode='import']")
         page.set_input_files("#ioDropInput", str(self.overlay_kmz()))
         page.wait_for_selector("#overlaysBody .overlay-type-select")
         # A CSV and an overlay together can't go in as one import.
@@ -1026,7 +1020,7 @@ class BrowserTests(unittest.TestCase):
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='export']")
         with page.expect_download() as dl:
-            self.run_io(page, "export", "tracks-esri")
+            self.run_io(page, "tracks-esri")
         self.assertTrue(dl.value.suggested_filename.endswith("_arcgis_tracks.json"))
         esri = json.loads(Path(dl.value.path()).read_text(encoding="utf-8"))
         self.assertEqual(esri["geometryType"], "esriGeometryPolyline")
