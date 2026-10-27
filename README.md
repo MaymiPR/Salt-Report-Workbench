@@ -41,7 +41,7 @@ or a package registry:
   separate read-only port that refuses every write.
 
 <p align="center">
-  <img src="docs/screenshots/viewer.png" alt="The report log in view-only mode, with a workspaces sidebar and the reports of a training exercise, tagged with the NAIs and phase lines they fall in" width="900">
+  <img src="docs/screenshots/report.png" alt="The Report Log: the New Report form on the left and the reports of a training exercise on the right, tagged with the NAIs, objectives and phase lines they fall in" width="900">
 </p>
 
 ## Download
@@ -118,6 +118,9 @@ in [CHANGELOG.md](CHANGELOG.md).
 </p>
 <p align="center">
   <img src="docs/screenshots/narrative.png" alt="The Narrative summary report, Observed and Assessment in ICD 203 terms, with its settings column on the right" width="900">
+</p>
+<p align="center">
+  <img src="docs/screenshots/viewer.png" alt="The report log in view-only mode, with a workspaces sidebar and the reports of a training exercise, tagged with the NAIs and phase lines they fall in" width="900">
 </p>
 
 ## Quick start
