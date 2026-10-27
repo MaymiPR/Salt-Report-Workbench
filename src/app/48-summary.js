@@ -11,6 +11,11 @@ let isSummaryViewActive = false;
 let summaryKind = readStored('salt_summary_kind', 'rollup');
 let summaryPlace = '';
 let summaryText = '';
+// Your own wording, per kind, kept until Revert: the generated text stops
+// following new reports while it's edited.
+const summaryEdits = {};
+let summaryEditing = false;
+const shownSummary = () => summaryEdits[summaryKind] ?? summaryText;
 
 const summaryEls = () => ({
     panel: document.getElementById('summaryPanel'),
@@ -20,6 +25,7 @@ const summaryEls = () => ({
     subtitle: document.getElementById('summary-panel-subtitle'),
     fromDate: document.getElementById('summary-from-date'), fromTime: document.getElementById('summary-from-time'),
     toDate:   document.getElementById('summary-to-date'),   toTime:   document.getElementById('summary-to-time'),
+    editor: document.getElementById('summaryEditor'),
 });
 
 const renderSummary = () => {
@@ -32,14 +38,29 @@ const renderSummary = () => {
     if (!places.includes(summaryPlace)) summaryPlace = places[0] || '';
     s.place.replaceChildren(...places.map(p => { const o = new Option(p, p); o.selected = p === summaryPlace; return o; }));
     s.placeRow.hidden = summaryKind !== 'place';
+    // The narrative's settings: what the enemy is called, and the panel.
+    const narr = summaryKind === 'narrative';
+    document.getElementById('summaryNarrRow').hidden = !narr;
+    const enemy = document.getElementById('narrEnemy');
+    if (document.activeElement !== enemy) enemy.value = sharedNarrative.enemy || '';
+    enemy.disabled = isReadOnly;
+    if (!narr) {
+        document.getElementById('narrSettings').hidden = true;
+        document.getElementById('narrSettingsBtn').setAttribute('aria-expanded', 'false');
+    } else renderNarrSettings();
     document.querySelectorAll('[data-summary-kind]').forEach(b => b.classList.toggle('active', b.dataset.summaryKind === summaryKind));
     const { from, to } = windowBounds(s);
     summaryText = SaltCore.summaryReport(summaryKind, live, currentOverlays(), {
         local: timeDisplayMode === 'local', from, to, now: new Date(),
         ato: ato || 'NO WORKSPACE', title: (live.find(r => r.title) || {}).title || localConfig.title || '',
-        by: (userProfile && userProfile.initials) || '', place: summaryPlace,
+        by: (userProfile && userProfile.initials) || '', place: summaryPlace, narrative: sharedNarrative,
     });
-    s.text.textContent = summaryText;
+    // Edited text is shown as edited; while editing, the box is left alone.
+    s.text.textContent = shownSummary();
+    s.text.hidden = summaryEditing;
+    s.editor.hidden = !summaryEditing;
+    document.getElementById('summaryEditBtn').textContent = summaryEditing ? 'Done' : 'Edit';
+    document.getElementById('summaryEdited').hidden = !(summaryKind in summaryEdits);
     s.subtitle.textContent = `${ato || 'No workspace'} · ${plural(live.length, 'report')} in the workspace`;
     s.panel.querySelectorAll('.range-mode').forEach(n => { n.textContent = timeDisplayMode === 'local' ? '(Local)' : '(Zulu)'; });
 };
@@ -61,6 +82,8 @@ const openSummaryView = () => {
     if (!s.fromDate.value && !s.toDate.value) fillWindow(s, 12);
     renderSummary();
 };
+// Leave the edit box; what was typed stays as the report's text.
+const finishEditing = () => { summaryEditing = false; };
 const closeSummaryView = () => {
     if (!isSummaryViewActive) return;
     isSummaryViewActive = false;
@@ -107,11 +130,11 @@ const printSummary = () => {
     document.body.appendChild(frame);
     const doc = frame.contentDocument;
     doc.open();
-    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(summaryText.split('\n')[0])}</title><style>
+    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(shownSummary().split('\n')[0])}</title><style>
         body { margin: 16mm; color: #0b0b0b; background: #fff; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
         pre { font-family: ui-monospace, Consolas, "Courier New", monospace; font-size: 10pt; white-space: pre-wrap; margin: 0 0 8mm; }
         svg { display: block; width: 100%; max-width: 170mm; height: auto; margin: 0 0 6mm; break-inside: avoid; }
-    </style></head><body><pre>${escapeHtml(summaryText)}</pre>${charts.map(c => chartSvg(c, 'light', true)).join('')}</body></html>`);
+    </style></head><body><pre>${escapeHtml(shownSummary())}</pre>${charts.map(c => chartSvg(c, 'light', true)).join('')}</body></html>`);
     doc.close();
     frame.contentWindow.focus();
     frame.contentWindow.print();
@@ -128,13 +151,28 @@ const summaryFileName = () =>
     [s.fromDate, s.toDate, s.fromTime, s.toTime].forEach(n => { n.addEventListener('change', renderSummary); n.addEventListener('input', renderSummary); });
     [s.fromTime, s.toTime].forEach(n => n.addEventListener('blur', e => { if (autoColonTime(e.target)) renderSummary(); }));
     s.place.addEventListener('change', () => { summaryPlace = s.place.value; renderSummary(); });
+    // Kept as typed, so Copy and Save have it even before Done.
+    s.editor.addEventListener('input', () => {
+        if (s.editor.value === summaryText) delete summaryEdits[summaryKind];
+        else summaryEdits[summaryKind] = s.editor.value;
+        document.getElementById('summaryEdited').hidden = !(summaryKind in summaryEdits);
+    });
     s.panel.addEventListener('click', e => {
         const kind = e.target.closest('[data-summary-kind]');
-        if (kind) { summaryKind = kind.dataset.summaryKind; writeStored('salt_summary_kind', JSON.stringify(summaryKind)); renderSummary(); return; }
+        if (kind) { finishEditing(); summaryKind = kind.dataset.summaryKind; writeStored('salt_summary_kind', JSON.stringify(summaryKind)); renderSummary(); return; }
         const preset = e.target.closest('[data-summary-hours]');
         if (preset) { fillWindow(s, +preset.dataset.summaryHours); renderSummary(); return; }
-        if (e.target.closest('#summaryCopyBtn')) { copyToClipboard(summaryText); showToast('Report copied.'); return; }
-        if (e.target.closest('#summarySaveBtn')) { triggerDownload(summaryFileName(), summaryText.replace(/\n/g, '\r\n')); return; }
+        if (e.target.closest('#summaryCopyBtn')) { copyToClipboard(shownSummary()); showToast('Report copied.'); return; }
+        if (e.target.closest('#summarySaveBtn')) { triggerDownload(summaryFileName(), shownSummary().replace(/\n/g, '\r\n')); return; }
+        // Edit: the text in a box to change as you like; Done keeps it, Revert drops it.
+        if (e.target.closest('#summaryEditBtn')) {
+            if (summaryEditing) finishEditing();
+            else { summaryEditing = true; s.editor.value = shownSummary(); }
+            renderSummary();
+            if (summaryEditing) { s.editor.focus(); s.editor.setSelectionRange(0, 0); s.editor.scrollTop = 0; }
+            return;
+        }
+        if (e.target.closest('#summaryRevertBtn')) { summaryEditing = false; delete summaryEdits[summaryKind]; renderSummary(); return; }
         if (e.target.closest('#summaryPrintBtn')) printSummary();
     });
 })();

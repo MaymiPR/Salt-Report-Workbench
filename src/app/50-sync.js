@@ -125,14 +125,14 @@ async function syncWithServer() {
         if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) throw new Error('Server unreachable');
         const state = await res.json();
-        applyServerUpdate(state.workspaces, state.config, state.profiles, state.connected_users, state.sources, state.connected_initials, state.read_only, state.format, state.overlays, state.basemaps);
+        applyServerUpdate(state.workspaces, state.config, state.profiles, state.connected_users, state.sources, state.connected_initials, state.read_only, state.format, state.overlays, state.basemaps, state.narrative);
         setConnectionStatus(true);
     } catch (err) {
         setConnectionStatus(false);
     }
 }
 
-function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources, connInitials, readOnly, format, overlays, basemaps) {
+function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources, connInitials, readOnly, format, overlays, basemaps, narrative) {
     // The report format: the server's wins. A server that has none yet (a new
     // one, or one upgraded from per-workspace formats) is given this browser's.
     if (format && typeof format === 'object') {
@@ -152,6 +152,16 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     if (Array.isArray(basemaps) && JSON.stringify(basemaps) !== JSON.stringify(sharedBasemaps)) {
         sharedBasemaps = basemaps;
         if (!readOnly) storeBasemaps();
+    }
+    // The narrative's settings: the server's win. A server that has none yet
+    // is given this browser's, like the format.
+    if (narrative && typeof narrative === 'object' && !Array.isArray(narrative)) {
+        if (!Object.keys(narrative).length && Object.keys(sharedNarrative).length && !readOnly) {
+            postJson('/api/save_narrative', { narrative: sharedNarrative }).catch(() => {});
+        } else if (JSON.stringify(narrative) !== JSON.stringify(sharedNarrative)) {
+            sharedNarrative = narrative;
+            if (!readOnly) storeNarrative();
+        }
     }
     if (connectedUsers != null) {
         el.status.userCount.textContent    = connectedUsers;

@@ -1067,7 +1067,7 @@ test('each judgment has an ICD 203 term, the reports behind it, and its confiden
     const lines = text.slice(text.indexOf('2. ASSESSMENT'), text.indexOf('3. GAPS'));
     const assessed = lines.join(' ').replace(/\s+/g, ' ');   // as read, across the wrapped lines
     // Recon then armor in NAI 1, with engineers there too.
-    assert.ok(assessed.includes('a. LIKELY (55-80%) that the reconnaissance in NAI 1 was scouting a route for armor or mechanized'), assessed);
+    assert.ok(assessed.includes('a. LIKELY (55-80%) that enemy forces are scouting a route through NAI 1 for armor or mechanized forces.'), assessed);
     assert.ok(assessed.includes('reconnaissance (ALPHA011 252000Z); armor or mechanized forces within 6 hrs after it (ALPHA012 252200Z)'), assessed);
     // Digging in, obstacles and an engineer vehicle in NAI 1.
     assert.ok(assessed.includes('LIKELY (55-80%) that enemy forces are preparing a defense in NAI 1.'), assessed);
@@ -1095,4 +1095,44 @@ test('with no reports, the narrative says so and assesses nothing', () => {
 
 test('the narrative is the same for the same reports, in any order', () => {
     assert.deepEqual(narrative(), narrative([...NARRATIVE_REPS].reverse()));
+});
+
+test('the enemy can be called by another name, and units named from where they operate', () => {
+    const settings = {
+        enemy: 'OPFOR',
+        units: [
+            { name: '1-60 GMRB', places: ['nai 1'], kinds: ['armor', 'mech', 'infantry'] },
+            { name: '60th Engineer Co', places: [], kinds: ['engineer'] },
+        ],
+    };
+    const text = narrative(NARRATIVE_REPS, { narrative: settings }).join(' ').replace(/\s+/g, ' ');
+    // Recon then armor in NAI 1: armor fits 1-60 GMRB; the engineers are there too.
+    assert.ok(text.includes('LIKELY (55-80%) that elements of 1-60 GMRB or 60th Engineer Co are scouting a route through NAI 1'), text);
+    assert.ok(text.includes('Unit: from the unit list, 1-60 GMRB (nai 1; armor, mechanized infantry, dismounted personnel); 60th Engineer Co (anywhere; engineers).'), text);
+    assert.ok(text.includes('NAI 1 (area of 1-60 GMRB): 4 reports'), 'whose area, in Observed');
+    assert.ok(text.includes('Units are named from the unit list, not from the reports.'));
+    // No unit fits: the enemy's name.
+    const other = narrative(NARRATIVE_REPS, { narrative: { enemy: 'OPFOR', units: [{ name: 'X', places: ['NAI 9'], kinds: [] }] } }).join(' ');
+    assert.ok(other.includes('that OPFOR are preparing a defense in NAI 1.'), other);
+});
+
+test("the team's own equipment, rules switched off, and rules of their own", () => {
+    const team = core.teamEquipment([{ type: 'XYZ-9', role: 'ad', origin: '' }, { type: 'T-72', role: 'mech', origin: 'RU' }]);
+    assert.equal(core.lookupEquipment('XYZ-9', team).role, 'ad', 'added');
+    assert.equal(core.lookupEquipment('T-72B3', team).role, 'mech', 'put right');
+    assert.equal(core.lookupEquipment('T-72B3').role, 'armor', 'the built-in one, without');
+    const reps = [...NARRATIVE_REPS,
+        report({ id: 'n6', displayId: 'ALPHA016', size: '1x PMP', activity: 'bridging the river', location: '38SMB4500082000', time: '2026-10-26T03:00:00Z' }),
+        report({ id: 'n7', displayId: 'ALPHA017', size: '2x trucks', activity: 'at the ferry site', location: '38SMB4500082000', time: '2026-10-26T04:00:00Z' })];
+    const text = narrative(reps, { narrative: {
+        equipment: [{ type: 'XYZ-9', role: 'ad', origin: '' }],
+        off: ['recon'],
+        custom: [{ what: 'are preparing a river crossing', words: 'bridging, ferry', min: 2, hours: 12 }],
+    } }).join(' ').replace(/\s+/g, ' ');
+    assert.ok(!text.includes('Not in the equipment catalogue'), text);
+    assert.ok(text.includes('air defense (XYZ-9 x1)'), text);
+    assert.ok(!text.includes('scouting a route'), 'switched off');
+    assert.ok(text.includes('ROUGHLY EVEN CHANCE (45-55%) that enemy forces are preparing a river crossing in NAI 1.'), text);
+    assert.ok(text.includes('Basis: reports of bridging, ferry within 12 hrs (ALPHA016 260300Z, ALPHA017 260400Z).'), text);
+    assert.deepEqual(core.NARRATIVE_RULES.map(([id]) => id), ['defense', 'recon', 'offense', 'logistics', 'withdrawal', 'firing']);
 });

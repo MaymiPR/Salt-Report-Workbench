@@ -1465,7 +1465,45 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 /* --- Summary Reports panel --- */
 #summaryPanel { display: none; flex-direction: column; flex: 1; min-height: 0; }
 .summary-kinds { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; background-color: var(--input-bg); border-radius: 10px; margin-bottom: 16px; align-self: flex-start; }
-.summary-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+.summary-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.summary-edited { margin-left: auto; font-size: 0.82em; color: var(--text-secondary); }
+.summary-edited[hidden], .summary-text[hidden] { display: none; }
+.summary-editor { width: 100%; box-sizing: border-box; resize: none; border: 1px solid var(--system-blue); outline: none; }
+/* The narrative's settings: the enemy's name beside the window, and a card
+   of units, equipment and rules under it. */
+.narr-enemy input { width: 170px; margin: 0; padding: 7px 10px; font-size: 0.85em; }
+.narr-enemy .text-btn { margin-left: 4px; white-space: nowrap; }
+.narr-settings { margin: 0 0 14px; padding: 12px 14px; border-radius: 12px; background: var(--input-bg); font-size: 0.9em; max-height: 46vh; overflow-y: auto; }
+.narr-settings[hidden] { display: none; }
+.narr-tabs { margin-bottom: 10px; background-color: var(--panel-bg); }
+.narr-list { display: flex; flex-direction: column; margin-bottom: 8px; }
+.narr-row { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 6px 2px; border-bottom: 1px solid var(--divider); font-size: 0.92em; }
+.narr-row.open { border-bottom-color: transparent; }
+.narr-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.narr-meta { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.narr-empty { padding: 6px 2px; color: var(--text-secondary); font-size: 0.9em; }
+.narr-form { display: flex; flex-direction: column; gap: 8px; padding: 6px 2px 10px; border-bottom: 1px solid var(--divider); }
+.narr-form input[type="text"], .narr-eq-row input[type="text"] { margin: 0; padding: 8px 12px; font-size: 0.92em; background: var(--panel-bg); }
+.narr-form .map-form-row, .narr-form .map-find-foot { margin-bottom: 0; }
+.narr-label { margin-top: 4px; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); }
+.narr-label span { text-transform: none; letter-spacing: 0; }
+.narr-checks { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.narr-checks label { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 0.9em; font-weight: 400; color: var(--text-primary); cursor: pointer; }
+.narr-checks input { margin: 0; }
+.narr-eq-row select { width: auto; margin: 0; padding: 8px 32px 8px 12px; font-size: 0.9em; }
+.narr-eq-row input[type="text"] { flex: 1 1 160px; }
+.narr-unknown { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 10px; font-size: 0.85em; color: var(--text-secondary); }
+.narr-sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 0.92em; color: var(--text-secondary); }
+.narr-sentence input[type="text"] { flex: 1 1 220px; }
+.narr-sentence input[type="number"] { width: 64px; margin: 0; padding: 7px 8px; font-size: 0.92em; background: var(--panel-bg); }
+.narr-rule { display: flex; align-items: flex-start; gap: 10px; margin: 0; padding: 7px 2px; border-bottom: 1px solid var(--divider); font-weight: 400; color: var(--text-primary); cursor: pointer; }
+.narr-rule input { margin: 3px 0 0; }
+.narr-rule > span { display: flex; flex-direction: column; gap: 2px; font-size: 0.92em; }
+.narr-rule > span > span { color: var(--text-secondary); font-size: 0.92em; }
+.narr-hint { margin: 6px 0 4px; font-size: 0.8em; color: var(--text-secondary); line-height: 1.4; }
+.narr-builtin { margin-top: 8px; font-size: 0.82em; color: var(--text-secondary); line-height: 1.5; }
+.narr-builtin summary { cursor: pointer; color: var(--system-blue); }
+.narr-builtin strong { color: var(--text-primary); font-weight: 600; }
 .summary-actions button { margin: 0; width: auto; padding: 8px 16px; font-size: 0.85em; }
 #summaryPlaceRow[hidden] { display: none; }
 #summaryPlace { width: auto; margin: 0; padding: 6px 30px 6px 10px; font-size: 0.85em; background-position: right 10px center; }

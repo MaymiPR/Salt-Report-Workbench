@@ -1789,9 +1789,10 @@ const SUMMARY_KINDS = {
 // over the live reports between `from` and `to` (ms; null for open ends).
 // When both ends are set, the same length of time just before is the
 // "previous" period it compares with.
-//   opts: { local, from, to, now, ato, title, by, place, squareDigits }
+//   opts: { local, from, to, now, ato, title, by, place, squareDigits, narrative }
+//   (narrative: the team's narrative settings, for the 'narrative' kind)
 const summaryReport = (kind, reps, overlays, opts) => {
-    const { local, from = null, to = null, now = new Date(), ato = '', title = '', by = '', place = '', squareDigits = 2 } = opts;
+    const { local, from = null, to = null, now = new Date(), ato = '', title = '', by = '', place = '', squareDigits = 2, narrative = null } = opts;
     const facts = (reps || []).filter(r => !r.deleted).map(r => reportFacts(r, overlays))
         .filter(f => !isNaN(f.ms)).sort((x, y) => x.ms - y.ms);
     const within = (lo, hi) => facts.filter(f => (lo === null || f.ms >= lo) && (hi === null || f.ms <= hi));
@@ -1863,7 +1864,7 @@ const summaryReport = (kind, reps, overlays, opts) => {
             out.push(...(list.length ? list.map(f => reportLine(f, local)) : ['None in this period.']));
         }
     } else if (kind === 'narrative') {
-        out.push(...narrativeLines(cur, prev, { local, hrs, end: to === null ? now.getTime() : to, places: placesTop }));
+        out.push(...narrativeLines(cur, prev, { local, hrs, end: to === null ? now.getTime() : to, places: placesTop, settings: narrative }));
     } else if (kind === 'brief') {
         const last = cur[cur.length - 1];
         out.push(
@@ -1964,26 +1965,33 @@ const EQUIPMENT_CATALOGUE = [
     ...eqp('light', '', [['light vehicle', 'LIGHT VEHICLE', 'CAR', 'JEEP', 'PICKUP', 'SUV', 'TECHNICAL', 'MOTORCYCLE', 'ATV', 'UTV', 'VAN', 'SEDAN']]),
 ];
 const normType = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
-// Longest names first, so the most specific one wins.
-let equipmentIndex = null;
-const equipmentKeys = () => equipmentIndex || (equipmentIndex = EQUIPMENT_CATALOGUE.flatMap(([role, origin, name, ...more]) =>
+// Names to match, longest first so the most specific one wins.
+const equipmentKeysOf = (entries) => entries.flatMap(([role, origin, name, ...more]) =>
     [...new Set([name, ...more])].map(k => {
         const words = normType(k), compact = words.replace(/ /g, '');
         const test = /\d/.test(compact)
             ? (w, c) => c.startsWith(compact) && !/\d/.test(c[compact.length] || '')
             : (w) => ` ${w} `.includes(` ${words} `);
         return { role, origin, name, len: compact.length, test };
-    })).sort((a, b) => b.len - a.len));
+    })).filter(k => k.len).sort((a, b) => b.len - a.len);
+let equipmentIndex = null;
 const equipmentSeen = new Map();
+const findKey = (keys, w) => {
+    const hit = keys.find(k => k.test(w, w.replace(/ /g, '')));
+    return hit ? { role: hit.role, origin: hit.origin, name: hit.name } : null;
+};
 // { role, origin, name } for a type (T-72B3, 2S19 MSTA-S, trucks), or null.
-const lookupEquipment = (type) => {
+// `team` is the team's own entries (teamEquipment), which win over the
+// built-in ones: a type added, or a built-in one put right.
+const lookupEquipment = (type, team = null) => {
     const w = normType(type);
-    if (!equipmentSeen.has(w)) {
-        const hit = equipmentKeys().find(k => k.test(w, w.replace(/ /g, '')));
-        equipmentSeen.set(w, hit ? { role: hit.role, origin: hit.origin, name: hit.name } : null);
-    }
+    const own = team && team.length ? findKey(team, w) : null;
+    if (own) return own;
+    if (!equipmentSeen.has(w)) equipmentSeen.set(w, findKey(equipmentIndex || (equipmentIndex = equipmentKeysOf(EQUIPMENT_CATALOGUE)), w));
     return equipmentSeen.get(w);
 };
+// The team's entries ({ type, role, origin }), ready for lookupEquipment.
+const teamEquipment = (list) => equipmentKeysOf((list || []).map(e => [e.role, e.origin || '', e.type]));
 
 // Roughly what size of unit a count of one kind of system suggests, in US
 // terms as an approximation of Russian and Chinese organization (a tank or
@@ -2013,6 +2021,17 @@ const ICD203 = [
 ];
 const EVEN = 3, LIKELY = 4, VERY_LIKELY = 5;   // rules never claim more than very likely
 
+// The built-in rules, which the team can switch off: [id, name, what it looks for].
+const NARRATIVE_RULES = [
+    ['defense', 'Preparing a defense', 'digging in, obstacles, engineer equipment, combat vehicles halted'],
+    ['recon', 'Reconnaissance ahead of armor', 'reconnaissance, then armor or mechanized forces within 6 hrs in the same place'],
+    ['offense', 'Preparing an offensive', 'artillery, air defense moving, armor massing, engineers moving, contact'],
+    ['logistics', 'A logistics point', 'supply vehicles halted or resupplying in one place, twice or more in 12 hrs'],
+    ['withdrawal', 'Withdrawal', 'reports of withdrawing, retreating or breaking contact'],
+    ['firing', 'Probing or attacking', 'firing twice or more, or by a company or more'],
+];
+const RULE_ORDER = Object.fromEntries(NARRATIVE_RULES.map(([id], i) => [id, i]));
+
 const HOUR = 3600000;
 const OBSTACLE = /\b(obstacles?|mines?|minefields?|wire|berms?|ditch(es)?|abatis|tank traps?)\b/i;
 const WITHDRAW = /\b(withdraw(s|n|ing|al)?|retreat(s|ed|ing)?|pull(s|ed|ing)? back|fall(s|ing)? back|fell back|break(s|ing)? contact|disengag(e|es|ed|ing))\b/i;
@@ -2020,8 +2039,8 @@ const WITHDRAW = /\b(withdraw(s|n|ing|al)?|retreat(s|ed|ing)?|pull(s|ed|ing)? ba
 // What the narrative needs about a report, beyond the summaries' facts: its
 // equipment, the roles in it, its size by kind, and the areas it counts in
 // (its NAIs and OBJs, else its 10 km square, else none).
-const narrativeFacts = (f) => {
-    const els = sizeElements(f.r.size).map(e => ({ ...e, kit: lookupEquipment(e.type) }));
+const narrativeFacts = (f, team) => {
+    const els = sizeElements(f.r.size).map(e => ({ ...e, kit: lookupEquipment(e.type, team) }));
     const groups = {};
     els.forEach(e => { const k = e.kit && ECHELON_KIND[e.kit.role]; if (k) groups[k] = (groups[k] || 0) + e.count; });
     const sq = f.a.points.length ? gridSquare(f.a.points[0].mgrs, 1) : null;
@@ -2054,20 +2073,28 @@ const wrapText = (text, first, rest = first, width = 100) => {
     return lines;
 };
 
+// A team rule's words ("bridge, ferry, PMP") as one whole-word pattern.
+const ruleWords = (words) => new RegExp(`\\b(${String(words).split(',').map(w => w.trim()).filter(Boolean)
+    .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+')).join('|')})\\b`, 'i');
+
 // The judgments the reports support: each with its ICD 203 level, what is
-// judged, the signs seen (and the reports behind them), and the signs that
-// would make it firmer. Every rule looks only at the reports given.
-const narrativeJudgments = (facts, cite) => {
+// judged (said of the enemy or a unit: "are preparing a defense in NAI 1"),
+// the places it is about, the signs seen (and the reports behind them), and
+// the signs that would make it firmer. Every rule looks only at the reports
+// given; rules in `off` are skipped, and the team's `custom` rules run too.
+const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) => {
     const out = [];
     const byArea = new Map();
     facts.forEach(f => f.areas.forEach(a => { if (!byArea.has(a)) byArea.set(a, []); byArea.get(a).push(f); }));
-    const judge = (rule, level, what, signs, extra = []) => {
+    const on = (rule) => !off.has(rule);
+    const judge = (rule, level, what, signs, places = null) => {
         const seen = signs.filter(([, l]) => l.length);
+        const list = byTime(seen.flatMap(([, l]) => l));
         out.push({
-            rule, level: Math.min(level, VERY_LIKELY), what,
+            rule, order: RULE_ORDER[rule] ?? NARRATIVE_RULES.length, level: Math.min(level, VERY_LIKELY), what,
+            places: places || [...new Set(list.flatMap(f => f.areas))],
             basis: seen.map(([s, l]) => `${s} (${cite(l)})`).join('; '),
-            list: byTime([...seen.flatMap(([, l]) => l), ...extra]),
-            watch: signs.filter(([, l]) => !l.length).map(([s]) => s),
+            list, watch: signs.filter(([, l]) => !l.length).map(([s]) => s),
         });
     };
 
@@ -2075,35 +2102,43 @@ const narrativeJudgments = (facts, cite) => {
         // Preparing a defense: digging in, obstacles, engineers, vehicles holding.
         const dig = list.filter(f => f.act.tags.includes('Emplacing') && !OBSTACLE.test(f.r.activity || ''));
         const obst = list.filter(f => OBSTACLE.test(f.r.activity || ''));
-        if (dig.length || obst.length) {
+        if (on('defense') && (dig.length || obst.length)) {
             const signs = [
                 ['digging in or fortifying', dig], ['obstacles or mines', obst],
                 ['engineer equipment', list.filter(f => f.roles.has('engineer'))],
                 ['combat vehicles halted in position', list.filter(f => f.act.tags.includes('Stationary') && (isManeuver(f) || f.roles.has('fires') || f.roles.has('ad')))],
             ];
             const kinds = signs.filter(([, l]) => l.length).length, n = byTime(signs.flatMap(([, l]) => l)).length;
-            judge(0, kinds >= 3 && n >= 4 ? VERY_LIKELY : kinds >= 2 || n >= 3 ? LIKELY : EVEN,
-                `enemy forces are preparing a defense in ${area}`, signs);
+            judge('defense', kinds >= 3 && n >= 4 ? VERY_LIKELY : kinds >= 2 || n >= 3 ? LIKELY : EVEN,
+                `are preparing a defense in ${area}`, signs, [area]);
         }
         // Reconnaissance, then armor or mechanized forces within 6 hours.
         const scouts = list.filter(f => f.roles.has('recon') || f.act.tags.includes('Observing'));
         const pairs = scouts.map(s => [s, list.filter(m => m !== s && isManeuver(m) && m.ms > s.ms && m.ms - s.ms <= 6 * HOUR)]).filter(([, l]) => l.length);
-        if (pairs.length) {
+        if (on('recon') && pairs.length) {
             const lead = byTime(pairs.map(([s]) => s)), after = byTime(pairs.flatMap(([, l]) => l));
             const support = list.filter(f => f.roles.has('fires') || f.roles.has('ad') || f.roles.has('engineer'));
-            judge(1, EVEN + (lead.length >= 2 || after.length >= 2 ? 1 : 0) + (support.length ? 1 : 0),
-                `the reconnaissance in ${area} was scouting a route for armor or mechanized forces`,
+            judge('recon', EVEN + (lead.length >= 2 || after.length >= 2 ? 1 : 0) + (support.length ? 1 : 0),
+                `are scouting a route through ${area} for armor or mechanized forces`,
                 [['reconnaissance', lead], ['armor or mechanized forces within 6 hrs after it', after],
-                    ['artillery, air defense or engineers in the same area', support]]);
+                    ['artillery, air defense or engineers in the same area', support]], [area]);
         }
         // A logistics site: supply vehicles halted or resupplying, again and again.
         const supply = densest(list.filter(f => (f.roles.has('logistics') && f.act.tags.includes('Stationary')) || f.act.tags.includes('Resupplying')), 12 * HOUR);
-        if (supply.length >= 2) {
-            judge(3, supply.length >= 5 ? VERY_LIKELY : supply.length >= 3 ? LIKELY : EVEN,
-                `there is a logistics or resupply point in ${area}`,
+        if (on('logistics') && supply.length >= 2) {
+            judge('logistics', supply.length >= 5 ? VERY_LIKELY : supply.length >= 3 ? LIKELY : EVEN,
+                `have a logistics or resupply point in ${area}`,
                 [['supply vehicles halted or resupplying within 12 hrs', supply],
-                    ['fuel or ammunition vehicles', supply.filter(f => /\b(fuel|tanker|pol|ammo|ammunition|atz)\b/i.test(`${f.r.size} ${f.r.activity}`))]]);
+                    ['fuel or ammunition vehicles', supply.filter(f => /\b(fuel|tanker|pol|ammo|ammunition|atz)\b/i.test(`${f.r.size} ${f.r.activity}`))]], [area]);
         }
+        // The team's own rules: their words, often enough, in one place.
+        custom.forEach(c => {
+            const re = ruleWords(c.words);
+            const hits = densest(list.filter(f => re.test(`${f.r.size || ''} ${f.r.activity || ''}`)), c.hours * HOUR);
+            if (hits.length < c.min) return;
+            judge('custom', EVEN + (hits.length >= c.min + 1 ? 1 : 0) + (hits.length >= c.min + 3 ? 1 : 0), `${c.what} in ${area}`,
+                [[`reports of ${c.words.split(',').map(w => w.trim()).filter(Boolean).join(', ')} within ${c.hours} hrs`, hits]], [area]);
+        });
     }
 
     // Preparing an offensive: artillery, air defense moving, armor massing,
@@ -2124,28 +2159,51 @@ const narrativeJudgments = (facts, cite) => {
         ['contact by armor or mechanized forces', facts.filter(f => isManeuver(f) && f.act.tags.includes('Firing'))],
     ];
     const kinds = offense.filter(([, l]) => l.length).length;
-    if (kinds >= 2 && (fires.length || mass.length)) {
-        judge(2, kinds >= 4 ? VERY_LIKELY : kinds === 3 ? LIKELY : EVEN,
-            `enemy forces are preparing offensive operations${focus ? `, centered on ${focus}` : ''}`, offense);
+    if (on('offense') && kinds >= 2 && (fires.length || mass.length)) {
+        judge('offense', kinds >= 4 ? VERY_LIKELY : kinds === 3 ? LIKELY : EVEN,
+            `are preparing offensive operations${focus ? `, centered on ${focus}` : ''}`, offense);
     }
     // Withdrawal, when reports say so.
     const back = facts.filter(f => WITHDRAW.test(f.r.activity || ''));
-    if (back.length) {
-        judge(4, back.length >= 3 ? VERY_LIKELY : back.length === 2 ? LIKELY : EVEN, 'enemy forces are withdrawing',
+    if (on('withdrawal') && back.length) {
+        judge('withdrawal', back.length >= 3 ? VERY_LIKELY : back.length === 2 ? LIKELY : EVEN, 'are withdrawing',
             [['withdrawal or breaking contact reported', back], ['covering forces left behind', []], ['obstacles or demolitions behind them', []]]);
     }
     // Firing: probing with small elements, or attacking with a company or more.
     const shots = facts.filter(f => f.act.tags.includes('Firing'));
     const big = shots.filter(f => (f.groups.maneuver || 0) >= 10);
-    if (big.length) {
-        judge(5, big.length >= 2 ? VERY_LIKELY : LIKELY, 'enemy forces are attacking with company-sized or larger elements',
+    if (on('firing') && big.length) {
+        judge('firing', big.length >= 2 ? VERY_LIKELY : LIKELY, 'are attacking with company-sized or larger elements',
             [['firing by a company or more', big], ['artillery fire in support', []]]);
-    } else if (shots.length >= 2) {
-        judge(5, shots.length >= 4 ? VERY_LIKELY : shots.length === 3 ? LIKELY : EVEN,
-            'enemy forces are probing friendly positions with small elements',
+    } else if (on('firing') && shots.length >= 2) {
+        judge('firing', shots.length >= 4 ? VERY_LIKELY : shots.length === 3 ? LIKELY : EVEN,
+            'are probing friendly positions with small elements',
             [['firing by elements smaller than a company', shots], ['larger elements following up', []], ['artillery fire in support', []]]);
     }
-    return out.sort((x, y) => y.level - x.level || y.list.length - x.list.length || x.rule - y.rule || x.what.localeCompare(y.what));
+    return out.sort((x, y) => y.level - x.level || y.list.length - x.list.length || x.order - y.order || x.what.localeCompare(y.what));
+};
+
+// The units a judgment can be put down to: those whose places include one
+// it is about (none listed: anywhere) and, when kinds are listed, that have a
+// kind of equipment in its reports. Places match regardless of case.
+const unitsFor = (j, units) => {
+    const at = new Set(j.places.map(p => p.toUpperCase()));
+    return units.filter(u => (!u.places.length || u.places.some(p => at.has(p.toUpperCase())))
+        && (!u.kinds.length || u.kinds.some(k => j.list.some(f => f.roles.has(k)))));
+};
+const orList = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`);
+
+// The narrative's settings as the rules use them, with what's unset filled in.
+const narrativeSettings = (s) => {
+    s = s && typeof s === 'object' ? s : {};
+    const list = (v) => (Array.isArray(v) ? v : []);
+    return {
+        enemy: String(s.enemy || '').trim() || 'enemy forces',
+        units: list(s.units).filter(u => u && u.name).map(u => ({ name: u.name, places: list(u.places), kinds: list(u.kinds) })),
+        team: teamEquipment(list(s.equipment).filter(e => e && e.type && e.role)),
+        off: new Set(list(s.off)),
+        custom: list(s.custom).filter(c => c && c.what && c.words && c.min > 0 && c.hours > 0),
+    };
 };
 
 // Confidence in a judgment, from how many reports and observers support it
@@ -2158,9 +2216,11 @@ const confidenceOf = (list) => {
 };
 
 // The narrative's sections, for the reports in the period (`cur`, in time
-// order) and the period before (`prev`, or null).
-const narrativeLines = (cur, prev, { local, hrs, end, places }) => {
-    const facts = cur.map(narrativeFacts);
+// order) and the period before (`prev`, or null). `settings` are the team's
+// (what the enemy is called, units, equipment, rules: narrativeSettings).
+const narrativeLines = (cur, prev, { local, hrs, end, places, settings }) => {
+    const set = narrativeSettings(settings);
+    const facts = cur.map(f => narrativeFacts(f, set.team));
     const out = [];
     const say = (text, first = '   ', rest = '   ') => out.push(...wrapText(text, first, rest));
     const cite = (list, max = 4) => {
@@ -2216,18 +2276,26 @@ const narrativeLines = (cur, prev, { local, hrs, end, places }) => {
         places.slice(0, 6).forEach(p => {
             const list = at(p.label);
             const kinds = EQUIPMENT_ROLES.map(([r]) => r).filter(r => list.some(f => f.roles.has(r))).map(r => label[r]);
-            say(`${p.label}: ${plural(list.length, 'report')}, ${dayTime(list[0].ms, local)} to ${dayTime(list[list.length - 1].ms, local)}`
+            // Whose area it is, from the unit list (not from the reports).
+            const whose = set.units.filter(u => u.places.some(q => q.toUpperCase() === p.label.toUpperCase())).map(u => u.name);
+            say(`${p.label}${whose.length ? ` (area of ${orList(whose).replace(/ or /, ' and ')})` : ''}: ${plural(list.length, 'report')}, ${dayTime(list[0].ms, local)} to ${dayTime(list[list.length - 1].ms, local)}`
                 + `${kinds.length ? `; ${kinds.join(', ')}` : ''}; ${activityLine(list)}.`, '     ', '       ');
         });
     }
 
     out.push('', '2. ASSESSMENT');
-    const judgments = narrativeJudgments(facts, cite).slice(0, 6);
+    const judgments = narrativeJudgments(facts, cite, set).slice(0, 6);
     if (!judgments.length) say("No assessment: the reports in this period don't match any of the patterns this tool looks for.");
     judgments.forEach((j, i) => {
         const [term, pct] = ICD203[j.level];
-        say(`${term.toUpperCase()} (${pct}) that ${j.what}.`, `   ${String.fromCharCode(97 + i)}. `, '      ');
+        // Said of a unit when one to three in the unit list fit, else of the enemy.
+        const units = unitsFor(j, set.units);
+        const who = units.length && units.length <= 3 ? `elements of ${orList(units.map(u => u.name))}` : set.enemy;
+        say(`${term.toUpperCase()} (${pct}) that ${who} ${j.what}.`, `   ${String.fromCharCode(97 + i)}. `, '      ');
         say(`Basis: ${j.basis}.`, '      ', '      ');
+        if (who !== set.enemy) {
+            say(`Unit: from the unit list, ${units.map(u => `${u.name} (${[u.places.join(', ') || 'anywhere', u.kinds.map(k => label[k]).join(', ')].filter(Boolean).join('; ')})`).join('; ')}.`, '      ', '      ');
+        }
         say(`Confidence: ${confidenceOf(j.list)}.`, '      ', '      ');
         if (j.watch.length) say(`Watch for: ${j.watch.join('; ')}.`, '      ', '      ');
     });
@@ -2250,7 +2318,8 @@ const narrativeLines = (cur, prev, { local, hrs, end, places }) => {
     out.push('');
     say(`NOTE: OBSERVED is what the reports say; counts are as reported, and the same vehicles may be in more than one report.`
         + ` ASSESSMENT comes from fixed rules over the cited reports. Likelihood terms follow ICD 203: `
-        + `${ICD203.map(([t, p]) => `${t} ${p}`).join(', ')}. Confidence (high, moderate, low) rests on how many reports and observers support a judgment.`, '', '');
+        + `${ICD203.map(([t, p]) => `${t} ${p}`).join(', ')}. Confidence (high, moderate, low) rests on how many reports and observers support a judgment.`
+        + `${set.units.length ? ' Units are named from the unit list, not from the reports.' : ''}`, '', '');
     return out;
 };
 
@@ -2304,7 +2373,7 @@ const SaltCore = {
     lonLatToMerc, MERC_WORLD, compass16, zipStore, crc32, shapefileParts, arcgisShapefileZip, arcgisTracksShapefileZip, tilesFor, tileZoom, tileUrl, wmsUrl, wmsCapabilitiesUrl, pickWmsCrs, pickWmsFormat, mercToLonLat, metresBetween, bearingBetween,
     asArea, analyzeLocation, locationPlan, editLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisEsriJson, arcgisCsv,
     sizeElements, gridSquare, statsData, statsCsv, PL_NEAR_METRES, workbookReportRows, statsXlsx, excelSerial, colName,
-    dtg, summaryReport, summaryPlaces, EQUIPMENT_CATALOGUE, lookupEquipment, ECHELONS, echelonOf, ICD203,
+    dtg, summaryReport, summaryPlaces, EQUIPMENT_CATALOGUE, EQUIPMENT_ROLES, lookupEquipment, teamEquipment, ECHELONS, echelonOf, ICD203, NARRATIVE_RULES,
     reportKey, knownVersions, changedReports, withUnsaved,
 };
 

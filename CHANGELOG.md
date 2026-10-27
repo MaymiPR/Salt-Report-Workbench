@@ -23,6 +23,19 @@ All notable changes to this project are documented here. The format follows
     places quiet for 6 hours or more.
   - An equipment catalogue of Russian and Chinese systems plus plain words
     (tank, truck, PAX), used to name what was reported and to size it.
+  - **Enemy**: what the narrative calls them (*OPFOR*, say) when no unit fits.
+  - **Units**: each with the NAIs and OBJs it operates in and, optionally,
+    the kinds of equipment it has; a judgment that fits is said of "elements
+    of" the unit, in Assessment only, with a line saying it came from the
+    unit list.
+  - **Equipment**: add types the catalogue doesn't know (offered from your
+    reports) or put built-in ones right for your team.
+  - **Rules**: switch built-in rules off, and add your own (what it judges,
+    the words to look for, how many reports within how many hours).
+  - Shared with everyone through the server (`/api/save_narrative`) and kept
+    in the backup files; editors change them, viewers see them.
+- **Edit** any summary report before you copy, save or print it: your
+  wording is kept (and stops following new reports) until *Revert*.
 - **Change a basemap's layers**: *Layers* beside a WMS in *Manage basemaps…*
   opens it again, its layers looked up afresh with the ones in use ticked (a
   layer the service no longer lists stays, marked *not listed*); tick, untick

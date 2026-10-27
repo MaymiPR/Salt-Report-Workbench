@@ -273,7 +273,8 @@ fact; nothing reads it.
 │       ├── 45-overlays.js    Overlay import (KML, KMZ, GeoJSON, SHP), Overlays tab, ArcGIS export
 │       ├── 46-map.js         The map: basemap, report dots, heat map, tracks
 │       ├── 47-stats.js       Statistics panel: charts, hover, tables, PNG / SVG / Excel export
-│       ├── 48-summary.js     Summary Reports panel: written reports, copy, .txt, print
+│       ├── 48-summary.js     Summary Reports panel: written reports, copy, .txt, print, edit
+│       ├── 48-narrative.js   The narrative's settings: enemy name, units, equipment, rules
 │       ├── 49-mapview.js     The map under the Report Log: what's on it, its table, the report card
 │       ├── 50-sync.js        Push, pull, SSE, offline queue
 │       ├── 60-handlers.js    Event wiring
