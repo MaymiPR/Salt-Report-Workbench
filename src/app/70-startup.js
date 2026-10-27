@@ -12,6 +12,7 @@ setProfileFromLocalStorage();
 updateTimeBtnText();
 updateSepBtnText();
 updateBdaBtnText();
+updateMgrsLockUi();
 updateSortIcons();
 if (localStorage.getItem('salt_layout')==='horizontal') el.layout.grid.classList.add('horizontal-layout');
 applyLayoutMode();

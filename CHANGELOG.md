@@ -6,6 +6,48 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Find a WMS's layers**: paste the link you use in other tools and press
+  *Find layers*; tick the layers you want and they are added as one basemap,
+  named after the service. The map then asks the service in its own terms
+  (its WMS version, image format, and Web Mercator or, when that isn't
+  offered, latitude / longitude). When a service won't let the page read its
+  layer list, the sync server reads it instead.
+- **Check** beside each basemap: asks the service for a little of the map and
+  shows what came back, an image or the service's own error.
+- **Shapefile (.zip) exports** for the ArcGIS points and tracks: unzip, then
+  drag the .shp into ArcGIS Pro or open it from a folder connection (Pro
+  doesn't take .json or .geojson that way).
+- **Full screen** for the map.
+- **Viewers' Map tab**: the map alone, with heat or tracks, the window, full
+  screen and the basemap picker.
+- **MGRS Lock** (Settings): set the grid zone and 100 km square once
+  (`11S NV`); grids typed as digits alone get it when logged.
+- **Partial BDA**: log some of an element (3 of `40x T-72`); the rest stays on
+  the checklist. Counts are of vehicles and items.
+
+### Changed
+
+- **One report format for every workspace**: switching or starting a
+  workspace keeps it; it changes only when an operator edits it. A backup's
+  format is taken only while the current one is the stock SALT format.
+- Heat map colours: blue, green, yellow, red.
+- Map names stay on screen when zoomed in.
+- Statistics and Summary dates are laid out like the Workspaces time filter,
+  and Clear sits above the To time in all three.
+- The report panel keeps one width in every view, so switching views no
+  longer moves things around.
+- While updating, the title shows the short ID, with the full identifier and
+  what the report says below it.
+
+### Fixed
+
+- The NAI / OBJ / PL chip under Location no longer sits on the box's edge, and
+  its row keeps its room so the form doesn't move when one appears.
+- BDA checklist entries are kept when a sync redraws the table.
+- The Settings menu stays inside its panel on a short window.
+
 ## [2.9.0] - 2026-10-26
 
 ### Added

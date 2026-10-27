@@ -125,19 +125,22 @@ async function syncWithServer() {
         if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) throw new Error('Server unreachable');
         const state = await res.json();
-        applyServerUpdate(state.workspaces, state.config, state.profiles, state.connected_users, state.sources, state.connected_initials, state.read_only, state.formats, state.overlays, state.basemaps);
+        applyServerUpdate(state.workspaces, state.config, state.profiles, state.connected_users, state.sources, state.connected_initials, state.read_only, state.format, state.overlays, state.basemaps);
         setConnectionStatus(true);
     } catch (err) {
         setConnectionStatus(false);
     }
 }
 
-function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources, connInitials, readOnly, formats, overlays, basemaps) {
-    // Per-workspace report formats — server keys win, locally-known formats
-    // for workspaces the server hasn't seen survive.
-    if (formats && typeof formats === 'object') {
-        workspaceFormats = { ...workspaceFormats, ...formats };
-        writeStored('salt_ws_formats', JSON.stringify(workspaceFormats));
+function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources, connInitials, readOnly, format, overlays, basemaps) {
+    // The report format: the server's wins. A server that has none yet (a new
+    // one, or one upgraded from per-workspace formats) is given this browser's.
+    if (format && typeof format === 'object') {
+        if (isFormat(format)) {
+            if (JSON.stringify(format) !== JSON.stringify(sharedFormat)) adoptFormat(format);
+        } else if (sharedFormat && !readOnly && !isStockFormat()) {
+            postJson('/api/save_format', { format: sharedFormat }).catch(() => {});
+        }
     }
     // The shared overlays: the server's set wins. An unchanged set keeps its
     // identity, so the location cache survives.

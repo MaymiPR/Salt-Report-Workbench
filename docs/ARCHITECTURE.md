@@ -84,7 +84,7 @@ handler's `_POST_ROUTES` table, paired with a schema validator in
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
 | `/`, `/index.html` | GET | The bundled page. On the viewer port it is stamped `read-only` before any script runs; for the host's own browser the access code is injected into a `<meta>` tag. |
-| `/api/sync` | GET | Full state: workspaces, config, profiles, formats, overlays, sources, connected users. |
+| `/api/sync` | GET | Full state: workspaces, config, profiles, the report format, overlays, basemaps, sources, connected users. |
 | `/api/events` | GET | Server-Sent Events stream. Each message just says "something changed"; clients then call `/api/sync`. |
 | `/api/save_reports` | POST | Merge a batch of reports into a workspace. |
 | `/api/edit_report` | POST | Overwrite fields of one report in place, without touching its history. |
@@ -92,9 +92,10 @@ handler's `_POST_ROUTES` table, paired with a schema validator in
 | `/api/unload_ato` | POST | Drop a workspace from memory. |
 | `/api/save_config` | POST | Set the active ATO and title. |
 | `/api/save_profile` | POST | Register an operator's initials and color. |
-| `/api/save_format` | POST | Save a workspace's report format (Builder). |
+| `/api/save_format` | POST | Save the report format (Builder): one for every workspace. An `ato` from an older page is ignored. |
 | `/api/save_overlays` | POST | Replace the shared NAI / OBJ / PL overlays (GeoJSON geometries, longitude/latitude). An empty list clears them. |
-| `/api/save_basemaps` | POST | Replace the map's basemap services: `[{name, kind: wms \| tiles, url, layers?}]` (at most 20, names unique, http/https only). Shared like the overlays and kept in every backup file; each browser picks which to show. |
+| `/api/save_basemaps` | POST | Replace the map's basemap services: `[{name, kind: wms \| tiles, url, layers?, version?, crs?, format?}]` (at most 20, names unique, http/https only; the last three are what a WMS's capabilities said to ask for). Shared like the overlays and kept in every backup file; each browser picks which to show. |
+| `/api/wms_fetch` | POST | `{url}`: the server GETs an http(s) address for an editor's page and returns its status, content type, size and text (not images). For WMS capabilities and Check when a service sends no CORS headers. Changes nothing; logged in the audit log. Not on the viewer port. |
 
 ### Overlays and geography
 
@@ -126,7 +127,12 @@ latest grid for heat; its versions in reported order for tracks), and the
 basemap is requested only for the part of the view inside the map's area
 (`tilesFor`, `wmsUrl`). The browser fetches it straight from the service; the
 server only stores the list of services, and which one is shown is kept per
-browser.
+browser. A WMS is added from its capabilities (read by the page, or through
+`/api/wms_fetch` when the service doesn't allow that), which give its GetMap
+address, version, formats and each layer's projections; `pickWmsCrs` takes
+Web Mercator when every chosen layer has it, else latitude / longitude, which
+the map stretches to its Mercator box (true to well under a pixel over a
+training area).
 
 The one place a report's text is changed for it: on Log and Update,
 `locationPlan` lists the places its grids are in that the box doesn't name,
@@ -162,9 +168,10 @@ The server is the meeting point, not the authority over content.
 backup folder, which defaults to `Auto Backups/` beside the server. Writes are
 debounced by 0.5 seconds so a burst of edits becomes one write, and every
 mutation marks its workspace dirty (`mark_dirty`) so only changed workspaces
-are rewritten. A workspace's format and overlays ride in its own file; config
-and profiles ride in every file, and a change to either
-marks all workspaces dirty.
+are rewritten. The report format, overlays, basemaps, config and profiles ride in every
+file (the format under each workspace's name, as older versions read it), and
+a change to any of them marks all workspaces dirty. On boot the newest file's
+format is the one used.
 
 A backup file has two parts: a readable summary of every report for a person
 to skim, then a JSON block between `##SALT_BACKUP##` and `##SALT_BACKUP_END##`

@@ -316,6 +316,8 @@ const renderOverlays = () => {
     }
 
     const list = currentOverlays();
+    // Viewers get the map alone: its mode, window and basemap picker.
+    if (isReadOnly) { renderOverlayMap(box, ''); return; }
     const header = `<div class="overlays-head">
         <div class="io-modes" role="group" aria-label="Show as">
             <button type="button" class="io-mode" data-overlay-view="list" aria-pressed="${overlayView === 'list'}">List</button>
@@ -415,8 +417,9 @@ if (overlaysBody && overlaysFileInput) {
 
 // --- ArcGIS export ---
 
-// One point per grid, with what the Location box and Activity say, as Esri
-// JSON or GeoJSON (ArcGIS Pro: JSON To Features) or CSV (XY Table To Point).
+// One point per grid, with what the Location box and Activity say, as a
+// zipped shapefile (ArcGIS Pro: drag in the .shp), Esri JSON or GeoJSON
+// (JSON To Features) or CSV (XY Table To Point). Pro won't drag in .json.
 const exportForArcgis = (kind) => {
     const reps = getExportFilteredReports();
     if (!reps.length) { showToast('No reports to export.', true); return; }
@@ -425,11 +428,15 @@ const exportForArcgis = (kind) => {
         ...reps.flatMap(r => Object.keys(r.custom || {})),
     ])];
     const base = `${getCsvFilename(shownAto() || 'ATO', localConfig.title || 'SALT')}_arcgis`;
+    // Inside the zip: a name ArcGIS takes as a layer name as it is.
+    const layerName = (s) => (/^[A-Za-z]/.test(s) ? s : `L_${s}`).replace(/[^A-Za-z0-9_]/g, '_');
+    const zipType = 'application/zip';
     if (kind.startsWith('tracks')) {
         // One line per report that moved, first grid to latest.
         const tracks = SaltCore.arcgisTrackRows(reps, { local: timeDisplayMode === 'local', idOf: formatFullId });
         if (!tracks.length) { showToast('No report has moved: each needs updates at two or more grids.', true); return; }
-        if (kind === 'tracks-esri') triggerDownload(`${base}_tracks.json`, SaltCore.arcgisTracksEsriJson(tracks), 'application/json');
+        if (kind === 'tracks-shp') triggerDownload(`${base}_tracks.zip`, SaltCore.arcgisTracksShapefileZip(tracks, layerName(`${base}_tracks`)), zipType);
+        else if (kind === 'tracks-esri') triggerDownload(`${base}_tracks.json`, SaltCore.arcgisTracksEsriJson(tracks), 'application/json');
         else triggerDownload(`${base}_tracks.geojson`, SaltCore.arcgisTracksGeoJson(tracks), 'application/geo+json');
         showToast(`Exported ${tracks.length} track${tracks.length === 1 ? '' : 's'}.`);
         clearExportFilter();
@@ -439,7 +446,8 @@ const exportForArcgis = (kind) => {
         local: timeDisplayMode === 'local', customLabels, idOf: formatFullId,
     });
     if (!rows.length) { showToast(`None of the ${skipped} report${skipped === 1 ? '' : 's'} has a readable MGRS grid.`, true); return; }
-    if (kind === 'csv') triggerDownload(`${base}.csv`, SaltCore.arcgisCsv(rows), 'text/csv;charset=utf-8;');
+    if (kind === 'shp') triggerDownload(`${base}.zip`, SaltCore.arcgisShapefileZip(rows, layerName(base)), zipType);
+    else if (kind === 'csv') triggerDownload(`${base}.csv`, SaltCore.arcgisCsv(rows), 'text/csv;charset=utf-8;');
     else if (kind === 'esri') triggerDownload(`${base}.json`, SaltCore.arcgisEsriJson(rows), 'application/json');
     else triggerDownload(`${base}.geojson`, SaltCore.arcgisGeoJson(rows), 'application/geo+json');
     const reportsOut = reps.length - skipped;

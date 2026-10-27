@@ -101,15 +101,15 @@ in [CHANGELOG.md](CHANGELOG.md).
 | --- | --- |
 | **Real-time sync** | Server-Sent Events push every change to every browser within a second. Last-modified-wins merging resolves concurrent edits. |
 | **Offline-first** | Full functionality from local storage; queued changes replay automatically on reconnect. Each change uploads only the reports it touched, and a report the server refuses stays visible as *Not saved* until it's fixed or discarded. |
-| **Report builder** | Reorder lines, switch between SALT and SALT-U, and add custom fields (e.g. `W: Weather`) that get their own form box, table column, and copy-text line. Saved per workspace and synced to the team. |
-| **Overlays and ArcGIS** | Import NAIs, OBJs, and phase lines once, for every workspace, from KML, KMZ, GeoJSON, or a shapefile; unload or replace them a group at a time. Logging adds the NAI, OBJ, or phase line a grid is in to the Location, and asks you to settle a typed name the grid disagrees with. Export one point per grid, with activity tags and heading, for ArcGIS Pro heat maps (Esri JSON, GeoJSON, or CSV). |
+| **Report builder** | Reorder lines, switch between SALT and SALT-U, and add custom fields (e.g. `W: Weather`) that get their own form box, table column, and copy-text line. One format for every workspace, synced to the team; it changes only when someone edits it. |
+| **Overlays and ArcGIS** | Import NAIs, OBJs, and phase lines once, for every workspace, from KML, KMZ, GeoJSON, or a shapefile; unload or replace them a group at a time. Logging adds the NAI, OBJ, or phase line a grid is in to the Location, and asks you to settle a typed name the grid disagrees with. Export one point per grid, with activity tags and heading, for ArcGIS Pro heat maps (a shapefile to drag in, Esri JSON, GeoJSON, or CSV). |
 | **Statistics** | Headline numbers and charts for any time window, for one ATO or all of them. Covers reports per ATO, reports per NAI, OBJ and phase line, the busiest grid squares, the hour of day and day, activity and heading, what was reported by type, and BDA. Each chart exports as PNG, SVG, or CSV, or all at once. |
 | **Summary reports** | Written reports from one click: Rollup, Most Trafficked, Place Activity, and Shift Brief, over any time window. Copy, save as .txt, or print with charts. They are built from fixed templates, not AI, so nothing is made up. |
-| **BDA tracking** | Hidden until you need it. A checklist pre-pairs each element of a report with its grid, so a ten-target assessment is ten clicks. A roll-up above the table totals the workspace by outcome, click-to-filter. Revisable, searchable, exported. |
+| **BDA tracking** | Hidden until you need it. A checklist pre-pairs each element of a report with its grid, so a ten-target assessment is ten clicks, and part of an element can be logged (3 of `40x T-72`) with the rest left to assess. A roll-up above the table totals the workspace by outcome, click-to-filter. Revisable, searchable, exported. |
 | **Edit history** | *Update* snapshots the prior version; *Edit* corrects in place. Any prior version can be restored, and Delete and Restore both offer a ten-second Undo. |
-| **Workspaces** | Separate ATOs with their own reports and formats. Switch live, and the team switches with you. |
+| **Workspaces** | Separate ATOs with their own reports. Switch live, and the team switches with you. |
 | **View-only port** | Observers watch live on a second port that rejects every write, with no code required. |
-| **Map** | The overlays on a map (NAI green, OBJ blue, PL black), over WMS or tile basemaps you switch between, fetched only for that area, with a heat map (each report once) or a track map (each report's path, first to latest, with its direction). Viewers see it too. |
+| **Map** | The overlays on a map (NAI green, OBJ blue, PL black), over WMS or tile basemaps you switch between (a WMS's layers looked up from its link), fetched only for that area, with a heat map (each report once) or a track map (each report's path, first to latest, with its direction). Full screen; viewers get it as a Map tab. |
 | **Exports** | Human-readable backups that re-import losslessly, CSV (including history and BDA rows, or the latest version only), ArcGIS points and tracks, and MTI tracked/wheeled splits. |
 | **Hardened server** | Per-endpoint schema validation, per-IP rate limiting, server-stamped attribution that clients can't forge, atomic writes, and a 16 MB body cap. |
 
@@ -195,17 +195,18 @@ live in that browser's storage, there's no access code, and exports work as usua
 
 ## Usage
 
-The full user manual is built into the app (**⋯ → User Manual**). The essentials:
+The full user manual is built into the app (**gear → User Manual**). The essentials:
 
 1. **Set your identity and workspace** in the startup dialog, or pick existing
    ones from *Quick Start*.
 2. **Log a report** with Size, Activity, Location, and Time. <kbd>Enter</kbd>
    submits, and the report is copied to your clipboard in SALT format. Several MGRS
-   grids typed without commas are separated for you.
+   grids typed without commas are separated for you; with **gear → MGRS Lock**
+   you set the grid zone and square once and type only the digits.
 3. **Click a row** to edit it. *Update* keeps the old version in history; *Edit*
    overwrites it.
-4. **Track BDA** with **⋯ → Show BDA**, then the *BDA* pill on any report.
-5. **Shape the report** in **⋯ → Workspaces → Builder**.
+4. **Track BDA** with **gear → Show BDA**, then the *BDA* pill on any report.
+5. **Shape the report** in **folder → Builder**.
 
 | Shortcut | Action |
 | --- | --- |

@@ -179,22 +179,35 @@ test('BDA elements pair with grids by position, or share a single grid', () => {
     assert.deepEqual(unclear.map(p => p.coords), ['', '', '']);
 });
 
-test('the BDA pill reports progress and the worst outcome', () => {
-    const r = { size: '4x T-72, 2x BMP-2', location: '', bda: [{ effect: 'Damaged' }, { effect: 'Destroyed' }] };
-    assert.deepEqual(core.bdaSummary(r), { done: 2, total: 2, worstCls: 'destroyed' });
+test('the BDA pill counts each vehicle and gives the worst outcome', () => {
+    const r = { size: '4x T-72, 2x BMP-2', location: '', bda: [{ target: '4x T-72', effect: 'Damaged' }, { target: '1x BMP-2', effect: 'Destroyed' }] };
+    assert.deepEqual(core.bdaSummary(r), { done: 5, total: 6, worstCls: 'destroyed' });
     assert.deepEqual(core.bdaSummary({ size: 'x1', bda: [] }), { done: 0, total: 1, worstCls: '' });
+});
+
+test('assessing some of an element leaves the rest to assess', () => {
+    assert.deepEqual(core.bdaCount('40x T-72'), { count: 40, type: 'T-72', counted: true });
+    assert.deepEqual(core.bdaCount('4 BMP-2'), { count: 4, type: 'BMP-2', counted: true });
+    assert.deepEqual(core.bdaCount('2S19'), { count: 1, type: '2S19', counted: false }, 'a number in a name');
+    const r = { size: '40x T-72, 3x trucks', location: '18SUJ1111', bda: [{ target: '3x T-72', effect: 'Destroyed' }] };
+    assert.deepEqual(core.bdaPending(r).map(e => [e.target, e.remaining, e.total]), [['37x T-72', 37, 40], ['3x trucks', 3, 3]]);
+    r.bda.push({ target: '2x t-72s', effect: 'Damaged' }, { target: '3x truck', effect: 'Destroyed' });
+    assert.deepEqual(core.bdaPending(r).map(e => e.target), ['35x T-72'], 'any case, plural or not');
+    assert.deepEqual(core.bdaSummary(r), { done: 8, total: 43, worstCls: 'destroyed' });
+    // Assessments from before counts were split off cover their whole element.
+    assert.deepEqual(core.bdaPending({ size: '4x T-72, truck', location: '', bda: [{ target: '4x T-72', effect: 'Destroyed' }, { target: 'truck', effect: 'Damaged' }] }), []);
 });
 
 test('the BDA roll-up totals a workspace\'s elements and outcomes', () => {
     const reps = [
-        { size: '4x T-72, 2x BMP-2', location: '', bda: [{ effect: 'Destroyed' }] },        // 1 of 2 assessed
+        { size: '4x T-72, 2x BMP-2', location: '', bda: [{ target: '4x T-72', effect: 'Destroyed' }] },  // 4 of 6 assessed
         { size: '1x ZSU', location: '', bda: [{ effect: 'Damaged' }, { effect: 'odd' }] },   // more assessments than elements
         { size: '3x trucks', location: '', bda: [] },                                       // nothing yet
         { size: '1x gone', deleted: true, bda: [{ effect: 'Destroyed' }] },                  // deleted: ignored
     ];
     assert.deepEqual(core.bdaRollup(reps), {
-        done: 3, total: 5, unassessed: 2,
-        byEffect: { Destroyed: 1, Damaged: 1, 'Mobility Kill': 0, Suppressed: 0, 'No Effect': 0, Unknown: 1 },
+        done: 6, total: 11, unassessed: 5,
+        byEffect: { Destroyed: 4, Damaged: 1, 'Mobility Kill': 0, Suppressed: 0, 'No Effect': 0, Unknown: 1 },
     });
     assert.deepEqual(core.bdaRollup([]).byEffect.Destroyed, 0);
 });
@@ -544,7 +557,7 @@ test('statistics count each report once per place, square, tag and type', () => 
         report({ id: 'e', size: '1x truck', activity: '', location: '38SMB4100084900, PL BLUE', time: '2026-10-26T14:00:00Z' }),
     ];
     const d = core.statsData(reps, OVERLAYS, { local: false });
-    assert.deepEqual(d.kpis, { reports: 4, withGrid: 4, inPlace: 4, checks: 1, bdaDone: 0, bdaTotal: 4 });
+    assert.deepEqual(d.kpis, { reports: 4, withGrid: 4, inPlace: 4, checks: 1, bdaDone: 0, bdaTotal: 7 });
     assert.deepEqual(d.nai, [{ label: 'NAI 1', value: 4 }]);
     assert.deepEqual(d.pl, [{ label: 'PL BLUE', value: 1 }], 'typed; grids 3 km off are not near it');
     // Report c names two grids in one 10 km square: counted once there.
@@ -602,7 +615,7 @@ test('the rollup counts the period against the one before it', () => {
     assert.ok(text.includes('   3 reports (previous 12 hrs: 1). 3 with a grid; 3 in an NAI or OBJ.'), text.join('\n'));
     assert.ok(text.some(l => /^ {3}NAI 1 {9}2 {3}\(prev 0\) {3}Moving 1 \(heading N 1\), Stationary 1$/.test(l)), 'by place, with activity');
     assert.ok(text.includes('   260310Z  ALPHA003  1x BMP-2; engaging friendly OP; 38SMB5300088000'), 'firing is notable');
-    assert.ok(text.includes('   1 of 3 elements assessed: Destroyed 1.'));
+    assert.ok(text.includes('   1 of 4 items assessed: Destroyed 1.'));
     assert.ok(text.includes('   ALPHA002: NAI 1 typed; grid is in NAI 2'));
 });
 
@@ -628,7 +641,7 @@ test('the shift brief is the short handover', () => {
     assert.equal(text[1], 'SHIFT:    251800Z OCT 26 TO 260600Z OCT 26 (12 HRS)');
     assert.ok(text.includes('REPORTS:      3 (previous shift 1)'));
     assert.ok(text.includes('LAST REPORT:  260310Z  ALPHA003  1x BMP-2; engaging friendly OP; 38SMB5300088000'));
-    assert.ok(text.includes('OPEN ITEMS:   1 check to look at; 2 BDA elements unassessed'));
+    assert.ok(text.includes('OPEN ITEMS:   1 check to look at; 3 BDA items unassessed'));
 });
 
 test('the same reports always give the same words', () => {
@@ -797,4 +810,86 @@ test('map tiles and WMS requests cover the box asked for', () => {
     const url = core.wmsUrl('https://maps.example/wms?map=ops&layers=old&srs=EPSG:4326', 'imagery', [1, 2, 3, 4], 800, 600);
     assert.equal(url, 'https://maps.example/wms?map=ops&SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=imagery&STYLES=&CRS=EPSG:3857&BBOX=1.00,2.00,3.00,4.00&WIDTH=800&HEIGHT=600&FORMAT=image/png&TRANSPARENT=FALSE');
     assert.ok(core.wmsUrl('https://maps.example/wms?LAYERS=a,b', '', [1, 2, 3, 4], 10, 10).includes('LAYERS=a,b'), 'its own layers, when none given');
+});
+
+test('WMS: the service\'s version, projection and format', () => {
+    const box = [...core.lonLatToMerc(-116.6, 35.2), ...core.lonLatToMerc(-116.4, 35.4)];
+    const v111 = core.wmsUrl('http://s/wms', 'a', box, 100, 100, { version: '1.1.1', crs: 'EPSG:4326', format: 'image/jpeg' });
+    assert.ok(v111.includes('VERSION=1.1.1') && v111.includes('SRS=EPSG:4326') && !v111.includes('CRS='), v111);
+    assert.ok(v111.includes('FORMAT=image/jpeg'));
+    assert.ok(v111.includes('BBOX=-116.6000000,35.2000000,-116.4000000,35.4000000'), 'lon, lat in 1.1.1');
+    const v130 = core.wmsUrl('http://s/wms', 'a', box, 100, 100, { version: '1.3.0', crs: 'EPSG:4326' });
+    assert.ok(v130.includes('CRS=EPSG:4326') && v130.includes('BBOX=35.2000000,-116.6000000,35.4000000,-116.4000000'), 'lat, lon in 1.3.0');
+    const crs84 = core.wmsUrl('http://s/wms', 'a', box, 100, 100, { crs: 'CRS:84' });
+    assert.ok(crs84.includes('BBOX=-116.6000000,35.2000000'), 'CRS:84 is lon, lat');
+    assert.ok(core.wmsUrl('http://s/wms', 'a', [1, 2, 3, 4], 10, 10, { crs: 'EPSG:102100' }).includes('BBOX=1.00,2.00,3.00,4.00'), 'metres');
+    const [lon, lat] = core.mercToLonLat(...core.lonLatToMerc(-116.5, 35.3));
+    assert.ok(Math.abs(lon + 116.5) < 1e-9 && Math.abs(lat - 35.3) < 1e-9);
+});
+
+test('WMS: capabilities link, projection and format choices', () => {
+    assert.equal(core.wmsCapabilitiesUrl(' https://s/arcgis/services/x/MapServer/WMSServer?request=GetMap&LAYERS=0&token=abc&BBOX=1,2,3,4 '),
+        'https://s/arcgis/services/x/MapServer/WMSServer?token=abc&SERVICE=WMS&REQUEST=GetCapabilities');
+    assert.equal(core.wmsCapabilitiesUrl('http://s/geoserver/wms'), 'http://s/geoserver/wms?SERVICE=WMS&REQUEST=GetCapabilities');
+    assert.equal(core.pickWmsCrs([['EPSG:4326', 'epsg:3857'], ['EPSG:3857']]), 'EPSG:3857');
+    assert.equal(core.pickWmsCrs([['EPSG:4326', 'EPSG:900913'], ['EPSG:900913', 'EPSG:32611']]), 'EPSG:900913');
+    assert.equal(core.pickWmsCrs([['EPSG:4326', 'EPSG:3857'], ['EPSG:4326']]), 'EPSG:4326', 'what every layer has');
+    assert.equal(core.pickWmsCrs([['EPSG:32611']]), null);
+    assert.equal(core.pickWmsCrs([]), null);
+    assert.equal(core.pickWmsFormat(['image/jpeg', 'image/png8', 'image/png']), 'image/png');
+    assert.equal(core.pickWmsFormat(['image/gif', 'image/jpeg']), 'image/jpeg');
+    assert.equal(core.pickWmsFormat([]), 'image/png');
+});
+
+test('a zip of stored files reads back, with the right CRCs', () => {
+    assert.equal(core.crc32(new TextEncoder().encode('The quick brown fox jumps over the lazy dog')), 0x414fa339);
+    const zip = core.zipStore([{ name: 'a.txt', data: new TextEncoder().encode('hello') }, { name: 'b.bin', data: new Uint8Array([1, 2, 3]) }], new Date(2026, 9, 26, 14, 30));
+    const v = new DataView(zip.buffer);
+    assert.equal(v.getUint32(0, true), 0x04034b50);
+    const end = zip.length - 22;
+    assert.equal(v.getUint32(end, true), 0x06054b50);
+    assert.equal(v.getUint16(end + 10, true), 2, 'two files');
+    const cd = v.getUint32(end + 16, true);
+    assert.equal(v.getUint32(cd, true), 0x02014b50);
+    assert.equal(new TextDecoder().decode(zip.subarray(30 + 5, 30 + 5 + 5)), 'hello', 'stored as is');
+});
+
+test('the ArcGIS points and tracks as shapefiles read back', () => {
+    const rows = [
+        { report_id: 'NTC001', heading_deg: 90, precision_m: 10, analysis: 'é'.repeat(300), lat: 35.2512345, lon: -116.5512345, none: null },
+        { report_id: 'NTC002', heading_deg: null, precision_m: 1, analysis: 'short', lat: 35.26, lon: -116.56, none: null },
+    ];
+    const p = core.shapefileParts(rows, rows.map(r => [r.lon, r.lat]), 'point');
+    const ab = u => u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength);
+    const fc = core.parseShapefile(ab(p.shp), ab(p.dbf), new TextDecoder().decode(p.prj), 'UTF-8');
+    assert.equal(fc.features.length, 2);
+    assert.deepEqual(fc.features[0].geometry.coordinates, [-116.5512345, 35.2512345]);
+    const a = fc.features[0].properties;
+    assert.equal(a.report_id, 'NTC001');
+    assert.equal(a.head_deg, 90, 'long names cut to fit');
+    assert.equal(a.prec_m, 10);
+    assert.equal(a.analysis, 'é'.repeat(127), 'text cut to 254 bytes, whole characters only');
+    assert.equal(a.lat, 35.2512345);
+    assert.equal(fc.features[1].properties.head_deg, '', 'empty number');
+    assert.equal(new DataView(ab(p.shx)).getInt32(100), 50, 'index points at the first record');
+    const tracks = [{ report_id: 'NTC003', length_m: 1500, path: [[-116.55, 35.25], [-116.54, 35.26], [-116.53, 35.27]] }];
+    const t = core.shapefileParts(tracks.map(({ path, ...r }) => r), tracks.map(r => r.path), 'line');
+    const tf = core.parseShapefile(ab(t.shp), ab(t.dbf), null, 'UTF-8');
+    assert.deepEqual(tf.features[0].geometry, { type: 'LineString', coordinates: tracks[0].path });
+    assert.equal(tf.features[0].properties.length_m, 1500);
+    const zip = core.arcgisTracksShapefileZip(tracks, 'NTC_tracks');
+    assert.ok(new TextDecoder().decode(zip).includes('NTC_tracks.dbf'));
+});
+
+test('a locked grid prefix goes in front of grids typed as digits', () => {
+    assert.equal(core.mgrsPrefix('11snv'), '11S NV');
+    assert.equal(core.mgrsPrefix(' 4q fj '), '4Q FJ');
+    assert.equal(core.mgrsPrefix('11S'), null, 'the 100 km square is part of it');
+    assert.equal(core.mgrsPrefix('61S NV'), null);
+    assert.equal(core.mgrsPrefix('11S NI'), null, 'no I or O');
+    assert.equal(core.applyMgrsPrefix('39697 06762', '11SNV'), '11S NV 39697 06762');
+    assert.equal(core.applyMgrsPrefix('3969706762, NAI 2', '11S NV'), '11S NV 39697 06762, NAI 2');
+    assert.equal(core.applyMgrsPrefix('397 067, 11S NV 40007 05191', '11S NV'), '11S NV 397 067, 11S NV 40007 05191', 'full grids kept');
+    assert.equal(core.applyMgrsPrefix('Hill 205, 205, 39 067', '11S NV'), 'Hill 205, 205, 39 067', 'not grids');
+    assert.equal(core.applyMgrsPrefix('39697 06762', ''), '39697 06762', 'no prefix set');
 });
