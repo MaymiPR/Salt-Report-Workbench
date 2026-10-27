@@ -1137,7 +1137,7 @@ test("the team's own equipment, rules switched off, and rules of their own", () 
     assert.ok(!text.includes('scouting a route'), 'switched off');
     assert.ok(text.includes('ROUGHLY EVEN CHANCE (45-55%) that enemy forces are preparing a river crossing in NAI 1.'), text);
     assert.ok(text.includes('Basis: reports of bridging, ferry within 12 hrs (ALPHA016 260300Z, ALPHA017 260400Z).'), text);
-    assert.equal(core.NARRATIVE_RULES.length, 25);
+    assert.equal(core.NARRATIVE_RULES.length, 55);
     core.NARRATIVE_RULES.forEach(([id]) => assert.ok(core.DOCTRINE[id] && core.DOCTRINE[id].RU && core.DOCTRINE[id].CN, `${id}: doctrine for both`));
 });
 
@@ -1205,5 +1205,51 @@ test('the doctrine rules: crossings, breaches, UAVs spotting, EW, deep strikes, 
         'are preparing to cross a water obstacle or gap in NAI 1', 'are preparing to breach obstacles in NAI 1',
         'with UAVs over NAI 1 (a reconnaissance-fire complex)', 'are jamming communications, GPS and drones',
         'deep strikes with long-range rockets or missiles', 'have a command post in NAI 1',
-    ]) assert.ok(t.includes(want), want);
+    ]) assert.ok(t.includes(want), `${want}\n${t}`);
+});
+
+// Reports in named places: [size, activity, location], half an hour apart.
+const atPlaces = (rows) => rows.map(([size, activity, location], i) => report({ id: `p${i}`, displayId: `P${i}`, size, activity, location,
+    time: new Date(Date.parse('2026-10-25T20:00:00Z') + i * 1800000).toISOString(), user: { initials: i % 2 ? 'AB' : 'CD' } }));
+const NAI1 = '38SMB4500082000', NAI2 = '38SMB5500082000';
+
+test('the catalogue matches the types that used to slip: KamAZ Typhoons, GAZ Tigrs, hyphenated variants, Chinese names', () => {
+    const kit = t => { const k = core.lookupEquipment(t); return k && `${k.role} ${k.origin} ${k.name}`; };
+    const cases = {
+        'KamAZ-63968': 'mech RU Typhoon', 'GAZ-233014': 'light RU Tigr', 'GAZ-39371': 'light RU Vodnik', '9P163-3': 'atgm RU Kornet',
+        '2B14-1': 'fires RU 2B14', 'TOS-3 Drakon': 'fires RU TOS-3', 'Mi-171Sh': 'air RU Mi-17', 'RPO-A Shmel': 'atgm RU RPO-A',
+        'ZBL-09': 'mech CN ZBL-08', 'VN-1': 'mech CN ZBL-08', 'HQ-29': 'ad CN HQ-29', 'Shaanxi Y-8': 'air CN Y-8', 'CJ-100': 'fires CN CJ-100',
+        'KJ-200': 'air CN KJ-200', 'YY-20': 'air CN YY-20', 'PCL-191': 'fires CN PHL-16', 'CH-901': 'fires CN CH-901',
+        'GQL-111': 'engineer CN GQL-111', 'FPV': 'fires  FPV', 'Iveco Rys': 'light RU Iveco LMV', 'Rys': 'recon RU BRM-3K',
+    };
+    Object.entries(cases).forEach(([t, want]) => assert.equal(kit(t), want, t));
+    assert.ok(core.EQUIPMENT_CATALOGUE.length > 750, core.EQUIPMENT_CATALOGUE.length);
+});
+
+test('the new rules: fires, maneuver, defense and support, each from its own signs', () => {
+    const cases = [
+        [[['1x TOS-1A', 'firing at the village', NAI1], ['10x PAX', 'moving W into the village', NAI1]], 'are using thermobaric weapons on NAI 1 (TOS or Shmel)'],
+        [[['2x KAB-500', 'struck positions', NAI1]], 'are striking NAI 1 with glide bombs'],
+        [[['1x 1L219 Zoopark', 'emplaced', NAI1], ['2x 2S19', 'firing', NAI1]], 'are conducting counter-battery fire around NAI 1'],
+        [[['4x BMP-2', 'firing on our positions', NAI1], ['4x BMP-2', 'withdrawing to the east', NAI1]], 'reconnaissance in force (razvedka boyem) in NAI 1'],
+        [[['2x BMP-3', 'dismounted infantry at the treeline', NAI1], ['10x PAX', 'moving W, firing', NAI1]], 'delivering assault infantry by armored group (bronegruppa) in NAI 1'],
+        [[['4x PAX', 'firing at OP', NAI1], ['1x MT-LB', 'evacuating wounded', NAI1]], 'are evacuating casualties from NAI 1'],
+        [[['10x T-72', 'unloading from trains', NAI1]], 'are moving forces or supplies by rail through NAI 1'],
+        [[['1x Mavic', 'drone dropping supplies', NAI1]], 'are resupplying forward groups in NAI 1 by drone'],
+        [[['1x Zemledeliye', 'scatterable mines', NAI1]], 'are laying minefields in NAI 1'],
+        [[['1x TDA-2K', 'laying smoke', NAI1]], 'chemical-defense (RKhBZ) troops in NAI 1'],
+        [[['4x PAX', 'firing at OP', NAI1], ['10x T-72', 'moving W', NAI2]], 'are fixing friendly forces in NAI 1, with armor moving through NAI 2'],
+        [[['3x PAX', 'hiding in the treeline', NAI1], ['2x PAX', 'observing', NAI1], ['3x PAX', 'stationary in a basement', NAI1]], 'are building up small infantry groups in NAI 1'],
+        [[['3x motorcycles, 6x PAX', 'moving W', NAI1], ['2x buggy, 4x PAX', 'moving W', NAI1]], 'are moving fast in small groups on light vehicles through NAI 1'],
+        [[['2x Su-25', 'landed, refueling', NAI1], ['1x ATZ fuel truck', 'stationary', NAI1]], 'a forward arming and refueling point for helicopters in NAI 1'],
+        [[['2x Lancet', 'struck trucks on the MSR', NAI1], ['1x FPV', 'hit vehicles on the road', NAI1]], 'are cutting the routes through NAI 1'],
+        [[['1x ASN-301', 'launching', NAI1]], 'are suppressing friendly air defense'],
+    ];
+    cases.forEach(([rows, want]) => {
+        const t = said(atPlaces(rows));
+        assert.ok(t.includes(want), `${want}\n${t}`);
+    });
+    // Fire support and a firing position are not contact.
+    const t = said(atPlaces([['2x T-72', 'moving to a fire support position', NAI1], ['2x T-72', 'in firing positions', NAI1]]));
+    assert.ok(!t.includes('probing friendly positions'), t);
 });

@@ -1341,7 +1341,10 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .map-box .map-tools .io-modes { background: var(--glass-bg); backdrop-filter: blur(14px); border: 1px solid var(--glass-border); }
 .map-box .map-tools .filter-presets { margin: 0; padding: 4px 8px; border-radius: 10px; background: var(--glass-bg); backdrop-filter: blur(14px); border: 1px solid var(--glass-border); }
 .map-box .map-tools .map-layer-btn { backdrop-filter: blur(14px); }
-.map-box .map-note { top: 56px; }
+/* The basemap notice: a line of its own under the controls, so it moves down
+   when they wrap to two rows instead of sitting behind them. */
+.map-tools-break { flex-basis: 100%; height: 0; margin-top: -6px; }
+.map-box .map-tools .map-note { position: static; max-width: 60%; }
 /* The layers: each one a toggle, on in blue with a tick. */
 .map-layers { display: inline-flex; gap: 6px; }
 .map-layer-btn { display: inline-flex; align-items: center; gap: 6px; width: auto; margin: 0; padding: 6px 12px; border: 1px solid var(--glass-border); border-radius: 100px; background: var(--input-bg); color: var(--text-secondary); font-size: 0.84em; font-weight: 600; cursor: pointer; }
@@ -1361,7 +1364,6 @@ body.mgrs-lock .mgrs-prefix { display: block; }
    glide aside to make room. */
 .map-main { --map-h: clamp(460px, calc(100vh - 275px), 1200px); --side-room: 210px; --tools-left: 210px; --slide: 0.42s cubic-bezier(0.32, 0.72, 0, 1); position: relative; }
 .map-main.side-hidden { --side-room: 10px; --tools-left: 52px; }
-.map-main .map-box .map-note { left: var(--side-room); transition: left var(--slide); }
 /* The slider runs the map's whole width; the key sits beside the sidebar, above it. */
 .map-main .map-box .map-bottom .map-legend { margin-left: calc(var(--side-room) - 10px); transition: margin-left var(--slide); }
 /* The controls keep one width (so they never wrap differently) and slide. */

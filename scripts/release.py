@@ -74,7 +74,8 @@ SECURITY
 OPTIONS
   python salt_sync_server.py --help
 
-The full user manual is inside the app: the "..." menu, then User Manual.
+The full user manual is inside the app: the gear (Settings) menu, then
+User Manual.
 Source: https://github.com/MaymiPR/SaltReportWorkbench
 License: GNU AGPL v3 (see LICENSE). If you modify it and run it
 for others over a network, you must offer them your modified source.

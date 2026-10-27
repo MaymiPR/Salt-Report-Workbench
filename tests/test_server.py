@@ -308,6 +308,16 @@ class ValidatorTests(unittest.TestCase):
     # --------------------------------------------------------------------------- #
     # Rate limiting and access control
     # --------------------------------------------------------------------------- #
+    def test_the_server_knows_every_rule_the_page_has(self):
+        import re
+
+        core = (ROOT / "src" / "core.js").read_text(encoding="utf-8")
+        block = core[core.index("const NARRATIVE_RULES = [") : core.index("const RULE_ORDER")]
+        ids = set(re.findall(r"^\s*\['([a-z0-9]+)', '", block, re.M))
+        self.assertEqual(len(ids), 55)
+        self.assertEqual(ids, set(srv._NARRATIVE_RULES))
+        self.assertIsNone(srv._v_save_narrative({"narrative": {"off": sorted(ids)}}))
+
     def test_narrative_settings_are_checked(self):
         v = srv._v_save_narrative
         unit = {"name": "1-60 GMRB", "places": ["NAI 1"], "kinds": ["armor"]}

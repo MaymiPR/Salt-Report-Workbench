@@ -41,7 +41,7 @@ or a package registry:
   separate read-only port that refuses every write.
 
 <p align="center">
-  <img src="docs/screenshots/viewer.png" alt="The report log in view-only mode, with a workspaces sidebar and six SALT reports" width="900">
+  <img src="docs/screenshots/viewer.png" alt="The report log in view-only mode, with a workspaces sidebar and the reports of a training exercise, tagged with the NAIs and phase lines they fall in" width="900">
 </p>
 
 ## Download
@@ -103,15 +103,22 @@ in [CHANGELOG.md](CHANGELOG.md).
 | **Offline-first** | Full functionality from local storage; queued changes replay automatically on reconnect. Each change uploads only the reports it touched, and a report the server refuses stays visible as *Not saved* until it's fixed or discarded. |
 | **Report builder** | Reorder lines, switch between SALT and SALT-U, and add custom fields (e.g. `W: Weather`) that get their own form box, table column, and copy-text line. One format for every workspace, synced to the team; it changes only when someone edits it. |
 | **Overlays and ArcGIS** | Import NAIs, OBJs, and phase lines once, for every workspace, from KML, KMZ, GeoJSON, or a shapefile; unload or replace them a group at a time. Logging adds the NAI, OBJ, or phase line a grid is in to the Location, and asks you to settle a typed name the grid disagrees with. Export one point per grid, with activity tags and heading, for ArcGIS Pro heat maps (a shapefile to drag in, Esri JSON, GeoJSON, or CSV). |
-| **Map** | Under the Report Log (the map button by its heading): the overlays and the reports in layers seen together (heat map, tracks, dots), at their latest grids or every saved report, over WMS or tile basemaps (a WMS's layers looked up from its link, fetched only for that area). Click a report for its card (Edit from there), a row to move the map to it, an NAI or an activity to narrow it; beside it the numbers for what's on the map, under it the table of those reports, and a slider to see how things stood earlier. Full screen; viewers get it too. |
+| **Map** | Under the Report Log (the map button by its heading): the overlays and the reports in layers seen together (heat map, tracks, dots), at their latest grids or every saved report, over WMS or tile basemaps (a WMS's layers looked up from its link, fetched only for that area). Click a report for its card (Edit from there), a row to move the map to it, an NAI or an activity to narrow it; a sidebar of activities and the busiest places, the numbers for what's on the map above it, the table of those reports under it, and a slider to see how things stood earlier. Ctrl + scroll to zoom, or full screen. Editors manage the shared basemaps; viewers get the rest. |
 | **Statistics** | Headline numbers and charts for any time window, for one ATO or all of them. Covers reports per ATO, reports per NAI, OBJ and phase line, the hour of day and day, activity and heading, what was reported by type, and BDA. Each chart exports as PNG, SVG, or CSV, or all at once; or everything goes to one Excel workbook, with editable Excel charts and the report table. |
-| **Summary reports** | Written reports from one click: Rollup, Most Trafficked, Place Activity, Shift Brief, and Narrative (what was observed, then rule-based assessments in ICD 203 terms citing the reports behind them, then the gaps; Russian and Chinese equipment named and sized), over any time window. Copy, save as .txt, or print with charts. They are built from fixed templates, not AI, so nothing is made up. |
+| **Summary reports** | Written reports from one click: Rollup, Most Trafficked, Place Activity, Shift Brief, and Narrative (what was observed, then assessments from 55 rules drawn from open-source Russian and PLA tactics, in ICD 203 terms citing the reports behind them, then the gaps; about 780 Russian and Chinese types named and sized, and each judgment in the doctrine of the army whose equipment it is), over any time window. A settings column beside the Narrative names the enemy and your units, teaches it equipment, and switches rules on and off or adds your own: one set for the server, in every backup. Edit text rewords any report before you copy, save it as .txt, or print it with charts. They are built from fixed templates, not AI, so nothing is made up. |
 | **BDA tracking** | Hidden until you need it. A checklist pre-pairs each element of a report with its grid, so a ten-target assessment is ten clicks, and part of an element can be logged (3 of `40x T-72`) with the rest left to assess. A roll-up above the table totals the workspace by outcome, click-to-filter. Revisable, searchable, exported. |
 | **Edit history** | *Update* snapshots the prior version; *Edit* corrects in place. Any prior version can be restored, and Delete and Restore both offer a ten-second Undo. |
 | **Workspaces** | Separate ATOs with their own reports. Switch live, and the team switches with you. |
 | **View-only port** | Observers watch live on a second port that rejects every write, with no code required. |
 | **Exports** | Human-readable backups that re-import losslessly, CSV (including history and BDA rows, or the latest version only), ArcGIS points and tracks, and MTI tracked/wheeled splits. |
 | **Hardened server** | Per-endpoint schema validation, per-IP rate limiting, server-stamped attribution that clients can't forge, atomic writes, and a 16 MB body cap. |
+
+<p align="center">
+  <img src="docs/screenshots/map.png" alt="The map under the Report Log: NAIs, objectives and phase lines with a heat map and report dots, the activity sidebar on its left, and the numbers for what's on it above" width="900">
+</p>
+<p align="center">
+  <img src="docs/screenshots/narrative.png" alt="The Narrative summary report, Observed and Assessment in ICD 203 terms, with its settings column on the right" width="900">
+</p>
 
 ## Quick start
 
@@ -286,7 +293,7 @@ fact; nothing reads it.
 │   ├── build.py              Bundles src/ into dist/index.html, copies the server and launcher
 │   ├── pack.py               Packs a release zip into one self-unpacking text file
 │   └── release.py            Builds a release: the zip, the one-file .txt, and SHA256SUMS.txt
-├── tests/                    Python tests (server, HTTP API, build, pack, release, launcher); js/ for core.js
+├── tests/                    Python tests (server, HTTP API, build, pack, release, launcher, browser); js/ for core.js
 ├── assets/                   Logo, icon, banners, social preview (see BRAND.md)
 ├── docs/                     Architecture notes and screenshots
 └── dist/                     Build output (git-ignored)

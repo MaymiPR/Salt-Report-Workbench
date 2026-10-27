@@ -39,12 +39,16 @@ Three constraints drive almost every decision:
 text, MGRS clean-up, BDA pairing, backup and CSV generation, parsing, and the
 geography (MGRS to latitude/longitude, reading grids and NAI/OBJ/PL names out of
 a Location box, placing them in overlay areas, activity tags, the ArcGIS
-export), the counts behind the Statistics panel (`statsData`), and the written
-summaries (`summaryReport`: fixed templates over those counts). It
+and track exports, shapefiles written and read), the counts behind the
+Statistics panel (`statsData`), the Excel workbook (`statsXlsx`: the
+.xlsx parts written by hand, charts included, zipped by `zipStore` like the
+other zip exports), and the written summaries (`summaryReport`:
+fixed templates over those counts, plus the Narrative below). It
 touches no DOM, storage, or network, so it loads in the page as
 `window.SaltCore` and in Node for `tests/js/`. The rest of the page is
-`src/app/`, ten top-level scripts loaded in order (state, rendering, form,
-import/export, overlays, statistics, summary reports, sync, handlers, startup) that share one global scope, so a
+`src/app/`, thirteen top-level scripts loaded in order (state, rendering,
+form, import/export, overlays, the map, statistics, the narrative's settings,
+summary reports, the map view, sync, handlers, startup) that share one global scope, so a
 name declared in an earlier file is visible in the later ones. Together they
 hold the whole application state in a handful of top-level
 variables, with `reportsByAto` (every workspace's reports) as the core. Every
@@ -95,7 +99,7 @@ handler's `_POST_ROUTES` table, paired with a schema validator in
 | `/api/save_format` | POST | Save the report format (Builder): one for every workspace. An `ato` from an older page is ignored. |
 | `/api/save_overlays` | POST | Replace the shared NAI / OBJ / PL overlays (GeoJSON geometries, longitude/latitude). An empty list clears them. |
 | `/api/save_basemaps` | POST | Replace the map's basemap services: `[{name, kind: wms \| tiles, url, layers?, version?, crs?, format?}]` (at most 20, names unique, http/https only; the last three are what a WMS's capabilities said to ask for). Shared like the overlays and kept in every backup file; each browser picks which to show. |
-| `/api/save_narrative` | POST | Replace the narrative's settings: `{enemy, units: [{name, places, kinds}], equipment: [{type, role, origin}], off: [rule ids], custom: [{what, words, min, hours}]}` (at most 50 units, 500 equipment entries, 30 rules; roles and rule ids from the fixed lists). Shared like the basemaps and kept in every backup file. |
+| `/api/save_narrative` | POST | Replace the narrative's settings: `{enemy, units: [{name, places, kinds}], equipment: [{type, role, origin}], off: [rule ids], custom: [{what, words, min, hours}]}` (at most 50 units, 500 equipment entries, 30 rules; unit names and equipment types unique; roles and rule ids from the fixed lists, origin `RU`, `CN` or empty; a rule's `min` 1-20 reports within `hours` 1-168). Shared like the basemaps and kept in every backup file. |
 | `/api/wms_fetch` | POST | `{url}`: the server GETs an http(s) address for an editor's page and returns its status, content type, size and text (not images). For WMS capabilities and Check when a service sends no CORS headers. Changes nothing; logged in the audit log. Not on the viewer port. |
 
 ### Overlays and geography
@@ -122,9 +126,13 @@ typos; `tests/js/mgrs-vectors.json` holds reference points from the NGA's
 GeoTrans to check it against.
 
 The map (`app/46-map.js`) draws in screen pixels from Web Mercator, redrawn
-on every pan and zoom; nothing is stored but the view. Tracks and heat come
-from `reportTracks` and `heatPoints` in `core.js` (each report once, at its
-latest grid for heat; its versions in reported order for tracks), and the
+on every pan and zoom. Nothing on it is synced; each browser keeps its own
+choices (`salt_map_layers`, `salt_map_grids`, `salt_map_base`,
+`salt_map_side`, `salt_map_only_in_view`). Tracks, heat and dots come from
+`reportTracks`, `heatPoints` and `reportPositions` in `core.js`: tracks are a
+report's versions in reported order; heat and dots are each report once at its
+latest grid (*Latest grids*), or every saved version at its grids (*All
+reports*, `all = true`). The
 basemap is requested only for the part of the view inside the map's area
 (`tilesFor`, `wmsUrl`). The browser fetches it straight from the service; the
 server only stores the list of services, and which one is shown is kept per
@@ -153,6 +161,38 @@ and typed names the grids disagree with; the operator settles each of those
 (`askChoice`), and `editLocation` writes the result into the Location before
 it is saved, like anything else typed there.
 
+### The narrative
+
+The Narrative summary (`narrativeLines` in `core.js`) is rules, not a model:
+the same reports always give the same words, and nothing leaves the page.
+Each report's Size is split into elements and looked up in
+`EQUIPMENT_CATALOGUE` (`lookupEquipment`: a name with a digit matches the
+start of a type, T-72 matching T-72B3 but not T-720; a word matches a whole
+word; the longest name wins), which gives each element a role (armor,
+artillery, air defense, engineers and so on) and an origin (Russian, Chinese,
+or any army). `ECHELONS` turns a count into an approximate unit size.
+`narrativeJudgments` runs the fixed rules (`NARRATIVE_RULES`) over those facts
+per place and across the period; each judgment carries an ICD 203 likelihood
+(never past *very likely*), the reports behind it, and what would make it
+firmer. Where a judgment's reports hold Russian or Chinese equipment, its
+wording and the `DOCTRINE` line under it come from that army's doctrine.
+`CAPABILITIES` says what equipment can do (bridging, breaching, a UAV) and
+the words in a report that say the same.
+
+The team's settings (`{enemy, units, equipment, off, custom}`) are one set per
+server, like the overlays: they arrive in `/api/sync` as `narrative`, are kept
+in `localStorage` (`salt_narrative`) and saved with `/api/save_narrative`,
+which `clean_narrative` trims to known fields and limits. A server from before
+them answers 404, and the page says so and keeps them in the browser. Every
+backup file carries them (hand exports too); on boot the newest file's set
+wins, and importing a backup whose set differs from a non-empty local one
+asks first. The team's equipment entries are matched before the catalogue,
+so they can add a type or put a built-in one right.
+
+Edited summary text (Edit text) is the one thing about summaries that is
+stored: per browser, in `salt_summary_edits`, keyed by workspace and kind.
+It is never synced.
+
 ## Sync model
 
 The server is the meeting point, not the authority over content.
@@ -167,8 +207,8 @@ The server is the meeting point, not the authority over content.
   offline replay safe.
 - **Soft deletes.** Deleting marks a report `deleted` rather than removing it,
   so the deletion itself merges and propagates like any other edit.
-- **Cached sync payload.** The JSON for workspaces, config, profiles, and
-  formats is serialized once and cached as a byte prefix; only the small
+- **Cached sync payload.** The JSON for workspaces, config, profiles, the
+  format, overlays, basemaps and narrative settings is serialized once and cached as a byte prefix; only the small
   per-request tail (connected users, read-only flag) is appended each time. Any
   mutation clears the cache. A client that accepts gzip (every browser) gets
   the body compressed, five to eight times smaller; since every client pulls

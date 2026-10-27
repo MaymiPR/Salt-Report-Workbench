@@ -1916,100 +1916,188 @@ const EQUIPMENT_CATALOGUE = [
     // Russian and Soviet-era. Variants are listed with each type: a type
     // matches its variants anyway (T-72 matches T-72B3M), but listing them
     // says which are meant, and the names (Proryv, Basurmanin) match too.
+    // A variant after a hyphen and a digit (9P163-3, 2B14-1) is listed, since
+    // the digit stops the match. Names that also mean something else (Rys,
+    // Vityaz, Ovod, Redut, Klin) are given only as their designations.
     ...eqp('armor', 'RU', [['T-54', 'T-54A', 'T-54B'], ['T-55', 'T-55A', 'T-55AM', 'T-55AMV'], ['T-62', 'T-62M', 'T-62MV'],
-        ['T-64', 'T-64A', 'T-64B', 'T-64BV'], ['T-72', 'T-72A', 'T-72AV', 'T-72B', 'T-72B1', 'T-72B3', 'T-72B3M'],
-        ['T-80', 'T-80B', 'T-80BV', 'T-80BVM', 'T-80U', 'T-80UD', 'T-80UE-1'], ['T-90', 'T-90A', 'T-90AK', 'T-90S', 'T-90SM', 'T-90M', 'Proryv'],
-        ['T-14', 'T-14 Armata'], ['PT-76', 'PT-76B'], ['2S25', 'Sprut-SD'], ['BMPT', 'BMPT-72', 'Terminator']]),
-    ...eqp('mech', 'RU', [['BMP-1', 'BMP-1P', 'BMP-1AM', 'Basurmanin'], ['BMP-2', 'BMP-2M', 'Berezhok'], ['BMP-3', 'BMP-3M'],
-        'BMD-1', 'BMD-2', 'BMD-3', ['BMD-4', 'BMD-4M'], 'BTR-D', ['BTR-MD', 'Rakushka'], 'BTR-50', ['BTR-60', 'BTR-60PB'],
-        ['BTR-70', 'BTR-70M'], ['BTR-80', 'BTR-80A'], ['BTR-82', 'BTR-82A', 'BTR-82AM'], 'BTR-90', 'BTR-MDM', 'BTR-T',
-        ['BTR-22', 'Bumerang', 'K-17'], ['Kurganets-25', 'Kurganets', 'B-11'], ['T-15', 'T-15 Armata'], ['MT-LB', 'MT-LBV', 'MT-LBVM'],
-        ['Typhoon', 'K-63968', 'K-4386', 'Typhoon-K', 'Typhoon-VDV']]),
-    ...eqp('recon', 'RU', [['BRDM-1'], ['BRDM-2', 'BRDM-2M'], 'BRM-1K', ['BRM-3K', 'Rys'], 'PRP-3', ['PRP-4', 'Nard'],
-        ['Orlan-10', 'Orlan-30', 'Orlan'], ['Zala', 'Zala 421-16E'], ['Eleron-3', 'Eleron'], 'Forpost', 'Granat', 'Takhion', 'Supercam',
-        ['1L219', 'Zoopark-1', 'Zoopark'], ['1L271', 'Aistyonok'], ['1L227', 'Sobolyatnik']]),
+        ['T-64', 'T-64A', 'T-64B', 'T-64BV'], ['T-72', 'T-72A', 'T-72AV', 'T-72B', 'T-72B1', 'T-72B3', 'T-72B3M', 'T-72BA', 'T-72B1K', 'T-72B3A'],
+        ['T-80', 'T-80B', 'T-80BV', 'T-80BVM', 'T-80BVK', 'T-80U', 'T-80UD', 'T-80UK', 'T-80UM2', 'T-80UE-1'],
+        ['T-90', 'T-90A', 'T-90AK', 'T-90S', 'T-90SM', 'T-90M', 'Proryv'],
+        ['T-14', 'T-14 Armata'], ['PT-76', 'PT-76B'], ['2S25', '2S25M', 'Sprut-SD', 'Sprut-SDM1'], ['BMPT', 'BMPT-72', 'Terminator']]),
+    ...eqp('mech', 'RU', [['BMP-1', 'BMP-1P', 'BMP-1AM', 'BMP-1U', 'Basurmanin'], ['BMP-2', 'BMP-2M', 'BMP-2D', 'Berezhok'], ['BMP-3', 'BMP-3M'],
+        'BMD-1', 'BMD-2', 'BMD-3', ['BMD-4', 'BMD-4M', 'Sadovnitsa'], 'BTR-D', ['BTR-MD', 'Rakushka'], 'BTR-50', ['BTR-60', 'BTR-60PB'],
+        ['BTR-70', 'BTR-70M'], ['BTR-80', 'BTR-80A'], ['BTR-82', 'BTR-82A', 'BTR-82AM', 'BTR-82AT'], ['BTR-90', 'Rostok'], 'BTR-MDM', 'BTR-T',
+        ['BTR-22', 'Bumerang', 'K-17', 'K-16'], ['Kurganets-25', 'Kurganets', 'B-11'], ['T-15', 'T-15 Armata'],
+        ['MT-LB', 'MT-LBV', 'MT-LBVM', 'MT-LBu', 'MT-LBVMK'],
+        ['Typhoon', 'K-63968', 'K-4386', 'K-53949', 'KamAZ-63968', 'KamAZ-53949', 'Ural-63095', 'Ural-63099', 'Typhoon-K', 'Typhoon-VDV', 'Taifun', 'Tayfun'],
+        ['SBA-60K2', 'Bulat'], ['BPM-97', 'KamAZ-43269', 'Vystrel'], ['Ural-VV', 'Ural-4320VV']]),
+    ...eqp('recon', 'RU', [['BRDM-1'], ['BRDM-2', 'BRDM-2M', 'BRDM-2A', 'BRDM-2MS'], ['BRM-1K', 'BRM-1KM'], ['BRM-3K', 'Rys'], 'PRP-3',
+        ['PRP-4', 'PRP-4A', 'PRP-4M', 'Nard', 'Deyteriy'],
+        ['Orlan-10', 'Orlan-30', 'Orlan'], ['Zala', 'Zala 421-16E', '421-08', '421-16'], ['Eleron-3', 'Eleron'], 'Forpost', ['Granat', 'Granat-4'],
+        ['Takhion', 'Tachyon'], 'Supercam', 'Merlin-VR',
+        ['1L219', 'Zoopark-1', 'Zoopark-1M', '1L260', 'Zoopark'], ['1L271', 'Aistyonok'], ['1L227', 'Sobolyatnik'],
+        ['SNAR-10', '1RL133', 'Big Fred'], ['ARK-1', 'ARK-1M'], ['1B75', 'Penicillin', 'Penitsillin'], 'AZK-7',
+        'Uran-9', 'Nerekhta', ['Kurier', 'Kuryer'], 'MRK-65']),
     ...eqp('fires', 'RU', [['2S1', 'Gvozdika', 'M1974'], ['2S3', '2S3M', 'Akatsiya', 'M1973'], ['2S4', 'Tyulpan'], ['2S5', 'Giatsint-S'],
         ['2S7', '2S7M', 'Pion', 'Malka'], ['2S9', 'Nona-S'], ['2S19', '2S19M2', 'Msta-S'], ['2S23', 'Nona-SVK'], ['2S31', 'Vena'],
         ['2S33', 'Msta-SM2'], ['2S34', 'Khosta'], ['2S35', 'Koalitsiya-SV', 'Koalitsiya'], ['2S40', 'Floks'], ['2S43', 'Malva'],
-        ['2S41', 'Drok'], 'D-20', ['D-30', '2A18'], ['M-46'], ['2A36', 'Giatsint-B'], ['2A65', 'Msta-B'], ['2B16', 'Nona-K'],
-        ['BM-21', '9K51', 'Grad', 'BM-21-1'], ['2B26', 'Grad-K'], ['BM-27', '9K57', '9P140', 'Uragan'],
-        ['BM-30', '9K58', '9A52', 'Smerch'], ['Tornado-G', '9K51M'], ['Tornado-S', '9K515'], ['Tornado'],
-        ['TOS-1', 'TOS-1A', 'Buratino', 'Solntsepyok', 'Solntsepek'], ['TOS-2', 'Tosochka'], ['BMO-T'],
-        ['2B9', 'Vasilek'], ['2S12', '2B11', 'Sani'], ['2B14', 'Podnos'], '2B24',
-        ['Iskander', '9K720', 'Iskander-M', 'SS-26'], ['Tochka', '9K79', 'Tochka-U', 'SS-21'], ['Luna-M', '9K52', 'FROG-7'],
-        ['Lancet', 'Zala Lancet'], ['Geran-2', 'Geran', 'Shahed-136', 'Shahed'], ['Kub-BLA']]),
+        ['2S41', 'Drok'], ['2S42', 'Lotos'], 'D-20', ['D-30', '2A18'], 'D-1', ['M-30', 'M1938'], 'BS-3', ['M-46'], ['2A36', 'Giatsint-B'],
+        ['2A65', 'Msta-B'], ['2B16', 'Nona-K'],
+        ['BM-21', '9K51', 'Grad', 'BM-21-1', '9P138', '9P132'], ['2B26', 'Grad-K'], ['BM-27', '9K57', '9P140', 'Uragan'], ['9K512', 'Uragan-1M'],
+        ['BM-30', '9K58', '9A52', '9A52-2', 'Smerch'], ['Tornado-G', '9K51M', '9A53-G', '2B17'], ['Tornado-S', '9K515'], ['Tornado', '9A52-4'],
+        ['9K59', '9A51'], ['TOS-1', 'TOS-1A', 'Buratino', 'Solntsepyok', 'Solntsepek'], ['TOS-2', 'Tosochka'], ['TOS-3', 'Drakon'], ['BMO-T'],
+        ['TZM-T'], '9T452', '9T234-2',
+        ['2B9', 'Vasilek'], ['2S12', '2B11', 'Sani'], ['2B14', '2B14-1', 'Podnos'], '2B24', ['BM-37', '82-BM-37'], ['PM-43', '120-PM-43'],
+        ['Iskander', '9K720', 'Iskander-M', 'Iskander-K', '9M723', '9M728', '9M729', '9P78', '9P78-1', 'SS-26', 'SSC-7', 'SSC-8'],
+        ['Tochka', '9K79', 'Tochka-U', '9P129', '9M79', 'SS-21'], ['Luna-M', '9K52', 'FROG-7'],
+        ['K-300P', 'Bastion-P', 'SSC-5', 'P-800', 'Oniks'], ['3K60', 'Bal-E', 'SSC-6'], ['Kalibr', '3M-14', '3M-54', 'SS-N-30A', 'SS-N-27'],
+        ['Lancet', 'Zala Lancet', 'Lancet-3'], ['Geran-2', 'Geran', 'Shahed-136', 'Shahed'], ['Kub-BLA'], 'Gerbera', ['Garpiya', 'Garpiya-A1'],
+        'Italmas', ['Molniya', 'Molniya-2'], ['KVN', 'Knyaz Vandal Novgorodsky', 'Knyaz Vandal'], 'VT-40', 'Skalpel']),
     ...eqp('ad', 'RU', [['ZSU-23-4', 'ZSU-23-4M4', 'Shilka'], ['ZU-23-2', 'ZU-23'], ['ZPU-4', 'ZPU-2'], 'ZSU-57-2', ['S-60'],
-        ['2S6', '2S6M', '2K22', 'Tunguska'], ['Pantsir', 'Pantsir-S1', 'Pantsir-SM', '96K6', 'SA-22'],
-        ['Osa', '9K33', 'Osa-AKM', 'SA-8'], ['Strela-10', '9K35', 'SA-13'], ['Strela-1', '9K31', 'SA-9'], ['Strela-2', '9K32', 'SA-7'],
-        ['Strela-3', '9K34', 'SA-14'], ['Igla', '9K38', '9K310', 'Igla-1', 'SA-16', 'SA-18'], ['Igla-S', '9K338', 'SA-24'],
-        ['Verba', '9K333', 'SA-25'], ['Tor', '9K330', '9K331', '9K332', 'Tor-M1', 'Tor-M2', 'SA-15'],
-        ['Buk', '9K37', 'Buk-M1', '9K317', 'Buk-M2', 'Buk-M3', 'SA-11', 'SA-17', 'SA-27'], ['Kub', '2K12', 'SA-6'], ['Krug', '2K11', 'SA-4'],
-        ['S-125', 'Neva', 'Pechora', 'SA-3'], ['S-75', 'SA-2'], ['S-300', 'S-300PS', 'S-300PM', 'S-300V', 'S-300V4', 'SA-10', 'SA-12', 'SA-20', 'SA-23'],
-        ['S-350', 'Vityaz', 'SA-28'], ['S-400', 'Triumf', 'SA-21'], 'S-500', ['Sosna', 'Sosna-R'], ['Gibka-S', 'Gibka'],
-        ['9S18', 'Kupol'], ['96L6'], ['64N6'], ['P-18'], ['P-19'], ['Nebo', 'Nebo-M', 'Nebo-SVU'], ['Kasta', 'Kasta-2E']]),
-    ...eqp('atgm', 'RU', [['Malyutka', '9K11', 'AT-3'], ['Fagot', '9K111', 'AT-4'], ['Konkurs', '9K113', '9M113', '9P148', 'AT-5'],
-        ['Shturm', '9K114', '9P149', 'Shturm-S', 'AT-6'], ['Metis', '9K115', 'AT-7'], ['Metis-M', '9K115-2', 'AT-13'],
-        ['Kornet', '9K135', '9M133', '9P162', '9P163', 'Kornet-EM', 'AT-14'], ['Khrizantema', '9K123', '9P157', 'Khrizantema-S', 'AT-15'],
-        ['Vikhr', '9K121', 'AT-16'], ['Kobra', '9K112', 'AT-8'], ['Refleks', '9K119', 'AT-11'], ['Ataka', '9K120', 'AT-9'],
-        ['RPG-7', 'RPG-7V'], 'RPG-26', 'RPG-28', 'RPG-29', 'RPG-30', 'RPG-32', ['SPG-9'], ['2A45', 'Sprut-B'], ['MT-12', 'Rapira']]),
-    ...eqp('engineer', 'RU', ['MTU-20', 'MTU-72', 'MTU-90', ['TMM', 'TMM-3', 'TMM-6'], 'PMP', 'PP-91', 'PMM-2', 'GSP', 'K-61',
-        ['PTS', 'PTS-2', 'PTS-3', 'PTS-4'], ['IMR-2', 'IMR-2M'], 'IMR-3', 'BAT-2', 'BAT-M', 'MDK-3', 'BTM-3', 'PZM-2', 'PZM-3', 'BMR-3',
-        'KMT-7', 'KMT-8', ['UR-77', 'Meteorit'], 'UR-67', 'GMZ-3', 'PMZ-4', ['UMZ', 'UMZ-G'], ['Zemledeliye'], 'Uran-6', 'Prokhod-1']),
+        ['2S6', '2S6M', '2S6M1', '2K22', '2K22M', 'Tunguska', 'SA-19', 'Grison'], ['Pantsir', 'Pantsir-S1', 'Pantsir-SM', '96K6', 'SA-22'],
+        ['2S38', 'Derivatsiya-PVO', 'Derivatsiya'], ['BTR-ZD', 'Skrezhet'],
+        ['Osa', '9K33', '9A33', '9A33BM3', 'Osa-AKM', 'SA-8'], ['Strela-10', '9K35', '9A35', '9A34', 'SA-13'], ['Strela-1', '9K31', 'SA-9'],
+        ['Strela-2', '9K32', 'SA-7'], ['Strela-3', '9K34', 'SA-14'], ['Igla', '9K38', '9K310', 'Igla-1', 'SA-16', 'SA-18'], ['Igla-S', '9K338', 'SA-24'],
+        ['Verba', '9K333', 'SA-25'], ['Tor', '9K330', '9K331', '9K332', '9A330', '9A331', 'Tor-M1', 'Tor-M2', 'Tor-M2DT', 'Tor-M2U', 'Tor-M2KM', 'SA-15'],
+        ['Buk', '9K37', 'Buk-M1', '9K317', 'Buk-M2', 'Buk-M3', '9A310', '9A316', '9A317', '9A39', '9S470', '9S510', '9S36', 'SA-11', 'SA-17', 'SA-27'],
+        ['Kub', '2K12', '2P25', '1S91', 'Straight Flush', 'SA-6'], ['Krug', '2K11', 'SA-4'],
+        ['S-125', 'Neva', 'Pechora', 'SA-3'], ['S-75', 'SA-2'],
+        ['S-300', 'S-300PS', 'S-300PM', 'S-300V', 'S-300V4', '5P85', '30N6', '76N6', '40V6', '5N63', 'Flap Lid', 'Clam Shell',
+            '9A82', '9A83', '9A84', '9A85', '9S15', '9S19', '9S32', '9S457', 'SA-10', 'SA-12', 'SA-20', 'SA-23'],
+        ['S-350', 'Vityaz', '50P6', '50N6', '50K6', 'SA-28'], ['S-400', 'Triumf', '92N6', '91N6', '55K6', '5P85TE2', 'Grave Stone', 'SA-21'], 'S-500',
+        ['Sosna', 'Sosna-R'], ['Gibka-S', 'Gibka'],
+        ['9S18', 'Kupol'], ['96L6'], ['64N6'], ['P-18'], ['P-19'], ['Nebo', 'Nebo-M', 'Nebo-SVU', '55Zh6', '55Zh6U', '55Zh6M', '1L13', '1L119'],
+        ['Kasta', 'Kasta-2E', '39N6'], ['1L122', 'Garmon', 'Garmony'], ['48Ya6', 'Podlet', 'Podlet-K1'], ['67N6', 'Gamma-DE'],
+        ['59N6', 'Protivnik-GE', 'Protivnik'], ['36D6', 'ST-68U', '19Zh6', 'Tin Shield']]),
+    ...eqp('atgm', 'RU', [['Malyutka', '9K11', '9M14', 'AT-3'], ['Fagot', '9K111', '9M111', 'AT-4'], ['Konkurs', '9K113', '9M113', '9P148', 'AT-5'],
+        ['Shturm', '9K114', '9M114', '9P149', 'Shturm-S', 'AT-6'], ['Metis', '9K115', '9M115', 'AT-7'], ['Metis-M', '9K115-2', '9M131', 'AT-13'],
+        ['Kornet', '9K135', '9M133', '9P162', '9P163', '9P163-3', '9P163M-1', 'Kornet-D', 'Kornet-T', 'Kornet-EM', 'AT-14'],
+        ['Khrizantema', '9K123', '9M123', '9P157', '9P157-2', 'Khrizantema-S', 'AT-15'],
+        ['Vikhr', '9K121', '9M127', 'AT-16'], ['Kobra', '9K112', '9M112', 'AT-8'], ['Refleks', '9K119', '9M119', 'AT-11'], ['Ataka', '9K120', '9M120', 'AT-9'],
+        ['RPG-7', 'RPG-7V'], ['RPG-18', 'Mukha'], 'RPG-22', ['RPG-26', 'Aglen'], ['RPG-27', 'Tavolga'], ['RPG-28', 'Klyukva'], ['RPG-29', 'Vampir'],
+        ['RPG-30', 'Kryuk'], ['RPG-32', 'Hashim'], ['RPO-A', 'RPO', 'RPO-M', 'Shmel', 'Shmel-M'], 'MRO-A', 'RShG-1', 'RShG-2',
+        ['SPG-9'], ['2A45', 'Sprut-B'], ['MT-12', 'Rapira', 'T-12', '2A19', '2A29'], 'BTR-RD']),
+    ...eqp('engineer', 'RU', ['MTU-20', 'MTU-72', 'MTU-90', ['MT-55', 'MT-55A'], ['TMM', 'TMM-3', 'TMM-3M2', 'TMM-6'], ['PMP', 'PMP-2M'],
+        'PP-91', 'PP-2005', 'PPS-84', 'PMM-2', 'GSP', 'K-61',
+        ['PTS', 'PTS-2', 'PTS-3', 'PTS-4'], ['IMR-2', 'IMR-2M'], ['IMR-3', 'IMR-3M'], 'IRM', 'BAT-2', 'BAT-M', 'MDK-3', 'BTM-3', 'PZM-2', 'PZM-3',
+        ['BMR-3', 'BMR-3M', 'BMR-3MA'], 'KMT-7', 'KMT-8', ['UR-77', 'Meteorit', 'Zmey Gorynych'], 'UR-67', 'UR-07', 'GMZ-3', 'PMZ-4', ['UMZ', 'UMZ-G'],
+        ['Zemledeliye', 'ISDM'], 'Uran-6', 'Prokhod-1', 'EOV-4421', 'EOV-3521', 'EOV-3523', 'PBU-100', ['KS-3574', 'KS-45719', 'KS-55729', 'KS-45731'],
+        'RKhM-4', ['RKhM-6', 'Povozka'], 'RPM-2', ['BRDM-2RKh', 'BRDM-2RKhb'], ['TMS-65', 'TMS-65M'], 'ARS-14', ['UTM-80M', 'UTM-80'],
+        'TDA-2K', 'TDA-3', ['MRK-46', 'MRK-RKh']]),
     ...eqp('logistics', 'RU', [['Ural', 'Ural-375', 'Ural-4320'], ['KamAZ', 'KamAZ-4310', 'KamAZ-5350', 'KamAZ-6560'], 'GAZ-66',
-        ['GAZ-3308', 'Sadko'], ['ZIL-131', 'ZIL-157', 'ZIL'], ['KrAZ', 'KrAZ-255', 'KrAZ-260'], 'MAZ-537', ['ATZ', 'ATMZ'],
-        ['BREM', 'BREM-1', 'BREM-1M'], 'BTS-2', 'BTS-4']),
-    ...eqp('c2', 'RU', [['R-149', 'R-149MA1', 'R-149BMR'], 'BMP-1KSh', 'BMP-2K', 'BMD-1KSh', 'BTR-80K', ['R-145BM', 'R-145'],
-        ['R-142', 'R-142N'], 'R-166', '1V13', '1V119', 'PU-12', ['Barnaul-T', 'Barnaul'], ['Andromeda-D', 'Andromeda']]),
-    ...eqp('ew', 'RU', [['Krasukha', 'Krasukha-2', 'Krasukha-4', '1RL257'], ['Borisoglebsk-2', 'RB-301B'], ['Leer-3', 'RB-341V'],
-        ['Leer-2'], ['Zhitel', 'R-330Zh'], 'Pole-21', ['Moskva-1'], 'Palantin', ['Murmansk-BN', 'Murmansk'], ['Infauna', 'RB-531B'],
-        ['Rtut-BM', 'Rtut'], 'Silok', ['Tirada-2', 'Tirada'], 'Bylina', ['Shipovnik-Aero', 'Shipovnik'], ['Torn', 'R-381T']]),
-    ...eqp('air', 'RU', [['Mi-8', 'Mi-8AMTSh', 'Mi-8MTV', 'Hip'], 'Mi-17', ['Mi-24', 'Mi-24P', 'Mi-24V', 'Hind'], ['Mi-35', 'Mi-35M'],
-        ['Mi-28', 'Mi-28N', 'Mi-28NM', 'Havoc'], 'Mi-26', 'Mi-2', ['Ka-50', 'Hokum'], ['Ka-52', 'Alligator'], 'Ka-226',
-        'Su-24', ['Su-25', 'Su-25SM3', 'Frogfoot'], ['Su-27', 'Flanker'], ['Su-30', 'Su-30SM'], ['Su-34', 'Fullback'], 'Su-35', 'Su-57',
-        'MiG-29', 'MiG-31', ['Tu-22M', 'Tu-22M3'], 'Tu-95', 'Tu-160', 'A-50', 'Il-76', 'An-12', 'An-26',
-        ['Orion', 'Inokhodets'], ['Forpost-R'], ['Okhotnik']]),
-    ...eqp('light', 'RU', [['UAZ-469', 'UAZ'], ['UAZ-452', 'Bukhanka'], ['Tigr', 'Tigr-M', 'GAZ-2330'], ['Vodnik', 'GAZ-3937']]),
+        ['GAZ-3308', 'Sadko'], 'GAZ-33097', ['ZIL-131', 'ZIL-157', 'ZIL'], ['KrAZ', 'KrAZ-255', 'KrAZ-260'], ['MAZ-537', 'MAZ-543', 'MAZ-6317'],
+        ['MZKT-7930', 'MZKT-7429'], ['BAZ-6403', 'BAZ'], ['ATZ', 'ATMZ'], 'GAZ-3351', ['GAZ-3344', 'Aleut'], ['DT-30', 'DT-30P', 'DT-30PM'],
+        ['DT-10', 'DT-10P', 'DT-10PM'],
+        ['BREM', 'BREM-1', 'BREM-1M'], ['BREM-L', 'Beglyanka'], 'BREM-K', 'BREM-D', 'BREM-80U', 'REM-KL', 'REM-KS', 'MTO-UB', 'PARM-1AM1',
+        'BTS-2', 'BTS-4', ['BMM-80', 'GAZ-59039'], 'Linza']),
+    ...eqp('c2', 'RU', [['R-149', 'R-149MA1', 'R-149MA3', 'R-149BMR', 'R-149AKSh'], 'BMP-1KSh', 'BMP-2K', 'BMD-1KSh', 'BMD-2K', 'BTR-80K',
+        ['R-145BM', 'R-145'], ['R-142', 'R-142N'], 'R-166', 'R-177M', ['R-439', 'R-439MD2'], ['R-419', 'R-419L1', 'R-419MP'], ['R-416', 'R-416GM'],
+        ['R-423', 'R-423AM'], 'R-441', ['P-260', 'Redut-2US'],
+        '1V13', '1V119', ['1V12', '1V12M', 'Mashina-M'], '1V14', '1V15', '1V16', '1V152', 'PU-12', ['Barnaul-T', 'Barnaul'],
+        ['Andromeda-D', 'Andromeda'], ['Polyana-D4', '9S52'], ['9S737', 'Ranzhir', 'Ranzhir-M'], ['PPRU-1', '9S80', 'Ovod-M-SV']]),
+    ...eqp('ew', 'RU', [['Krasukha', 'Krasukha-2', 'Krasukha-4', '1RL257', '1L269'], ['Borisoglebsk-2', 'RB-301B', 'R-330BMV', 'R-378BMV'],
+        ['Leer-3', 'RB-341V'], ['Leer-2'], ['Zhitel', 'R-330Zh'], ['Pole-21', 'R-340RP'], ['Moskva-1', '1L267'], 'Palantin', ['Murmansk-BN', 'Murmansk'],
+        ['Infauna', 'RB-531B'], ['Rtut-BM', 'Rtut-B', '1L262', 'SPR-2', 'Rtut'], 'Silok', ['Tirada-2', 'Tirada'], ['Bylina', 'RB-109A'],
+        ['Shipovnik-Aero', 'Shipovnik'], ['Torn', 'R-381T'], 'Repellent-1', 'Stupor', ['1L222', 'Avtobaza', 'Avtobaza-M'],
+        ['RB-636', 'RB-636AM2', 'Svet-KU'], ['R-934B', 'R-934BMV', 'Sinitsa'], ['RP-377', 'RP-377A', 'Lesochek'], ['RP-377LA', 'Lorandit'],
+        ['R-330M1P', 'Diabazol'], 'Dzyudoist', 'Altayets', 'ZS-82', 'ZS-88']),
+    ...eqp('air', 'RU', [['Mi-8', 'Mi-8AMTSh', 'Mi-8MTV', 'Mi-8MTPR-1', 'Hip'], ['Mi-17', 'Mi-171', 'Mi-171E', 'Mi-171Sh'],
+        ['Mi-24', 'Mi-24P', 'Mi-24V', 'Hind'], ['Mi-35', 'Mi-35M'],
+        ['Mi-28', 'Mi-28N', 'Mi-28NM', 'Havoc'], 'Mi-26', ['Mi-2', 'Hoplite'], ['Ka-50', 'Hokum'], ['Ka-52', 'Alligator'], ['Ka-226', 'Hoodlum'],
+        ['Ka-27', 'Helix'], 'Ka-29', ['Ansat', 'Ansat-U'],
+        ['Su-24', 'Su-24M', 'Su-24MR', 'Fencer'], ['Su-25', 'Su-25SM3', 'Frogfoot'], ['Su-27', 'Flanker'], ['Su-30', 'Su-30SM', 'Su-30MKK', 'Su-30MK2'],
+        ['Su-34', 'Fullback'], 'Su-35', 'Su-57', ['MiG-29', 'Fulcrum'], ['MiG-31', 'MiG-31K', 'MiG-31BM', 'Foxhound'], ['Yak-130', 'Mitten'],
+        ['Tu-22M', 'Tu-22M3'], 'Tu-95', 'Tu-160', ['A-50', 'A-50U', 'Mainstay'], 'Il-76', ['Il-20', 'Il-20M', 'Coot-A'], ['Il-22', 'Il-22PP', 'Porubshchik'],
+        'Tu-214R', 'An-12', 'An-22', 'An-26',
+        ['Orion', 'Inokhodets'], ['Forpost-R'], ['Okhotnik'], ['Altius', 'Altius-U', 'Altius-RU'],
+        'UMPK', ['FAB-500', 'FAB-250', 'FAB-1500', 'FAB-3000'], ['KAB-500', 'KAB-1500'],
+        ['Kh-31', 'Kh-31P'], 'Kh-58', 'Kh-59', 'Kh-101', 'Kh-22', 'Kh-32', ['Kinzhal', 'Kh-47M2']]),
+    ...eqp('infantry', 'RU', [['AGS-17', 'Plamya'], 'AGS-30', 'AGS-40', ['NSV', 'Utyos'], 'Kord', ['DShK', 'DShKM'], ['PKM', 'PKP', 'Pecheneg']]),
+    ...eqp('light', 'RU', [['UAZ-469', 'UAZ'], ['UAZ-452', 'Bukhanka'], ['Tigr', 'Tigr-M', 'GAZ-2330', 'GAZ-233014', 'GAZ-233114', 'GAZ-233036'],
+        ['Vodnik', 'GAZ-3937', 'GAZ-39371'], ['Iveco LMV', 'LMV', 'Iveco Rys', 'Lince'], ['KamAZ-435029', 'Patrul-A'], ['Z-STS', 'Z-STS Akhmat'],
+        ['AMN-590951', 'Spartak'], ['Sarmat-3', 'LSTC-1944'], 'Sarmat-2', ['Chaborz M-3', 'Chaborz'], ['Desertcross 1000-3', 'Desertcross']]),
     // Chinese. "Type NN" is given only where it means one thing (Type 89 is an
     // APC, a howitzer, a rocket launcher and a tank destroyer, so the PLA
     // designations ZSD-89, PLZ-89, PHZ-89 and PTZ-89 are used instead).
-    ...eqp('armor', 'CN', [['Type 59', 'Type 59-II', 'WZ-120'], ['Type 62'], ['Type 63A', 'ZTS-63'], ['Type 69', 'Type 69-II'], 'Type 79',
-        'Type 80', ['Type 85', 'Type 85-II'], ['Type 88', 'ZTZ-88'], ['Type 96', 'ZTZ-96', 'Type 96A', 'Type 96B'], ['Type 98', 'ZTZ-98'],
-        ['Type 99', 'ZTZ-99', 'Type 99A'], ['Type 15', 'ZTQ-15', 'VT5'], ['VT4', 'MBT-3000'], ['ZTL-11'], ['ZTD-05']]),
-    ...eqp('mech', 'CN', [['ZBD-04', 'Type 04', 'ZBD-04A'], 'ZBD-05', 'ZBD-03', ['ZBD-86', 'Type 86', 'WZ-501'],
-        ['ZSL-92', 'Type 92', 'WZ-551', 'ZSL-92A', 'ZSL-92B'], ['ZBL-08', 'Type 08', 'VN-1'], ['ZSD-89', 'YW534'], ['ZSD-63', 'YW531']]),
-    ...eqp('recon', 'CN', ['ASN-206', 'ASN-207', 'ASN-209', 'BZK-005', ['WZ-7'], ['SLC-2']]),
-    ...eqp('fires', 'CN', [['PLZ-05'], ['PLZ-07', 'PLZ-07A', 'PLZ-07B'], 'PLZ-83', 'PLZ-89', 'PCL-09', 'PCL-161', 'PCL-171',
-        ['PCL-181', 'PLC-181', 'SH-15'], 'PLL-05', 'PLL-09', ['PL-66', 'Type 66'], ['PL-96'], ['Type 59-1'],
-        'PHL-03', ['PHL-16', 'PCH-191'], 'PHL-11', 'PHZ-11', 'PHZ-89', ['PHL-81', 'Type 81'], 'PHL-90',
-        ['AR-1', 'AR-1A'], 'AR-2', 'AR-3', 'SR-5', 'WS-1', 'WS-2', 'SH-1', 'SH-2', 'SH-3', 'PP-87', 'PP-89', 'PP-93',
-        'DF-11', 'DF-15', 'DF-16', 'DF-17', 'DF-21', 'DF-26', 'CJ-10']),
-    ...eqp('ad', 'CN', [['PGZ-04', 'PGZ-04A'], 'PGZ-07', 'PGZ-09', 'PGZ-88', 'PGZ-95', 'PGL-625', 'PG-87', 'PG-99',
-        ['HQ-7', 'HQ-7A', 'HQ-7B', 'FM-90'], ['HQ-9', 'HQ-9A', 'HQ-9B', 'FD-2000'], ['HQ-12', 'KS-1A'], ['HQ-16', 'HQ-16A', 'HQ-16B', 'LY-80'],
-        ['HQ-17', 'HQ-17A'], ['HQ-22', 'FK-3'], 'QW-1', 'QW-2', 'QW-3', 'QW-18', 'FN-6', 'FN-16', 'HN-5', 'JY-27', 'YLC-2', 'YLC-8']),
-    ...eqp('atgm', 'CN', [['HJ-73', 'Red Arrow 73'], ['HJ-8', 'HJ-8E', 'Red Arrow 8'], 'HJ-9', ['HJ-10', 'AFT-10', 'Red Arrow 10'],
-        ['HJ-12', 'Red Arrow 12'], 'AFT-9', 'PF-89', 'PF-98', ['PTL-02', 'Type 02'], 'PTZ-89']),
-    ...eqp('engineer', 'CN', [['Type 84', 'Type 84A'], 'GCZ-110']),
-    ...eqp('logistics', 'CN', [['Shaanxi', 'Shacman', 'SX2150', 'SX2190'], ['Sinotruk', 'HOWO'], ['EQ2100', 'EQ2102']]),
-    ...eqp('air', 'CN', ['Z-8', 'Z-9', ['Z-10', 'WZ-10'], 'Z-11', 'Z-18', ['Z-19', 'WZ-19'], 'Z-20', ['J-10', 'J-10C'], 'J-11',
-        'J-15', 'J-16', 'J-20', 'JH-7', ['H-6', 'H-6K'], 'Y-8', 'Y-9', 'Y-20', 'KJ-500', 'KJ-2000', 'CH-4', 'CH-5',
+    // Brand words that name other things too (Shaanxi aircraft, Dongfeng
+    // missiles, Lynx IFVs) are left out for their model numbers.
+    ...eqp('armor', 'CN', [['Type 59', 'Type 59-II', 'WZ-120', 'ZTZ-59', 'Type 59D'], ['Type 62', 'ZTQ-62'], ['Type 63A', 'ZTS-63'],
+        ['Type 69', 'Type 69-II'], 'Type 79', 'Type 80', ['Type 85', 'Type 85-II'], ['Type 88', 'ZTZ-88'],
+        ['Type 96', 'ZTZ-96', 'Type 96A', 'Type 96B'], ['Type 98', 'ZTZ-98'], ['Type 99', 'ZTZ-99', 'Type 99A'],
+        ['Type 100', 'ZTZ-100', 'ZTZ-201'], ['Type 15', 'ZTQ-15', 'VT5'], ['VT4', 'MBT-3000'], ['ZTL-11', 'ZLT-11', 'ST-1'],
+        ['ZTD-05', 'VN16'], 'ST-3']),
+    ...eqp('mech', 'CN', [['ZBD-04', 'Type 04', 'ZBD-04A', 'WZ-502'], ['ZBD-05', 'ZBD-2000', 'VN18'], 'ZBD-03',
+        ['ZBD-86', 'Type 86', 'WZ-501', 'ZBD-86A'], ['ZSL-92', 'Type 92', 'WZ-551', 'ZSL-92A', 'ZSL-92B', 'VN2', 'CS/VN9'],
+        ['ZBL-08', 'Type 08', 'ZBL-09', 'VN-1', 'VN1C'], 'ZBL-19', 'ZSL-10', 'ZSD-05', ['ZSL-93', 'WZ-523'], 'ZFB-91',
+        ['ZFB-05', 'ZFB-05C'], ['ZSD-89', 'YW534', 'ZSD-89A'], ['ZSD-63', 'YW531'], ['YW531H', 'Type 85 APC'],
+        'VN11', 'VN12', 'VN22', 'VN23', 'CS/VN4', 'CS/AA5', 'VS27']),
+    ...eqp('recon', 'CN', ['ASN-206', ['ASN-207', 'WZ-6'], ['ASN-209', 'Silver Eagle'], ['BZK-005'], ['BZK-006', 'KDV001'],
+        'BZK-007', 'BZK-008', 'BZK-009', ['WZ-7'], ['TB-001', 'Twin-Tailed Scorpion'], ['CH-3'], ['ZRY-222', 'ZRY222'],
+        'VE36', 'VE32A', ['SLC-2'], ['Type 704']]),
+    ...eqp('fires', 'CN', [['PLZ-05', 'PLZ-05A'], ['PLZ-07', 'PLZ-07A', 'PLZ-07B'], ['PLZ-83', 'PLZ-83A', 'PLZ-83B'], ['PLZ-89', 'SH-3'],
+        'PLZ-10', 'PLZ-45', 'PCL-09', 'PCL-161', 'PCL-171', ['PCL-181', 'PLC-181', 'SH-15'], 'PLL-05', 'PLL-09',
+        ['PCP-001', 'CS/SM1'], 'SH-1', 'SH-2', 'SH-5', 'SH-9', 'SH-11', ['SH-16', 'SH-16A'], 'CS/SH4', 'CS/SM4', 'CS/SM10',
+        'CS/SS6', 'AH-2', 'AH-4', 'W90', ['PL-66', 'Type 66'], ['PL-96'], ['Type 59-1', 'PL-59', 'PL-59-1'], 'PL-54', 'PL-54-1',
+        ['PL-83', 'Type 83 gun'], ['WZ-302', 'WZ302'],
+        'PP-87', 'PP-89', 'PP-89-100', 'PP-93', 'PBP-201', 'PBP-172', 'W86', 'W84', 'QLT-89',
+        'PHL-03', ['PHL-16', 'PCH-191', 'PCL-191'], ['PHL-11', 'SR-4'], 'PHZ-11', 'PHZ-89', ['PHL-81', 'Type 81'], 'PHL-90',
+        ['PHL-20', 'SR-7'], 'PHL-21', ['PH-63', 'Type 63 MRL'], ['WZ-303', 'WZ303'],
+        ['AR-1', 'AR-1A'], 'AR-2', 'AR-3', 'SR-5', 'WS-1', 'WS-2', 'WS-3', 'WS-22', 'WS-32', 'WS-33', 'WS-35', 'WS-600L',
+        'SY-300', ['SY-400', 'BP-12A', 'BP-12'], 'A-200', 'A-300', 'WM-40', 'WM-80',
+        'DF-11', 'DF-12', 'DF-15', 'DF-16', 'DF-17', 'DF-21', 'DF-26', 'DF-27', ['DF-31', 'DF-31AG'], 'DF-41', 'DF-61',
+        'DF-5', 'CJ-10', ['CJ-100', 'DF-100'], 'CJ-1000', 'YJ-62', 'YJ-12',
+        ['CH-901', 'FH-901'], ['ASN-301', 'JWS-01', 'Feilong-300A'], 'CM-501XA', 'CM-501GA', 'WS-43']),
+    ...eqp('ad', 'CN', [['PGZ-04', 'PGZ-04A'], 'PGZ-07', 'PGZ-09', 'PGZ-88', 'PGZ-95', ['PGL-625', 'PLB-625', 'Type 625'],
+        ['PGL-12', 'SWS2', 'SWS-2', 'LD35'], 'SWS3', 'PG-87', 'PG-99', 'PG-74', ['WZ-305', 'WZ305'], 'WZ-554',
+        'LD-2000', 'LD-3000', 'FK-3000', 'CS/SA1', 'CS/SA5',
+        ['HQ-2', 'HQ-2B', 'HQ-2J'], ['HQ-6', 'HQ-6A', 'HQ-6D'], ['HQ-7', 'HQ-7A', 'HQ-7B', 'FM-90'], ['HQ-9', 'HQ-9A', 'HQ-9B', 'HQ-9C', 'FD-2000'],
+        ['HQ-10', 'HQ-10A'], 'HQ-11', ['HQ-12', 'KS-1A'], ['HQ-16', 'HQ-16A', 'HQ-16B', 'HQ-16C', 'LY-80'], ['HQ-17', 'HQ-17A', 'HQ-17AE'],
+        'HQ-19', 'HQ-20', ['HQ-22', 'HQ-22A', 'FK-3'], 'HQ-29', 'HQ-61', ['HQ-64', 'LY-60'], ['Yitian', 'TY-90'], ['FB-10', 'FB-10A'],
+        'QW-1', 'QW-2', 'QW-3', 'QW-4', 'QW-18', 'FN-6', 'FN-16', 'HN-5', 'HN-6', 'QN-202',
+        ['OW5', 'OW5-A10', 'OW5-A50'], 'LY-1', ['Hurricane 3000', 'Hurricane-3000'],
+        'JY-8', 'JY-9', 'JY-11', 'JY-14', 'JY-26', 'JY-27', ['JY-29', 'LSS-1'], 'JYL-1', 'JLG-43', 'YLC-2', 'YLC-4', 'YLC-6', 'YLC-8',
+        'YLC-12', 'YLC-15', 'YLC-18', 'HT-233', 'H-200', 'SJ-231', 'SJ-202', ['LLQ120', 'Type 120 radar'], 'CLC-1', 'CLC-2', ['TR-47', 'TR47C']]),
+    ...eqp('atgm', 'CN', [['HJ-73', 'HJ-73D', 'Red Arrow 73'], ['HJ-8', 'HJ-8E', 'AFT-8', 'Red Arrow 8'], 'HJ-9', ['HJ-10', 'AFT-10', 'Red Arrow 10'],
+        ['HJ-11', 'AFT-11'], ['HJ-12', 'Red Arrow 12'], 'HJ-13', 'HJ-16', 'HJ-20', 'AFT-9', 'PF-89', 'PF-98', 'PF-11', 'PF-97', 'DZJ-08',
+        'FHJ-01', 'FHJ-84', 'PF-78', 'PF-65', 'PF-56', 'PF-75', 'FPH-01', 'FPH-02', ['PTL-02', 'Type 02'], 'PTZ-89']),
+    ...eqp('engineer', 'CN', [['WZ-621', 'WZ621'], 'GQL-110', 'GQL-111', 'GQL-120', 'GQL-321', 'GQL-410', 'GZM-003', 'GQC-003',
+        'GCZ-110', 'GCZ-112', ['GPZ-111', 'GPZ-111A'], ['GSL-110', 'GSL-110A', 'GSL-110B'], ['GSL-111', 'WZ762A'], 'GSL-130', 'GSL-131',
+        ['GSL-132', 'GBP-127'], 'GSL-133', 'GSL-134', 'GSL-211', ['GSL-411', 'GSL-241'], ['GSL-430', 'GBP-128'], 'GBP-126',
+        ['GPJ221', 'GPJ-221'], ['ZRZ-100', 'ZRZ100'], 'GBL-120', 'GBL-130', 'GJW-320', 'GDG-130', 'Type 14']),
+    ...eqp('logistics', 'CN', [['Shacman', 'SX2150', 'SX2190', 'SX2110', 'SX2220', 'SX2300', 'SX2306', 'HMV3'], ['Sinotruk', 'HOWO'],
+        ['EQ2100', 'EQ2102', 'EQ245'], ['EQ2081', 'EQ240'], 'EQ1108', ['FAW MV3', 'MV3'], ['Taian', 'TA5450', 'TA4410', 'TA4360', 'TA5380'],
+        ['Wanshan', 'WS580', 'WS2300', 'WS2400', 'WS2500', 'WS2600'], 'HY472', ['CA-141', 'CA141'], ['CA-30', 'CA30'], ['CA-10', 'CA10'],
+        ['NJ-130', 'NJ130'], ['NJ-230', 'NJ230'], 'JY813', ['CWB-221', 'CWB221'], 'CSZ-181',
+        'ZJX-93', ['WZ-653', 'WZ653', 'WZ653A'], 'VME-203', 'VME-102-40', 'Type 90-II ARV']),
+    ...eqp('ew', 'CN', ['J-16D', 'Y-8CA', 'Y-8CB', 'Y-8DZ', 'Y-8GX1', 'Y-8GX3', 'Y-8GX7', 'Y-8JB', 'Y-8EW', 'Y-9DZ', 'Y-9LG',
+        ['DWL-002', 'DWL002'], 'CTL-181A EW']),
+    ...eqp('air', 'CN', [['Z-8', 'Z-8L'], ['Z-9', 'Z-9W', 'Z-9WA', 'Z-9C'], ['Z-10', 'WZ-10', 'Z-10ME'], 'Z-11', 'Z-18', ['Z-19', 'WZ-19'],
+        ['Z-20', 'Z-20T'], 'Z-21', ['H120', 'EC120'], 'SA342', 'S-70C2', ['J-10', 'J-10C'], 'J-11', 'J-15', 'J-16', 'J-20',
+        ['J-35', 'J-35A'], 'J-7', ['J-8', 'J-8II'], 'Q-5', ['JH-7', 'JH-7A'], ['H-6', 'H-6K', 'H-6N', 'H-6J'], 'Y-5', 'Y-7', ['Y-8', 'Shaanxi Y-8'], ['Y-9', 'Shaanxi Y-9'],
+        'Y-20', ['YY-20', 'YY-20A'], 'KJ-200', 'KJ-500', 'KJ-600', 'KJ-2000', 'CH-4', 'CH-5', 'KDV002',
         ['Wing Loong', 'GJ-1', 'GJ-2'], 'GJ-11', 'WZ-8']),
-    ...eqp('light', 'CN', [['Mengshi', 'EQ2050', 'CSK-131'], ['BJ2022', 'Brave Warrior'], 'BJ2020', 'BJ212']),
+    ...eqp('light', 'CN', [['Mengshi', 'EQ2050', 'CSK-131'], 'CSK-141', 'CSK-181', ['CTL-181A', 'CTL181A'], ['BJ2022', 'Brave Warrior'],
+        'BJ2020', 'BJ212', 'BJ80', ['NJ2045', 'NJ2046'], ['Lynx ATV', 'CS/VP16'], 'CS/VP4', 'CS/VP11', 'CS/VP15', 'CS/VP3', 'VP11',
+        'VP22', ['VN3', 'CS/VN3'], 'VN4']),
     // Plain words, any army
     ...eqp('armor', '', [['tank', 'TANK', 'MBT']]),
     ...eqp('mech', '', [['IFV', 'IFV', 'APC', 'BMP', 'BMD', 'BTR', 'MRAP', 'ARMORED VEHICLE', 'ARMOURED VEHICLE']]),
-    ...eqp('recon', '', [['recon', 'RECON', 'SCOUT', 'BRDM', 'UAV', 'UAS', 'DRONE', 'QUADCOPTER']]),
-    ...eqp('fires', '', [['artillery', 'ARTILLERY', 'ARTY', 'HOWITZER', 'SPG', 'SP GUN', 'MORTAR', 'MLRS', 'MRL', 'ROCKET LAUNCHER']]),
+    ...eqp('recon', '', [['recon', 'RECON', 'SCOUT', 'BRDM', 'UAV', 'UAS', 'DRONE', 'QUADCOPTER', 'UGV', 'MAVIC', 'DJI', 'MATRICE', 'AUTEL']]),
+    ...eqp('fires', '', [['artillery', 'ARTILLERY', 'ARTY', 'HOWITZER', 'SPG', 'SP GUN', 'MORTAR', 'MLRS', 'MRL', 'ROCKET LAUNCHER'],
+        ['FPV', 'FPV', 'LOITERING MUNITION', 'KAMIKAZE DRONE']]),
     ...eqp('ad', '', [['air defense', 'AIR DEFENSE', 'AIR DEFENCE', 'ADA', 'SAM', 'AAA', 'MANPADS']]),
     ...eqp('atgm', '', [['ATGM', 'ATGM', 'AT TEAM', 'RPG']]),
     ...eqp('engineer', '', [['engineer', 'ENGINEER', 'BULLDOZER', 'DOZER', 'EXCAVATOR', 'BACKHOE', 'BRIDGE', 'BRIDGE LAYER', 'AVLB',
-        'MINELAYER', 'MINE PLOW']]),
-    ...eqp('logistics', '', [['truck', 'TRUCK', 'LORRY', 'FUEL', 'TANKER', 'POL', 'CARGO', 'AMMO', 'WATER', 'SUPPLY', 'WRECKER', 'TRAILER']]),
-    ...eqp('c2', '', [['command post', 'COMMAND POST', 'CP', 'HQ', 'C2', 'ANTENNA']]),
-    ...eqp('ew', '', [['jammer', 'JAMMER', 'EW']]),
+        'MINELAYER', 'MINE PLOW'], ['CBRN', 'CBRN', 'DECON', 'SMOKE GENERATOR']]),
+    ...eqp('logistics', '', [['truck', 'TRUCK', 'LORRY', 'FUEL', 'TANKER', 'POL', 'CARGO', 'AMMO', 'WATER', 'SUPPLY', 'WRECKER', 'TRAILER', 'RECOVERY VEHICLE'],
+        ['ambulance', 'AMBULANCE', 'MEDEVAC']]),
+    ...eqp('c2', '', [['command post', 'COMMAND POST', 'CP', 'HQ', 'C2', 'ANTENNA', 'RADIO RELAY', 'SATCOM']]),
+    ...eqp('ew', '', [['jammer', 'JAMMER', 'EW', 'REB', 'ANTI-DRONE', 'DRONE GUN']]),
     ...eqp('air', '', [['helicopter', 'HELICOPTER', 'HELO', 'AIRCRAFT', 'JET']]),
     ...eqp('infantry', '', [['PAX', 'PAX', 'PERSONNEL', 'PERSON', 'PEOPLE', 'TROOP', 'SOLDIER', 'INFANTRY', 'DISMOUNT', 'MAN', 'MEN',
         'FIGHTER', 'SQUAD', 'TEAM', 'INDIVIDUAL']]),
-    ...eqp('light', '', [['light vehicle', 'LIGHT VEHICLE', 'CAR', 'JEEP', 'PICKUP', 'SUV', 'TECHNICAL', 'MOTORCYCLE', 'ATV', 'UTV', 'VAN', 'SEDAN']]),
+    ...eqp('light', '', [['light vehicle', 'LIGHT VEHICLE', 'CAR', 'JEEP', 'PICKUP', 'SUV', 'TECHNICAL', 'MOTORCYCLE', 'MOTORBIKE', 'ATV', 'UTV', 'VAN', 'SEDAN',
+        'BUGGY', 'QUAD BIKE']]),
 ];
 const normType = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
 // Names to match, longest first so the most specific one wins.
@@ -2074,54 +2162,94 @@ const EVEN = 3, LIKELY = 4, VERY_LIKELY = 5;   // rules never claim more than ve
 const NARRATIVE_RULES = [
     ['offense', 'Preparing an offensive', 'artillery, air defense moving, armor massing, engineers moving, EW, contact', 'Maneuver'],
     ['axes', 'Advance on several axes', 'armor or mechanized forces moving in two or more places within 6 hrs', 'Maneuver'],
+    ['fixing', 'Fixing attack, main effort elsewhere', 'contact in one place while armor or mechanized forces move in another within 3 hrs', 'Maneuver'],
     ['forward', 'Forward detachment or advance guard', 'armor moving with artillery, air defense or engineers', 'Maneuver'],
-    ['recon', 'Reconnaissance ahead of armor', 'reconnaissance, then armor or mechanized forces within 6 hrs in the same place', 'Maneuver'],
+    ['recon', 'Reconnaissance ahead of armor', 'reconnaissance or UAVs, then armor or mechanized forces within 6 hrs in the same place', 'Maneuver'],
+    ['reconforce', 'Reconnaissance in force', 'a platoon or more firing, then pulling back within 3 hrs in the same place', 'Maneuver'],
     ['assembly', 'Assembly area', 'armor halted with supply or command vehicles, or resupplying', 'Maneuver'],
     ['reserve', 'Second echelon or reserve', 'armor halted in one place while there is contact in another', 'Maneuver'],
     ['firing', 'Probing or attacking', 'firing twice or more, or by a company or more', 'Maneuver'],
+    ['dismount', 'Delivering an assault group', 'armored vehicles dropping infantry, then infantry moving or fighting within 2 hrs', 'Maneuver'],
+    ['buildup', 'Infantry building up near the line', 'small dismounted groups halted or hiding in one place, three times or more in 48 hrs', 'Maneuver'],
+    ['infiltration', 'Infiltration by small groups', 'small dismounted groups (or light vehicles) moving or observing, twice or more in 12 hrs', 'Maneuver'],
+    ['lightassault', 'Assault on light vehicles', 'motorcycles, buggies or light vehicles moving or fighting, twice or more in 12 hrs', 'Maneuver'],
+    ['urban', 'Assault groups in built-up areas', 'small dismounted groups fighting among buildings, with tanks, thermobaric weapons or artillery', 'Maneuver'],
+    ['exploit', 'Exploiting a breakthrough', 'contact in one place, then armor moving through it and on into new places within 12 hrs', 'Maneuver'],
+    ['encircle', 'Envelopment or encirclement', 'forces moving or fighting in three or more 10 km squares around one, or flanking reported', 'Maneuver'],
+    ['pursuit', 'Pursuit', 'pursuit reported by armor, light vehicles or infantry', 'Maneuver'],
+    ['counterattack', 'Counterattack', 'a counterattack reported, or armor arriving in a place after contact there', 'Maneuver'],
     ['withdrawal', 'Withdrawal', 'reports of withdrawing, retreating or breaking contact', 'Maneuver'],
-    ['infiltration', 'Infiltration by small groups', 'small dismounted groups moving or observing, twice or more in 12 hrs', 'Maneuver'],
     ['airassault', 'Air assault or airborne landing', 'transport helicopters, landings, airborne vehicles', 'Maneuver'],
     ['amphibious', 'Amphibious landing or crossing', 'amphibious vehicles or landings, with smoke, ferries or cover', 'Maneuver'],
     ['defense', 'Preparing a defense', 'digging in, obstacles or mines, engineers, antitank weapons, vehicles halted', 'Defense'],
+    ['strongpoint', 'A company strongpoint', 'two of armor, infantry and antitank weapons holding in one place for 12 hrs or more', 'Defense'],
+    ['fortline', 'A fortified line in depth', 'digging in, obstacles or engineers in three or more places within 48 hrs', 'Defense'],
+    ['screen', 'Security zone or screen', 'reconnaissance or small groups halted or observing in two or more places within 6 hrs', 'Defense'],
     ['antitank', 'Antitank positions', 'antitank weapons in position, with obstacles or tanks in hides', 'Defense'],
+    ['remotemine', 'Remote mining', 'minelaying systems or scatterable mines, with rockets or artillery', 'Defense'],
     ['deception', 'Camouflage and deception', 'decoys, dummies, camouflage or concealment reported', 'Defense'],
     ['artillery', 'Artillery preparation or fire strike', 'artillery or rocket fire twice or more in 3 hrs, then armor moving', 'Fires'],
-    ['reconfire', 'UAVs spotting for artillery', 'UAVs, then artillery or shelling within an hour in the same place', 'Fires'],
+    ['reconfire', 'UAVs spotting for artillery', 'UAVs, then artillery, shelling or loitering munitions within an hour in the same place', 'Fires'],
+    ['isr', 'Persistent drone surveillance', 'UAVs over one place three times or more in 12 hrs, with no fire yet', 'Fires'],
+    ['counterbattery', 'Counter-battery fire', 'counter-battery radar or fire, or drones striking guns, with artillery in the same place', 'Fires'],
+    ['shootscoot', 'Shoot and scoot', 'artillery or rockets firing, then moving within the hour', 'Fires'],
+    ['tankfire', 'Tanks as fire support', 'tanks firing from halted positions, with no armor advancing there', 'Fires'],
+    ['thermobaric', 'Thermobaric fires', 'TOS launchers, Shmel or PF-97 flamethrowers, or thermobaric fire reported', 'Fires'],
     ['deep', 'Long-range strikes', 'long-range rockets or missiles (Iskander, Smerch, Tornado-S, PHL-16, DF-series)', 'Fires'],
+    ['c2strike', 'Strikes on command and sensors', 'fires, missiles or drones striking command posts, radars or communications', 'Fires'],
+    ['sead', 'Suppressing air defense', 'anti-radiation weapons, or strikes on radars and air defense', 'Fires'],
     ['drones', 'Loitering munitions and drones', 'loitering munitions, FPV or armed drones', 'Fires'],
+    ['interdict', 'Drones cutting supply routes', 'drones or FPVs striking vehicles or roads in one place', 'Fires'],
+    ['glidebomb', 'Glide bomb strikes', 'glide or guided bombs (KAB, FAB with UMPK, LS-6)', 'Fires'],
     ['aviation', 'Attack aviation', 'attack helicopters, ground-attack aircraft or armed UAVs', 'Fires'],
     ['crossing', 'River or gap crossing', 'bridging or ferries, smoke, air defense cover, armor waiting', 'Support'],
     ['breach', 'Breaching obstacles', 'mine clearing or breaching, smoke, fire support, armor nearby', 'Support'],
+    ['cbrn', 'Chemical defense and smoke troops', 'chemical-defense vehicles, decontamination or smoke generators', 'Support'],
     ['cp', 'Command post', 'command vehicles or antennas, with air defense, EW or many vehicles halted', 'Support'],
     ['adsite', 'Air defense over a key site', 'air defense in place with command, artillery or supply vehicles', 'Support'],
     ['ew', 'Electronic warfare', 'EW systems, or jamming reported', 'Support'],
     ['logistics', 'A logistics point', 'supply vehicles halted or resupplying in one place, twice or more in 12 hrs', 'Support'],
+    ['logforward', 'Logistics pushing forward', 'supply vehicles moving, twice or more in 12 hrs, while armor masses or with fuel and ammunition', 'Support'],
+    ['railhead', 'A railhead or rail move', 'armor, artillery or supply vehicles on trains or at a railhead', 'Support'],
+    ['droneresupply', 'Resupply by drone', 'drones dropping or carrying supplies', 'Support'],
+    ['farp', 'Helicopter refueling point', 'helicopters on the ground with fuel or supply vehicles, or a FARP reported', 'Support'],
+    ['casevac', 'Casualty evacuation', 'ambulances, MEDEVAC or wounded reported', 'Support'],
+    ['regroup', 'Regrouping after an attack', 'armor or infantry halted, resupplying or recovering vehicles within 24 hrs after contact', 'Support'],
 ];
 const RULE_ORDER = Object.fromEntries(NARRATIVE_RULES.map(([id], i) => [id, i]));
 
 // What each pattern means in the doctrine of the army whose equipment was
-// reported: Russian, or the PLA's. Open-source generalities, said once under
-// each judgment so a reader knows why it matters.
+// reported: Russian, or the PLA's. Open-source generalities (US Army ATP
+// 7-100.1 and 7-100.3, TRADOC, RUSI, RAND and others, including Russian
+// practice in Ukraine since 2022), said once under each judgment so a reader
+// knows why it matters.
 const DOCTRINE = {
     offense: {
         RU: 'Russian offensives typically open with reconnaissance, EW and an artillery preparation, with air defense moving forward under the main effort.',
-        CN: 'PLA offensives typically open with an integrated fire strike (rockets, artillery, aviation) and EW against command and control, then a combined-arms assault.',
+        CN: 'PLA offensives open by closing the range: reconnaissance and a firepower strike with EW against command and sensors, then assault groups entangle and annihilate on a weak point.',
     },
     axes: {
         RU: 'Russian attacks pair a main effort with supporting attacks on other axes, to fix the defender and envelop.',
-        CN: 'PLA attacks send assault groups along several directions that converge on the objective.',
+        CN: "PLA attacks follow 'one point, two sides': converging attacks on several axes, with fire to fix, concentrating on one point of penetration.",
+    },
+    fixing: {
+        RU: 'Russian attacks often pair a fixing attack on one axis with the main effort on another, to pin defenders and draw in their reserves.',
+        CN: "Under 'one point, two sides', PLA units fix the enemy with fire on supporting axes while massing on a single point of penetration.",
     },
     forward: {
-        RU: 'A Russian forward detachment (often a reinforced battalion) or advance guard moves ahead of the main body to seize key terrain.',
-        CN: 'PLA combined-arms battalions push a vanguard ahead of the main body to seize key terrain.',
+        RU: 'A Russian forward detachment or advance guard moves ahead of the main body to seize key terrain; since 2023 it is often an armored group of a few tanks and BMPs carrying an assault group.',
+        CN: 'PLA brigades push a vanguard or thrust maneuver group ahead of the main body to seize key terrain.',
     },
     recon: {
-        RU: 'Russian forces lead with reconnaissance (razvedka), often a combat reconnaissance patrol ahead of the main body.',
-        CN: 'PLA forces send reconnaissance elements ahead to fix targets for the follow-on assault and fires.',
+        RU: 'Russian forces lead with reconnaissance (razvedka): UAVs and a combat reconnaissance patrol ahead of the main body.',
+        CN: 'PLA reconnaissance battalions (mounted scouts, battlefield surveillance and UAV companies) find targets ahead of the assault and its fires.',
+    },
+    reconforce: {
+        RU: 'Russian forces conduct reconnaissance in force (razvedka boyem), attacking with a reinforced platoon or company to make defenders reveal their positions, then striking them with artillery.',
+        CN: 'PLA units use reconnaissance in force and reconnaissance by fire to make defenders open fire and reveal positions for the follow-on firepower strike.',
     },
     assembly: {
-        RU: 'Russian battalion tactical groups gather in assembly areas to refuel and rearm before moving to attack positions.',
+        RU: 'Russian assault detachments and battalion groups assemble dispersed, in small groups and often in villages or tree lines, to refuel and rearm before moving to attack positions.',
         CN: 'PLA combined-arms battalions gather in assembly areas to refuel and organize assault groups before attacking.',
     },
     reserve: {
@@ -2129,55 +2257,139 @@ const DOCTRINE = {
         CN: 'PLA forces hold a reserve or second echelon to exploit a breakthrough or counterattack.',
     },
     firing: {
-        RU: 'Russian forces probe with small assault groups and reconnaissance in force to find gaps before the main attack.',
+        RU: 'Russian forces probe continuously with small assault groups, often expendable infantry, to make defenders reveal their positions, which drones and artillery then strike.',
         CN: 'PLA forces probe with small assault elements to locate positions for fires before the main assault.',
+    },
+    dismount: {
+        RU: 'A Russian armored group (bronegruppa, often a tank and a few BMPs) races assault infantry to a dismount point, then pulls back or supports them by fire.',
+        CN: 'PLA infantry fighting vehicles carry assault teams to the dismount point, then support them with cannon and missile fire as they close.',
+    },
+    buildup: {
+        RU: 'Russian assault infantry seep through the grey zone in twos and threes and gather in tree lines or buildings near the line until there are enough to assault.',
+        CN: 'PLA light infantry close the range in small three-man teams and concentrate near a weak point before the assault.',
+    },
+    infiltration: {
+        RU: 'Russian sabotage-reconnaissance groups (DRG) infiltrate in small teams to scout, mark targets and raid; since 2024 assault infantry also seep through gaps in twos and threes, often on motorcycles.',
+        CN: 'PLA special operations and reconnaissance teams penetrate in small three-man groups to scout and designate targets.',
+    },
+    lightassault: {
+        RU: 'Since 2024 Russian assault groups ride motorcycles, buggies and civilian vehicles in pairs and small groups to dash through the drone-covered grey zone.',
+        CN: 'PLA light combined-arms battalions move on Mengshi light vehicles and all-terrain vehicles for fast, dispersed approaches and raids.',
+    },
+    urban: {
+        RU: 'Russian forces take built-up areas building by building with small assault groups, supported by tanks, thermobaric weapons, artillery and drones.',
+        CN: 'PLA urban assaults combine small infantry teams with UAVs, unmanned ground vehicles, smoke and breaching vehicles, clearing buildings from the top down.',
+    },
+    exploit: {
+        RU: 'Russian commanders exploit a breach by pushing a fresh forward detachment or second echelon through it to strike rear areas before the defense recovers.',
+        CN: 'PLA attacks commit depth-attack and thrust maneuver groups through the gap to envelop the defense and strike its rear.',
+    },
+    encircle: {
+        RU: 'Russian operations favor envelopment and encirclement of strongpoints and towns, cutting supply routes with fire before closing the pocket (kotyol).',
+        CN: 'PLA tactics aim to split and encircle the enemy and annihilate it in detail, bypassing strongpoints to isolate them.',
+    },
+    pursuit: {
+        RU: 'Russian doctrine calls for parallel and frontal pursuit to stop a withdrawing enemy from occupying new positions.',
+        CN: "PLA tactics stress the 'three ferocities', including fierce pursuit of a retreating enemy before it can reorganize.",
+    },
+    counterattack: {
+        RU: 'Russian defenders counterattack quickly, often within hours and at platoon to company strength, with tanks and artillery, to retake lost positions before the attacker consolidates.',
+        CN: 'PLA defenses keep an armor-heavy depth group to counterattack a penetration once it has been fixed in the annihilation zones.',
     },
     withdrawal: {
         RU: 'Russian withdrawals are covered by a rear guard, obstacles and artillery, often at night.',
         CN: 'PLA withdrawals are covered by a rear guard and obstacles while the main body breaks contact.',
     },
-    infiltration: {
-        RU: 'Russian sabotage-reconnaissance groups (DRG) infiltrate in small teams to scout, mark targets and raid.',
-        CN: 'PLA special operations and reconnaissance teams infiltrate in small groups to scout and designate targets.',
-    },
     airassault: {
         RU: 'Russian airborne (VDV) and air-assault forces land by helicopter or parachute to seize key terrain ahead of ground forces.',
-        CN: 'PLA air-assault brigades land by helicopter (Z-8, Z-20) to seize key terrain or crossings.',
+        CN: "PLA army air-assault brigades land by helicopter (Z-8, Z-20) to seize key terrain or crossings; the Air Force's airborne corps drops by parachute.",
     },
     amphibious: {
         RU: 'Russian naval infantry and amphibious vehicles land, or cross water obstacles, under covering fire.',
         CN: 'PLA amphibious combined-arms brigades (ZBD-05, ZTD-05) land under covering fires, with smoke and EW.',
     },
     defense: {
-        RU: 'Russian defenses are built around company strongpoints, with obstacles and mines covered by fire and ATGMs, and a reserve held back to counterattack.',
-        CN: 'PLA defenses use mutually supporting positions with obstacles, layered antitank fires and a mobile reserve to counterattack.',
+        RU: 'Russian defenses are echeloned: a security zone, then company strongpoints behind dense, mixed minefields covered by fire sacks, with reserves held back to counterattack.',
+        CN: 'PLA positional defenses put a frontier defense group forward and a depth defense group behind, with obstacles covering annihilation zones and an armor-heavy force to counterattack.',
+    },
+    strongpoint: {
+        RU: 'The Russian defense is built from company strongpoints (opornyy punkt) holding all-round, linked by fire and obstacles rather than a continuous trench.',
+        CN: 'PLA defenses hold strongpoints that cover each other and anchor the annihilation zones.',
+    },
+    fortline: {
+        RU: 'Russian forces build fortified lines in depth (as on the Surovikin line) with tank ditches, dragon\'s teeth, wire, dense minefields and company strongpoints several kilometers apart.',
+        CN: 'PLA positional defense is built in depth, with a frontier defense group forward and a depth defense group behind it in prepared positions.',
+    },
+    screen: {
+        RU: 'Russian defenses push a security zone and forward positions ahead of the main defensive area to warn, delay and draw the attacker into prepared fire sacks.',
+        CN: 'PLA defenses post security and disruption elements forward of the main positions to warn of, delay and fix the attacker before the annihilation zones.',
     },
     antitank: {
-        RU: 'Russian defenses place ATGMs and tanks in prepared positions covering obstacles and likely armor approaches.',
-        CN: 'PLA defenses site antitank missiles (HJ-series) in depth, covering obstacles and likely armor approaches.',
+        RU: 'Russian defenses place ATGMs and tanks in prepared positions covering obstacles and likely armor approaches, forming fire sacks.',
+        CN: 'PLA defenses site antitank missiles (HJ-series) in depth, covering obstacles, likely armor approaches and the annihilation zones.',
+    },
+    remotemine: {
+        RU: 'Russian engineers lay minefields remotely (Zemledeliye, UMZ, artillery-scattered mines) to block counterattacks, seal flanks and close routes behind an enemy.',
+        CN: 'PLA engineers lay rapid and scatterable minefields to block enemy maneuver and protect the flanks of an attack or defense.',
     },
     deception: {
-        RU: 'Russian maskirovka uses decoys, camouflage and false positions to mislead about strength and intent.',
-        CN: 'PLA deception uses decoys, camouflage and false emissions to mislead about strength and intent.',
+        RU: 'Russian maskirovka uses inflatable and wooden decoys, thermal camouflage, decoy drones (Gerbera) and false positions to mislead about strength and intent.',
+        CN: 'PLA deception combines camouflage, feints and false emissions to mislead about strength and intent.',
     },
     artillery: {
-        RU: 'Russian attacks open with an artillery preparation: massed tube and rocket fire before the assault.',
-        CN: 'PLA attacks open with a fire strike of rockets and artillery before the assault.',
+        RU: 'Russian attacks open with an artillery preparation or short, intense fire raids, now often with mortars, drones and glide bombs as well as guns.',
+        CN: 'PLA attacks open with a fire preparation and fire assaults by rockets and artillery before the assault groups close.',
     },
     reconfire: {
-        RU: 'Russian reconnaissance-fire complexes link UAVs to artillery, putting fire on a target within minutes of finding it.',
-        CN: 'PLA reconnaissance-strike integration links UAVs and sensors to rocket and artillery fires.',
+        RU: 'Russian reconnaissance-fire complexes link UAVs to artillery and drones, putting fire on a target within minutes of finding it (the missile-armed operational version is the reconnaissance-strike complex).',
+        CN: 'PLA reconnaissance-strike integration links UAVs and reconnaissance battalions directly to rockets and artillery.',
+    },
+    isr: {
+        RU: 'Persistent Russian drone surveillance of one place usually means a target is being built up for artillery, glide bombs or an assault.',
+        CN: 'Persistent PLA UAV surveillance builds the target picture that reconnaissance-strike integration needs before a firepower strike.',
+    },
+    counterbattery: {
+        RU: 'Russian counter-battery fire uses Zoopark radars, UAVs and increasingly loitering munitions to find guns and strike them within minutes.',
+        CN: 'PLA artillery battalions use target-acquisition radars (SLC-2) and UAVs to locate enemy guns for counter-battery fire as part of the firepower strike.',
+    },
+    shootscoot: {
+        RU: 'Russian guns and rocket launchers fire from several positions, and on the move, then displace quickly to survive counter-battery fire ("roving" guns).',
+        CN: 'PLA self-propelled guns and rocket batteries (PCL-181, PHL-16) fire autonomously and displace before counter-battery fire arrives.',
+    },
+    tankfire: {
+        RU: 'Russian tanks are now used mostly as direct or indirect fire support from behind the line, and in armored groups, rather than to break through.',
+        CN: 'PLA assault-gun and tank companies support assault groups by fire, engaging strongpoints from standoff before the infantry close.',
+    },
+    thermobaric: {
+        RU: 'Russian RKhBZ troops fire TOS thermobaric rockets (and infantry fire RPO-A Shmel) against fortified positions and built-up areas, usually just before an assault.',
+        CN: 'PLA chemical-defense units field flamethrowers and incendiary or thermobaric rocket launchers to destroy fortified positions during an assault.',
     },
     deep: {
         RU: 'Russian deep strikes (Iskander, long-range rockets) hit command posts, air defense and logistics in depth.',
-        CN: 'PLA long-range fires (PHL-16, DF-series missiles) strike command, air defense and logistics as part of a joint fire strike.',
+        CN: "PLA long-range fires (the army's PHL-16 rockets, the Rocket Force's DF-series missiles) strike command, air defense and logistics as part of a joint fire strike.",
+    },
+    c2strike: {
+        RU: 'Russian deep strikes and loitering munitions go after command posts, radars and communications nodes first, to blind and paralyze the defense.',
+        CN: "PLA 'system destruction warfare' strikes command, communications and sensor nodes first to paralyze the enemy's operational system.",
+    },
+    sead: {
+        RU: 'Russian forces hunt air defense with anti-radiation missiles, decoys, EW and Lancet strikes, often baiting radars to emit before striking.',
+        CN: 'PLA fire strikes go after air-defense radars early, with anti-radiation loitering munitions (ASN-301), rockets and EW, as part of system destruction.',
     },
     drones: {
-        RU: 'Russian forces use loitering munitions (Lancet, Geran) and FPV drones against armor, artillery and air defense.',
-        CN: 'PLA forces use loitering munitions and armed UAVs against high-value targets.',
+        RU: 'Russian forces use Lancet and Molniya loitering munitions and FPV drones, including fiber-optic FPVs that jamming cannot stop, against armor, artillery, air defense and supply routes.',
+        CN: 'PLA forces field loitering munitions (CH-901, ASN-301), FPV drones and swarms, down to squad level.',
+    },
+    interdict: {
+        RU: 'Russian drone units use fiber-optic and long-range FPVs to cut supply routes 15-20 km behind the line before an assault.',
+        CN: 'PLA system destruction warfare targets logistics and the links between units, using reconnaissance-strike UAVs and rockets to isolate the battle area.',
+    },
+    glidebomb: {
+        RU: 'Russian aircraft drop FAB and KAB bombs with UMPK glide kits from 40 to 70 km away to destroy strongpoints and villages just ahead of an assault.',
+        CN: 'PLA aircraft carry satellite-guided glide bombs (LS-6) to strike fixed positions from outside short-range air defense.',
     },
     aviation: {
-        RU: 'Russian attack helicopters and Su-25s support ground attacks, often firing from standoff.',
+        RU: 'Russian attack helicopters and Su-25s fire rockets from standoff, often in lofted salvoes, while Su-34s drop glide bombs on positions ahead of an attack.',
         CN: 'PLA army aviation (Z-10, Z-19) supports ground attacks and air assaults.',
     },
     crossing: {
@@ -2185,11 +2397,15 @@ const DOCTRINE = {
         CN: 'PLA gap crossings use smoke, air defense cover, bridging and amphibious vehicles.',
     },
     breach: {
-        RU: 'Russian breaches use UR-77 line charges, mine plows and smoke, with artillery suppressing the far side.',
+        RU: 'Russian breaches use UR-77 line charges and tank mine plows (KMT-7/8) leading the column, smoke, and artillery suppressing the far side.',
         CN: 'PLA breaches use mine-clearing vehicles, line charges and smoke under suppressive fires.',
     },
+    cbrn: {
+        RU: 'Russian RKhBZ (radiation, chemical and biological protection) troops lay smoke to screen crossings, breaches and assaults, decontaminate, and operate the TOS launchers.',
+        CN: 'PLA chemical-defense companies screen attacks, crossings and breaches with smoke (now also laid by UAVs) and decontaminate units.',
+    },
     cp: {
-        RU: 'Russian command posts show clusters of command vehicles (R-149, R-145), antennas, generators and nearby air defense.',
+        RU: 'Russian tactical command posts show command vehicles (R-149, R-145) and antennas near the line; higher headquarters sit further back in hardened buildings, wired to the civil telecom network.',
         CN: 'PLA command posts show command vehicles, antennas, generators and local air defense.',
     },
     adsite: {
@@ -2197,18 +2413,42 @@ const DOCTRINE = {
         CN: 'PLA air defense covers key sites with layered short- and medium-range systems.',
     },
     ew: {
-        RU: 'Russian EW (Borisoglebsk-2, Leer-3, Krasukha) jams communications, GPS and drones ahead of and during attacks.',
+        RU: 'Russian EW (Borisoglebsk-2, Leer-3, Krasukha) jams communications, GPS and drones, about one major system per 10 km of front, plus small trench and vehicle jammers protecting assault columns.',
         CN: "PLA electronic warfare targets command, communications and sensors early, as part of 'system destruction' warfare.",
     },
     logistics: {
-        RU: 'Russian units depend on truck-borne resupply from depots close behind the line; fuel and ammunition points are high-value targets.',
-        CN: 'PLA combined-arms brigades are supplied by a support battalion pushing fuel and ammunition forward to battalions.',
+        RU: 'Russian supply runs by rail to railheads, then by truck from materiel-technical support (MTO) units; forward points sit close behind the line, and the last kilometers are often by motorcycle or drone.',
+        CN: "PLA combined-arms brigades are supplied by a service-support battalion, backed by the group army's service-support brigade, pushing fuel and ammunition forward.",
+    },
+    logforward: {
+        RU: 'Russian ammunition and fuel moving forward from MTO units usually comes before an attack.',
+        CN: 'PLA service-support battalions push fuel and ammunition forward to the combined-arms battalions just before and during an attack.',
+    },
+    railhead: {
+        RU: 'Russian forces move and supply by rail to railheads near the front, then by truck; a railhead unloading armor or ammunition often signals a build-up.',
+        CN: 'PLA brigades practice long moves by rail (as in the Stride exercises), so heavy equipment on trains signals a deployment.',
+    },
+    droneresupply: {
+        RU: 'Russian forces resupply small infiltrated groups by drone when vehicles cannot reach them, a sign they mean to hold the ground they have seeped into.',
+        CN: 'PLA units, notably the airborne corps, use cargo UAVs to resupply forward elements.',
+    },
+    farp: {
+        RU: 'Russian attack helicopters work from forward refueling and rearming sites close behind the line, to fly repeated short sorties in support of an attack.',
+        CN: 'PLA army aviation sets up temporary refueling and rearming points to keep attack helicopters close to the fight.',
+    },
+    casevac: {
+        RU: 'Russian assault groups include evacuation teams; evacuation of wounded after an assault is a sign of heavy fighting, though it is often slow.',
+        CN: 'PLA units evacuate wounded with armored ambulances and are trialing unmanned vehicles and heavy-lift drones for it.',
+    },
+    regroup: {
+        RU: 'After a costly assault, Russian units pull back, recover vehicles (BREM), take replacements and attack again, often on the same axis within days.',
+        CN: 'PLA units consolidate and reorganize after an assault, committing the reserve while the assault groups regroup.',
     },
 };
 const ARMIES = { RU: 'Russian', CN: 'Chinese' };
 
 const HOUR = 3600000;
-const OBSTACLE = /\b(obstacles?|mines?|minefields?|wire|berms?|ditch(es)?|abatis|tank traps?)\b/i;
+const OBSTACLE = /\b(obstacles?|mines?|minefields?|wire|berms?|ditch(es)?|abatis|tank traps?|dragon'?s teeth|trench(es)?|pyramids|hedgehogs|concrete blocks?)\b/i;
 const WITHDRAW = /\b(withdraw(s|n|ing|al)?|retreat(s|ed|ing)?|pull(s|ed|ing)? back|fall(s|ing)? back|fell back|break(s|ing)? contact|disengag(e|es|ed|ing))\b/i;
 
 // How a type reads in the narrative, in the reports' own style: a designation
@@ -2221,7 +2461,7 @@ const PLURALS = { man: 'men', person: 'people' };
 const typeCount = (type, n, kit) => {
     if (!kit || kit.origin || /\d/.test(type) || TYPE_ACRONYMS.has(type)) return `${n}x ${type}`;
     const words = type.toLowerCase().split(' '), last = words.pop();
-    const many = n === 1 || NO_PLURAL.has(last) || /s$/.test(last) ? last : PLURALS[last] || `${last}s`;
+    const many = n === 1 || NO_PLURAL.has(last) || /s$/.test(last) ? last : PLURALS[last] || last.replace(/([^aeiou])y$/, '$1ie') + 's';
     return `${n}x ${[...words, many].join(' ')}`;
 };
 
@@ -2270,35 +2510,74 @@ const ruleWords = (words) => new RegExp(`\\b(${String(words).split(',').map(w =>
 // that say the same ("bridging", "jamming").
 const capability = (names, words) => ({ names: new Set(names), words });
 const CAPABILITIES = {
-    uav: capability(['Orlan-10', 'Zala', 'Eleron-3', 'Forpost', 'Granat', 'Takhion', 'Supercam', 'ASN-206', 'ASN-207', 'ASN-209', 'BZK-005', 'WZ-7'],
-        /\b(uavs?|uas|drones?|quadcopters?)\b/i),
-    cbRadar: capability(['1L219', '1L271', 'SLC-2'], /\bcounter[- ]?battery\b/i),
-    mrl: capability(['BM-21', '2B26', 'BM-27', 'BM-30', 'Tornado-G', 'Tornado-S', 'Tornado', 'TOS-1', 'TOS-2', 'PHL-03', 'PHL-16', 'PHL-11',
-        'PHZ-11', 'PHZ-89', 'PHL-81', 'PHL-90', 'AR-1', 'AR-2', 'AR-3', 'SR-5', 'WS-1', 'WS-2'], /\b(mlrs|mrl|rocket launchers?)\b/i),
-    deep: capability(['BM-27', 'BM-30', 'Tornado-S', 'Iskander', 'Tochka', 'Luna-M', 'PHL-03', 'PHL-16', 'AR-1', 'AR-3', 'WS-2',
-        'DF-11', 'DF-15', 'DF-16', 'DF-17', 'DF-21', 'DF-26', 'CJ-10'], /\b(ballistic missiles?|cruise missiles?|missile launch\w*|tels?)\b/i),
-    thermobaric: capability(['TOS-1', 'TOS-2', 'BMO-T'], /\b(thermobaric|flamethrowers?)\b/i),
-    loitering: capability(['Lancet', 'Geran-2', 'Kub-BLA'], /\b(loitering|kamikaze|fpv|one[- ]way attack)\b/i),
-    attackAir: capability(['Mi-24', 'Mi-35', 'Mi-28', 'Ka-50', 'Ka-52', 'Su-24', 'Su-25', 'Su-34', 'Z-10', 'Z-19', 'JH-7', 'CH-4', 'CH-5',
-        'Wing Loong', 'GJ-11', 'Orion', 'Forpost-R'], /\b(gunships?|attack helicopters?|close air support|air ?strikes?)\b/i),
-    liftAir: capability(['Mi-8', 'Mi-17', 'Mi-26', 'Z-8', 'Z-18', 'Z-20', 'Y-8', 'Y-9', 'Y-20', 'Il-76', 'An-12', 'An-26'],
-        /\b(transport helicopters?|lift helicopters?)\b/i),
-    vdv: capability(['BMD-1', 'BMD-2', 'BMD-3', 'BMD-4', 'BTR-D', 'BTR-MD', '2S9', '2S25', 'ZBD-03'], /\b(vdv|paratroop\w*)\b/i),
+    uav: capability(['Orlan-10', 'Zala', 'Eleron-3', 'Forpost', 'Granat', 'Takhion', 'Supercam', 'Merlin-VR', 'ASN-206', 'ASN-207', 'ASN-209',
+        'BZK-005', 'BZK-006', 'BZK-007', 'BZK-008', 'BZK-009', 'WZ-7', 'TB-001', 'CH-3'],
+    /\b(uavs?|uas|drones?|quadcopters?|mavic|dji)\b/i),
+    cbRadar: capability(['1L219', '1L271', '1L227', 'ARK-1', '1B75', 'AZK-7', 'SLC-2', 'Type 704'], /\bcounter[- ]?(battery|fire)\b/i),
+    mrl: capability(['BM-21', '2B26', 'BM-27', '9K512', 'BM-30', 'Tornado-G', 'Tornado-S', 'Tornado', '9K59', 'TOS-1', 'TOS-2', 'TOS-3',
+        'PHL-03', 'PHL-16', 'PHL-11', 'PHZ-11', 'PHZ-89', 'PHL-81', 'PHL-90', 'PHL-20', 'PHL-21', 'PH-63', 'WZ-303', 'AR-1', 'AR-2', 'AR-3',
+        'SR-5', 'WS-1', 'WS-2', 'WS-3', 'WS-22', 'WS-32', 'WS-33', 'WS-35', 'SY-300', 'SY-400', 'A-200', 'A-300', 'WM-40', 'WM-80'],
+    /\b(mlrs|mrl|rocket launchers?)\b/i),
+    deep: capability(['BM-27', '9K512', 'BM-30', 'Tornado-S', 'Iskander', 'Tochka', 'Luna-M', 'K-300P', 'Kalibr', 'Kh-59', 'Kh-101', 'Kh-22',
+        'Kh-32', 'Kinzhal', 'PHL-03', 'PHL-16', 'AR-1', 'AR-3', 'WS-2', 'WS-3', 'SY-400', 'WS-600L', 'DF-11', 'DF-12', 'DF-15', 'DF-16',
+        'DF-17', 'DF-21', 'DF-26', 'DF-27', 'CJ-10', 'CJ-100', 'CJ-1000'], /\b(ballistic missiles?|cruise missiles?|missile launch\w*|tels?)\b/i),
+    thermobaric: capability(['TOS-1', 'TOS-2', 'TOS-3', 'BMO-T', 'RPO-A', 'MRO-A', 'RShG-1', 'RShG-2', 'PF-97', 'FHJ-01', 'FHJ-84', 'FPH-01', 'FPH-02'],
+        /\b(thermobaric|flamethrowers?|shmel)\b/i),
+    loitering: capability(['Lancet', 'Geran-2', 'Kub-BLA', 'Gerbera', 'Garpiya', 'Italmas', 'Molniya', 'KVN', 'VT-40', 'Skalpel', 'FPV',
+        'CH-901', 'ASN-301', 'CM-501XA', 'WS-43'], /\b(loitering|kamikaze|fpvs?|one[- ]way attack|fib(er|re)[- ]?optic)\b/i),
+    attackAir: capability(['Mi-24', 'Mi-35', 'Mi-28', 'Ka-50', 'Ka-52', 'Su-24', 'Su-25', 'Su-34', 'Yak-130', 'Z-10', 'Z-19', 'Z-21', 'JH-7',
+        'CH-4', 'CH-5', 'KDV002', 'Wing Loong', 'GJ-11', 'Orion', 'Forpost-R', 'Okhotnik', 'Altius'],
+    /\b(gunships?|attack helicopters?|close air support|air ?strikes?)\b/i),
+    liftAir: capability(['Mi-8', 'Mi-17', 'Mi-26', 'Ka-29', 'Z-8', 'Z-18', 'Z-20', 'S-70C2', 'Y-7', 'Y-8', 'Y-9', 'Y-20', 'Il-76', 'An-12',
+        'An-22', 'An-26'], /\b(transport helicopters?|lift helicopters?)\b/i),
+    vdv: capability(['BMD-1', 'BMD-2', 'BMD-3', 'BMD-4', 'BTR-D', 'BTR-MD', 'BTR-ZD', 'BTR-RD', '2S9', '2S25', '2S42', 'ZBD-03'], /\b(vdv|paratroop\w*)\b/i),
     airlanding: capability([], /\b(air ?assault|airborne landing|heliborne|landing zone|lz|parachut\w*|air ?drop\w*|landed by helicopter)\b/i),
-    amphibious: capability(['ZBD-05', 'ZTD-05', 'Type 63A', 'PT-76', 'K-61'], /\b(amphibious|beach(ed|ing)?|landing craft|naval infantry|marines?|swimming)\b/i),
-    bridging: capability(['MTU-20', 'MTU-72', 'MTU-90', 'TMM', 'PMP', 'PP-91', 'PMM-2', 'GSP', 'PTS', 'Type 84'],
-        /\b(bridg\w*|ferr(y|ies|ying)|pontoons?|fording|ford)\b/i),
-    breaching: capability(['UR-77', 'UR-67', 'BMR-3', 'KMT-7', 'KMT-8', 'IMR-2', 'IMR-3', 'Uran-6', 'Prokhod-1', 'GCZ-110'],
-        /\b(breach\w*|mine[- ]?clear\w*|clearing (mines|obstacles|a lane)|demining|miclic|line charges?)\b/i),
-    minelaying: capability(['GMZ-3', 'PMZ-4', 'UMZ', 'Zemledeliye'], /\b(minelay\w*|laying mines|scatterable mines?)\b/i),
+    amphibious: capability(['ZBD-05', 'ZTD-05', 'ZSD-05', 'Type 63A', 'PT-76', 'K-61'], /\b(amphibious|beach(ed|ing)?|landing craft|naval infantry|marines?|swimming)\b/i),
+    bridging: capability(['MTU-20', 'MTU-72', 'MTU-90', 'MT-55', 'TMM', 'PMP', 'PP-91', 'PP-2005', 'PPS-84', 'PMM-2', 'GSP', 'PTS',
+        'WZ-621', 'GQL-110', 'GQL-111', 'GQL-120', 'GQL-321', 'GQL-410', 'GZM-003', 'GQC-003'],
+    /\b(bridg\w*|ferr(y|ies|ying)|pontoons?|fording|ford)\b/i),
+    breaching: capability(['UR-77', 'UR-67', 'UR-07', 'BMR-3', 'KMT-7', 'KMT-8', 'IMR-2', 'IMR-3', 'Uran-6', 'Prokhod-1', 'GCZ-110', 'GCZ-112',
+        'GPZ-111', 'GSL-110', 'GSL-111', 'GSL-130', 'GSL-131', 'GSL-132', 'GSL-133', 'GSL-134', 'GSL-211', 'GSL-411', 'GSL-430', 'GBP-126', 'GPJ221'],
+    /\b(breach\w*|mine[- ]?clear\w*|clearing (mines|obstacles|a lane)|demining|miclic|line charges?)\b/i),
+    minelaying: capability(['GMZ-3', 'PMZ-4', 'UMZ', 'Zemledeliye', 'GBL-120', 'GBL-130'],
+        /\b(minelay\w*|laying mines|scatter(able|ed) mines?|remote(ly)?[- ](laid |delivered )?min(es?|ing)|cluster mines?|pfm-1|ptm-\d|pom-\d)\b/i),
+    cbrn: capability(['RKhM-4', 'RKhM-6', 'RPM-2', 'BRDM-2RKh', 'TMS-65', 'ARS-14', 'UTM-80M', 'TDA-2K', 'TDA-3', 'MRK-46', 'Type 14', 'CBRN'],
+        /\b(rkhbz|chemical (defen[cs]e|troops|recon\w*)|decontaminat\w*|decon|cbrn|nbc|smoke (generators?|screens?|pots?))\b/i),
+    sead: capability(['ASN-301', 'Kh-31', 'Kh-58'], /\b(anti-?radiation|sead|(radars?|sams?|air defen[cs]e) (struck|hit|destroyed))\b/i),
+    glideBomb: capability(['UMPK', 'FAB-500', 'KAB-500', 'LS-6'], /\b(glide bombs?|guided bombs?|kabs?|fabs?|umpk|aerial bombs?)\b/i),
+    recovery: capability(['BREM', 'BREM-L', 'BREM-K', 'BREM-D', 'BREM-80U', 'REM-KL', 'REM-KS', 'BTS-2', 'BTS-4', 'ZJX-93', 'WZ-653', 'VME-203',
+        'VME-102-40', 'Type 90-II ARV'], /\b(recover(y|ing|ed)|tow(ed|ing)|arvs?|wrecker)\b/i),
+    medevac: capability(['BMM-80', 'Linza', 'CSZ-181', 'ambulance'],
+        /\b(casevac|medevac|ambulances?|stretchers?|wounded|casualt(y|ies)|evacuat\w* (the )?(wounded|casualties|injured))\b/i),
     c2: capability([], /\b(command posts?|headquarters|antennas?|radio masts?|generators?)\b/i),
     ew: capability([], /\b(jam(s|med|ming|mers?)?|interference|spoof\w*|gps (denied|jammed|loss|lost)|direction finding)\b/i),
-    deception: capability([], /\b(decoys?|dumm(y|ies)|inflatables?|mock[- ]?ups?|fakes?|camouflag\w*|camo|netting|concealed|maskirovka)\b/i),
-    smoke: capability([], /\bsmoke\b/i),
+    deception: capability(['Gerbera'], /\b(decoys?|dumm(y|ies)|inflatables?|mock[- ]?ups?|fakes?|camouflag\w*|camo|netting|concealed|maskirovka|thermal (blankets?|capes?|camouflage))\b/i),
+    smoke: capability(['TDA-2K', 'TDA-3'], /\bsmoke\b/i),
     atPosition: capability([], /\b(at (ambush|positions?)|atgm (team|positions?)|antitank positions?|ambush\w*)\b/i),
 };
 const textOf = (f) => `${f.r.size || ''} ${f.r.activity || ''}`;
 const can = (f, cap) => f.els.some(e => e.kit && CAPABILITIES[cap].names.has(e.kit.name)) || CAPABILITIES[cap].words.test(textOf(f));
+// Firing words that aren't contact: fire support, a firing position, a cease-fire.
+const NOT_CONTACT = /\b(fire support|fir(e|ing) positions?|cease[- ]?fire|fire teams?|launch (sites?|points?|positions?))\b/gi;
+const FIRING_WORDS = ACTIVITY_TAGS.find(([t]) => t === 'Firing')[1];
+// Words some rules look for in a report.
+const LIGHT_WORDS = /\b(motorcycles?|motorbikes?|dirt ?bikes?|buggies|buggy|atvs?|quads?|quad bikes?|utvs?|scooters?|civilian (cars?|vans?|vehicles?))\b/i;
+const URBAN = /\b(towns?|villages?|buildings?|houses?|streets?|urban|basements?|high-?rises?|apartments?|city|cities)\b/i;
+const FLANK = /\b(flank\w*|envelop\w*|encircl\w*|surround\w*|pincers?|bypass\w*|cut(ting)? off|kotel|kotyol|cauldron)\b/i;
+const RAIL = /\b(rail\w*|trains?|flatcars?|wagons?)\b/i;
+const DRONE_DROP = /\b(drones?|uavs?|quadcopters?)\b.{0,30}\b(drop\w*|deliver\w*|resuppl\w*|supplies|carr(y|ies|ying))\b/i;
+const FARP = /\b(farps?|forward (arming|refuel\w*)|helipads?|landing sites?)\b/i;
+const C2_TARGETS = /\b(command posts?|headquarters|hq|radars?|antennas?|relays?|comms|communications|starlink)\b/i;
+const ROUTES = /\b(roads?|routes?|msr|asr|supply|convoys?|vehicles?|trucks?|logistics|bridges?|crossings?)\b/i;
+const STRUCK = /\b(struck|strikes?|striking|hit|hits|destroyed)\b/i;
+const INDIRECT = /\b(indirect|closed positions?|from (a )?distance|long range|hull[- ]down)\b/i;
+const FUEL_AMMO = /\b(fuel|tankers?|pol|ammo|ammunition|atz)\b/i;
+const GATHER = /\b(tree ?lines?|gather\w*|accumulat\w*|massing|basements?|hiding|hidden)\b/i;
+const PURSUIT = /\b(pursu\w*|chasing)\b/i;
+const COUNTER = /\b(counter[- ]?attack\w*|retook|retaking|recaptur\w*)\b/i;
+const SCOOT = /\b(displac\w*|relocat\w*|reposition\w*|shoot and scoot|roving)\b/i;
+// A 10 km square as the narrative names it (11S NV 31): zone and square, easting and northing digit.
+const SQUARE = /^(\d{1,2}[C-X] [A-Z]{2}) (\d)(\d)$/;
 const SHELLING = /\b(shelling|shelled|barrage|fire missions?|impacts?|incoming|artillery fire|rocket fire|indirect fire)\b/i;
 const has = (f, ...tags) => tags.some(t => f.act.tags.includes(t));
 const levelBy = (n, likely, veryLikely) => (n >= veryLikely ? VERY_LIKELY : n >= likely ? LIKELY : EVEN);
@@ -2332,8 +2611,16 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             list, watch: signs.filter(([, l]) => !l.length).map(([s]) => s),
         });
     };
-    const firing = (f) => (f.roles.has('fires') && has(f, 'Firing')) || SHELLING.test(f.r.activity || '');
+    // Contact: firing words that aren't about fire support or a firing position.
+    const shot = (f) => has(f, 'Firing') && FIRING_WORDS.test(String(f.r.activity || '').replace(NOT_CONTACT, ' '));
+    // Moving, but not away: a withdrawal isn't an advance.
+    const advancing = (f) => has(f, 'Moving') && !WITHDRAW.test(f.r.activity || '');
+    const after = (list, f, span) => list.some(e => f.ms > e.ms && f.ms - e.ms <= span);
+    const firing = (f) => (f.roles.has('fires') && shot(f)) || SHELLING.test(f.r.activity || '');
     const ewOf = (f) => f.roles.has('ew') || can(f, 'ew');
+    // A small dismounted group: up to 12 people, on foot or in light vehicles, with antitank weapons at most.
+    const smallGroup = (f) => f.roles.size > 0 && [...f.roles].every(r => r === 'infantry' || r === 'atgm' || r === 'light')
+        && (f.groups.infantry || 0) > 0 && (f.groups.infantry || 0) <= 12;
 
     for (const [area, list] of byArea) {
         const at = (test) => list.filter(test);
@@ -2359,7 +2646,7 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
                 [['antitank weapons in position', atgm], ['obstacles or mines they cover', obst], ['tanks in hide positions', tanks]], [area]);
         }
         // Reconnaissance, then armor or mechanized forces within 6 hours.
-        const scouts = at(f => f.roles.has('recon') || has(f, 'Observing'));
+        const scouts = at(f => f.roles.has('recon') || has(f, 'Observing') || can(f, 'uav'));
         const pairs = scouts.map(s => [s, list.filter(m => m !== s && isManeuver(m) && m.ms > s.ms && m.ms - s.ms <= 6 * HOUR)]).filter(([, l]) => l.length);
         if (on('recon') && pairs.length) {
             const lead = byTime(pairs.map(([s]) => s)), after = byTime(pairs.flatMap(([, l]) => l));
@@ -2371,14 +2658,14 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
         }
         // UAVs, then artillery within the hour: a reconnaissance-fire (or -strike) link.
         const uavs = at(f => can(f, 'uav'));
-        const fireAfter = at(f => firing(f) && uavs.some(u => f.ms >= u.ms && f.ms - u.ms <= HOUR));
+        const fireAfter = at(f => (firing(f) || can(f, 'loitering')) && uavs.some(u => u !== f && f.ms >= u.ms && f.ms - u.ms <= HOUR));
         if (on('reconfire') && uavs.length && fireAfter.length) {
             const radar = at(f => can(f, 'cbRadar'));
             judge('reconfire', EVEN + (uavs.length >= 2 ? 1 : 0) + (radar.length || fireAfter.length >= 2 ? 1 : 0), {
                 RU: `are spotting for artillery with UAVs over ${area} (a reconnaissance-fire complex)`,
                 CN: `are spotting for rockets and artillery with UAVs over ${area} (reconnaissance-strike)`,
                 '': `are spotting for artillery with UAVs over ${area}`,
-            }, [['UAVs overhead', uavs], ['artillery or shelling within an hour after', fireAfter], ['counter-battery radar', radar]], [area]);
+            }, [['UAVs overhead', uavs], ['artillery, shelling or loitering munitions within an hour after', fireAfter], ['counter-battery radar', radar]], [area]);
         }
         // An assembly area: armor halted with supply or command vehicles.
         const still = densest(at(f => isManeuver(f) && has(f, 'Stationary')), 12 * HOUR);
@@ -2387,14 +2674,14 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             const signs = [['armor or mechanized forces halted', still], ['supply or command vehicles, or resupply', backing],
                 ['artillery or air defense with them', at(f => (f.roles.has('fires') || f.roles.has('ad')) && has(f, 'Stationary'))]];
             judge('assembly', levelBy(kindsOf(signs) + (still.length >= 5 ? 1 : 0), 3, 4), {
-                RU: `are in an assembly area in ${area}, preparing to attack (a battalion tactical group's assembly area)`,
+                RU: `are in an assembly area in ${area}, preparing to attack (an assault detachment's assembly area)`,
                 CN: `are in an assembly area in ${area}, preparing to attack (combined-arms battalions forming assault groups)`,
                 '': `are in an assembly area in ${area}, preparing to attack`,
             }, signs, [area]);
         }
         // A combined-arms group on the move: armor with artillery, air defense or engineers within 2 hours.
-        const movers = at(f => isManeuver(f) && has(f, 'Moving'));
-        const escorts = at(f => (f.roles.has('fires') || f.roles.has('ad') || f.roles.has('engineer')) && has(f, 'Moving')
+        const movers = at(f => isManeuver(f) && advancing(f));
+        const escorts = at(f => (f.roles.has('fires') || f.roles.has('ad') || f.roles.has('engineer')) && advancing(f)
             && movers.some(m => Math.abs(m.ms - f.ms) <= 2 * HOUR));
         if (on('forward') && escorts.length) {
             const alongside = movers.filter(m => escorts.some(e => Math.abs(m.ms - e.ms) <= 2 * HOUR));
@@ -2469,6 +2756,183 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
                 [['supply vehicles halted or resupplying within 12 hrs', supply],
                     ['fuel or ammunition vehicles', supply.filter(f => /\b(fuel|tanker|pol|ammo|ammunition|atz)\b/i.test(textOf(f)))]], [area]);
         }
+        // Counter-battery: radar or counter-battery fire, or drones on guns, with artillery here.
+        const cb = at(f => can(f, 'cbRadar'));
+        const onGuns = at(f => can(f, 'loitering') && /\b(howitzers?|guns?|batter(y|ies)|artillery|mortars?|mlrs|mrl)\b/i.test(f.r.activity || ''));
+        const firesHere = at(firing);
+        if (on('counterbattery') && (cb.length || onGuns.length) && (firesHere.length || onGuns.length)) {
+            const signs = [['counter-battery radar or counter-battery fire', cb], ['artillery or rocket fire here', firesHere],
+                ['loitering munitions or drones striking guns', onGuns]];
+            judge('counterbattery', levelBy(kindsOf(signs) + (byTime(signs.flatMap(([, l]) => l)).length >= 4 ? 1 : 0), 3, 4),
+                `are conducting counter-battery fire around ${area}`, signs, [area]);
+        }
+        // Shoot and scoot: artillery firing, then the same type moving within the hour (or displacing as it fires).
+        const gunsFiring = at(f => f.roles.has('fires') && shot(f));
+        const sameGuns = (a, b) => a.els.some(x => x.kit && x.kit.role === 'fires' && b.els.some(y => y.kit && y.kit.name === x.kit.name));
+        const displaced = at(f => f.roles.has('fires') && ((has(f, 'Moving') && gunsFiring.some(g => sameGuns(g, f) && f.ms > g.ms && f.ms - g.ms <= HOUR))
+            || (shot(f) && SCOOT.test(f.r.activity || ''))));
+        if (on('shootscoot') && displaced.length) {
+            judge('shootscoot', levelBy(displaced.length, 2, 3), {
+                RU: `are firing and quickly displacing artillery around ${area} ("roving" guns)`,
+                CN: `are firing and quickly displacing artillery around ${area}`,
+                '': `are firing and quickly displacing artillery around ${area} (shoot and scoot)`,
+            }, [['artillery or rockets firing', gunsFiring], ['the same moving within the hour after, or displacing', displaced]], [area]);
+        }
+        // Mines laid remotely or quickly: minelayers or scatterable mines, with rockets or artillery.
+        const mines = at(f => can(f, 'minelaying'));
+        if (on('remotemine') && mines.length) {
+            const signs = [['minelaying systems or remote mining reported', mines], ['rocket or artillery fire here', firesHere],
+                ['armor or mechanized forces nearby', at(isManeuver)]];
+            judge('remotemine', levelBy(kindsOf(signs) + (mines.length >= 2 ? 1 : 0), 2, 3), `are laying minefields in ${area}`, signs, [area]);
+        }
+        // Chemical-defense troops: their vehicles, decontamination, smoke generators.
+        const chem = at(f => can(f, 'cbrn'));
+        if (on('cbrn') && chem.length) {
+            const signs = [['chemical-defense vehicles, decontamination or smoke generators', chem], ['smoke', smoke.filter(f => !chem.includes(f))],
+                ['thermobaric weapons', at(f => can(f, 'thermobaric'))]];
+            judge('cbrn', levelBy(kindsOf(signs) + (chem.length >= 2 ? 1 : 0), 2, 3), {
+                RU: `have chemical-defense (RKhBZ) troops in ${area}, screening with smoke or decontaminating`,
+                CN: `have chemical-defense troops in ${area}, screening with smoke or decontaminating`,
+                '': `have chemical-defense troops in ${area}, screening with smoke or decontaminating`,
+            }, signs, [area]);
+        }
+        // A counterattack: reported as one, or armor arriving after contact here.
+        const contactHere = at(shot);
+        const firstContact = at(f => shot(f) && !isManeuver(f)).map(f => f.ms);
+        const t0 = firstContact.length ? Math.min(...firstContact) : null;
+        const arrivals = t0 === null || at(f => isManeuver(f) && f.ms < t0).length ? []
+            : at(f => isManeuver(f) && (advancing(f) || shot(f)) && f.ms > t0 && f.ms - t0 <= 6 * HOUR);
+        const counter = at(f => COUNTER.test(f.r.activity || ''));
+        if (on('counterattack') && (counter.length || arrivals.length)) {
+            const signs = [['a counterattack reported', counter], ['armor or mechanized forces arriving within 6 hrs after contact here', arrivals],
+                ['artillery fire in support', firesHere]];
+            judge('counterattack', levelBy(kindsOf(signs), 2, 3),
+                counter.length ? `are counterattacking in ${area}` : `are reinforcing or counterattacking in ${area}`, signs, [area]);
+        }
+        // Casualty evacuation: ambulances or wounded, after fighting here.
+        const cas = at(f => can(f, 'medevac'));
+        if (on('casevac') && cas.length) {
+            const before = contactHere.filter(c => cas.some(f => f.ms >= c.ms && f.ms - c.ms <= 12 * HOUR));
+            judge('casevac', levelBy(cas.length + (before.length ? 1 : 0), 2, 3), `are evacuating casualties from ${area}, a sign of heavy fighting there`,
+                [['ambulances, MEDEVAC or wounded reported', cas], ['fighting here within 12 hrs before', before]], [area]);
+        }
+        // Assault groups in a town: small dismounted groups fighting among buildings, with support.
+        const inTown = URBAN.test(area) ? list : at(f => URBAN.test(f.r.activity || ''));
+        const stormers = inTown.filter(f => (f.groups.infantry || 0) > 0 && (shot(f) || advancing(f) || has(f, 'Dismounted')));
+        if (on('urban') && stormers.length) {
+            const signs = [['dismounted groups fighting or moving among buildings', stormers],
+                ['tanks, thermobaric weapons or artillery supporting', at(f => f.roles.has('armor') || can(f, 'thermobaric') || firing(f))],
+                ['drones overhead', uavs]];
+            judge('urban', levelBy(kindsOf(signs) + (stormers.length >= 3 ? 1 : 0), 2, 3), {
+                RU: `are assaulting built-up areas in ${area} with small assault groups (shturmovye gruppy)`,
+                CN: `are assaulting built-up areas in ${area} with small assault teams`,
+                '': `are assaulting built-up areas in ${area} with small assault groups`,
+            }, signs, [area]);
+        }
+        // Reconnaissance in force: a platoon or more firing, then pulling back.
+        const probes = at(f => shot(f) && ((f.groups.maneuver || 0) >= 3 || (f.groups.infantry || 0) >= 8));
+        const pulled = at(f => WITHDRAW.test(f.r.activity || '') && (probes.includes(f) || after(probes, f, 3 * HOUR)));
+        if (on('reconforce') && probes.length && pulled.length) {
+            const struck = at(f => firing(f) && after(pulled, f, 6 * HOUR));
+            judge('reconforce', EVEN + (struck.length ? 1 : 0) + (probes.length >= 2 ? 1 : 0), {
+                RU: `are conducting reconnaissance in force (razvedka boyem) in ${area}, to make friendly positions show themselves`,
+                CN: `are conducting reconnaissance in force in ${area}, to make friendly positions show themselves`,
+                '': `are conducting reconnaissance in force in ${area}`,
+            }, [['a platoon or more firing', probes], ['pulling back within 3 hrs', pulled], ['artillery on the place within 6 hrs after', struck]], [area]);
+        }
+        // Infantry building up: small groups halted or hidden here, again and again.
+        const lurk = densest(at(f => smallGroup(f) && (has(f, 'Stationary', 'Observing', 'Dismounted') || GATHER.test(f.r.activity || '')) && !advancing(f)), 48 * HOUR);
+        if (on('buildup') && lurk.length >= 3) {
+            judge('buildup', levelBy(lurk.length, 4, 6), {
+                RU: `are building up infantry in ${area}, gathering small groups near the line for an assault`,
+                CN: `are building up infantry in ${area}, concentrating small teams near a weak point`,
+                '': `are building up small infantry groups in ${area}`,
+            }, [['small dismounted groups halted or hidden within 48 hrs', lurk],
+                ['gathering in tree lines or buildings', lurk.filter(f => GATHER.test(f.r.activity || ''))],
+                ['drones resupplying them', at(f => DRONE_DROP.test(textOf(f)))]], [area]);
+        }
+        // Delivering an assault group: armor dropping infantry, the infantry going on.
+        const drops = at(f => isManeuver(f) && has(f, 'Dismounted'));
+        const foot = at(f => (f.groups.infantry || 0) > 0 && (advancing(f) || shot(f)) && drops.some(d => f.ms >= d.ms && f.ms - d.ms <= 2 * HOUR));
+        if (on('dismount') && drops.length && foot.length) {
+            const cover = at(f => isManeuver(f) && shot(f) && after(drops, f, 2 * HOUR));
+            judge('dismount', EVEN + (cover.length ? 1 : 0) + (foot.length >= 2 ? 1 : 0), {
+                RU: `are delivering assault infantry by armored group (bronegruppa) in ${area}`,
+                CN: `are delivering assault teams by infantry fighting vehicle in ${area}`,
+                '': `are delivering assault infantry by armored vehicle in ${area}`,
+            }, [['armored vehicles dropping infantry', drops], ['infantry moving or fighting within 2 hrs after', foot],
+                ['the vehicles staying to support by fire', cover]], [area]);
+        }
+        // A strongpoint: two of armor, infantry and antitank weapons holding here for 12 hrs or more.
+        const holding = at(f => has(f, 'Stationary', 'Emplacing') && !advancing(f));
+        const hArmor = holding.filter(isManeuver), hInf = holding.filter(f => (f.groups.infantry || 0) > 0), hAt = holding.filter(f => f.roles.has('atgm'));
+        const held = holding.length ? Math.max(...holding.map(f => f.ms)) - Math.min(...holding.map(f => f.ms)) : 0;
+        if (on('strongpoint') && [hArmor, hInf, hAt].filter(l => l.length).length >= 2 && held >= 12 * HOUR) {
+            const signs = [['armor or mechanized forces holding', hArmor], ['infantry holding', hInf], ['antitank weapons in position', hAt],
+                ['obstacles or mines', obst]];
+            judge('strongpoint', levelBy(kindsOf(signs), 3, 4), {
+                RU: `are holding a company strongpoint (opornyy punkt) in ${area}`, CN: `are holding a strongpoint in ${area}`,
+                '': `are holding a strongpoint in ${area}`,
+            }, signs, [area]);
+        }
+        // Tanks as fire support: firing from halted positions, with no armor advancing here.
+        const tankFire = at(f => f.roles.has('armor') && shot(f) && (has(f, 'Stationary') || INDIRECT.test(f.r.activity || ''))
+            && !list.some(m => m !== f && isManeuver(m) && advancing(m) && Math.abs(m.ms - f.ms) <= 2 * HOUR));
+        if (on('tankfire') && tankFire.length) {
+            const assault = at(f => (f.groups.infantry || 0) > 0 && (shot(f) || advancing(f)) && after(tankFire, f, 6 * HOUR));
+            judge('tankfire', levelBy(tankFire.length + (assault.length ? 1 : 0), 2, 3), {
+                RU: `are using tanks as fire support from halted positions in ${area}, rather than to break through`,
+                CN: `are supporting assault groups with tank fire from halted positions in ${area}`,
+                '': `are using tanks as fire support from halted positions in ${area}`,
+            }, [['tanks firing from halted positions', tankFire], ['infantry assaulting within 6 hrs after', assault]], [area]);
+        }
+        // Drones cutting the routes: strikes on vehicles or roads here.
+        const cuts = densest(at(f => (can(f, 'loitering') || can(f, 'uav')) && ROUTES.test(f.r.activity || '')
+            && (shot(f) || STRUCK.test(f.r.activity || ''))), 24 * HOUR);
+        if (on('interdict') && cuts.length) {
+            judge('interdict', levelBy(cuts.length, 2, 4), {
+                RU: `are cutting the routes through ${area} with drones and FPVs`, CN: `are striking the routes and vehicles in ${area} with drones to isolate it`,
+                '': `are striking vehicles on the routes through ${area} with drones`,
+            }, [['drones or FPVs striking vehicles or roads within 24 hrs', cuts]], [area]);
+        }
+        // Persistent surveillance: UAVs again and again, with no fire yet.
+        const watch = densest(uavs, 12 * HOUR);
+        const struckAfter = watch.length && at(f => (firing(f) || can(f, 'loitering')) && !watch.includes(f)
+            && f.ms >= watch[0].ms && f.ms <= watch[watch.length - 1].ms + HOUR).length;
+        if (on('isr') && watch.length >= 3 && !struckAfter) {
+            judge('isr', levelBy(watch.length, 4, 6), `are keeping ${area} under drone surveillance, building up a target for fires or an assault`,
+                [['UAVs over it within 12 hrs', watch], ['artillery or strikes following', []]], [area]);
+        }
+        // Resupply by drone.
+        const dropped = at(f => DRONE_DROP.test(textOf(f)) || (can(f, 'uav') && has(f, 'Resupplying')));
+        if (on('droneresupply') && dropped.length) {
+            judge('droneresupply', levelBy(dropped.length, 2, 3), `are resupplying forward groups in ${area} by drone`,
+                [['drones dropping or carrying supplies', dropped], ['small groups holding there', at(f => smallGroup(f) && !advancing(f))]], [area]);
+        }
+        // A railhead: armor, artillery or supplies on trains here.
+        const trains = at(f => RAIL.test(f.r.activity || '') && (isManeuver(f) || f.roles.has('fires') || f.roles.has('logistics') || f.roles.has('ad')));
+        if (on('railhead') && trains.length) {
+            const unloading = trains.filter(f => has(f, 'Resupplying'));
+            judge('railhead', levelBy(trains.length + (unloading.length ? 1 : 0), 2, 3), `are moving forces or supplies by rail through ${area}`,
+                [['armor, artillery or supplies on trains or at a railhead', trains], ['loading or unloading', unloading]], [area]);
+        }
+        // A helicopter refueling point: helicopters on the ground with fuel, or a FARP reported.
+        const helos = at(f => (can(f, 'attackAir') || can(f, 'liftAir')) && (has(f, 'Stationary', 'Resupplying') || /\b(landed|on the ground)\b/i.test(f.r.activity || '')));
+        const farpSaid = at(f => FARP.test(f.r.activity || ''));
+        const fuel = at(f => (f.roles.has('logistics') && FUEL_AMMO.test(textOf(f))) || has(f, 'Resupplying'));
+        if (on('farp') && ((helos.length && fuel.length) || farpSaid.length)) {
+            const signs = [['helicopters on the ground', helos], ['fuel or supply vehicles, or rearming', fuel], ['a FARP or landing site reported', farpSaid],
+                ['air defense in place', adStill]];
+            judge('farp', levelBy(kindsOf(signs), 3, 4), `have a forward arming and refueling point for helicopters in ${area}`, signs, [area]);
+        }
+        // Regrouping: halted, resupplying or recovering vehicles within 24 hrs after contact here.
+        const later = at(f => after(contactHere, f, 24 * HOUR));
+        const regroup = [['armor or infantry halted', later.filter(f => (isManeuver(f) || (f.groups.infantry || 0) > 0) && has(f, 'Stationary'))],
+            ['resupplying', later.filter(f => has(f, 'Resupplying'))], ['vehicles recovered or towed', later.filter(f => can(f, 'recovery'))]];
+        if (on('regroup') && kindsOf(regroup) >= 2) {
+            judge('regroup', levelBy(kindsOf(regroup) + (byTime(regroup.flatMap(([, l]) => l)).length >= 4 ? 1 : 0), 3, 4),
+                `are regrouping in ${area} after the fighting there`, [['contact here', contactHere], ...regroup], [area]);
+        }
         // The team's own rules: their words, often enough, in one place.
         custom.forEach(c => {
             const re = ruleWords(c.words);
@@ -2496,7 +2960,7 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
         [focus ? `armor or mechanized forces massing in ${focus} within 12 hrs` : 'armor or mechanized forces massing', mass],
         ['engineers moving, or breaching and bridging', facts.filter(f => (f.roles.has('engineer') && has(f, 'Moving')) || can(f, 'breaching') || can(f, 'bridging'))],
         ['electronic warfare', ewAll],
-        ['contact by armor or mechanized forces', facts.filter(f => isManeuver(f) && has(f, 'Firing'))],
+        ['contact by armor or mechanized forces', facts.filter(f => isManeuver(f) && shot(f))],
     ];
     const kinds = kindsOf(offense);
     if (on('offense') && kinds >= 2 && (fires.length || mass.length)) {
@@ -2504,7 +2968,7 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             `are preparing offensive operations${focus ? `, centered on ${focus}` : ''}`, offense);
     }
     // Several axes: armor or mechanized forces moving in two or more places within 6 hours.
-    const moving = facts.filter(f => isManeuver(f) && has(f, 'Moving') && f.areas.length);
+    const moving = facts.filter(f => isManeuver(f) && advancing(f) && f.areas.length);
     let axes = [];
     moving.forEach(f => {
         const w = moving.filter(g => g.ms >= f.ms && g.ms - f.ms <= 6 * HOUR);
@@ -2520,18 +2984,17 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
         }, [['armor or mechanized forces moving in different places within 6 hrs', axes]], axisNames);
     }
     // Small dismounted groups moving or observing, again and again.
-    const small = densest(facts.filter(f => f.roles.size && [...f.roles].every(r => r === 'infantry' || r === 'atgm')
-        && (f.groups.infantry || 0) > 0 && (f.groups.infantry || 0) <= 12 && has(f, 'Moving', 'Observing', 'Dismounted')), 12 * HOUR);
+    const small = densest(facts.filter(f => smallGroup(f) && has(f, 'Moving', 'Observing', 'Dismounted')), 12 * HOUR);
     if (on('infiltration') && small.length >= 2) {
         const where = mostIn(small);
         judge('infiltration', levelBy(small.length, 3, 5), {
-            RU: `are infiltrating small dismounted groups${where ? ` through ${where}` : ''} (sabotage-reconnaissance groups, DRG)`,
+            RU: `are infiltrating small dismounted groups${where ? ` through ${where}` : ''} (assault groups seeping through gaps, or sabotage-reconnaissance groups, DRG)`,
             CN: `are infiltrating small dismounted groups${where ? ` through ${where}` : ''} (special operations or reconnaissance teams)`,
             '': `are infiltrating small dismounted groups${where ? ` through ${where}` : ''}`,
         }, [['small dismounted groups moving or observing within 12 hrs', small]]);
     }
     // A second echelon or reserve: armor halted in one place during contact in another.
-    const contact = facts.filter(f => has(f, 'Firing'));
+    const contact = facts.filter(f => shot(f));
     let reserve = [], reserveAt = null;
     for (const [area, list] of byArea) {
         const held = list.filter(f => isManeuver(f) && has(f, 'Stationary')
@@ -2580,7 +3043,7 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
     const air = facts.filter(f => can(f, 'attackAir'));
     if (on('aviation') && air.length) {
         judge('aviation', levelBy(air.length, 2, 4), 'are supporting ground forces with attack aviation',
-            [['attack helicopters, ground-attack aircraft or armed UAVs', air], ['a ground attack at the same time', facts.filter(f => isManeuver(f) && has(f, 'Firing'))]]);
+            [['attack helicopters, ground-attack aircraft or armed UAVs', air], ['a ground attack at the same time', facts.filter(f => isManeuver(f) && shot(f))]]);
     }
     if (on('ew') && ewAll.length) {
         const where = mostIn(ewAll), near = where ? ` near ${where}` : '';
@@ -2589,7 +3052,7 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             CN: `are attacking command, communications and sensors with electronic warfare${near}`,
             '': `are conducting electronic warfare${near}`,
         }, [['EW systems or jamming reported', ewAll],
-            ['an attack following it', facts.filter(f => isManeuver(f) && has(f, 'Moving', 'Firing') && ewAll.some(e => f.ms > e.ms && f.ms - e.ms <= 6 * HOUR))]]);
+            ['an attack following it', facts.filter(f => isManeuver(f) && (advancing(f) || shot(f)) && ewAll.some(e => f.ms > e.ms && f.ms - e.ms <= 6 * HOUR))]]);
     }
     // Withdrawal, when reports say so.
     const back = facts.filter(f => WITHDRAW.test(f.r.activity || ''));
@@ -2598,8 +3061,8 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             [['withdrawal or breaking contact reported', back], ['covering forces left behind', []], ['obstacles or demolitions behind them', []]]);
     }
     // Firing: probing with small elements, or attacking with a company or more.
-    const shots = facts.filter(f => has(f, 'Firing'));
-    const bigShots = shots.filter(f => (f.groups.maneuver || 0) >= 10);
+    const shots = facts.filter(f => shot(f));
+    const bigShots = shots.filter(f => (f.groups.maneuver || 0) >= 10 || (f.groups.infantry || 0) >= 30);
     if (on('firing') && bigShots.length) {
         judge('firing', bigShots.length >= 2 ? VERY_LIKELY : LIKELY, 'are attacking with company-sized or larger elements',
             [['firing by a company or more', bigShots], ['artillery fire in support', []]]);
@@ -2607,6 +3070,184 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
         judge('firing', shots.length >= 4 ? VERY_LIKELY : shots.length === 3 ? LIKELY : EVEN,
             'are probing friendly positions with small elements',
             [['firing by elements smaller than a company', shots], ['larger elements following up', []], ['artillery fire in support', []]]);
+    }
+    // Fixing: contact in one place while armor moves in another within 3 hrs.
+    let fixAt = null, fixMovers = [], fixContact = [];
+    for (const [area, list] of byArea) {
+        const c = list.filter(shot);
+        const m = facts.filter(f => isManeuver(f) && advancing(f) && f.areas.length && !f.areas.includes(area)
+            && c.some(x => Math.abs(x.ms - f.ms) <= 3 * HOUR));
+        if (m.length > fixMovers.length) { fixMovers = m; fixAt = area; fixContact = c.filter(x => m.some(f => Math.abs(x.ms - f.ms) <= 3 * HOUR)); }
+    }
+    if (on('fixing') && fixMovers.length) {
+        const main = mostIn(fixMovers);
+        const signs = [[`contact in ${fixAt}`, fixContact], ['armor or mechanized forces moving elsewhere within 3 hrs', fixMovers],
+            [`artillery fire on ${fixAt}`, (byArea.get(fixAt) || []).filter(firing)]];
+        judge('fixing', levelBy(kindsOf(signs) + (fixMovers.reduce((n, f) => n + (f.groups.maneuver || 0), 0) >= 10 ? 1 : 0), 3, 4), {
+            RU: `are fixing friendly forces in ${fixAt}, with armor moving through ${main} at the same time`,
+            CN: `are fixing friendly forces in ${fixAt} ('one point, two sides'), with armor moving through ${main} at the same time`,
+            '': `are fixing friendly forces in ${fixAt}, with armor moving through ${main} at the same time`,
+        }, signs, [fixAt, main]);
+    }
+    // Exploitation: contact in one place, then armor through it and on into places quiet until then.
+    let exp = null;
+    for (const [area, list] of byArea) {
+        list.filter(shot).forEach(c => {
+            const through = list.filter(f => isManeuver(f) && advancing(f) && f.ms > c.ms && f.ms - c.ms <= 12 * HOUR);
+            if (!through.length) return;
+            const t1 = Math.min(...through.map(f => f.ms));
+            const quiet = (a) => a !== area && !(byArea.get(a) || []).some(g => g.ms < c.ms);
+            const beyond = facts.filter(f => isManeuver(f) && advancing(f) && f.ms >= t1 && f.ms - t1 <= 12 * HOUR && f.areas.some(quiet));
+            const fresh = [...new Set(beyond.flatMap(f => f.areas.filter(quiet)))];
+            if (fresh.length && (!exp || fresh.length > exp.fresh.length)) exp = { area, c, through, beyond, fresh };
+        });
+    }
+    if (on('exploit') && exp) {
+        const into = exp.fresh.slice(0, 3).join(', ');
+        judge('exploit', levelBy(exp.fresh.length, 2, 3), {
+            RU: `are exploiting a breakthrough at ${exp.area}, pushing armor on into ${into} (a forward detachment or second echelon)`,
+            CN: `are exploiting a breakthrough at ${exp.area}, pushing depth-attack groups on into ${into}`,
+            '': `are exploiting a breakthrough at ${exp.area}, pushing armor on into ${into}`,
+        }, [[`contact in ${exp.area}`, [exp.c]], [`armor moving through ${exp.area} within 12 hrs`, exp.through],
+            ['armor moving on into places with no reports before it', exp.beyond]], [exp.area, ...exp.fresh]);
+    }
+    // Envelopment: flanking reported, or forces pressing in three or more 10 km squares around one.
+    const flanking = facts.filter(f => FLANK.test(f.r.activity || ''));
+    const pressing = facts.filter(f => (isManeuver(f) || (f.groups.infantry || 0) > 0) && (advancing(f) || shot(f)));
+    let ring = null;
+    pressing.forEach(f => {
+        const cells = new Map();
+        pressing.filter(g => g.ms >= f.ms && g.ms - f.ms <= 24 * HOUR).forEach(g => g.areas.forEach(a => {
+            const m = SQUARE.exec(a);
+            if (!m) return;
+            if (!cells.has(a)) cells.set(a, { zone: m[1], e: +m[2], n: +m[3], list: [] });
+            cells.get(a).list.push(g);
+        }));
+        const all = [...cells.values()];
+        all.forEach(c0 => {
+            for (let e = Math.max(0, c0.e - 1); e <= Math.min(9, c0.e + 1); e++) {
+                for (let n = Math.max(0, c0.n - 1); n <= Math.min(9, c0.n + 1); n++) {
+                    const around = all.filter(c => c.zone === c0.zone && Math.max(Math.abs(c.e - e), Math.abs(c.n - n)) === 1);
+                    const center = `${c0.zone} ${e}${n}`;
+                    if (around.length >= 3 && (!ring || around.length > ring.around.length || (around.length === ring.around.length && center < ring.center))) {
+                        ring = { center, around };
+                    }
+                }
+            }
+        });
+    });
+    if (on('encircle') && (flanking.length || ring)) {
+        const where = ring ? ring.center : mostIn(flanking);
+        const around = ring ? byTime(ring.around.flatMap(c => c.list)) : [];
+        judge('encircle', EVEN + (ring && ring.around.length >= 4 ? 1 : 0) + (ring && flanking.length ? 1 : 0), {
+            RU: `are enveloping or encircling${where ? ` ${where}` : ' friendly positions'}, to cut it off (a pocket, kotyol)`,
+            CN: `are splitting and encircling${where ? ` ${where}` : ' friendly positions'}, to isolate it`,
+            '': `are enveloping or encircling${where ? ` ${where}` : ' friendly positions'}`,
+        }, [['flanking, envelopment or encirclement reported', flanking],
+            [ring ? `forces moving or fighting in ${ring.around.length} squares around ${ring.center} within 24 hrs` : 'forces moving or fighting on several sides of one place', around]],
+        where ? [where] : null);
+    }
+    // Pursuit, when reports say so.
+    const chase = densest(facts.filter(f => PURSUIT.test(f.r.activity || '') && (isManeuver(f) || f.roles.has('light') || (f.groups.infantry || 0) > 0)), 6 * HOUR);
+    if (on('pursuit') && chase.length) {
+        const where = mostIn(chase);
+        judge('pursuit', levelBy(chase.length, 2, 4), `are pursuing${where ? ` through ${where}` : ''}`, [['pursuit reported within 6 hrs', chase]]);
+    }
+    // A fortified line: digging in, obstacles or engineers in three or more places within 48 hrs.
+    const works = densest(facts.filter(f => has(f, 'Emplacing') || OBSTACLE.test(f.r.activity || '') || (f.roles.has('engineer') && has(f, 'Stationary'))), 48 * HOUR);
+    const workAreas = [...new Set(works.flatMap(f => f.areas))];
+    if (on('fortline') && workAreas.length >= 3) {
+        const line = workAreas.slice(0, 4).join(', ');
+        judge('fortline', levelBy(workAreas.length, 4, 5), {
+            RU: `are building a fortified line in depth across ${line}`, CN: `are preparing a positional defense in depth across ${line}`,
+            '': `are building a fortified line across ${line}`,
+        }, [['digging in, obstacles or engineers within 48 hrs', works],
+            ["tank ditches, dragon's teeth or trenches", works.filter(f => /\b(ditch(es)?|dragon'?s teeth|trench\w*|pyramids|hedgehogs)\b/i.test(f.r.activity || ''))]],
+        workAreas);
+    }
+    // A screen: reconnaissance or small groups halted or observing in two or more places within 6 hrs.
+    const lookouts = facts.filter(f => (f.roles.has('recon') || smallGroup(f)) && !can(f, 'uav') && has(f, 'Stationary', 'Observing') && !advancing(f) && f.areas.length);
+    let scr = [];
+    lookouts.forEach(f => {
+        const w = lookouts.filter(g => g.ms >= f.ms && g.ms - f.ms <= 6 * HOUR);
+        if (new Set(w.flatMap(g => g.areas)).size > new Set(scr.flatMap(g => g.areas)).size) scr = w;
+    });
+    const scrAreas = [...new Set(scr.flatMap(g => g.areas))];
+    if (on('screen') && scrAreas.length >= 2) {
+        const behind = facts.filter(f => (has(f, 'Emplacing') || OBSTACLE.test(f.r.activity || '')) && f.areas.some(a => !scrAreas.includes(a))
+            && f.ms >= scr[0].ms - 12 * HOUR && f.ms <= scr[scr.length - 1].ms + 12 * HOUR);
+        const along = scrAreas.slice(0, 4).join(', ');
+        judge('screen', levelBy(scrAreas.length + (behind.length ? 1 : 0), 4, 5), {
+            RU: `are holding a security zone along ${along}, ahead of their main defense`,
+            CN: `are holding a screen of security elements along ${along}, ahead of their main defense`,
+            '': `are holding a screen along ${along}`,
+        }, [['reconnaissance or small groups halted or observing in different places within 6 hrs', scr], ['a defense being prepared behind them', behind]], scrAreas);
+    }
+    // Light vehicles: motorcycles, buggies or cars moving or fighting, again and again.
+    const riders = densest(facts.filter(f => (f.roles.has('light') || LIGHT_WORDS.test(textOf(f))) && (advancing(f) || shot(f) || has(f, 'Dismounted'))), 12 * HOUR);
+    if (on('lightassault') && riders.length >= 2) {
+        const where = mostIn(riders), via = where ? ` through ${where}` : '';
+        const signs = [['motorcycles, buggies or light vehicles moving or fighting within 12 hrs', riders],
+            ['infantry with them', riders.filter(f => (f.groups.infantry || 0) > 0)],
+            ['drones overhead', facts.filter(f => can(f, 'uav') && riders.some(r => Math.abs(r.ms - f.ms) <= 2 * HOUR))]];
+        judge('lightassault', levelBy(riders.length + (kindsOf(signs) >= 3 ? 1 : 0), 3, 5), {
+            RU: `are moving assault groups fast on motorcycles, buggies and light vehicles${via}`,
+            CN: `are moving fast and dispersed on light vehicles${via}`,
+            '': `are moving fast in small groups on light vehicles${via}`,
+        }, signs);
+    }
+    // Thermobaric fires, and an assault after them.
+    const therm = facts.filter(f => can(f, 'thermobaric'));
+    if (on('thermobaric') && therm.length) {
+        const where = mostIn(therm);
+        const assault = facts.filter(f => (isManeuver(f) || (f.groups.infantry || 0) > 0) && (advancing(f) || shot(f)) && after(therm, f, 6 * HOUR)
+            && (!where || f.areas.includes(where)));
+        judge('thermobaric', levelBy(therm.length + (assault.length ? 1 : 0), 2, 3), {
+            RU: `are using thermobaric weapons${where ? ` on ${where}` : ''} (TOS or Shmel), usually just before an assault`,
+            CN: `are using thermobaric or incendiary weapons${where ? ` on ${where}` : ''} against fortified positions`,
+            '': `are using thermobaric weapons${where ? ` on ${where}` : ''}`,
+        }, [['thermobaric launchers or flamethrowers', therm], ['an assault there within 6 hrs after', assault]]);
+    }
+    // Glide bombs, and an assault after them.
+    const bombs = densest(facts.filter(f => can(f, 'glideBomb')), 24 * HOUR);
+    if (on('glidebomb') && bombs.length) {
+        const where = mostIn(bombs);
+        const assault = facts.filter(f => (isManeuver(f) || (f.groups.infantry || 0) > 0) && (advancing(f) || shot(f)) && after(bombs, f, 12 * HOUR)
+            && (!where || f.areas.includes(where)));
+        judge('glidebomb', levelBy(bombs.length + (assault.length ? 1 : 0), 2, 4),
+            assault.length ? `are striking${where ? ` ${where}` : ''} with glide bombs ahead of an assault` : `are striking${where ? ` ${where}` : ''} with glide bombs`,
+            [['glide or guided bombs within 24 hrs', bombs], ['an assault there within 12 hrs after', assault]]);
+    }
+    // Strikes on command posts, radars and communications.
+    const striking = (f) => firing(f) || can(f, 'deep') || can(f, 'loitering') || can(f, 'attackAir') || can(f, 'glideBomb');
+    const blinds = densest(facts.filter(f => striking(f) && C2_TARGETS.test(f.r.activity || '')), 24 * HOUR);
+    if (on('c2strike') && blinds.length) {
+        judge('c2strike', levelBy(blinds.length, 2, 4), {
+            RU: 'are striking command posts, radars and communications, to blind the defense',
+            CN: 'are striking command, communications and sensors (system destruction warfare)',
+            '': 'are striking command posts, radars and communications',
+        }, [['strikes on command posts, radars or communications within 24 hrs', blinds],
+            ['EW at the same time', ewAll.filter(e => blinds.some(b => Math.abs(b.ms - e.ms) <= 6 * HOUR))]]);
+    }
+    // Suppressing air defense: anti-radiation weapons, or strikes on radars and SAMs.
+    const suppress = facts.filter(f => can(f, 'sead') || (striking(f) && /\b(radars?|sams?|air defen[cs]e)\b/i.test(f.r.activity || '')));
+    if (on('sead') && suppress.length) {
+        const jam = ewAll.filter(e => suppress.some(s => Math.abs(s.ms - e.ms) <= 6 * HOUR));
+        judge('sead', levelBy(suppress.length + (jam.length ? 1 : 0), 2, 3), 'are suppressing friendly air defense',
+            [['anti-radiation weapons, or strikes on radars and air defense', suppress], ['EW at the same time', jam],
+                ['decoy drones', facts.filter(f => can(f, 'deception') && (can(f, 'uav') || can(f, 'loitering')))]]);
+    }
+    // Logistics moving forward, with armor massing or with fuel and ammunition.
+    const convoys = densest(facts.filter(f => f.roles.has('logistics') && advancing(f)), 12 * HOUR);
+    const fuelAmmo = convoys.filter(f => FUEL_AMMO.test(textOf(f)));
+    if (on('logforward') && convoys.length >= 2 && (mass.length || fuelAmmo.length)) {
+        const signs = [['supply vehicles moving within 12 hrs', convoys], ['fuel or ammunition among them', fuelAmmo],
+            [focus ? `armor or mechanized forces massing in ${focus}` : 'armor or mechanized forces massing', mass]];
+        judge('logforward', levelBy(kindsOf(signs) + (convoys.length >= 4 ? 1 : 0), 3, 4), {
+            RU: `are pushing fuel and ammunition forward${focus ? ` toward ${focus}` : ''}, as before an attack`,
+            CN: `are pushing fuel and ammunition forward${focus ? ` toward ${focus}` : ''}, as before an attack`,
+            '': `are pushing supplies forward${focus ? ` toward ${focus}` : ''}`,
+        }, signs);
     }
     return out.sort((x, y) => y.level - x.level || y.list.length - x.list.length || x.order - y.order || x.key.localeCompare(y.key));
 };
