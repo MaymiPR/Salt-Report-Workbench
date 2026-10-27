@@ -492,6 +492,17 @@ class BrowserTests(unittest.TestCase):
         page.select_option("#ioFormatSelect", "arcgis-esri")
         self.assertFalse(shown("#exportMtiToggle"))
         self.assertTrue(shown("#export-from-date"))
+        # Clear sits after the 12h / 6h / 1h presets, and empties the range.
+        self.assertEqual(
+            page.evaluate(
+                "document.querySelector('[data-preset-hours=\"1\"]').nextElementSibling.id"
+            ),
+            "exportClearFilterBtn",
+        )
+        page.click("[data-preset-hours='6']")
+        self.assertNotEqual(page.input_value("#export-from-date"), "")
+        page.click("#exportClearFilterBtn")
+        self.assertEqual(page.input_value("#export-from-date"), "")
         # The list holds exports only; clicking the drop area chooses files to import.
         options = page.locator("#ioFormatSelect option").evaluate_all("os => os.map(o => o.value)")
         self.assertNotIn("overlays", options)
