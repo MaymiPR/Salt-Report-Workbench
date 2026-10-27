@@ -134,7 +134,10 @@ Web Mercator when every chosen layer has it, else latitude / longitude, which
 the map stretches to its Mercator box (true to well under a pixel over a
 training area).
 
-The Map view (`app/49-mapview.js`) is built around that map. After each
+The map sits under the Report Log in one pager (`#homePager`): the two
+panes are stacked and the pager slides between them with a CSS transform, so
+nothing is laid out again; the pane out of sight is hidden and inert once
+the slide ends. The Map view (`app/49-mapview.js`) is built around that map. After each
 drawing the map tells it (`mapDrawnHook`) what it showed: the view box, the
 reports and their tracks. Once the view settles, the view counts what is
 on the map and fills the table from that. A click that didn't drag

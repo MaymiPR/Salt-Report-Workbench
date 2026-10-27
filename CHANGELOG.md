@@ -6,6 +6,45 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The map is under the Report Log**: the map button by the *Report Log*
+  heading slides down to the map, and the same button (a list by then) slides
+  back. The Report Log's bar stays above both, and its search narrows the map
+  too. The view
+  icons are a 2×2 square of four again, a little larger.
+- **A bigger map**, the width of the panel, with its controls on it: the
+  layers, *Latest grids* or *All reports*, and the window at the top left;
+  the key and the *Up to* slider at its foot. *On the map*, *In an NAI or
+  OBJ* and *BDA assessed* sit in a row above it.
+- **Map layers together**: Heat map (on to start with), Tracks and Reports
+  are each turned on and off by themselves, so the heat map and tracks can be
+  seen at once. Kept per browser.
+- **Latest grids or All reports** for the heat map and the dots: each report
+  at its latest grid, or every saved report (updates too) at its grids. The
+  one picked is solid blue.
+- **Activity filter**: in a sidebar left of the map, click activities
+  (several at once) to show only those reports; *Show all* clears it. The
+  busiest places are under them in the same sidebar, which runs the map's
+  height in two halves that each scroll; the sidebar button on the map hides
+  it (and brings it back).
+- Tracks are red with a black outline, and so are the report dots.
+- Zoomed all the way out, the map shows more around the graphics, so the
+  controls and the key don't cover them.
+- Over the map, a plain scroll now scrolls the page on to the table;
+  **Ctrl + scroll** (Cmd on a Mac, or a trackpad pinch) zooms, and a hint says
+  so. In full screen a plain scroll still zooms.
+- **Basemaps** are on the map: a layers button under the zoom buttons opens
+  the picker and, for editors, *Manage basemaps…*: one box takes a WMS link
+  (its layers are looked up) or a tile address, with an optional name.
+
+### Fixed
+
+- Whether the map was on screen, and *Only what's on the map*, are now
+  remembered when the page is reloaded.
+- The numbers over the map no longer arrive a moment late and push the map
+  down the first time it opens.
+
 ## [2.12.0] - 2026-10-27
 
 ### Added

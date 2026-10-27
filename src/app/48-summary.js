@@ -48,10 +48,9 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const openSummaryView = () => {
     if (isExportViewActive) closeExportView();
     closeStatsView();
-    closeMapView();
+    hideHomeViews();
     isSummaryViewActive = true;
     setViewIcon('summaryViewToggleBtn', true);
-    el.log.view.style.display = 'none';
     const s = summaryEls();
     s.panel.style.display = 'flex';
     el.menu.panel.style.display = 'none';
@@ -65,8 +64,7 @@ const closeSummaryView = () => {
     isSummaryViewActive = false;
     setViewIcon('summaryViewToggleBtn', false);
     summaryEls().panel.style.display = 'none';
-    el.log.view.style.display = 'flex';
-    writeStored('salt_view', 'log');
+    showHomeView();
 };
 
 // The charts that go with each kind when printed: the same drawing as the

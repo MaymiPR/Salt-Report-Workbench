@@ -411,9 +411,8 @@ const importFiles = (fileList) => {
 const openExportView = () => {
     closeStatsView();
     closeSummaryView();
-    closeMapView();
+    hideHomeViews();
     isExportViewActive = true;
-    el.log.view.style.display  = 'none';
     el.exp.panel.style.display = 'flex';
     setViewIcon('exportViewToggleBtn', true);
     el.menu.panel.style.display = 'none';
@@ -427,10 +426,9 @@ const openExportView = () => {
 
 const closeExportView = () => {
     isExportViewActive = false;
-    el.log.view.style.display  = 'flex';
     el.exp.panel.style.display = 'none';
     setViewIcon('exportViewToggleBtn', false);
-    writeStored('salt_view', 'log');
+    showHomeView();
 };
 
 function processJsonImport(rawText) {
@@ -506,7 +504,7 @@ const openCsvImportView = () => {
     // state in sync so the next click opens the panel on the first try.
     isExportViewActive = false;
     setViewIcon('exportViewToggleBtn', false);
-    el.log.view.style.display   = 'none';
+    hideHomeViews();
     el.exp.panel.style.display  = 'none';
     el.csv.panel.style.display  = 'flex';
     el.menu.panel.style.display = 'none';
@@ -552,8 +550,7 @@ const openCsvImportView = () => {
 
 const closeCsvImportView = () => {
     el.csv.panel.style.display = 'none';
-    el.log.view.style.display  = 'flex';
-    writeStored('salt_view', 'log');
+    showHomeView();
     pendingCsv = null;
 };
 

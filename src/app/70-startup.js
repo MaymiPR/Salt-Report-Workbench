@@ -48,7 +48,7 @@ renderLog();
 if (localStorage.getItem('salt_view')==='export') openExportView();
 else if (localStorage.getItem('salt_view')==='stats') openStatsView();
 else if (localStorage.getItem('salt_view')==='summary') openSummaryView();
-else if (localStorage.getItem('salt_view')==='map') openMapView();
+else showHomeView();
 
 syncWithServer().then(() => {
     initSSE();

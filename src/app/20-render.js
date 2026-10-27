@@ -220,6 +220,21 @@ const locationTags = (text, id) => {
     return tags.length ? `<div class="loc-tags">${tags.join('')}</div>` : '';
 };
 
+// Whether a report matches what's typed in the search (lower case): a heading
+// on its own (N, SW...) matches the Activity's word; anything else, the
+// report's text, time, custom fields and BDA. The table and the map both use it.
+const matchesSearch = (r, filterText) => {
+    const q = String(filterText || '').trim();
+    if (!q) return true;
+    if (/^(n|ne|nw|s|se|sw|e|w)$/i.test(q)) return new RegExp(`\\b${q}\\b`, 'i').test(r.activity);
+    const ts  = (timeDisplayMode === 'local' ? toLocalTimeString : toZuluTimeString)(r.time);
+    // Custom builder fields and BDA assessments are searchable too,
+    // so "destroyed" or a weather note finds its report.
+    const cus = Object.values(r.custom || {}).join(' ');
+    const bda = (r.bda || []).map(b => `${b.effect||''} ${b.target||''} ${b.coords||''} ${b.note||''}`).join(' ');
+    return `${r.fullId} ${r.displayId} ${r.size} ${r.activity} ${r.location} ${r.yourAnalysis||''} ${r.user?.initials||''} ${ts} ${cus} ${bda}`.toLowerCase().includes(filterText);
+};
+
 const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
     keepBdaDrafts();
     let rows = localReports.filter(r => !r.deleted);
@@ -230,22 +245,7 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
     renderBdaRollup(rows);
     if (bdaMode && bdaFilter) rows = rows.filter(matchesBdaFilter);
 
-    if (filterText) {
-        const isDir = /^(n|ne|nw|s|se|sw|e|w)$/i.test(filterText.trim());
-        if (isDir) {
-            const rx = new RegExp(`\\b${filterText.trim()}\\b`, 'i');
-            rows = rows.filter(r => rx.test(r.activity));
-        } else {
-            rows = rows.filter(r => {
-                const ts  = (timeDisplayMode === 'local' ? toLocalTimeString : toZuluTimeString)(r.time);
-                // Custom builder fields and BDA assessments are searchable too,
-                // so "destroyed" or a weather note finds its report.
-                const cus = Object.values(r.custom || {}).join(' ');
-                const bda = (r.bda || []).map(b => `${b.effect||''} ${b.target||''} ${b.coords||''} ${b.note||''}`).join(' ');
-                return `${r.fullId} ${r.displayId} ${r.size} ${r.activity} ${r.location} ${r.yourAnalysis||''} ${r.user?.initials||''} ${ts} ${cus} ${bda}`.toLowerCase().includes(filterText);
-            });
-        }
-    }
+    if (filterText) rows = rows.filter(r => matchesSearch(r, filterText));
 
     const dir = currentSortMode.endsWith('Desc') ? -1 : 1;
     const textField = currentSortMode.replace(/Asc$|Desc$/, '');  // size | activity | location

@@ -2,14 +2,26 @@
 
 // The map drawn in the Map view (app/49-mapview.js): the shared NAIs, OBJs
 // and phase lines in Web Mercator, over an optional WMS or tile basemap fetched
-// only for the area the graphics cover, with the shown workspace's reports as
-// dots, a heat map, or tracks. Plain SVG drawn in screen pixels; no map library.
+// only for the area the graphics cover, with the shown workspace's reports in
+// layers turned on and off together: a heat map, tracks, and dots. Plain SVG
+// drawn in screen pixels; no map library.
 // One of the ordered scripts that make up the page (see src/app/); they
 // share one top-level scope, so names declared earlier are visible here.
 
-const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', track: '#ff9f0a' };
-const MAP_MODES = ['reports', 'heat', 'tracks'];
-let mapMode = MAP_MODES.includes(localStorage.getItem('salt_map_mode')) ? localStorage.getItem('salt_map_mode') : 'reports';
+const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', track: '#ff3b30', edge: '#000000' };
+// The layers on, in any mix (per browser); the heat map alone to start with.
+const MAP_LAYERS = [['heat', 'Heat map'], ['tracks', 'Tracks'], ['reports', 'Reports']];
+const mapLayers = (() => {
+    try {
+        const v = JSON.parse(localStorage.getItem('salt_map_layers') || 'null');
+        if (v && typeof v === 'object') return { heat: !!v.heat, tracks: !!v.tracks, reports: !!v.reports };
+    } catch (e) { /* unreadable: the default */ }
+    return { heat: true, tracks: false, reports: false };
+})();
+// The heat map and the dots: each report at its latest grids, or every saved
+// report (its updates too) at its grids. Per browser.
+let mapAllGrids = localStorage.getItem('salt_map_grids') === 'all';
+let mapActivity = new Set();   // the activity tags picked; none for every report
 let mapHours = 0;              // the window, in hours back from its end; 0 for all
 let mapEnd = null;             // the window's end (ms), set by the time slider; null for now
 let mapSelected = '';          // the report picked on the map or in its table, by id
@@ -35,12 +47,12 @@ const mapEls = () => ({
     box: document.getElementById('mapBox'), svg: document.getElementById('mapSvg'),
     base: document.getElementById('mapBase'), tip: document.getElementById('mapTip'),
     note: document.getElementById('mapNote'), legend: document.getElementById('mapLegend'),
-    card: document.getElementById('mapCard'),
+    card: document.getElementById('mapCard'), hint: document.getElementById('mapHint'),
 });
 
-// The reports the map shows: the shown workspace's, in the window (the last
-// `mapHours` before its end, or all up to its end).
-const mapReports = () => {
+// The shown workspace's reports in the window (the last `mapHours` before its
+// end, or all up to its end).
+const mapWindowReports = () => {
     let reps = localReports.filter(r => !r.deleted);
     const end = mapEnd;
     if (end !== null) reps = reps.filter(r => r.time && new Date(r.time).getTime() <= end);
@@ -50,9 +62,17 @@ const mapReports = () => {
     }
     return reps;
 };
+// The reports the map shows: those, with a picked activity, that the
+// Report Log's search finds.
+const mapReports = () => {
+    const q = el.log.search.value.toLowerCase();
+    return mapWindowReports().filter(r => SaltCore.activityMatches(r.activity, mapActivity) && matchesSearch(r, q));
+};
 
-// The area the map covers: the overlays and the reports' grids, padded a
-// little. The basemap is asked for this area only. Null when there is
+// The area the map covers: the overlays and the reports' grids, padded so
+// that, zoomed all the way out, they clear the controls along the top and the
+// key and slider along the foot (more room above and below than at the
+// sides). The basemap is asked for this area only. Null when there is
 // nothing to show.
 const mapExtent = (tracks) => {
     const pts = [];
@@ -62,8 +82,9 @@ const mapExtent = (tracks) => {
     if (!pts.length) return null;
     let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
     pts.forEach(([x, y]) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); });
-    const pad = Math.max(500, (x1 - x0) * 0.08, (y1 - y0) * 0.08);
-    return [x0 - pad, y0 - pad, x1 + pad, y1 + pad];
+    const span = Math.max(x1 - x0, y1 - y0, 1000);
+    const padX = span * 0.15, padY = span * 0.28;
+    return [x0 - padX, y0 - padY, x1 + padX, y1 + padY];
 };
 
 // Keep the view inside the extent: no zooming out past it, no panning off it.
@@ -109,10 +130,10 @@ const drawMap = () => {
 
     const out = [];
     mapItems = [];
-    if (mapMode === 'heat') out.push(heatLayer(reps, px, w, h));
+    if (mapLayers.heat) out.push(heatLayer(reps, px, w, h));
     out.push(overlayLayer(px, w, h));
-    if (mapMode === 'tracks') out.push(trackLayer(tracks, px));
-    if (mapMode === 'reports') out.push(reportLayer(tracks, px));
+    if (mapLayers.tracks) out.push(trackLayer(tracks, px));
+    if (mapLayers.reports) out.push(reportLayer(reps, tracks, px));
     out.push(selectionLayer(tracks, px));
     m.svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
     m.svg.innerHTML = out.join('');
@@ -207,7 +228,7 @@ const heatColor = (t) => {
     return c0.map((v, j) => Math.round(v + (c1[j] - v) * f));
 };
 const heatLayer = (reps, px, w, h) => {
-    const pts = SaltCore.heatPoints(reps).map(p => ({ xy: px(p.lon, p.lat), w: p.w }))
+    const pts = SaltCore.heatPoints(reps, mapAllGrids).map(p => ({ xy: px(p.lon, p.lat), w: p.w }))
         .filter(p => p.xy[0] > -HEAT_RADIUS && p.xy[0] < w + HEAT_RADIUS && p.xy[1] > -HEAT_RADIUS && p.xy[1] < h + HEAT_RADIUS);
     if (!pts.length) return '';
     const c = document.createElement('canvas');
@@ -236,7 +257,7 @@ const heatLayer = (reps, px, w, h) => {
 
 // Each report's path, first position to latest, with an arrow at the end;
 // a report that never moved is a dot (with a short arrow when its Activity
-// gives a heading).
+// gives a heading), unless the Reports layer already shows it.
 const trackLayer = (tracks, px) => {
     const color = MAP_COLORS.track, out = [];
     const arrow = (x, y, deg, size) => {
@@ -244,11 +265,12 @@ const trackLayer = (tracks, px) => {
         const tip = [x + Math.sin(a) * s * 0.6, y - Math.cos(a) * s * 0.6];
         const l = [x + Math.sin(a - 2.5) * s * 0.6, y - Math.cos(a - 2.5) * s * 0.6];
         const r = [x + Math.sin(a + 2.5) * s * 0.6, y - Math.cos(a + 2.5) * s * 0.6];
-        return `<path d="M${tip.map(v => v.toFixed(1))}L${l.map(v => v.toFixed(1))}L${r.map(v => v.toFixed(1))}Z" fill="${color}" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/>`;
+        return `<path d="M${tip.map(v => v.toFixed(1))}L${l.map(v => v.toFixed(1))}L${r.map(v => v.toFixed(1))}Z" fill="${color}" stroke="${MAP_COLORS.edge}" stroke-width="1.2" stroke-linejoin="round"/>`;
     };
     // Names on the tracks that moved, while they stay readable; hover tells the rest.
     const labelled = tracks.filter(t => t.moved).length <= 25;
     tracks.forEach(t => {
+        if (!t.moved && mapLayers.reports) return;
         const i = mapItems.push({ kind: 'track', t }) - 1;
         const pts = t.points.map(p => px(p.lon, p.lat));
         const [ex, ey] = pts[pts.length - 1];
@@ -257,9 +279,9 @@ const trackLayer = (tracks, px) => {
             const [ax, ay] = pts[pts.length - 2];
             const deg = Math.atan2(ex - ax, ay - ey) * 180 / Math.PI;
             out.push(`<g class="map-track" data-map-item="${i}">`
-                + `<path d="${d}" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>`
+                + `<path d="${d}" fill="none" stroke="${MAP_COLORS.edge}" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"/>`
                 + `<path d="${d}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`
-                + `<circle cx="${pts[0][0].toFixed(1)}" cy="${pts[0][1].toFixed(1)}" r="3.5" fill="#1c1c1e" stroke="${color}" stroke-width="2"/>`
+                + `<circle cx="${pts[0][0].toFixed(1)}" cy="${pts[0][1].toFixed(1)}" r="3.5" fill="${MAP_COLORS.edge}" stroke="${color}" stroke-width="2"/>`
                 + pts.slice(1, -1).map(p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.5" fill="${color}"/>`).join('')
                 + arrow(ex, ey, deg, 16)
                 + `<path d="${d}" fill="none" stroke="transparent" stroke-width="14" class="map-hit"/></g>`);
@@ -267,7 +289,7 @@ const trackLayer = (tracks, px) => {
             const act = SaltCore.classifyActivity(t.report.activity);
             out.push(`<g class="map-track" data-map-item="${i}">`
                 + (act.headingDeg !== null ? arrow(ex + Math.sin(act.headingDeg * Math.PI / 180) * 9, ey - Math.cos(act.headingDeg * Math.PI / 180) * 9, act.headingDeg, 11) : '')
-                + `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="4.5" fill="${color}" stroke="#fff" stroke-width="1.5"/>`
+                + `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="4.5" fill="${color}" stroke="${MAP_COLORS.edge}" stroke-width="1.5"/>`
                 + `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="10" fill="transparent" class="map-hit"/></g>`);
         }
         if (labelled && t.moved) out.push(`<text x="${(ex + 9).toFixed(1)}" y="${(ey + 4).toFixed(1)}" class="map-label map-label-track">${svgEsc(t.report.displayId || '')}</text>`);
@@ -283,13 +305,20 @@ const trackLayer = (tracks, px) => {
     return `<g class="map-tracks">${out.join('')}</g>`;
 };
 
-// Each report as a dot at its latest grid, to click.
-const reportLayer = (tracks, px) => `<g class="map-reports">${tracks.map(t => {
-    const i = mapItems.push({ kind: 'report', t }) - 1;
-    const p = t.points[t.points.length - 1], [x, y] = px(p.lon, p.lat);
-    return `<g class="map-report" data-map-item="${i}"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" fill="${MAP_COLORS.track}" stroke="#fff" stroke-width="1.5"/>`
-        + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="transparent" class="map-hit"/></g>`;
-}).join('')}</g>`;
+// Each report as a dot at its latest grids, to click; with every saved report,
+// its earlier positions too, smaller and fainter, under the latest.
+const reportLayer = (reps, tracks, px) => {
+    const byId = new Map(tracks.map(t => [t.report.id, t]));
+    const pts = SaltCore.reportPositions(reps, mapAllGrids).filter(p => byId.has(p.report.id))
+        .sort((a, b) => a.latest - b.latest);
+    return `<g class="map-reports">${pts.map(p => {
+        const i = mapItems.push({ kind: 'report', t: byId.get(p.report.id) }) - 1;
+        const [x, y] = px(p.lon, p.lat);
+        return `<g class="map-report${p.latest ? '' : ' map-report-old'}" data-map-item="${i}">`
+            + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${p.latest ? 5 : 3.5}" fill="${MAP_COLORS.track}" stroke="${MAP_COLORS.edge}" stroke-width="${p.latest ? 1.5 : 1}"${p.latest ? '' : ' opacity="0.6"'}/>`
+            + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${p.latest ? 11 : 7}" fill="transparent" class="map-hit"/></g>`;
+    }).join('')}</g>`;
+};
 
 // A ring round the picked report, in every mode.
 const selectionLayer = (tracks, px) => {
@@ -300,18 +329,26 @@ const selectionLayer = (tracks, px) => {
         + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="none" stroke="${MAP_COLORS.OBJ}" stroke-width="2.5"/></g>`;
 };
 
-// The key: what each colour is, and what the heat or the tracks count.
+// The key: what each colour is, and what each layer that's on counts.
 const mapLegend = (reps, tracks) => {
     const swatch = (color, line) => `<svg width="18" height="10" aria-hidden="true">${line
         ? `<line x1="1" y1="5" x2="17" y2="5" stroke="#fff" stroke-width="4"/><line x1="1" y1="5" x2="17" y2="5" stroke="${color}" stroke-width="2"/>`
         : `<rect x="1" y="1" width="16" height="8" rx="2" fill="${color}" fill-opacity="0.3" stroke="${color}" stroke-width="1.5"/>`}</svg>`;
     const key = (inner, text) => `<span class="map-key">${inner}${text}</span>`;
-    const dot = `<svg width="18" height="10" aria-hidden="true"><circle cx="9" cy="5" r="4" fill="${MAP_COLORS.track}" stroke="#fff" stroke-width="1.2"/></svg>`;
-    const what = mapMode === 'heat'
-        ? key('<span class="map-ramp"></span>', `Fewer to more reports (${Math.round(SaltCore.heatPoints(reps).reduce((s, p) => s + p.w, 0))}, each once, at its latest grid)`)
-        : mapMode === 'reports' ? key(dot, `Report, at its latest grid (${tracks.length})`)
-        : key(swatch(MAP_COLORS.track, true), `Track, first to latest (${tracks.filter(t => t.moved).length} moved, ${tracks.filter(t => !t.moved).length} at one grid)`);
-    return key(swatch(MAP_COLORS.NAI), 'NAI') + key(swatch(MAP_COLORS.OBJ), 'OBJ') + key(swatch(MAP_COLORS.PL, true), 'PL') + what;
+    const dot = `<svg width="18" height="10" aria-hidden="true"><circle cx="9" cy="5" r="4" fill="${MAP_COLORS.track}" stroke="${MAP_COLORS.edge}" stroke-width="1.2"/></svg>`;
+    const trackLine = `<svg width="18" height="10" aria-hidden="true"><line x1="1" y1="5" x2="17" y2="5" stroke="${MAP_COLORS.edge}" stroke-width="4.5"/><line x1="1" y1="5" x2="17" y2="5" stroke="${MAP_COLORS.track}" stroke-width="2.2"/></svg>`;
+    const heat = Math.round(SaltCore.heatPoints(reps, mapAllGrids).reduce((s, p) => s + p.w, 0));
+    const what = [
+        mapLayers.heat && key('<span class="map-ramp"></span>', mapAllGrids
+            ? `Fewer to more reports (${heat}, every saved report, updates included)`
+            : `Fewer to more reports (${heat}, each once, at its latest grid)`),
+        mapLayers.tracks && key(trackLine, `Track, first to latest (${tracks.filter(t => t.moved).length} moved${mapLayers.reports ? '' : `, ${tracks.filter(t => !t.moved).length} at one grid`})`),
+        mapLayers.reports && key(dot, mapAllGrids
+            ? `Report, every saved one (${SaltCore.reportPositions(reps, true).length} positions; earlier ones smaller)`
+            : `Report, at its latest grid (${tracks.length})`),
+    ].filter(Boolean);
+    return key(swatch(MAP_COLORS.NAI), 'NAI') + key(swatch(MAP_COLORS.OBJ), 'OBJ') + key(swatch(MAP_COLORS.PL, true), 'PL')
+        + (what.length ? what.join('') : '<span class="map-key">Turn on a layer above to see the reports.</span>');
 };
 
 // --- Basemap ---
@@ -380,9 +417,8 @@ const drawBasemap = (m, ext, view, w, h) => {
 
 // --- Adding services ---
 
-// Which kind the form adds; and a WMS being looked up: the link, then what its
+// A WMS being looked up: the link (and a name typed for it), then what its
 // capabilities offer and which layers are ticked.
-let baseAddKind = 'wms';
 let wmsFind = null;   // { link, busy, error, title, version, getMap, formats, layers: [{ name, title, crs }], picked: Set, via }
 let baseCheck = null; // { name, ok, text }: what Check found for a service
 
@@ -440,17 +476,17 @@ const parseWmsCapabilities = (xml) => {
     };
 };
 
-const findWmsLayers = async (link) => {
-    wmsFind = { link, busy: true };
+const findWmsLayers = async (link, name = '') => {
+    wmsFind = { link, name, busy: true };
     renderMapView();
     try {
         const got = await fetchServiceText(SaltCore.wmsCapabilitiesUrl(link));
         if (got.http >= 400) throw new Error(`The service answered ${got.http}${serviceSays(got.text) ? `: ${serviceSays(got.text)}` : '.'}`);
         const caps = parseWmsCapabilities(got.text);
         // One layer is ticked to start with when there is only one.
-        wmsFind = { link, ...caps, via: got.via, picked: new Set(caps.layers.length === 1 ? [caps.layers[0].name] : []) };
+        wmsFind = { link, name, ...caps, via: got.via, picked: new Set(caps.layers.length === 1 ? [caps.layers[0].name] : []) };
     } catch (e) {
-        wmsFind = { link, error: e.message || String(e) };
+        wmsFind = { link, name, error: e.message || String(e) };
     }
     renderMapView();
 };
@@ -484,8 +520,12 @@ const addFoundLayers = () => {
     if (layers.length > 2000) { showToast('Too many layers for one service; tick fewer.', true); return; }
     const typed = (document.getElementById('mapWmsName') || {}).value;
     const name = (typed || '').trim() || freeBasemapName(f.title || (picked.length === 1 ? picked[0].title : new URL(f.link).hostname));
-    if (addBasemap({ name, kind: 'wms', url: f.getMap || f.link.trim(), layers, version: f.version, crs, format: SaltCore.pickWmsFormat(f.formats) })) wmsFind = null;
+    if (!addBasemap({ name, kind: 'wms', url: f.getMap || f.link.trim(), layers, version: f.version, crs, format: SaltCore.pickWmsFormat(f.formats) })) return false;
+    wmsFind = null;
+    return true;
 };
+// Empty the add box once a service is in (the form was redrawn with what was typed).
+const clearBaseInputs = () => ['mapBaseInput', 'mapBaseNameIn'].forEach(id => { const i = document.getElementById(id); if (i) i.value = ''; });
 
 // Check: ask the service for a little of the map, the way the map does, and
 // say what came back: an image, or the service's own error.
@@ -519,12 +559,12 @@ const wmsFindHtml = () => {
     if (f.error) return `<div class="map-find-msg map-find-error">${escapeHtml(f.error)}</div>
         <div class="map-form-row">
             <input type="text" id="mapWmsManualLayers" placeholder="Layer names, comma-separated, to try anyway" maxlength="2000" spellcheck="false">
-            <input type="text" id="mapWmsManualName" placeholder="Name" maxlength="60" spellcheck="false">
+            <input type="text" id="mapWmsManualName" placeholder="Name" maxlength="60" spellcheck="false" value="${escapeHtml(f.name || '')}">
             <button type="button" id="mapWmsManualAdd" class="cancel-btn">Add anyway</button>
         </div>`;
     const n = f.picked.size;
     return `<div class="map-find-head">
-            <input type="text" id="mapWmsName" value="${escapeHtml(freeBasemapName(f.title || new URL(f.link).hostname))}" maxlength="60" spellcheck="false" aria-label="Name">
+            <input type="text" id="mapWmsName" value="${escapeHtml(f.name || freeBasemapName(f.title || new URL(f.link).hostname))}" maxlength="60" spellcheck="false" aria-label="Name">
             <span class="overlays-muted">${f.layers.length} layer${f.layers.length === 1 ? '' : 's'} &middot; WMS ${f.version} &middot; read by ${escapeHtml(f.via)}</span>
         </div>
         ${f.layers.length > 10 ? '<input type="text" id="mapWmsFilter" class="map-layer-filter" placeholder="Filter layers" spellcheck="false">' : ''}
@@ -541,38 +581,24 @@ const wmsFindHtml = () => {
         </div>`;
 };
 
-// Editors keep the list of services: each can be checked or removed. Below,
-// a WMS is added from its link (its layers looked up), or a tile service by hand.
+// Editors keep the list of services (each can be checked or removed), and add
+// one by pasting its address: a WMS link, whose layers are then looked up, or
+// a tile address with {z}, {x} and {y}. The name is optional.
 const basemapForm = () => `<div class="map-basemap-form editor-only" id="mapBasemapForm" hidden>
-        <div class="map-base-list">${sharedBasemaps.map((b, i) => `
+        ${sharedBasemaps.length ? `<div class="map-base-list">${sharedBasemaps.map((b, i) => `
             <div class="map-base-row">
-                <span class="map-base-name">${escapeHtml(b.name)}</span>
+                <span class="map-base-name" title="${escapeHtml(b.url)}${b.layers ? `\n${escapeHtml(b.layers)}` : ''}">${escapeHtml(b.name)}</span>
                 <span class="map-base-kind">${b.kind === 'wms' ? 'WMS' : 'Tiles'}</span>
-                <span class="map-base-url" title="${escapeHtml(b.url)}${b.layers ? `\n${escapeHtml(b.layers)}` : ''}">${escapeHtml(b.url)}${b.layers ? ` &middot; ${escapeHtml(b.layers)}` : ''}</span>
-                <button type="button" class="cancel-btn map-base-check-btn" data-base-check="${i}">Check</button>
+                <button type="button" class="text-btn" data-base-check="${i}">Check</button>
                 <button type="button" class="overlay-remove" data-base-remove="${i}" title="Remove ${escapeHtml(b.name)}" aria-label="Remove ${escapeHtml(b.name)}">&times;</button>
-            </div>${baseCheck && baseCheck.name === b.name ? `<div class="map-base-check${baseCheck.ok ? ' ok' : ''}" role="status">${escapeHtml(baseCheck.text)}</div>` : ''}`).join('') || '<div class="overlays-muted">No services yet.</div>'}</div>
-        <div class="io-modes map-add-kinds" role="group" aria-label="Add">
-            <button type="button" class="io-mode" data-base-add-kind="wms" aria-pressed="${baseAddKind === 'wms'}">Add WMS</button>
-            <button type="button" class="io-mode" data-base-add-kind="tiles" aria-pressed="${baseAddKind === 'tiles'}">Add tiles</button>
-        </div>
-        ${baseAddKind === 'wms' ? `
-        <div class="map-form-row">
-            <input type="text" id="mapWmsLink" placeholder="The service's link, as in your other map tools" maxlength="4000" spellcheck="false" value="${escapeHtml(wmsFind ? wmsFind.link : '')}">
-            <button type="button" id="mapWmsFind" class="set-btn"${wmsFind && wmsFind.busy ? ' disabled' : ''}>Find layers</button>
+            </div>${baseCheck && baseCheck.name === b.name ? `<div class="map-base-check${baseCheck.ok ? ' ok' : ''}" role="status">${escapeHtml(baseCheck.text)}</div>` : ''}`).join('')}</div>` : ''}
+        <div class="map-form-row map-base-add">
+            <input type="text" id="mapBaseInput" placeholder="WMS link or tile address" maxlength="4000" spellcheck="false" value="${escapeHtml(wmsFind ? wmsFind.link : '')}" aria-label="WMS link or tile address">
+            <input type="text" id="mapBaseNameIn" placeholder="Name" maxlength="60" spellcheck="false" aria-label="Name (optional)">
+            <button type="button" id="mapBaseAddBtn" class="set-btn"${wmsFind && wmsFind.busy ? ' disabled' : ''}>Add</button>
         </div>
         ${wmsFindHtml()}
-        <div class="overlays-note">Paste the link you use in other tools (for ArcGIS, the address ending in <code>WMSServer</code>). Its layers are listed; tick the ones
-            you want and they are added as one basemap, named after the service. It is drawn in Web Mercator when the service offers it,
-            otherwise in latitude / longitude.</div>` : `
-        <div class="map-form-row">
-            <input type="text" id="mapBaseName" placeholder="Name, e.g. Imagery" maxlength="60" spellcheck="false">
-            <input type="text" id="mapBaseUrl" placeholder="Tile address with {z}, {x} and {y}" maxlength="2000" spellcheck="false">
-            <button type="button" id="mapBaseAdd" class="set-btn">Add</button>
-        </div>
-        <div class="overlays-note">An address with {z}, {x} and {y} (or WMTS's {TileMatrix}, {TileRow} and {TileCol}) in Web Mercator (GoogleMapsCompatible),
-            such as an ArcGIS tile service's <code>.../MapServer/tile/{z}/{y}/{x}</code>.</div>`}
-        <div class="overlays-note">Only the area of your graphics is requested. The list is shared with everyone; each person picks which one to show.</div>
+        <div class="map-base-hint">Shared with everyone. A tile address has {z}, {x} and {y}.</div>
     </div>`;
 
 const saveBasemaps = async (list, said) => {
@@ -625,48 +651,66 @@ const renderOverlayMap = (box) => {
         const hours = [[0, 'All'], [24, '24h'], [12, '12h'], [6, '6h']];
         box.innerHTML = `
             <div class="map-pane" id="mapPane">
-            <div class="map-tools">
-                <div class="io-modes" role="group" aria-label="Show reports as">
-                    <button type="button" class="io-mode" data-map-mode="reports">Reports</button>
-                    <button type="button" class="io-mode" data-map-mode="heat">Heat map</button>
-                    <button type="button" class="io-mode" data-map-mode="tracks">Tracks</button>
-                </div>
-                <div class="filter-presets" aria-label="Time window">
-                    <span class="filter-presets-label">Window</span>
-                    ${hours.map(([v, t]) => `<button type="button" class="filter-preset-btn" data-map-hours="${v}">${t}</button>`).join('')}
-                </div>
-                <select id="mapBaseSelect" class="map-base-select" aria-label="Basemap"></select>
-                <button type="button" id="mapBaseEdit" class="cancel-btn editor-only">Basemaps&hellip;</button>
-            </div>
-            <div id="mapBaseFormSlot"></div>
             <div class="map-box" id="mapBox">
                 <svg class="map-base" aria-hidden="true"><g id="mapBase"></g></svg>
                 <svg id="mapSvg" class="map-svg" role="img" aria-label="Map of the overlays and reports"></svg>
+                <div class="map-tools" aria-label="Map controls">
+                    <button type="button" id="mapSideBtn" class="map-side-btn" title="Hide the sidebar" aria-label="Sidebar" aria-pressed="true"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M6 2.75v10.5"/></svg></button>
+                    <div class="map-layers" role="group" aria-label="Layers">
+                        ${MAP_LAYERS.map(([k, t]) => `<button type="button" class="map-layer-btn" data-map-layer="${k}" aria-pressed="false"><span class="map-layer-check" aria-hidden="true"></span>${t}</button>`).join('')}
+                    </div>
+                    <div class="io-modes map-grids" role="group" aria-label="Which reports the heat map and dots show">
+                        <button type="button" class="io-mode" data-map-grids="latest" title="Each report once, at its latest grid">Latest grids</button>
+                        <button type="button" class="io-mode" data-map-grids="all" title="Every saved report, its updates included, at its grids">All reports</button>
+                    </div>
+                    <div class="filter-presets" aria-label="Time window">
+                        <span class="filter-presets-label">Window</span>
+                        ${hours.map(([v, t]) => `<button type="button" class="filter-preset-btn" data-map-hours="${v}">${t}</button>`).join('')}
+                    </div>
+                </div>
                 <div class="map-zoom">
                     <button type="button" data-map-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>
                     <button type="button" data-map-zoom="out" title="Zoom out" aria-label="Zoom out">&minus;</button>
                     <button type="button" data-map-zoom="fit" title="Show all" aria-label="Show all">&#10530;</button>
                     <button type="button" data-map-zoom="full" id="mapFullBtn" title="Full screen" aria-label="Full screen">${FULL_ICON}</button>
+                    <button type="button" id="mapBaseBtn" title="Basemap" aria-label="Basemap" aria-expanded="false"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2 1.8 5.2 8 8.4l6.2-3.2z"/><path d="m1.8 8 6.2 3.2L14.2 8"/><path d="m1.8 10.8 6.2 3.2 6.2-3.2"/></svg></button>
+                </div>
+                <!-- The basemap: which one to show, and (editors) the list of services. -->
+                <div id="mapBasePop" class="map-base-pop" hidden>
+                    <div class="map-base-pop-head">Basemap</div>
+                    <select id="mapBaseSelect" class="map-base-select" aria-label="Basemap"></select>
+                    <div id="mapBaseNone" class="map-base-none">No basemaps yet.</div>
+                    <button type="button" id="mapBaseEdit" class="text-btn editor-only">Manage basemaps&hellip;</button>
+                    <div id="mapBaseFormSlot"></div>
                 </div>
                 <div id="mapNote" class="map-note" hidden></div>
                 <div id="mapTip" class="map-tip" role="status" hidden></div>
+                <div id="mapHint" class="map-hint" hidden>${/Mac/i.test(navigator.platform) ? '&#8984;' : 'Ctrl'} + scroll to zoom the map</div>
                 <div id="mapCard" class="map-card" hidden></div>
+                <div class="map-bottom">
+                    <div id="mapLegend" class="map-legend"></div>
+                    <div class="map-time">
+                        <label for="mapEndRange">Up to</label>
+                        <input type="range" id="mapEndRange" min="0" max="1000" step="1" value="1000" aria-label="Show reports up to this time">
+                        <span id="mapEndLabel" class="map-time-label"></span>
+                        <button type="button" id="mapEndNow" class="text-btn" hidden>Now</button>
+                    </div>
+                </div>
             </div>
-            <div class="map-time">
-                <label for="mapEndRange">Up to</label>
-                <input type="range" id="mapEndRange" min="0" max="1000" step="1" value="1000" aria-label="Show reports up to this time">
-                <span id="mapEndLabel" class="map-time-label"></span>
-                <button type="button" id="mapEndNow" class="text-btn" hidden>Now</button>
-            </div>
-            <div id="mapLegend" class="map-legend"></div>
             </div>`;
         wireMapBox();
     }
-    box.querySelectorAll('[data-map-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mapMode === mapMode)));
+    box.querySelectorAll('[data-map-layer]').forEach(b => b.setAttribute('aria-pressed', String(mapLayers[b.dataset.mapLayer])));
+    box.querySelectorAll('[data-map-grids]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.mapGrids === 'all') === mapAllGrids)));
+    // Greyed out, not hidden, when neither layer it changes is on: the tools don't move.
+    box.querySelectorAll('[data-map-grids]').forEach(b => { b.disabled = !mapLayers.heat && !mapLayers.reports; });
     box.querySelectorAll('[data-map-hours]').forEach(b => b.classList.toggle('active', +b.dataset.mapHours === mapHours));
     const pick = document.getElementById('mapBaseSelect');
     pick.innerHTML = basemapOptions();
     pick.hidden = !sharedBasemaps.length;
+    document.getElementById('mapBaseNone').hidden = !!sharedBasemaps.length;
+    // Viewers can only pick: with nothing to pick, no button.
+    document.getElementById('mapBaseBtn').hidden = isReadOnly && !sharedBasemaps.length;
     // The form is rebuilt from the list, keeping whether it was open and what was being typed.
     const slot = document.getElementById('mapBaseFormSlot'), old = document.getElementById('mapBasemapForm');
     const typed = old ? [...old.querySelectorAll('input[type="text"][id]')].map(i => [i.id, i.value]) : [];
@@ -694,10 +738,17 @@ const trackTip = (t) => {
 const mapBody = document.getElementById('mapHost');
 if (mapBody) {
     mapBody.addEventListener('click', e => {
-        const mode = e.target.closest('[data-map-mode]');
-        if (mode) {
-            mapMode = mode.dataset.mapMode;
-            try { localStorage.setItem('salt_map_mode', mapMode); } catch (err) { /* this session only */ }
+        const layer = e.target.closest('[data-map-layer]');
+        if (layer) {
+            mapLayers[layer.dataset.mapLayer] = !mapLayers[layer.dataset.mapLayer];
+            try { localStorage.setItem('salt_map_layers', JSON.stringify(mapLayers)); } catch (err) { /* this session only */ }
+            renderMapView();
+            return;
+        }
+        const grids = e.target.closest('[data-map-grids]');
+        if (grids) {
+            mapAllGrids = grids.dataset.mapGrids === 'all';
+            try { localStorage.setItem('salt_map_grids', mapAllGrids ? 'all' : 'latest'); } catch (err) { /* this session only */ }
             renderMapView();
             return;
         }
@@ -711,9 +762,12 @@ if (mapBody) {
             redrawMap();
             return;
         }
+        if (e.target.closest('#mapBaseBtn')) { toggleBasePop(); return; }
         if (e.target.closest('#mapBaseEdit')) {
             const f = document.getElementById('mapBasemapForm');
             f.hidden = !f.hidden;
+            document.getElementById('mapBasePop').classList.toggle('managing', !f.hidden);
+            if (!f.hidden) document.getElementById('mapBaseInput').focus();
             return;
         }
         const rm = e.target.closest('[data-base-remove]');
@@ -724,35 +778,31 @@ if (mapBody) {
         }
         const check = e.target.closest('[data-base-check]');
         if (check) { const b = sharedBasemaps[+check.dataset.baseCheck]; if (b) checkBasemap(b); return; }
-        const kind = e.target.closest('[data-base-add-kind]');
-        if (kind) { baseAddKind = kind.dataset.baseAddKind; renderMapView(); return; }
-        if (e.target.closest('#mapWmsFind')) {
-            const link = document.getElementById('mapWmsLink').value.trim();
-            if (!/^https?:\/\//i.test(link)) { showToast('The link must start with http:// or https://.', true); return; }
-            findWmsLayers(link);
+        // One box for both: a tile address has {z} (or WMTS's {TileMatrix}); anything
+        // else is taken as a WMS, and its layers are looked up.
+        if (e.target.closest('#mapBaseAddBtn')) {
+            const text = document.getElementById('mapBaseInput').value.trim();
+            const name = document.getElementById('mapBaseNameIn').value.trim();
+            if (!/^https?:\/\//i.test(text)) { showToast('Paste an address that starts with http:// or https://.', true); return; }
+            if (/\{(z|TileMatrix)\}/i.test(text)) {
+                const host = new URL(text.replace(/[{}]/g, '')).hostname;
+                if (addBasemap({ name: name || freeBasemapName(host), kind: 'tiles', url: text })) clearBaseInputs();
+            } else findWmsLayers(text, name);
             return;
         }
-        if (e.target.closest('#mapWmsAdd')) { addFoundLayers(); return; }
+        if (e.target.closest('#mapWmsAdd')) { if (addFoundLayers()) clearBaseInputs(); return; }
         if (e.target.closest('#mapWmsCancel')) { wmsFind = null; renderMapView(); return; }
         if (e.target.closest('#mapWmsManualAdd')) {
             const layers = document.getElementById('mapWmsManualLayers').value.trim();
             if (!layers) { showToast('Type the layer names to try.', true); return; }
             const name = document.getElementById('mapWmsManualName').value.trim() || freeBasemapName(new URL(wmsFind.link).hostname);
-            if (addBasemap({ name, kind: 'wms', url: wmsFind.link, layers })) wmsFind = null;
+            if (addBasemap({ name, kind: 'wms', url: wmsFind.link, layers })) { wmsFind = null; clearBaseInputs(); }
             return;
-        }
-        if (e.target.closest('#mapBaseAdd')) {
-            const name = document.getElementById('mapBaseName').value.trim();
-            const url = document.getElementById('mapBaseUrl').value.trim();
-            if (!name) { showToast('Give the service a name.', true); return; }
-            if (!/^https?:\/\//i.test(url)) { showToast('The address must start with http:// or https://.', true); return; }
-            if (!/\{(z|TileMatrix)\}/i.test(url)) { showToast('A tile address needs {z}, {x} and {y} (or {TileMatrix}, {TileCol}, {TileRow}).', true); return; }
-            if (addBasemap({ name, kind: 'tiles', url })) ['mapBaseName', 'mapBaseUrl'].forEach(id => { document.getElementById(id).value = ''; });
         }
     });
     mapBody.addEventListener('input', e => { if (e.target.id === 'mapWmsFilter') filterWmsLayers(); });
     mapBody.addEventListener('keydown', e => {
-        if (e.key === 'Enter' && e.target.id === 'mapWmsLink') { e.preventDefault(); document.getElementById('mapWmsFind').click(); }
+        if (e.key === 'Enter' && (e.target.id === 'mapBaseInput' || e.target.id === 'mapBaseNameIn')) { e.preventDefault(); document.getElementById('mapBaseAddBtn').click(); }
     });
     mapBody.addEventListener('change', e => {
         const pick = e.target.closest('[data-layer-pick]');
@@ -772,6 +822,18 @@ if (mapBody) {
         }
     });
 }
+
+// The basemap panel on the map, opened from its button; a click elsewhere closes it.
+const toggleBasePop = (open) => {
+    const pop = document.getElementById('mapBasePop'), btn = document.getElementById('mapBaseBtn');
+    if (!pop) return;
+    pop.hidden = open === undefined ? !pop.hidden : !open;
+    btn.setAttribute('aria-expanded', String(!pop.hidden));
+    btn.classList.toggle('active', !pop.hidden);
+};
+document.addEventListener('click', e => {
+    if (!e.composedPath().some(n => n.id === 'mapBasePop' || n.id === 'mapBaseBtn')) toggleBasePop(false);
+});
 
 // Only the layers matching what's typed in the filter.
 const filterWmsLayers = () => {
@@ -793,11 +855,27 @@ const wireMapBox = () => {
         mapView.cy = my + (y - h / 2) * mapView.mpp;
         redrawMap();
     };
-    m.box.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e, e.deltaY < 0 ? 0.8 : 1.25); }, { passive: false });
-    m.box.addEventListener('dblclick', e => { if (!e.target.closest('.map-zoom')) zoomAt(e, 0.5); });
+    // A plain wheel scrolls the page on, past the map to its table; Ctrl (or
+    // Cmd) with the wheel zooms, as does a trackpad pinch (sent as Ctrl). Full
+    // screen has no page to scroll, so there the wheel zooms.
+    let hintTimer = 0;
+    m.box.addEventListener('wheel', e => {
+        if (e.target.closest('.map-card, .map-bottom, .map-base-pop, .map-tools')) return;
+        const full = document.fullscreenElement && document.fullscreenElement.contains(m.box);
+        if (!full && !e.ctrlKey && !e.metaKey) {
+            m.hint.hidden = false;
+            clearTimeout(hintTimer);
+            hintTimer = setTimeout(() => { m.hint.hidden = true; }, 1200);
+            return;
+        }
+        e.preventDefault();
+        m.hint.hidden = true;
+        zoomAt(e, e.deltaY < 0 ? 0.8 : 1.25);
+    }, { passive: false });
+    m.box.addEventListener('dblclick', e => { if (!e.target.closest('.map-zoom, .map-card, .map-bottom, .map-base-pop, .map-tools')) zoomAt(e, 0.5); });
     let drag = null;
     m.box.addEventListener('pointerdown', e => {
-        if (e.button !== 0 || e.target.closest('.map-zoom, .map-card') || !mapView) return;
+        if (e.button !== 0 || e.target.closest('.map-zoom, .map-card, .map-bottom, .map-base-pop, .map-tools') || !mapView) return;
         drag = { x: e.clientX, y: e.clientY, cx: mapView.cx, cy: mapView.cy, item: e.target.closest('[data-map-item]') };
         m.box.setPointerCapture(e.pointerId);
         m.box.classList.add('dragging');

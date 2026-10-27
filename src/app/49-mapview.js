@@ -1,23 +1,34 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// The Map view: the map (app/46-map.js), beside it what's on the map, and
-// under it a table of those reports, all linked: clicking a report on the map
+// The map, under the Report Log's table (the button in its bar slides between
+// them; the bar, search included, serves both): the map (app/46-map.js), beside it what's on the map,
+// and under it a table of those reports, all linked: clicking a report on the map
 // opens its card and picks its row; clicking a row puts the map on it;
 // clicking an NAI, OBJ, or phase line narrows the table to it.
 // One of the ordered scripts that make up the page (see src/app/); they
 // share one top-level scope, so names declared earlier are visible here.
 
 let isMapViewActive = false;
+// Which of the two is on screen: the Report Log ('list') or the map under it. Per browser.
+let logViewMode = localStorage.getItem('salt_log_view') === 'map' ? 'map' : 'list';
 // The table holds only the reports in the part of the map on screen. Per browser.
-let mapOnlyInView = readStored('salt_map_only_in_view', 'on') !== 'off';
+let mapOnlyInView = localStorage.getItem('salt_map_only_in_view') !== 'off';
+// The sidebar left of the map (activities, busiest places), or hidden. Per browser.
+let mapSideShown = localStorage.getItem('salt_map_side') !== 'hidden';
+const applyMapSide = () => {
+    document.querySelector('.map-main').classList.toggle('side-hidden', !mapSideShown);
+    const btn = document.getElementById('mapSideBtn');
+    if (!btn) return;
+    btn.setAttribute('aria-pressed', String(mapSideShown));
+    btn.title = mapSideShown ? 'Hide the sidebar' : 'Show the sidebar (activities, busiest places)';
+};
 let mapListTimer = 0;
 
 const mapViewEls = () => ({
     panel: document.getElementById('mapPanel'), host: document.getElementById('mapHost'),
-    side: document.getElementById('mapSide'), body: document.getElementById('mapTableBody'),
+    side: document.getElementById('mapSide'), tiles: document.getElementById('mapTiles'), body: document.getElementById('mapTableBody'),
     title: document.getElementById('mapTableTitle'), chip: document.getElementById('mapPlaceChip'),
     only: document.getElementById('mapOnlyInView'), timeHead: document.getElementById('mapTimeHead'),
-    subtitle: document.getElementById('map-panel-subtitle'),
 });
 
 // --- What's on the map ---
@@ -29,11 +40,12 @@ const placesOfReport = (r) => { const a = locationInfo(r.location); return [...a
 
 // The reports the table and the numbers are about: those the map shows, cut
 // to the picked place and (when asked) to the part of the map on screen.
-const mapListReports = () => {
+// `everyActivity`: before the activity filter, to count what it can pick.
+const mapListReports = (everyActivity = false) => {
     const d = mapLastDraw;
     if (!d) return [];
-    const track = new Map(d.tracks.map(t => [t.report.id, t]));
-    let reps = d.reps;
+    let reps = everyActivity ? mapWindowReports() : d.reps;
+    const track = new Map((everyActivity ? SaltCore.reportTracks(reps) : d.tracks).map(t => [t.report.id, t]));
     if (mapPlace) reps = reps.filter(r => placesOfReport(r).includes(mapPlace));
     if (mapOnlyInView && d.view) {
         const [x0, y0, x1, y1] = d.view;
@@ -55,25 +67,30 @@ const renderMapSide = (reps) => {
         const keys = placesOfReport(r);
         if (keys.some(k => !k.startsWith('PL '))) inPlace++;
         keys.forEach(k => tally.set(k, (tally.get(k) || 0) + 1));
-        SaltCore.classifyActivity(r.activity).tags.forEach(t => tags.set(t, (tags.get(t) || 0) + 1));
     });
+    // Every activity there, counted before the activity filter, so more can be picked.
+    mapListReports(true).forEach(r => {
+        const got = SaltCore.classifyActivity(r.activity).tags;
+        (got.length ? got : ['Untagged']).forEach(t => tags.set(t, (tags.get(t) || 0) + 1));
+    });
+    mapActivity.forEach(t => { if (!tags.has(t)) tags.set(t, 0); });
+    const order = [...SaltCore.ACTIVITY_TAGS.map(([t]) => t), 'Untagged'];
     const top = (m, n) => [...m].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0], undefined, { numeric: true })).slice(0, n);
     const roll = SaltCore.bdaRollup(reps);
-    const tile = (label, value) => `<div class="map-side-tile"><div class="map-side-label">${label}</div><div class="map-side-value">${value}</div></div>`;
-    const places = top(tally, 5);
+    const tile = (label, value) => `<div class="map-tile"><div class="map-tile-label">${label}</div><div class="map-tile-value">${value}</div></div>`;
+    // Always three, so the row never changes shape.
+    s.tiles.innerHTML = tile(mapOnlyInView ? 'On the map' : 'Reports', reps.length) + tile('In an NAI or OBJ', inPlace)
+        + tile('BDA assessed', roll.total ? `${roll.done} / ${roll.total}` : '&mdash;');
+    const places = top(tally, 12);
+    const chip = (attr, key, label, n, on) => `<button type="button" class="map-chip map-side-place${on ? ' active' : ''}" ${attr}="${escapeHtml(key)}" aria-pressed="${on}"><span>${escapeHtml(label)}</span><strong>${n}</strong></button>`;
     s.side.innerHTML = `
-        <div class="map-side-tiles">
-            ${tile(mapOnlyInView ? 'On the map' : 'Reports', reps.length)}
-            ${tile('In an NAI or OBJ', inPlace)}
-            ${roll.total ? tile('BDA assessed', `${roll.done} / ${roll.total}`) : ''}
-        </div>
         <div class="map-side-block">
-            <div class="map-side-head">Activity</div>
-            ${tags.size ? top(tags, 4).map(([t, n]) => `<div class="map-side-row"><span>${escapeHtml(t)}</span><strong>${n}</strong></div>`).join('') : '<div class="map-side-empty">None tagged</div>'}
+            <div class="map-side-head">Activity${mapActivity.size ? ' <button type="button" class="text-btn map-side-clear" data-map-activity="">Show all</button>' : ''}</div>
+            <div class="map-chips">${tags.size ? [...tags].sort((x, y) => y[1] - x[1] || order.indexOf(x[0]) - order.indexOf(y[0])).map(([t, n]) => chip('data-map-activity', t, t, n, mapActivity.has(t))).join('') : '<div class="map-side-empty">No reports</div>'}</div>
         </div>
         <div class="map-side-block">
             <div class="map-side-head">Busiest places</div>
-            ${places.length ? places.map(([k, n]) => `<button type="button" class="map-side-row map-side-place${k === mapPlace ? ' active' : ''}" data-map-place="${escapeHtml(k)}"><span>${escapeHtml(k)}</span><strong>${n}</strong></button>`).join('') : '<div class="map-side-empty">None named or found by grid</div>'}
+            <div class="map-chips">${places.length ? places.map(([k, n]) => chip('data-map-place', k, k, n, k === mapPlace)).join('') : '<div class="map-side-empty">None named or found by grid</div>'}</div>
         </div>`;
 };
 
@@ -192,33 +209,48 @@ const renderMapView = () => {
     const s = mapViewEls();
     if (!s.panel || !isMapViewActive) return;
     renderOverlayMap(s.host);
+    applyMapSide();
     renderMapTime();
-    const reps = mapReports();
-    const win = mapHours ? `last ${mapHours} h` : 'all reports';
-    s.subtitle.textContent = `${shownAto() || 'No workspace'} · ${win}${mapEnd === null ? '' : ` up to ${SaltCore.dtg(mapEnd, timeDisplayMode === 'local')}`} · ${reps.length} report${reps.length === 1 ? '' : 's'}`;
     renderMapCard();
 };
 
-const openMapView = () => {
-    if (isExportViewActive) closeExportView();
-    closeStatsView();
-    closeSummaryView();
-    isMapViewActive = true;
-    setViewIcon('mapViewToggleBtn', true);
-    el.log.view.style.display = 'none';
-    mapViewEls().panel.style.display = 'flex';
-    el.menu.panel.style.display = 'none';
-    writeStored('salt_view', 'map');
-    renderMapView();
-};
-const closeMapView = () => {
-    if (!isMapViewActive) return;
-    isMapViewActive = false;
-    setViewIcon('mapViewToggleBtn', false);
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    mapViewEls().panel.style.display = 'none';
-    el.log.view.style.display = 'flex';
+// The Report Log, or the map under it, on screen: where closing another view
+// comes back to. `slide`: animate from one to the other (otherwise it's
+// simply there, as when coming back from another view).
+const MAP_BTN_ICONS = { map: null, list: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>' };
+const showHomeView = (slide = false) => {
+    const pager = document.getElementById('homePager');
+    const map = logViewMode === 'map';
+    isMapViewActive = map;
+    if (!map && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    if (!slide) pager.classList.add('instant');
+    document.getElementById('homeView').style.display = '';
+    // The bar's button: to the map from the table, back to the table from the map.
+    const btn = document.querySelector('[data-home-go]');
+    if (MAP_BTN_ICONS.map === null) MAP_BTN_ICONS.map = btn.innerHTML;
+    btn.dataset.homeGo = map ? 'list' : 'map';
+    btn.innerHTML = MAP_BTN_ICONS[map ? 'list' : 'map'];
+    btn.title = map ? 'Back to the Report Log' : 'Show the map';
+    btn.setAttribute('aria-label', btn.title);
+    // Drawn before it slides in, so it arrives whole.
+    if (map) renderMapView();
+    pager.classList.toggle('on-map', map);
+    el.log.view.inert = map;
+    mapViewEls().panel.inert = !map;
+    if (!slide) requestAnimationFrame(() => requestAnimationFrame(() => pager.classList.remove('instant')));
     writeStored('salt_view', 'log');
+};
+const slideHome = (mode) => {
+    if (mode === logViewMode) return;
+    logViewMode = mode;
+    writeStored('salt_log_view', logViewMode);
+    showHomeView(true);
+};
+// Another view takes the panel: the Report Log and its map step aside.
+const hideHomeViews = () => {
+    isMapViewActive = false;
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    document.getElementById('homeView').style.display = 'none';
 };
 
 // --- Wiring ---
@@ -226,10 +258,24 @@ const closeMapView = () => {
 (() => {
     const s = mapViewEls();
     if (!s.panel) return;
-    document.getElementById('mapViewToggleBtn').addEventListener('click', () => (isMapViewActive ? closeMapView() : openMapView()));
+    // The button by each heading: the map from the Report Log, the Report Log from the map.
+    document.addEventListener('click', e => {
+        const b = e.target.closest('[data-home-go]');
+        if (b) slideHome(b.dataset.homeGo);
+    });
     s.panel.addEventListener('click', e => {
         const place = e.target.closest('[data-map-place]');
         if (place) { mapPlace = place.dataset.mapPlace === mapPlace ? '' : place.dataset.mapPlace; redrawMap(); return; }
+        // Activities beside the map: several can be picked; Show all clears them.
+        const pick = e.target.closest('[data-map-activity]');
+        if (pick) {
+            const t = pick.dataset.mapActivity;
+            if (!t) mapActivity.clear();
+            else if (mapActivity.has(t)) mapActivity.delete(t);
+            else mapActivity.add(t);
+            renderMapView();
+            return;
+        }
         const act = e.target.closest('[data-card-act]');
         if (act) {
             const id = mapSelected;
@@ -251,6 +297,12 @@ const closeMapView = () => {
             return;
         }
         if (e.target.id === 'mapEndNow') { mapEnd = null; renderMapView(); return; }
+        if (e.target.closest('#mapSideBtn')) {
+            mapSideShown = !mapSideShown;
+            writeStored('salt_map_side', mapSideShown ? 'shown' : 'hidden');
+            applyMapSide();
+            return;
+        }
         const tr = e.target.closest('[data-map-row]');
         if (tr) {
             const id = tr.dataset.mapRow;
