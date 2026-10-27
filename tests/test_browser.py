@@ -842,12 +842,35 @@ class BrowserTests(unittest.TestCase):
             self.assertTrue(viewer.locator(sel).is_visible(), sel)
         self.pick_basemap(viewer, "Topo")
         viewer.wait_for_function("() => document.querySelectorAll('#mapBase image').length > 0")
-        # Removing one takes it out for everyone.
-        page.click("[data-base-remove='0']")
+        # A tile service's details: renamed (and still the one shown here).
+        self.open_basemaps(page)
+        self.pick_basemap(page, "Topo")
+        self.open_basemaps(page)
+        page.click("[data-base-open='1']")
+        self.assertEqual(page.input_value("#mapTileName"), "Topo")
+        page.fill("#mapTileName", "Terrain tiles")
+        page.click("#mapTileSave")
+        page.wait_for_selector("#toast-notification:has-text('Terrain tiles saved')")
+        self.assertEqual(
+            page.locator("#mapBaseSelect option").all_text_contents(),
+            ["No basemap", "Imagery", "Terrain tiles"],
+        )
+        self.assertEqual(page.input_value("#mapBaseSelect"), "Terrain tiles")
+        # No x on the rows: a service is removed from its details, and asked first.
+        self.assertEqual(page.locator("#mapBasemapForm .overlay-remove").count(), 0)
+        page.click("[data-base-open='0']")
+        page.wait_for_selector(".map-base-detail .map-layer-list")
+        self.assertTrue(page.is_checked(".map-layer-row:has-text('Imagery 2024') input"))
+        page.click("#mapBaseRemove")
+        self.assertEqual(page.text_content("#mapBaseRemove"), "Remove for everyone?")
+        self.assertEqual(page.locator("#mapBaseSelect option").count(), 3)
+        page.click("#mapBaseRemove")
         page.wait_for_selector("#toast-notification:has-text('Imagery removed')")
         self.assertEqual(
-            page.locator("#mapBaseSelect option").all_text_contents(), ["No basemap", "Topo"]
+            page.locator("#mapBaseSelect option").all_text_contents(),
+            ["No basemap", "Terrain tiles"],
         )
+        self.assertEqual(page.locator(".map-base-detail").count(), 0)
         page.evaluate("saveBasemaps([])")
 
     def test_a_wms_found_through_the_server_in_latitude_longitude(self):
@@ -935,14 +958,45 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("VERSION=1.1.1", get_map)
         x0, y0, x1, y1 = map(float, get_map.split("BBOX=")[1].split("&")[0].split(","))
         self.assertTrue(44 < x0 < x1 < 45 and 33 < y0 < y1 < 34, (x0, y0, x1, y1))
-        # Check: the service sent an image (to the server); a bad layer, its error.
+        # Check: the service sent an image (to the server), said for a few
+        # seconds; a bad layer, its error, which stays to be read.
         page.click("[data-base-check='0']")
         page.wait_for_selector(".map-base-check.ok")
         self.assertIn("map image", page.text_content(".map-base-check"))
+        page.wait_for_selector(".map-base-check", state="detached", timeout=8000)
         page.evaluate(
             f"checkBasemap({{ name: 'Range Maps', kind: 'wms', url: '{base}', layers: 'bad' }})"
         )
         page.wait_for_selector(".map-base-check:has-text('not defined')")
+        page.wait_for_timeout(4600)
+        self.assertTrue(page.locator(".map-base-check:has-text('not defined')").is_visible())
+        # Back to the same service for its layers: looked up again, those in use
+        # ticked; one the service has dropped is still there, marked.
+        caps_holder["caps"] = self.capabilities(
+            "Range Maps",
+            "1.1.1",
+            base + "?",
+            [("roads", "Roads", ["EPSG:4326"]), ("utm", "UTM only", ["EPSG:32611"])],
+        )
+        page.click("[data-base-open='0']")
+        page.wait_for_selector(".map-base-detail .map-layer-list")
+        self.assertEqual(page.locator(".map-base-add + .map-layer-list").count(), 0)
+        self.assertTrue(page.is_checked(".map-layer-row:has-text('Roads') input"))
+        gone = ".map-layer-row:has(.map-layer-name:text-is('terrain'))"
+        self.assertIn("not listed", page.text_content(gone))
+        self.assertTrue(page.is_checked(f"{gone} input"))
+        self.assertEqual(page.text_content("#mapWmsAdd"), "Save")
+        page.uncheck(f"{gone} input")
+        page.uncheck(".map-layer-row:has-text('Roads') input")
+        self.assertTrue(page.is_disabled("#mapWmsAdd"))
+        self.assertEqual(page.text_content("#mapWmsAdd"), "Tick layers to keep")
+        page.check(".map-layer-row:has-text('Roads') input")
+        page.click("#mapWmsAdd")
+        page.wait_for_selector("#toast-notification:has-text('Range Maps saved')")
+        page.wait_for_function(
+            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.length === 1 && s.basemaps[0].layers === 'roads')"
+        )
+        self.assertEqual(page.locator(".map-base-detail").count(), 0)
         page.evaluate("saveBasemaps([])")
 
     def test_the_map_view_links_the_map_and_its_table(self):

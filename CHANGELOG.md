@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Change a basemap's layers**: *Layers* beside a WMS in *Manage basemaps…*
+  opens it again, its layers looked up afresh with the ones in use ticked (a
+  layer the service no longer lists stays, marked *not listed*); tick, untick
+  or rename, and *Save*. *Edit* beside a tile service changes its address or
+  name.
+
+### Changed
+
+- **Removing a basemap** is done from its details (*Remove*, which asks
+  "Remove for everyone?" first), not with an × on its row.
+- **Check's "It works"** message goes after a few seconds; a failure stays
+  until you check again or close the panel.
+
 ## [2.13.0] - 2026-10-27
 
 ### Changed

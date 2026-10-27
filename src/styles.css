@@ -1213,6 +1213,14 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-base-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 10px; padding: 4px 2px; border-bottom: 1px solid var(--divider); font-size: 0.85em; }
 .map-base-check { margin: 4px 6px 6px; padding: 7px 10px; border-radius: 8px; font-size: 0.82em; line-height: 1.4; background: rgba(255, 159, 10, 0.12); color: var(--text-primary); border: 1px solid rgba(255, 159, 10, 0.35); }
 .map-base-check.ok { background: rgba(48, 209, 88, 0.12); border-color: rgba(48, 209, 88, 0.35); }
+.map-base-check.fading { overflow: hidden; opacity: 0; height: 0 !important; margin-top: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0; border-width: 0; transition: opacity 0.2s ease, height 0.3s ease, margin 0.3s ease, padding 0.3s ease; }
+/* A saved service, opened: its layers (or address), Save, Cancel, Remove. */
+.map-base-row.open { border-bottom-color: transparent; }
+.map-base-detail { padding: 6px 2px 10px; border-bottom: 1px solid var(--divider); }
+.map-base-detail .map-find-foot { align-items: center; }
+.map-form-row .map-base-remove { margin-left: auto; color: var(--system-red, #ff453a); }
+.map-base-remove.sure { font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .map-base-check.fading { transition: none; } }
 .map-find-msg { margin: 0 0 8px; font-size: 0.85em; }
 .map-find-error { padding: 7px 10px; border-radius: 8px; background: rgba(255, 69, 58, 0.12); border: 1px solid rgba(255, 69, 58, 0.35); color: var(--text-primary); line-height: 1.4; }
 .map-find-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; font-size: 0.85em; }
