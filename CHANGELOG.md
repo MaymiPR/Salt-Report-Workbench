@@ -14,16 +14,33 @@ All notable changes to this project are documented here. The format follows
     the largest single sighting of each kind with the unit size it suggests
     (approximately: section to battalion), headings, firing, and each busy
     place.
-  - *Assessment*: fixed rules (preparing a defense, reconnaissance ahead of
-    armor, preparing an offensive, a logistics point, withdrawal, probing or
-    attacking), each judgment in ICD 203 likelihood terms with the reports it
-    rests on, its confidence (high, moderate, low) in its own sentence, and
-    what to watch for. Rules never go past *very likely*.
+  - *Assessment*: 25 fixed rules drawn from Russian and PLA tactics, in four
+    groups: maneuver (offensive, several axes, forward detachment or advance
+    guard, reconnaissance ahead of armor, assembly area, second echelon or
+    reserve, probing or attacking, withdrawal, infiltration by small groups,
+    air assault, amphibious landing), defense (defense, antitank positions,
+    camouflage and deception), fires (artillery preparation or fire strike,
+    UAVs spotting for artillery, long-range strikes, loitering munitions and
+    drones, attack aviation) and support (river or gap crossing, breaching,
+    command post, air defense over a key site, EW, logistics point). They
+    read the equipment as well as the words (a PMP is bridging, a UR-77
+    breaching, an Orlan-10 a UAV). Each judgment is in ICD 203 likelihood
+    terms with the reports it rests on, its confidence (high, moderate, low)
+    in its own sentence, and what to watch for; rules never go past *very
+    likely*. The ten strongest are shown, and how many more there were.
+  - **Equipment-aware doctrine**: each judgment uses the doctrine of the army
+    whose equipment is in its reports (Russian or Chinese; else the
+    period's), with a *Doctrine* line on what that army typically does and
+    its own terms where they differ (forward detachment or vanguard, DRG or
+    special-operations teams, reconnaissance-fire complex or
+    reconnaissance-strike). *Observed* says whose design the equipment is.
   - *Gaps*: reports without a grid, equipment not in the catalogue, and
     places quiet for 6 hours or more.
-  - An equipment catalogue of Russian and Chinese systems plus plain words
+  - An equipment catalogue of Russian and Chinese systems (395 types, 855
+    names with their variants, every kind from tanks to EW) plus plain words
     (tank, truck, PAX), used to name what was reported (in the reports' own
-    style: *15x T-72, 31x trucks*) and to size it.
+    style: *15x T-72, 31x trucks*), to size it, and to tell whose doctrine
+    applies.
   - **Settings**, in a panel beside the report, which updates as you change
     them; tabs with counts, rows you tap to open, chips to pick places and
     kinds, on/off switches for rules.

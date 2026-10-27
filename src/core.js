@@ -2068,16 +2068,144 @@ const ICD203 = [
 ];
 const EVEN = 3, LIKELY = 4, VERY_LIKELY = 5;   // rules never claim more than very likely
 
-// The built-in rules, which the team can switch off: [id, name, what it looks for].
+// The built-in rules, which the team can switch off: [id, name, what it
+// looks for, group]. Patterns from Russian and PLA tactics, as far as SALT
+// reports can show them.
 const NARRATIVE_RULES = [
-    ['defense', 'Preparing a defense', 'digging in, obstacles, engineer equipment, combat vehicles halted'],
-    ['recon', 'Reconnaissance ahead of armor', 'reconnaissance, then armor or mechanized forces within 6 hrs in the same place'],
-    ['offense', 'Preparing an offensive', 'artillery, air defense moving, armor massing, engineers moving, contact'],
-    ['logistics', 'A logistics point', 'supply vehicles halted or resupplying in one place, twice or more in 12 hrs'],
-    ['withdrawal', 'Withdrawal', 'reports of withdrawing, retreating or breaking contact'],
-    ['firing', 'Probing or attacking', 'firing twice or more, or by a company or more'],
+    ['offense', 'Preparing an offensive', 'artillery, air defense moving, armor massing, engineers moving, EW, contact', 'Maneuver'],
+    ['axes', 'Advance on several axes', 'armor or mechanized forces moving in two or more places within 6 hrs', 'Maneuver'],
+    ['forward', 'Forward detachment or advance guard', 'armor moving with artillery, air defense or engineers', 'Maneuver'],
+    ['recon', 'Reconnaissance ahead of armor', 'reconnaissance, then armor or mechanized forces within 6 hrs in the same place', 'Maneuver'],
+    ['assembly', 'Assembly area', 'armor halted with supply or command vehicles, or resupplying', 'Maneuver'],
+    ['reserve', 'Second echelon or reserve', 'armor halted in one place while there is contact in another', 'Maneuver'],
+    ['firing', 'Probing or attacking', 'firing twice or more, or by a company or more', 'Maneuver'],
+    ['withdrawal', 'Withdrawal', 'reports of withdrawing, retreating or breaking contact', 'Maneuver'],
+    ['infiltration', 'Infiltration by small groups', 'small dismounted groups moving or observing, twice or more in 12 hrs', 'Maneuver'],
+    ['airassault', 'Air assault or airborne landing', 'transport helicopters, landings, airborne vehicles', 'Maneuver'],
+    ['amphibious', 'Amphibious landing or crossing', 'amphibious vehicles or landings, with smoke, ferries or cover', 'Maneuver'],
+    ['defense', 'Preparing a defense', 'digging in, obstacles or mines, engineers, antitank weapons, vehicles halted', 'Defense'],
+    ['antitank', 'Antitank positions', 'antitank weapons in position, with obstacles or tanks in hides', 'Defense'],
+    ['deception', 'Camouflage and deception', 'decoys, dummies, camouflage or concealment reported', 'Defense'],
+    ['artillery', 'Artillery preparation or fire strike', 'artillery or rocket fire twice or more in 3 hrs, then armor moving', 'Fires'],
+    ['reconfire', 'UAVs spotting for artillery', 'UAVs, then artillery or shelling within an hour in the same place', 'Fires'],
+    ['deep', 'Long-range strikes', 'long-range rockets or missiles (Iskander, Smerch, Tornado-S, PHL-16, DF-series)', 'Fires'],
+    ['drones', 'Loitering munitions and drones', 'loitering munitions, FPV or armed drones', 'Fires'],
+    ['aviation', 'Attack aviation', 'attack helicopters, ground-attack aircraft or armed UAVs', 'Fires'],
+    ['crossing', 'River or gap crossing', 'bridging or ferries, smoke, air defense cover, armor waiting', 'Support'],
+    ['breach', 'Breaching obstacles', 'mine clearing or breaching, smoke, fire support, armor nearby', 'Support'],
+    ['cp', 'Command post', 'command vehicles or antennas, with air defense, EW or many vehicles halted', 'Support'],
+    ['adsite', 'Air defense over a key site', 'air defense in place with command, artillery or supply vehicles', 'Support'],
+    ['ew', 'Electronic warfare', 'EW systems, or jamming reported', 'Support'],
+    ['logistics', 'A logistics point', 'supply vehicles halted or resupplying in one place, twice or more in 12 hrs', 'Support'],
 ];
 const RULE_ORDER = Object.fromEntries(NARRATIVE_RULES.map(([id], i) => [id, i]));
+
+// What each pattern means in the doctrine of the army whose equipment was
+// reported: Russian, or the PLA's. Open-source generalities, said once under
+// each judgment so a reader knows why it matters.
+const DOCTRINE = {
+    offense: {
+        RU: 'Russian offensives typically open with reconnaissance, EW and an artillery preparation, with air defense moving forward under the main effort.',
+        CN: 'PLA offensives typically open with an integrated fire strike (rockets, artillery, aviation) and EW against command and control, then a combined-arms assault.',
+    },
+    axes: {
+        RU: 'Russian attacks pair a main effort with supporting attacks on other axes, to fix the defender and envelop.',
+        CN: 'PLA attacks send assault groups along several directions that converge on the objective.',
+    },
+    forward: {
+        RU: 'A Russian forward detachment (often a reinforced battalion) or advance guard moves ahead of the main body to seize key terrain.',
+        CN: 'PLA combined-arms battalions push a vanguard ahead of the main body to seize key terrain.',
+    },
+    recon: {
+        RU: 'Russian forces lead with reconnaissance (razvedka), often a combat reconnaissance patrol ahead of the main body.',
+        CN: 'PLA forces send reconnaissance elements ahead to fix targets for the follow-on assault and fires.',
+    },
+    assembly: {
+        RU: 'Russian battalion tactical groups gather in assembly areas to refuel and rearm before moving to attack positions.',
+        CN: 'PLA combined-arms battalions gather in assembly areas to refuel and organize assault groups before attacking.',
+    },
+    reserve: {
+        RU: 'Russian forces fight in echelons: a second echelon or reserve is held back to exploit success or counterattack.',
+        CN: 'PLA forces hold a reserve or second echelon to exploit a breakthrough or counterattack.',
+    },
+    firing: {
+        RU: 'Russian forces probe with small assault groups and reconnaissance in force to find gaps before the main attack.',
+        CN: 'PLA forces probe with small assault elements to locate positions for fires before the main assault.',
+    },
+    withdrawal: {
+        RU: 'Russian withdrawals are covered by a rear guard, obstacles and artillery, often at night.',
+        CN: 'PLA withdrawals are covered by a rear guard and obstacles while the main body breaks contact.',
+    },
+    infiltration: {
+        RU: 'Russian sabotage-reconnaissance groups (DRG) infiltrate in small teams to scout, mark targets and raid.',
+        CN: 'PLA special operations and reconnaissance teams infiltrate in small groups to scout and designate targets.',
+    },
+    airassault: {
+        RU: 'Russian airborne (VDV) and air-assault forces land by helicopter or parachute to seize key terrain ahead of ground forces.',
+        CN: 'PLA air-assault brigades land by helicopter (Z-8, Z-20) to seize key terrain or crossings.',
+    },
+    amphibious: {
+        RU: 'Russian naval infantry and amphibious vehicles land, or cross water obstacles, under covering fire.',
+        CN: 'PLA amphibious combined-arms brigades (ZBD-05, ZTD-05) land under covering fires, with smoke and EW.',
+    },
+    defense: {
+        RU: 'Russian defenses are built around company strongpoints, with obstacles and mines covered by fire and ATGMs, and a reserve held back to counterattack.',
+        CN: 'PLA defenses use mutually supporting positions with obstacles, layered antitank fires and a mobile reserve to counterattack.',
+    },
+    antitank: {
+        RU: 'Russian defenses place ATGMs and tanks in prepared positions covering obstacles and likely armor approaches.',
+        CN: 'PLA defenses site antitank missiles (HJ-series) in depth, covering obstacles and likely armor approaches.',
+    },
+    deception: {
+        RU: 'Russian maskirovka uses decoys, camouflage and false positions to mislead about strength and intent.',
+        CN: 'PLA deception uses decoys, camouflage and false emissions to mislead about strength and intent.',
+    },
+    artillery: {
+        RU: 'Russian attacks open with an artillery preparation: massed tube and rocket fire before the assault.',
+        CN: 'PLA attacks open with a fire strike of rockets and artillery before the assault.',
+    },
+    reconfire: {
+        RU: 'Russian reconnaissance-fire complexes link UAVs to artillery, putting fire on a target within minutes of finding it.',
+        CN: 'PLA reconnaissance-strike integration links UAVs and sensors to rocket and artillery fires.',
+    },
+    deep: {
+        RU: 'Russian deep strikes (Iskander, long-range rockets) hit command posts, air defense and logistics in depth.',
+        CN: 'PLA long-range fires (PHL-16, DF-series missiles) strike command, air defense and logistics as part of a joint fire strike.',
+    },
+    drones: {
+        RU: 'Russian forces use loitering munitions (Lancet, Geran) and FPV drones against armor, artillery and air defense.',
+        CN: 'PLA forces use loitering munitions and armed UAVs against high-value targets.',
+    },
+    aviation: {
+        RU: 'Russian attack helicopters and Su-25s support ground attacks, often firing from standoff.',
+        CN: 'PLA army aviation (Z-10, Z-19) supports ground attacks and air assaults.',
+    },
+    crossing: {
+        RU: 'Russian river crossings use smoke, air defense cover and PMP or TMM bridging or PTS ferries.',
+        CN: 'PLA gap crossings use smoke, air defense cover, bridging and amphibious vehicles.',
+    },
+    breach: {
+        RU: 'Russian breaches use UR-77 line charges, mine plows and smoke, with artillery suppressing the far side.',
+        CN: 'PLA breaches use mine-clearing vehicles, line charges and smoke under suppressive fires.',
+    },
+    cp: {
+        RU: 'Russian command posts show clusters of command vehicles (R-149, R-145), antennas, generators and nearby air defense.',
+        CN: 'PLA command posts show command vehicles, antennas, generators and local air defense.',
+    },
+    adsite: {
+        RU: 'Russian air defense covers command posts, artillery and logistics with short- and medium-range systems in layers.',
+        CN: 'PLA air defense covers key sites with layered short- and medium-range systems.',
+    },
+    ew: {
+        RU: 'Russian EW (Borisoglebsk-2, Leer-3, Krasukha) jams communications, GPS and drones ahead of and during attacks.',
+        CN: "PLA electronic warfare targets command, communications and sensors early, as part of 'system destruction' warfare.",
+    },
+    logistics: {
+        RU: 'Russian units depend on truck-borne resupply from depots close behind the line; fuel and ammunition points are high-value targets.',
+        CN: 'PLA combined-arms brigades are supplied by a support battalion pushing fuel and ammunition forward to battalions.',
+    },
+};
+const ARMIES = { RU: 'Russian', CN: 'Chinese' };
 
 const HOUR = 3600000;
 const OBSTACLE = /\b(obstacles?|mines?|minefields?|wire|berms?|ditch(es)?|abatis|tank traps?)\b/i;
@@ -2138,8 +2266,53 @@ const wrapText = (text, first, rest = first, width = 100) => {
 const ruleWords = (words) => new RegExp(`\\b(${String(words).split(',').map(w => w.trim()).filter(Boolean)
     .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+')).join('|')})\\b`, 'i');
 
+// What some equipment can do, by catalogue name, and the words in a report
+// that say the same ("bridging", "jamming").
+const capability = (names, words) => ({ names: new Set(names), words });
+const CAPABILITIES = {
+    uav: capability(['Orlan-10', 'Zala', 'Eleron-3', 'Forpost', 'Granat', 'Takhion', 'Supercam', 'ASN-206', 'ASN-207', 'ASN-209', 'BZK-005', 'WZ-7'],
+        /\b(uavs?|uas|drones?|quadcopters?)\b/i),
+    cbRadar: capability(['1L219', '1L271', 'SLC-2'], /\bcounter[- ]?battery\b/i),
+    mrl: capability(['BM-21', '2B26', 'BM-27', 'BM-30', 'Tornado-G', 'Tornado-S', 'Tornado', 'TOS-1', 'TOS-2', 'PHL-03', 'PHL-16', 'PHL-11',
+        'PHZ-11', 'PHZ-89', 'PHL-81', 'PHL-90', 'AR-1', 'AR-2', 'AR-3', 'SR-5', 'WS-1', 'WS-2'], /\b(mlrs|mrl|rocket launchers?)\b/i),
+    deep: capability(['BM-27', 'BM-30', 'Tornado-S', 'Iskander', 'Tochka', 'Luna-M', 'PHL-03', 'PHL-16', 'AR-1', 'AR-3', 'WS-2',
+        'DF-11', 'DF-15', 'DF-16', 'DF-17', 'DF-21', 'DF-26', 'CJ-10'], /\b(ballistic missiles?|cruise missiles?|missile launch\w*|tels?)\b/i),
+    thermobaric: capability(['TOS-1', 'TOS-2', 'BMO-T'], /\b(thermobaric|flamethrowers?)\b/i),
+    loitering: capability(['Lancet', 'Geran-2', 'Kub-BLA'], /\b(loitering|kamikaze|fpv|one[- ]way attack)\b/i),
+    attackAir: capability(['Mi-24', 'Mi-35', 'Mi-28', 'Ka-50', 'Ka-52', 'Su-24', 'Su-25', 'Su-34', 'Z-10', 'Z-19', 'JH-7', 'CH-4', 'CH-5',
+        'Wing Loong', 'GJ-11', 'Orion', 'Forpost-R'], /\b(gunships?|attack helicopters?|close air support|air ?strikes?)\b/i),
+    liftAir: capability(['Mi-8', 'Mi-17', 'Mi-26', 'Z-8', 'Z-18', 'Z-20', 'Y-8', 'Y-9', 'Y-20', 'Il-76', 'An-12', 'An-26'],
+        /\b(transport helicopters?|lift helicopters?)\b/i),
+    vdv: capability(['BMD-1', 'BMD-2', 'BMD-3', 'BMD-4', 'BTR-D', 'BTR-MD', '2S9', '2S25', 'ZBD-03'], /\b(vdv|paratroop\w*)\b/i),
+    airlanding: capability([], /\b(air ?assault|airborne landing|heliborne|landing zone|lz|parachut\w*|air ?drop\w*|landed by helicopter)\b/i),
+    amphibious: capability(['ZBD-05', 'ZTD-05', 'Type 63A', 'PT-76', 'K-61'], /\b(amphibious|beach(ed|ing)?|landing craft|naval infantry|marines?|swimming)\b/i),
+    bridging: capability(['MTU-20', 'MTU-72', 'MTU-90', 'TMM', 'PMP', 'PP-91', 'PMM-2', 'GSP', 'PTS', 'Type 84'],
+        /\b(bridg\w*|ferr(y|ies|ying)|pontoons?|fording|ford)\b/i),
+    breaching: capability(['UR-77', 'UR-67', 'BMR-3', 'KMT-7', 'KMT-8', 'IMR-2', 'IMR-3', 'Uran-6', 'Prokhod-1', 'GCZ-110'],
+        /\b(breach\w*|mine[- ]?clear\w*|clearing (mines|obstacles|a lane)|demining|miclic|line charges?)\b/i),
+    minelaying: capability(['GMZ-3', 'PMZ-4', 'UMZ', 'Zemledeliye'], /\b(minelay\w*|laying mines|scatterable mines?)\b/i),
+    c2: capability([], /\b(command posts?|headquarters|antennas?|radio masts?|generators?)\b/i),
+    ew: capability([], /\b(jam(s|med|ming|mers?)?|interference|spoof\w*|gps (denied|jammed|loss|lost)|direction finding)\b/i),
+    deception: capability([], /\b(decoys?|dumm(y|ies)|inflatables?|mock[- ]?ups?|fakes?|camouflag\w*|camo|netting|concealed|maskirovka)\b/i),
+    smoke: capability([], /\bsmoke\b/i),
+    atPosition: capability([], /\b(at (ambush|positions?)|atgm (team|positions?)|antitank positions?|ambush\w*)\b/i),
+};
+const textOf = (f) => `${f.r.size || ''} ${f.r.activity || ''}`;
+const can = (f, cap) => f.els.some(e => e.kit && CAPABILITIES[cap].names.has(e.kit.name)) || CAPABILITIES[cap].words.test(textOf(f));
+const SHELLING = /\b(shelling|shelled|barrage|fire missions?|impacts?|incoming|artillery fire|rocket fire|indirect fire)\b/i;
+const has = (f, ...tags) => tags.some(t => f.act.tags.includes(t));
+const levelBy = (n, likely, veryLikely) => (n >= veryLikely ? VERY_LIKELY : n >= likely ? LIKELY : EVEN);
+const kindsOf = (signs) => signs.filter(([, l]) => l.length).length;
+// The place most of some reports are in.
+const mostIn = (list) => {
+    const n = new Map();
+    list.forEach(f => f.areas.forEach(a => n.set(a, (n.get(a) || 0) + 1)));
+    return [...n].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))[0]?.[0] || null;
+};
+
 // The judgments the reports support: each with its ICD 203 level, what is
-// judged (said of the enemy or a unit: "are preparing a defense in NAI 1"),
+// judged (said of the enemy or a unit: "are preparing a defense in NAI 1";
+// some say it in the terms of the army whose equipment it is: { RU, CN, '' }),
 // the places it is about, the signs seen (and the reports behind them), and
 // the signs that would make it firmer. Every rule looks only at the reports
 // given; rules in `off` are skipped, and the team's `custom` rules run too.
@@ -2153,49 +2326,153 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
         const list = byTime(seen.flatMap(([, l]) => l));
         out.push({
             rule, order: RULE_ORDER[rule] ?? NARRATIVE_RULES.length, level: Math.min(level, VERY_LIKELY), what,
+            key: typeof what === 'string' ? what : what[''],
             places: places || [...new Set(list.flatMap(f => f.areas))],
             basis: seen.map(([s, l]) => `${s} (${cite(l)})`).join('; '),
             list, watch: signs.filter(([, l]) => !l.length).map(([s]) => s),
         });
     };
+    const firing = (f) => (f.roles.has('fires') && has(f, 'Firing')) || SHELLING.test(f.r.activity || '');
+    const ewOf = (f) => f.roles.has('ew') || can(f, 'ew');
 
     for (const [area, list] of byArea) {
-        // Preparing a defense: digging in, obstacles, engineers, vehicles holding.
-        const dig = list.filter(f => f.act.tags.includes('Emplacing') && !OBSTACLE.test(f.r.activity || ''));
-        const obst = list.filter(f => OBSTACLE.test(f.r.activity || ''));
+        const at = (test) => list.filter(test);
+        const smoke = at(f => can(f, 'smoke'));
+        const obst = at(f => OBSTACLE.test(f.r.activity || '') || can(f, 'minelaying'));
+        const atgm = at(f => (f.roles.has('atgm') && has(f, 'Stationary', 'Emplacing', 'Observing')) || can(f, 'atPosition'));
+        // Preparing a defense: digging in, obstacles, engineers, antitank weapons, vehicles holding.
+        const dig = at(f => has(f, 'Emplacing') && !OBSTACLE.test(f.r.activity || ''));
         if (on('defense') && (dig.length || obst.length)) {
             const signs = [
                 ['digging in or fortifying', dig], ['obstacles or mines', obst],
-                ['engineer equipment', list.filter(f => f.roles.has('engineer'))],
-                ['combat vehicles halted in position', list.filter(f => f.act.tags.includes('Stationary') && (isManeuver(f) || f.roles.has('fires') || f.roles.has('ad')))],
+                ['engineer equipment', at(f => f.roles.has('engineer'))], ['antitank weapons in position', atgm],
+                ['combat vehicles halted in position', at(f => has(f, 'Stationary') && (isManeuver(f) || f.roles.has('fires') || f.roles.has('ad')))],
             ];
-            const kinds = signs.filter(([, l]) => l.length).length, n = byTime(signs.flatMap(([, l]) => l)).length;
+            const kinds = kindsOf(signs), n = byTime(signs.flatMap(([, l]) => l)).length;
             judge('defense', kinds >= 3 && n >= 4 ? VERY_LIKELY : kinds >= 2 || n >= 3 ? LIKELY : EVEN,
                 `are preparing a defense in ${area}`, signs, [area]);
         }
+        // Antitank positions: ATGMs set up, covering obstacles, tanks in hides.
+        if (on('antitank') && atgm.length) {
+            const tanks = at(f => f.roles.has('armor') && has(f, 'Stationary'));
+            judge('antitank', EVEN + (atgm.length >= 2 ? 1 : 0) + (obst.length || tanks.length ? 1 : 0), `have antitank positions in ${area}`,
+                [['antitank weapons in position', atgm], ['obstacles or mines they cover', obst], ['tanks in hide positions', tanks]], [area]);
+        }
         // Reconnaissance, then armor or mechanized forces within 6 hours.
-        const scouts = list.filter(f => f.roles.has('recon') || f.act.tags.includes('Observing'));
+        const scouts = at(f => f.roles.has('recon') || has(f, 'Observing'));
         const pairs = scouts.map(s => [s, list.filter(m => m !== s && isManeuver(m) && m.ms > s.ms && m.ms - s.ms <= 6 * HOUR)]).filter(([, l]) => l.length);
         if (on('recon') && pairs.length) {
             const lead = byTime(pairs.map(([s]) => s)), after = byTime(pairs.flatMap(([, l]) => l));
-            const support = list.filter(f => f.roles.has('fires') || f.roles.has('ad') || f.roles.has('engineer'));
+            const support = at(f => f.roles.has('fires') || f.roles.has('ad') || f.roles.has('engineer'));
             judge('recon', EVEN + (lead.length >= 2 || after.length >= 2 ? 1 : 0) + (support.length ? 1 : 0),
                 `are scouting a route through ${area} for armor or mechanized forces`,
                 [['reconnaissance', lead], ['armor or mechanized forces within 6 hrs after it', after],
                     ['artillery, air defense or engineers in the same area', support]], [area]);
         }
+        // UAVs, then artillery within the hour: a reconnaissance-fire (or -strike) link.
+        const uavs = at(f => can(f, 'uav'));
+        const fireAfter = at(f => firing(f) && uavs.some(u => f.ms >= u.ms && f.ms - u.ms <= HOUR));
+        if (on('reconfire') && uavs.length && fireAfter.length) {
+            const radar = at(f => can(f, 'cbRadar'));
+            judge('reconfire', EVEN + (uavs.length >= 2 ? 1 : 0) + (radar.length || fireAfter.length >= 2 ? 1 : 0), {
+                RU: `are spotting for artillery with UAVs over ${area} (a reconnaissance-fire complex)`,
+                CN: `are spotting for rockets and artillery with UAVs over ${area} (reconnaissance-strike)`,
+                '': `are spotting for artillery with UAVs over ${area}`,
+            }, [['UAVs overhead', uavs], ['artillery or shelling within an hour after', fireAfter], ['counter-battery radar', radar]], [area]);
+        }
+        // An assembly area: armor halted with supply or command vehicles.
+        const still = densest(at(f => isManeuver(f) && has(f, 'Stationary')), 12 * HOUR);
+        const backing = at(f => f.roles.has('logistics') || f.roles.has('c2') || has(f, 'Resupplying'));
+        if (on('assembly') && still.length >= 2 && backing.length) {
+            const signs = [['armor or mechanized forces halted', still], ['supply or command vehicles, or resupply', backing],
+                ['artillery or air defense with them', at(f => (f.roles.has('fires') || f.roles.has('ad')) && has(f, 'Stationary'))]];
+            judge('assembly', levelBy(kindsOf(signs) + (still.length >= 5 ? 1 : 0), 3, 4), {
+                RU: `are in an assembly area in ${area}, preparing to attack (a battalion tactical group's assembly area)`,
+                CN: `are in an assembly area in ${area}, preparing to attack (combined-arms battalions forming assault groups)`,
+                '': `are in an assembly area in ${area}, preparing to attack`,
+            }, signs, [area]);
+        }
+        // A combined-arms group on the move: armor with artillery, air defense or engineers within 2 hours.
+        const movers = at(f => isManeuver(f) && has(f, 'Moving'));
+        const escorts = at(f => (f.roles.has('fires') || f.roles.has('ad') || f.roles.has('engineer')) && has(f, 'Moving')
+            && movers.some(m => Math.abs(m.ms - f.ms) <= 2 * HOUR));
+        if (on('forward') && escorts.length) {
+            const alongside = movers.filter(m => escorts.some(e => Math.abs(m.ms - e.ms) <= 2 * HOUR));
+            const big = Math.max(...alongside.map(m => m.groups.maneuver || 0), 0) >= 10 || alongside.length >= 3;
+            judge('forward', EVEN + (big ? 1 : 0), {
+                RU: `are moving a combined-arms group through ${area}, possibly a forward detachment or advance guard`,
+                CN: `are moving a combined-arms group through ${area}, possibly a vanguard ahead of the main body`,
+                '': `are moving a combined-arms group through ${area}`,
+            }, [['armor or mechanized forces moving', alongside], ['artillery, air defense or engineers moving with them', escorts]], [area]);
+        }
+        // A water obstacle or gap: bridging or ferries, smoke, cover, armor waiting.
+        const bridge = at(f => can(f, 'bridging'));
+        if (on('crossing') && bridge.length) {
+            const signs = [['bridging or ferry equipment, or a crossing reported', bridge], ['smoke', smoke],
+                ['air defense covering it', at(f => f.roles.has('ad'))], ['armor or mechanized forces waiting', at(f => isManeuver(f) && has(f, 'Stationary'))],
+                ['amphibious vehicles', at(f => can(f, 'amphibious'))]];
+            judge('crossing', levelBy(kindsOf(signs), 2, 3), `are preparing to cross a water obstacle or gap in ${area}`, signs, [area]);
+        }
+        // A breach: mine clearing, smoke, fire support, armor nearby.
+        const breach = at(f => can(f, 'breaching'));
+        if (on('breach') && breach.length) {
+            const signs = [['mine clearing or breaching equipment, or a breach reported', breach], ['smoke', smoke],
+                ['thermobaric weapons or artillery fire', at(f => can(f, 'thermobaric') || firing(f))], ['armor or mechanized forces nearby', at(isManeuver)]];
+            judge('breach', levelBy(kindsOf(signs), 2, 3), `are preparing to breach obstacles in ${area}`, signs, [area]);
+        }
+        // A command post: command vehicles or antennas, with air defense, EW or many vehicles halted.
+        const c2 = at(f => f.roles.has('c2') || can(f, 'c2'));
+        const adStill = at(f => f.roles.has('ad') && has(f, 'Stationary'));
+        if (on('cp') && c2.length) {
+            const halted = at(f => has(f, 'Stationary'));
+            const signs = [['command vehicles, antennas or a command post reported', c2], ['air defense in place', adStill],
+                ['electronic warfare', at(ewOf)], ['three or more vehicles halted there', halted.length >= 3 ? halted : []]];
+            judge('cp', levelBy(kindsOf(signs), 2, 3), `have a command post in ${area}`, signs, [area]);
+        }
+        // Air defense over a key site: in place with command, artillery or supply vehicles.
+        const sites = at(f => has(f, 'Stationary') && (f.roles.has('c2') || f.roles.has('fires') || f.roles.has('logistics')));
+        if (on('adsite') && adStill.length && sites.length) {
+            judge('adsite', EVEN + (adStill.length >= 2 ? 1 : 0) + (sites.length >= 2 ? 1 : 0), `are protecting a key site in ${area} with air defense`,
+                [['air defense in place', adStill], ['command, artillery or supply vehicles in place', sites]], [area]);
+        }
+        // Deception: decoys, dummies, camouflage.
+        const dec = at(f => can(f, 'deception'));
+        if (on('deception') && dec.length) {
+            judge('deception', levelBy(dec.length, 2, 3), {
+                RU: `are using camouflage and deception (maskirovka) in ${area}`, CN: `are using camouflage and deception in ${area}`,
+                '': `are using camouflage and deception in ${area}`,
+            }, [['decoys, dummies, camouflage or concealment reported', dec], ['the force the decoys stand in for, concealed nearby', []]], [area]);
+        }
+        // Amphibious: amphibious vehicles or landings, with smoke, ferries or cover.
+        const amph = at(f => can(f, 'amphibious'));
+        if (on('amphibious') && amph.length) {
+            const signs = [['amphibious vehicles or a landing reported', amph], ['smoke', smoke], ['bridging or ferries', bridge],
+                ['air defense or artillery covering', at(f => f.roles.has('ad') || f.roles.has('fires'))]];
+            judge('amphibious', levelBy(kindsOf(signs), 2, 3), `are preparing or conducting an amphibious landing or crossing near ${area}`, signs, [area]);
+        }
+        // Air assault: transport helicopters or landings, with airborne vehicles or escorts.
+        const lift = at(f => can(f, 'liftAir')), landing = at(f => can(f, 'airlanding'));
+        if (on('airassault') && (lift.length || landing.length)) {
+            const signs = [['transport helicopters', lift], ['an air assault or landing reported', landing],
+                ['airborne (VDV) vehicles or paratroopers', at(f => can(f, 'vdv'))], ['attack helicopters escorting', at(f => can(f, 'attackAir'))]];
+            judge('airassault', levelBy(kindsOf(signs), 2, 3), {
+                RU: `are conducting or preparing an air assault or airborne landing near ${area} (VDV or air-assault forces)`,
+                CN: `are conducting or preparing an air assault near ${area} (an air-assault brigade)`,
+                '': `are conducting or preparing an air assault near ${area}`,
+            }, signs, [area]);
+        }
         // A logistics site: supply vehicles halted or resupplying, again and again.
-        const supply = densest(list.filter(f => (f.roles.has('logistics') && f.act.tags.includes('Stationary')) || f.act.tags.includes('Resupplying')), 12 * HOUR);
+        const supply = densest(at(f => (f.roles.has('logistics') && has(f, 'Stationary')) || has(f, 'Resupplying')), 12 * HOUR);
         if (on('logistics') && supply.length >= 2) {
             judge('logistics', supply.length >= 5 ? VERY_LIKELY : supply.length >= 3 ? LIKELY : EVEN,
                 `have a logistics or resupply point in ${area}`,
                 [['supply vehicles halted or resupplying within 12 hrs', supply],
-                    ['fuel or ammunition vehicles', supply.filter(f => /\b(fuel|tanker|pol|ammo|ammunition|atz)\b/i.test(`${f.r.size} ${f.r.activity}`))]], [area]);
+                    ['fuel or ammunition vehicles', supply.filter(f => /\b(fuel|tanker|pol|ammo|ammunition|atz)\b/i.test(textOf(f)))]], [area]);
         }
         // The team's own rules: their words, often enough, in one place.
         custom.forEach(c => {
             const re = ruleWords(c.words);
-            const hits = densest(list.filter(f => re.test(`${f.r.size || ''} ${f.r.activity || ''}`)), c.hours * HOUR);
+            const hits = densest(at(f => re.test(textOf(f))), c.hours * HOUR);
             if (hits.length < c.min) return;
             judge('custom', EVEN + (hits.length >= c.min + 1 ? 1 : 0) + (hits.length >= c.min + 3 ? 1 : 0), `${c.what} in ${area}`,
                 [[`reports of ${c.words.split(',').map(w => w.trim()).filter(Boolean).join(', ')} within ${c.hours} hrs`, hits]], [area]);
@@ -2203,8 +2480,8 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
     }
 
     // Preparing an offensive: artillery, air defense moving, armor massing,
-    // engineers moving, contact; at least two of them, one being artillery or
-    // the massing.
+    // engineers moving, EW, contact; at least two of them, one being
+    // artillery or the massing.
     let focus = null, mass = [];
     for (const [area, list] of byArea) {
         const m = densest(list.filter(isManeuver), 12 * HOUR);
@@ -2212,17 +2489,107 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
     }
     if (mass.length < 3) { mass = []; focus = null; }
     const fires = facts.filter(f => f.roles.has('fires'));
+    const ewAll = facts.filter(ewOf);
     const offense = [
         ['artillery or rockets', fires],
-        ['air defense moving', facts.filter(f => f.roles.has('ad') && f.act.tags.includes('Moving'))],
+        ['air defense moving', facts.filter(f => f.roles.has('ad') && has(f, 'Moving'))],
         [focus ? `armor or mechanized forces massing in ${focus} within 12 hrs` : 'armor or mechanized forces massing', mass],
-        ['engineers moving', facts.filter(f => f.roles.has('engineer') && f.act.tags.includes('Moving'))],
-        ['contact by armor or mechanized forces', facts.filter(f => isManeuver(f) && f.act.tags.includes('Firing'))],
+        ['engineers moving, or breaching and bridging', facts.filter(f => (f.roles.has('engineer') && has(f, 'Moving')) || can(f, 'breaching') || can(f, 'bridging'))],
+        ['electronic warfare', ewAll],
+        ['contact by armor or mechanized forces', facts.filter(f => isManeuver(f) && has(f, 'Firing'))],
     ];
-    const kinds = offense.filter(([, l]) => l.length).length;
+    const kinds = kindsOf(offense);
     if (on('offense') && kinds >= 2 && (fires.length || mass.length)) {
         judge('offense', kinds >= 4 ? VERY_LIKELY : kinds === 3 ? LIKELY : EVEN,
             `are preparing offensive operations${focus ? `, centered on ${focus}` : ''}`, offense);
+    }
+    // Several axes: armor or mechanized forces moving in two or more places within 6 hours.
+    const moving = facts.filter(f => isManeuver(f) && has(f, 'Moving') && f.areas.length);
+    let axes = [];
+    moving.forEach(f => {
+        const w = moving.filter(g => g.ms >= f.ms && g.ms - f.ms <= 6 * HOUR);
+        if (new Set(w.flatMap(g => g.areas)).size > new Set(axes.flatMap(g => g.areas)).size) axes = w;
+    });
+    const axisNames = [...new Set(axes.flatMap(g => g.areas))];
+    if (on('axes') && axisNames.length >= 2) {
+        const named = axisNames.slice(0, 4).join(', ');
+        judge('axes', levelBy(axisNames.length, 3, 4), {
+            RU: `are advancing on more than one axis (${named}), likely a main effort and supporting attacks`,
+            CN: `are advancing in more than one direction (${named}), likely converging assault groups`,
+            '': `are advancing on more than one axis (${named})`,
+        }, [['armor or mechanized forces moving in different places within 6 hrs', axes]], axisNames);
+    }
+    // Small dismounted groups moving or observing, again and again.
+    const small = densest(facts.filter(f => f.roles.size && [...f.roles].every(r => r === 'infantry' || r === 'atgm')
+        && (f.groups.infantry || 0) > 0 && (f.groups.infantry || 0) <= 12 && has(f, 'Moving', 'Observing', 'Dismounted')), 12 * HOUR);
+    if (on('infiltration') && small.length >= 2) {
+        const where = mostIn(small);
+        judge('infiltration', levelBy(small.length, 3, 5), {
+            RU: `are infiltrating small dismounted groups${where ? ` through ${where}` : ''} (sabotage-reconnaissance groups, DRG)`,
+            CN: `are infiltrating small dismounted groups${where ? ` through ${where}` : ''} (special operations or reconnaissance teams)`,
+            '': `are infiltrating small dismounted groups${where ? ` through ${where}` : ''}`,
+        }, [['small dismounted groups moving or observing within 12 hrs', small]]);
+    }
+    // A second echelon or reserve: armor halted in one place during contact in another.
+    const contact = facts.filter(f => has(f, 'Firing'));
+    let reserve = [], reserveAt = null;
+    for (const [area, list] of byArea) {
+        const held = list.filter(f => isManeuver(f) && has(f, 'Stationary')
+            && contact.some(c => !c.areas.includes(area) && Math.abs(c.ms - f.ms) <= 6 * HOUR));
+        if (held.length > reserve.length) { reserve = held; reserveAt = area; }
+    }
+    if (on('reserve') && reserve.length) {
+        const fights = contact.filter(c => !c.areas.includes(reserveAt) && reserve.some(f => Math.abs(c.ms - f.ms) <= 6 * HOUR));
+        const big = reserve.reduce((n, f) => n + (f.groups.maneuver || 0), 0) >= 10 || reserve.length >= 2;
+        judge('reserve', EVEN + (big ? 1 : 0), {
+            RU: `are holding a second echelon or reserve in ${reserveAt}`,
+            CN: `are holding a reserve in ${reserveAt}, ready to exploit or counterattack`,
+            '': `are holding a reserve in ${reserveAt}`,
+        }, [['contact elsewhere', fights], ['armor or mechanized forces halted away from it', reserve]], [reserveAt]);
+    }
+    // Massed fires: artillery or rocket fire twice or more in 3 hours; an
+    // assault following makes it a preparation.
+    const salvo = densest(facts.filter(firing), 3 * HOUR);
+    if (on('artillery') && salvo.length >= 2) {
+        const last = salvo[salvo.length - 1].ms;
+        const follow = facts.filter(f => isManeuver(f) && has(f, 'Moving') && f.ms >= salvo[0].ms && f.ms - last <= 6 * HOUR);
+        const where = mostIn(salvo), centered = where ? `, centered on ${where}` : '';
+        judge('artillery', levelBy(salvo.length + (follow.length ? 1 : 0), 3, 4), follow.length ? {
+            RU: `are conducting an artillery preparation ahead of an assault${centered}`, CN: `are conducting a fire strike ahead of an assault${centered}`,
+            '': `are firing to prepare an assault${centered}`,
+        } : {
+            RU: `are conducting massed artillery fires${centered}`, CN: `are conducting a fire strike with artillery and rockets${centered}`,
+            '': `are conducting massed artillery fires${centered}`,
+        }, [['artillery or rocket fire within 3 hrs', salvo], ['rocket launchers among them', salvo.filter(f => can(f, 'mrl'))],
+            ['armor or mechanized forces moving after it', follow]]);
+    }
+    // Long-range strikes, loitering munitions, attack aviation, EW: how often they're reported.
+    const deep = facts.filter(f => can(f, 'deep'));
+    if (on('deep') && deep.length) {
+        judge('deep', levelBy(deep.length, 2, 3), {
+            RU: 'are preparing or conducting deep strikes with long-range rockets or missiles',
+            CN: 'are preparing or conducting long-range strikes as part of a joint fire strike',
+            '': 'are preparing or conducting long-range strikes',
+        }, [['long-range rockets or missiles', deep], ['UAVs finding targets in depth', facts.filter(f => can(f, 'uav'))]]);
+    }
+    const drones = facts.filter(f => can(f, 'loitering'));
+    if (on('drones') && drones.length) {
+        judge('drones', levelBy(drones.length, 2, 4), 'are striking with loitering munitions or drones',
+            [['loitering munitions, FPV or armed drones', drones], ['UAVs finding targets for them', facts.filter(f => can(f, 'uav'))]]);
+    }
+    const air = facts.filter(f => can(f, 'attackAir'));
+    if (on('aviation') && air.length) {
+        judge('aviation', levelBy(air.length, 2, 4), 'are supporting ground forces with attack aviation',
+            [['attack helicopters, ground-attack aircraft or armed UAVs', air], ['a ground attack at the same time', facts.filter(f => isManeuver(f) && has(f, 'Firing'))]]);
+    }
+    if (on('ew') && ewAll.length) {
+        const where = mostIn(ewAll), near = where ? ` near ${where}` : '';
+        judge('ew', levelBy(ewAll.length, 2, 4), {
+            RU: `are jamming communications, GPS and drones${near}`,
+            CN: `are attacking command, communications and sensors with electronic warfare${near}`,
+            '': `are conducting electronic warfare${near}`,
+        }, [['EW systems or jamming reported', ewAll],
+            ['an attack following it', facts.filter(f => isManeuver(f) && has(f, 'Moving', 'Firing') && ewAll.some(e => f.ms > e.ms && f.ms - e.ms <= 6 * HOUR))]]);
     }
     // Withdrawal, when reports say so.
     const back = facts.filter(f => WITHDRAW.test(f.r.activity || ''));
@@ -2231,18 +2598,27 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             [['withdrawal or breaking contact reported', back], ['covering forces left behind', []], ['obstacles or demolitions behind them', []]]);
     }
     // Firing: probing with small elements, or attacking with a company or more.
-    const shots = facts.filter(f => f.act.tags.includes('Firing'));
-    const big = shots.filter(f => (f.groups.maneuver || 0) >= 10);
-    if (on('firing') && big.length) {
-        judge('firing', big.length >= 2 ? VERY_LIKELY : LIKELY, 'are attacking with company-sized or larger elements',
-            [['firing by a company or more', big], ['artillery fire in support', []]]);
+    const shots = facts.filter(f => has(f, 'Firing'));
+    const bigShots = shots.filter(f => (f.groups.maneuver || 0) >= 10);
+    if (on('firing') && bigShots.length) {
+        judge('firing', bigShots.length >= 2 ? VERY_LIKELY : LIKELY, 'are attacking with company-sized or larger elements',
+            [['firing by a company or more', bigShots], ['artillery fire in support', []]]);
     } else if (on('firing') && shots.length >= 2) {
         judge('firing', shots.length >= 4 ? VERY_LIKELY : shots.length === 3 ? LIKELY : EVEN,
             'are probing friendly positions with small elements',
             [['firing by elements smaller than a company', shots], ['larger elements following up', []], ['artillery fire in support', []]]);
     }
-    return out.sort((x, y) => y.level - x.level || y.list.length - x.list.length || x.order - y.order || x.what.localeCompare(y.what));
+    return out.sort((x, y) => y.level - x.level || y.list.length - x.list.length || x.order - y.order || x.key.localeCompare(y.key));
 };
+
+// Which army's equipment some reports hold: vehicles of Russian and of
+// Chinese design (identified types only), and which there is more of.
+const originCounts = (list) => {
+    const n = { RU: 0, CN: 0 };
+    list.forEach(f => f.els.forEach(e => { if (e.kit && e.kit.origin in n) n[e.kit.origin] += e.count; }));
+    return n;
+};
+const originOf = (n) => (n.RU || n.CN ? (n.RU >= n.CN ? 'RU' : 'CN') : '');
 
 // The units a judgment can be put down to: those whose places include one
 // it is about (none listed: anywhere) and, when kinds are listed, that have a
@@ -2316,6 +2692,12 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, width = 
         say(`Equipment reported: ${roleList.map(r => `${label[r]} (${[...roles.get(r)].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
             .map(([t, n]) => typeCount(t, n, kitOf.get(t))).join(', ')})`).join('; ')}.`);
     }
+    const origins = originCounts(facts), army = originOf(origins);
+    if (army) {
+        say(origins.RU && origins.CN
+            ? `Equipment by design: Russian ${origins.RU}, Chinese ${origins.CN}; each judgment uses the doctrine of the equipment in its reports.`
+            : `Identified equipment is of ${ARMIES[army]} design (${origins[army]} ${origins[army] === 1 ? 'vehicle or system' : 'vehicles and systems'}), so the assessment uses ${army === 'RU' ? 'Russian' : 'PLA'} doctrine.`);
+    }
     // The largest single sighting of each kind, and the unit size it suggests.
     const largest = Object.keys(ECHELONS).map(kind => {
         const top = facts.filter(f => f.groups[kind]).sort((x, y) => y.groups[kind] - x.groups[kind] || y.ms - x.ms)[0];
@@ -2346,21 +2728,32 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, width = 
     }
 
     out.push('', '2. ASSESSMENT');
-    const judgments = narrativeJudgments(facts, cite, set).slice(0, 6);
+    // The ten strongest; how many more there were is said, not hidden.
+    const all = narrativeJudgments(facts, cite, set), judgments = all.slice(0, 10);
     if (!judgments.length) say("No assessment: the reports in this period don't match any of the patterns this tool looks for.");
     judgments.forEach((j, i) => {
         const [term, pct] = ICD203[j.level];
         // Said of a unit when one to three in the unit list fit, else of the enemy.
         const units = unitsFor(j, set.units);
         const who = units.length && units.length <= 3 ? `elements of ${orList(units.map(u => u.name))}` : set.enemy;
-        say(`${term.toUpperCase()} (${pct}) that ${who} ${j.what}.`, `   ${String.fromCharCode(97 + i)}. `, '      ');
+        const own = originCounts(j.list), mine = originOf(own), o = mine || army;
+        const what = typeof j.what === 'string' ? j.what : j.what[o] || j.what[''];
+        say(`${term.toUpperCase()} (${pct}) that ${who} ${what}.`, `   ${String.fromCharCode(97 + i)}. `, '      ');
         say(`Basis: ${j.basis}.`, '      ', '      ');
+        const doctrine = DOCTRINE[j.rule] && DOCTRINE[j.rule][o];
+        if (doctrine) {
+            const from = mine ? `${ARMIES[o]} equipment in these reports${own.RU && own.CN ? `, ${own[o]} of ${own.RU + own.CN}` : ''}` : `${ARMIES[o]} equipment in the period`;
+            say(`Doctrine (${from}): ${doctrine}`, '      ', '      ');
+        }
         if (who !== set.enemy) {
             say(`Unit: from the unit list, ${units.map(u => `${u.name} (${[u.places.join(', ') || 'anywhere', u.kinds.map(k => label[k]).join(', ')].filter(Boolean).join('; ')})`).join('; ')}.`, '      ', '      ');
         }
         say(`Confidence: ${confidenceOf(j.list)}.`, '      ', '      ');
         if (j.watch.length) say(`Watch for: ${j.watch.join('; ')}.`, '      ', '      ');
     });
+    if (all.length > judgments.length) {
+        say(`${plural(all.length - judgments.length, 'more judgment')} at ${ICD203[all[judgments.length].level][0]} or less not shown; a shorter window, or rules switched off in the settings, narrows them.`);
+    }
 
     // What the reports leave open.
     out.push('', '3. GAPS');
@@ -2381,6 +2774,7 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, width = 
     say(`NOTE: OBSERVED is what the reports say; counts are as reported, and the same vehicles may be in more than one report.`
         + ` ASSESSMENT comes from fixed rules over the cited reports. Likelihood terms follow ICD 203: `
         + `${ICD203.map(([t, p]) => `${t} ${p}`).join(', ')}. Confidence (high, moderate, low) rests on how many reports and observers support a judgment.`
+        + ' Doctrine follows the design of the equipment in each judgment\'s reports (Russian or Chinese), else the period\'s.'
         + `${set.units.length ? ' Units are named from the unit list, not from the reports.' : ''}`, '', '');
     return out;
 };
@@ -2435,7 +2829,7 @@ const SaltCore = {
     lonLatToMerc, MERC_WORLD, compass16, zipStore, crc32, shapefileParts, arcgisShapefileZip, arcgisTracksShapefileZip, tilesFor, tileZoom, tileUrl, wmsUrl, wmsCapabilitiesUrl, pickWmsCrs, pickWmsFormat, mercToLonLat, metresBetween, bearingBetween,
     asArea, analyzeLocation, locationPlan, editLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisEsriJson, arcgisCsv,
     sizeElements, gridSquare, statsData, statsCsv, PL_NEAR_METRES, workbookReportRows, statsXlsx, excelSerial, colName,
-    dtg, summaryReport, summaryPlaces, EQUIPMENT_CATALOGUE, EQUIPMENT_ROLES, lookupEquipment, teamEquipment, ECHELONS, echelonOf, ICD203, NARRATIVE_RULES,
+    dtg, summaryReport, summaryPlaces, EQUIPMENT_CATALOGUE, EQUIPMENT_ROLES, lookupEquipment, teamEquipment, ECHELONS, echelonOf, ICD203, NARRATIVE_RULES, DOCTRINE,
     reportKey, knownVersions, changedReports, withUnsaved,
 };
 

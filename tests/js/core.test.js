@@ -1059,7 +1059,8 @@ test('the narrative says what was observed, apart from what is assessed', () => 
     assert.ok(observed.includes('Equipment reported: armor (2x T-72); mechanized infantry (3x BMP-2); reconnaissance (2x BRDM-2); engineers (1x MTU-20); dismounted personnel (6x PAX).'), observed);
     assert.ok(observed.includes('armor and mechanized approximately platoon size (2x T-72, 3x BMP-2; ALPHA012 252200Z, NAI 1)'), observed);
     assert.ok(observed.includes('dismounted approximately squad size (6x PAX; ALPHA013 252300Z, NAI 1)'), observed);
-    assert.ok(!/likely|assess/i.test(observed.replace('1. OBSERVED', '')), 'no judgment in OBSERVED');
+    assert.ok(!/(likely|unlikely|roughly even|almost certain|chance)/i.test(observed), 'no judgment in OBSERVED');
+    assert.ok(observed.includes('Identified equipment is of Russian design (8 vehicles and systems), so the assessment uses Russian doctrine.'), observed);
 });
 
 test('each judgment has an ICD 203 term, the reports behind it, and its confidence apart', () => {
@@ -1072,7 +1073,8 @@ test('each judgment has an ICD 203 term, the reports behind it, and its confiden
     // Digging in, obstacles and an engineer vehicle in NAI 1.
     assert.ok(assessed.includes('LIKELY (55-80%) that enemy forces are preparing a defense in NAI 1.'), assessed);
     assert.ok(assessed.includes('digging in or fortifying (ALPHA013 252300Z); obstacles or mines (ALPHA014 260100Z); engineer equipment (ALPHA014 260100Z)'), assessed);
-    assert.ok(assessed.includes('Watch for: combat vehicles halted in position.'), assessed);
+    assert.ok(assessed.includes('Watch for: antitank weapons in position; combat vehicles halted in position.'), assessed);
+    assert.ok(assessed.includes('Doctrine (Russian equipment in these reports): Russian forces lead with reconnaissance (razvedka)'), assessed);
     // Confidence never shares a sentence (or a line) with the likelihood.
     lines.filter(l => /Confidence:/.test(l)).forEach(l => assert.ok(/^ {6}Confidence: (high|moderate|low) \(/.test(l), l));
     assert.ok(assessed.includes('Confidence: moderate (3 reports from 2 observers).'), assessed);
@@ -1135,7 +1137,8 @@ test("the team's own equipment, rules switched off, and rules of their own", () 
     assert.ok(!text.includes('scouting a route'), 'switched off');
     assert.ok(text.includes('ROUGHLY EVEN CHANCE (45-55%) that enemy forces are preparing a river crossing in NAI 1.'), text);
     assert.ok(text.includes('Basis: reports of bridging, ferry within 12 hrs (ALPHA016 260300Z, ALPHA017 260400Z).'), text);
-    assert.deepEqual(core.NARRATIVE_RULES.map(([id]) => id), ['defense', 'recon', 'offense', 'logistics', 'withdrawal', 'firing']);
+    assert.equal(core.NARRATIVE_RULES.length, 25);
+    core.NARRATIVE_RULES.forEach(([id]) => assert.ok(core.DOCTRINE[id] && core.DOCTRINE[id].RU && core.DOCTRINE[id].CN, `${id}: doctrine for both`));
 });
 
 test('backups carry the narrative settings, when there are any', () => {
@@ -1172,4 +1175,35 @@ test('the catalogue covers variants, and no name means two things', () => {
         seen.set(norm(k), v);
     }));
     assert.ok(core.EQUIPMENT_CATALOGUE.length > 350);
+});
+
+// A small set of reports for one rule: the same place (NAI 1), an hour apart.
+const at1 = (rows) => rows.map(([size, activity], i) => report({ id: `d${i}`, displayId: `D${i}`, size, activity, location: '38SMB4500082000',
+    time: new Date(Date.parse('2026-10-25T20:00:00Z') + i * 1800000).toISOString(), user: { initials: i % 2 ? 'AB' : 'CD' } }));
+const said = (reps) => core.summaryReport('narrative', reps, OVERLAYS, SUMMARY_OPTS).replace(/\s+/g, ' ');
+
+test('the doctrine follows the design of the equipment reported', () => {
+    const chinese = said(at1([['2x ZBL-08', 'observing'], ['3x Type 99A, 4x ZBD-04', 'moving N'], ['1x PCL-181', 'moving N']]));
+    assert.ok(chinese.includes('Identified equipment is of Chinese design (10 vehicles and systems), so the assessment uses PLA doctrine.'), chinese);
+    assert.ok(chinese.includes('possibly a vanguard ahead of the main body'), 'PLA terms');
+    assert.ok(chinese.includes('Doctrine (Chinese equipment in these reports): PLA'), chinese);
+    const russian = said(at1([['2x BRDM-2', 'observing'], ['3x T-90M, 4x BMP-3', 'moving N'], ['1x 2S19', 'moving N']]));
+    assert.ok(russian.includes('possibly a forward detachment or advance guard'), 'Russian terms');
+    const mixed = said(at1([['3x T-72', 'moving N'], ['1x PCL-181', 'moving N'], ['2x Type 99', 'moving N'], ['1x 2S1', 'moving N']]));
+    assert.ok(mixed.includes('Equipment by design: Russian 4, Chinese 3; each judgment uses the doctrine of the equipment in its reports.'), mixed);
+    const neither = said(at1([['2x trucks', 'halted'], ['3x trucks', 'refueling']]));
+    assert.ok(!neither.includes('Doctrine ('), 'no doctrine without Russian or Chinese equipment');
+});
+
+test('the doctrine rules: crossings, breaches, UAVs spotting, EW, deep strikes, command posts', () => {
+    const t = said(at1([
+        ['1x PMP', 'emplacing bridge at the wadi'], ['2x T-72', 'halted, waiting'], ['1x smoke generator truck', 'laying smoke'],
+        ['1x UR-77', 'breaching the minefield'], ['1x Orlan-10 UAV', 'overhead'], ['2x 2S19', 'firing, shelling OBJ'],
+        ['1x Borisoglebsk-2', 'jamming'], ['1x Iskander', 'moving'], ['1x R-149', 'halted, antennas up'], ['1x Pantsir-S1', 'halted'],
+    ]));
+    for (const want of [
+        'are preparing to cross a water obstacle or gap in NAI 1', 'are preparing to breach obstacles in NAI 1',
+        'with UAVs over NAI 1 (a reconnaissance-fire complex)', 'are jamming communications, GPS and drones',
+        'deep strikes with long-range rockets or missiles', 'have a command post in NAI 1',
+    ]) assert.ok(t.includes(want), want);
 });

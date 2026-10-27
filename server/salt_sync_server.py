@@ -449,7 +449,35 @@ _EQUIPMENT_ROLES = frozenset(
     }
 )
 _EQUIPMENT_ORIGINS = frozenset({'RU', 'CN', ''})
-_NARRATIVE_RULES = frozenset({'defense', 'recon', 'offense', 'logistics', 'withdrawal', 'firing'})
+_NARRATIVE_RULES = frozenset(
+    {
+        'offense',
+        'axes',
+        'forward',
+        'recon',
+        'assembly',
+        'reserve',
+        'firing',
+        'withdrawal',
+        'infiltration',
+        'airassault',
+        'amphibious',
+        'defense',
+        'antitank',
+        'deception',
+        'artillery',
+        'reconfire',
+        'deep',
+        'drones',
+        'aviation',
+        'crossing',
+        'breach',
+        'cp',
+        'adsite',
+        'ew',
+        'logistics',
+    }
+)
 # /api/wms_fetch: the server reads a WMS address for an editor's page when the
 # service won't let the page read it itself (no CORS headers).
 WMS_FETCH_MAX_URL = 4000

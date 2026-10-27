@@ -188,10 +188,12 @@ const rulesTab = () => {
         return drill('Rules', c.what || 'New rule', ruleForm(c));
     }
     const off = new Set(narrList('off'));
-    return `<div class="narr-label">Built in</div>
-        <div class="narr-list">${SaltCore.NARRATIVE_RULES.map(([id, name, what]) => `
+    const groups = [...new Set(SaltCore.NARRATIVE_RULES.map(r => r[3]))];
+    return `<div class="narr-hint">Each judgment uses Russian or PLA doctrine, by the design of the equipment in its reports.</div>
+        ${groups.map(g => `<div class="narr-label">${escapeHtml(g)}</div>
+        <div class="narr-list">${SaltCore.NARRATIVE_RULES.filter(r => r[3] === g).map(([id, name, what]) => `
             <label class="narr-switch-row"><span><strong>${escapeHtml(name)}</strong><small>${escapeHtml(what)}</small></span>
-                <input type="checkbox" class="narr-switch" data-narr-rule="${id}"${off.has(id) ? '' : ' checked'}${isReadOnly ? ' disabled' : ''} aria-label="${escapeHtml(name)}"></label>`).join('')}</div>
+                <input type="checkbox" class="narr-switch" data-narr-rule="${id}"${off.has(id) ? '' : ' checked'}${isReadOnly ? ' disabled' : ''} aria-label="${escapeHtml(name)}"></label>`).join('')}</div>`).join('')}
         <div class="narr-label">Your own</div>
         <div class="narr-list">${narrList('custom').map((c, i) => row(i, c.what, `${c.words} · ${c.min} in ${c.hours} hrs`)).join('')
             || '<div class="narr-empty">None yet: a judgment, the words that point to it, and how often.</div>'}</div>
