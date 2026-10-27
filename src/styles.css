@@ -1330,16 +1330,19 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 @keyframes map-ring { 50% { r: 20px; } }
 .map-view .map-box { height: var(--map-h); }
 /* A sidebar of what's on the map, left of it and as tall: click to narrow. */
-.map-main { --map-h: clamp(460px, calc(100vh - 275px), 1200px); display: grid; grid-template-columns: 190px minmax(0, 1fr); column-gap: 12px; align-items: start; transition: grid-template-columns 0.3s cubic-bezier(0.32, 0.72, 0, 1), column-gap 0.3s cubic-bezier(0.32, 0.72, 0, 1); }
-/* Hidden: the sidebar folds away and the map takes its room. */
-.map-main.side-hidden { grid-template-columns: 0 minmax(0, 1fr); column-gap: 0; }
-.map-main.side-hidden .map-side { visibility: hidden; padding-left: 0; padding-right: 0; }
+/* The sidebar floats over the map's left edge and slides out sideways: the
+   map keeps its size (nothing is redrawn as it moves); its controls and key
+   glide aside to make room. */
+.map-main { --map-h: clamp(460px, calc(100vh - 275px), 1200px); --side-room: 210px; --slide: 0.42s cubic-bezier(0.32, 0.72, 0, 1); position: relative; }
+.map-main.side-hidden { --side-room: 10px; }
+.map-main .map-box .map-tools, .map-main .map-box .map-bottom, .map-main .map-box .map-note { left: var(--side-room); transition: left var(--slide); }
+.map-main.side-hidden .map-side { transform: translateX(calc(-100% - 14px)); opacity: 0; visibility: hidden; transition: transform var(--slide), opacity 0.3s ease, visibility 0s linear 0.42s; }
 .map-side-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px; margin: 0; padding: 0; border: 1px solid var(--glass-border); border-radius: 9px; background: var(--glass-bg); backdrop-filter: blur(14px); color: var(--text-secondary); cursor: pointer; }
 .map-side-btn:hover { color: var(--text-primary); }
 .map-side-btn:active { transform: none; }
 .map-side-btn[aria-pressed="true"] { color: var(--system-blue); }
-@media (prefers-reduced-motion: reduce) { .map-main { transition: none; } }
-.map-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; height: var(--map-h); overflow: hidden; box-sizing: border-box; padding: 12px 10px; border-radius: 12px; background: var(--input-bg); }
+@media (prefers-reduced-motion: reduce) { .map-main *, .map-main .map-side { transition: none !important; } }
+.map-side { position: absolute; left: 10px; top: 10px; bottom: 10px; z-index: 3; width: 190px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; box-sizing: border-box; padding: 12px 10px; border-radius: 12px; background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); transform: translateX(0); opacity: 1; visibility: visible; transition: transform var(--slide), opacity 0.3s ease, visibility 0s linear 0s; will-change: transform; }
 /* Two halves, as tall as each other; each scrolls its own list when it's long. */
 .map-side-block { flex: 1 1 0; min-width: 0; min-height: 0; box-sizing: border-box; display: flex; flex-direction: column; }
 .map-side-block .map-chips { flex: 1 1 auto; min-height: 0; overflow-y: auto; }

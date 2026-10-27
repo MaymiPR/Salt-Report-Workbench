@@ -153,7 +153,8 @@ const positionMapCard = () => {
     if (!card || card.hidden || !box || !mapCardAt) return;
     const [x, y] = mapCardAt, w = box.clientWidth, h = box.clientHeight;
     const cw = card.offsetWidth, ch = card.offsetHeight;
-    card.style.left = `${Math.max(8, Math.min(x + 16 + cw > w - 8 ? x - 16 - cw : x + 16, w - cw - 8))}px`;
+    const left = mapSideShown ? 210 : 8;
+    card.style.left = `${Math.max(left, Math.min(x + 16 + cw > w - 8 ? x - 16 - cw : x + 16, w - cw - 8))}px`;
     card.style.top = `${Math.max(8, Math.min(y - ch / 2, h - ch - 8))}px`;
 };
 

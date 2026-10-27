@@ -1107,9 +1107,9 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_function(
             "() => document.querySelectorAll('#mapSvg .map-report').length === 3"
         )
-        # The sidebar runs the map's height, in two halves that each scroll.
+        # The sidebar runs down the map's left side, in two halves that each scroll.
         side, mbox = page.locator("#mapSide").bounding_box(), page.locator("#mapBox").bounding_box()
-        self.assertAlmostEqual(side["y"] + side["height"], mbox["y"] + mbox["height"], delta=2)
+        self.assertAlmostEqual(side["y"] + side["height"], mbox["y"] + mbox["height"] - 10, delta=3)
         halves = page.locator("#mapSide .map-side-block").evaluate_all(
             "bs => bs.map(b => Math.round(b.getBoundingClientRect().height))"
         )
@@ -1120,13 +1120,11 @@ class BrowserTests(unittest.TestCase):
             ),
             ["auto", "auto"],
         )
-        # The sidebar hides, the map taking its room, and comes back.
+        # The sidebar slides away and back; the map keeps its size throughout.
         wide = page.locator("#mapBox").bounding_box()["width"]
         page.click("#mapSideBtn")
         page.wait_for_selector("#mapSide", state="hidden")
-        page.wait_for_function(
-            f"() => document.getElementById('mapBox').getBoundingClientRect().width > {wide} + 150"
-        )
+        self.assertEqual(page.locator("#mapBox").bounding_box()["width"], wide)
         page.click("#mapSideBtn")
         page.wait_for_selector("#mapSide", state="visible")
         # The layers and the latest / all choice are kept in this browser.
