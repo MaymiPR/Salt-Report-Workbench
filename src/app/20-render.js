@@ -32,10 +32,19 @@ const syncCustomColumns = () => {
 // Size elements and Location grids.
 
 // What was typed or picked in open checklists, so a redraw (a sync from
-// another operator) doesn't throw it away: "reportId|row key" -> the row's values.
+// another operator) doesn't throw it away: "reportId|row key" -> the row's
+// values; and the box being typed in, to put the cursor back in it.
 let bdaDrafts = new Map();
+let bdaFocus = null;   // { id, key, cls, start, end }
 const keepBdaDrafts = () => {
     bdaDrafts = new Map();
+    bdaFocus = null;
+    const f = document.activeElement, frow = f && f.closest && f.closest('.bda-wrap:not([data-logged]) .bda-check-row');
+    if (frow) {
+        const caret = f.type === 'text' ? [f.selectionStart, f.selectionEnd] : [null, null];
+        bdaFocus = { id: frow.closest('.bda-wrap').querySelector('[data-bda-commit]').dataset.bdaCommit,
+                     key: frow.dataset.key, cls: f.className, start: caret[0], end: caret[1] };
+    }
     el.log.body.querySelectorAll('.bda-wrap:not([data-logged]) .bda-check-row').forEach(row => {
         const id = row.closest('.bda-wrap').querySelector('[data-bda-commit]').dataset.bdaCommit;
         const picked = row.querySelector('.bda-eff-btn.picked');
@@ -323,6 +332,15 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
     });
 
     el.log.body.replaceChildren(frag);
+    if (bdaFocus) {
+        const wrap = el.log.body.querySelector(`[data-bda-commit="${CSS.escape(bdaFocus.id)}"]`);
+        const row = wrap && [...wrap.closest('.bda-wrap').querySelectorAll('.bda-check-row')].find(r => r.dataset.key === bdaFocus.key);
+        const box = row && row.querySelector(`.${bdaFocus.cls.split(' ')[0]}`);
+        if (box) {
+            box.focus();
+            if (bdaFocus.start !== null) box.setSelectionRange(bdaFocus.start, bdaFocus.end);
+        }
+    }
 
     // Mark only the cells that actually overflow their 2-line clamp as
     // clickable (pointer + expand). One rAF pass, after layout settles.

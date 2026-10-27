@@ -45,7 +45,8 @@ All notable changes to this project are documented here. The format follows
 
 - The NAI / OBJ / PL chip under Location no longer sits on the box's edge, and
   its row keeps its room so the form doesn't move when one appears.
-- BDA checklist entries are kept when a sync redraws the table.
+- BDA checklist entries, and the cursor in the box being typed in, are kept
+  when a sync redraws the table.
 - The Settings menu stays inside its panel on a short window.
 
 ## [2.9.0] - 2026-10-26

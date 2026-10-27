@@ -211,12 +211,20 @@ class BrowserTests(unittest.TestCase):
         page.click(".bda-check-row[data-row='0'] .bda-eff-btn[data-bda-eff='Destroyed']")
         page.click(".bda-commit-btn")
         page.wait_for_selector("#bdaRollup:has-text('BDA 4 / 7')")
+        # Let that save settle: the server has it and this page has pulled it back.
+        page.wait_for_function(
+            "() => fetch('/api/sync').then(r => r.json()).then(s => Object.values(s.workspaces).flat().some(r => (r.bda || []).length === 1))"
+        )
+        page.wait_for_timeout(500)
         # One of the two BMP-2s damaged: the other stays on the checklist.
         self.assertEqual(page.input_value(".bda-check-row[data-row='0'] .bda-ck-target"), "BMP-2")
         page.fill(".bda-check-row[data-row='0'] .bda-ck-qty", "1")
         page.click(".bda-check-row[data-row='0'] .bda-eff-btn[data-bda-eff='Damaged']")
-        # A redraw (another operator's sync) keeps what was typed and picked.
+        # A redraw (another operator's sync) keeps what was typed and picked,
+        # and the cursor stays in the box being typed in.
+        page.focus(".bda-check-row[data-row='0'] .bda-ck-target")
         page.evaluate("renderLog()")
+        self.assertEqual(page.evaluate("document.activeElement.className"), "bda-ck-target")
         self.assertEqual(page.input_value(".bda-check-row[data-row='0'] .bda-ck-qty"), "1")
         self.assertEqual(page.text_content(".bda-commit-btn"), "Log 1 Assessment")
         page.click(".bda-commit-btn")
