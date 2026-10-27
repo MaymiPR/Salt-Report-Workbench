@@ -492,20 +492,18 @@ class BrowserTests(unittest.TestCase):
         page.select_option("#ioFormatSelect", "arcgis-esri")
         self.assertFalse(shown("#exportMtiToggle"))
         self.assertTrue(shown("#export-from-date"))
-        # Clear sits after the 12h / 6h / 1h presets, and empties the range.
-        self.assertEqual(
-            page.evaluate(
-                "document.querySelector('[data-preset-hours=\"1\"]').nextElementSibling.id"
-            ),
-            "exportClearFilterBtn",
-        )
+        # Clear sits in the card's header, shows once a range is set, and empties it.
+        self.assertEqual(page.locator(".io-time .io-card-head #exportClearFilterBtn").count(), 1)
+        self.assertFalse(shown("#exportClearFilterBtn"))
         page.click("[data-preset-hours='24']")
+        self.assertTrue(shown("#exportClearFilterBtn"))
         self.assertNotEqual(page.input_value("#export-from-date"), "")
         self.assertNotEqual(
             page.input_value("#export-from-date"), page.input_value("#export-to-date")
         )
         page.click("#exportClearFilterBtn")
         self.assertEqual(page.input_value("#export-from-date"), "")
+        self.assertFalse(shown("#exportClearFilterBtn"))
         # The list holds exports only; clicking the drop area chooses files to import.
         options = page.locator("#ioFormatSelect option").evaluate_all("os => os.map(o => o.value)")
         self.assertNotIn("overlays", options)
@@ -910,6 +908,11 @@ class BrowserTests(unittest.TestCase):
         )
         # The map asks in the service's terms: SRS, longitude first.
         page.wait_for_function("() => document.querySelectorAll('#mapBase image').length === 1")
+        # The image is on the page before the fake service has logged its request.
+        for _ in range(50):
+            if any("GetMap" in p for p in seen):
+                break
+            time.sleep(0.1)
         get_map = next(p for p in reversed(seen) if "GetMap" in p)
         self.assertIn("SRS=EPSG:4326", get_map)
         self.assertIn("VERSION=1.1.1", get_map)
