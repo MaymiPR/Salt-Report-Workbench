@@ -272,7 +272,7 @@
                         <li>Export and Import are on the same screen. <strong>Export</strong>: pick what from the list (a line under it says what it is and how to use it) and press <strong>Export</strong>. Below it are two cards side by side: <strong>Time range</strong>, and the <strong>Options</strong> for the picked format (when it has any). Your last choice is remembered in this browser.</li>
                         <li><strong>Import</strong> (editors): drop a file anywhere on the tab, or click the drop area to choose one. What it is gets worked out from the file: a backup (<code>.txt</code>), another tool&rsquo;s CSV (opens the column matching), or overlays (KML, KMZ, GeoJSON, or a shapefile&rsquo;s files or zip, opening the Overlays tab to review them). Several files together must all be overlays.</li>
                         <li><strong>Time range</strong>: set From and/or To to narrow what gets exported. Leave both blank to include everything.</li>
-                        <li><strong>Quick presets (12h / 6h / 1h)</strong>: one click fills both pickers relative to now, respecting your active Zulu/Local time mode.</li>
+                        <li><strong>Quick presets (12h / 6h / 1h)</strong>: one click fills both pickers relative to now, respecting your active Zulu/Local time mode. <strong>Clear</strong>, after them, empties both to export everything.</li>
                         <li><strong>Filter stats</strong>: stacked counts beneath the picker show <em>N of M unique reports</em> + <em>N of M total reports</em> (the second line includes every saved history entry). Turns blue when a filter is active.</li>
                         <li><strong>Export Backup (.txt)</strong>: full snapshot with human-readable content at the top and machine-readable JSON at the bottom. Re-import to merge it back in.</li>
                         <li><strong>Export CSV</strong>: flat tabular export. The Identifier column matches the table (<code>Patrol - ALPHA001</code>, following the Title Separator). Current report appears first, then each history entry on its own row labeled <code>Update #N (Old)</code>, then each BDA assessment as a <code>BDA #N</code> row (target in Size, effect in Activity, coords in MGRS). Custom builder fields are appended as extra columns after Analysis.</li>
@@ -395,7 +395,7 @@
                     <p>Open with the <strong>Statistics</strong> icon (the bar chart). It follows the log live. Viewers get it too.</p>
                     <ul>
                         <li><strong>Scope</strong>: <em>This ATO</em> (the workspace on screen) or <em>All ATOs</em> (every loaded workspace together). All ATOs adds a <strong>Reports per ATO</strong> chart, and its exports are named <code>All_ATOs</code>. Remembered in this browser.</li>
-                        <li><strong>Window</strong>: All, the last 7 days, 24, 12, or 6 hours, or your own From / To (date and time, in your Zulu or Local mode), laid out as in the Workspaces time filter; <strong>Clear</strong> above the To time goes back to all. Every number and chart covers the same window.</li>
+                        <li><strong>Window</strong>: All, the last 7 days, 24, 12, or 6 hours, or your own From / To (date and time, in your Zulu or Local mode); <strong>Clear</strong> above the To time goes back to all. Every number and chart covers the same window.</li>
                         <li><strong>Headline numbers</strong>: reports, how many have a grid, how many are in an NAI or OBJ, how many have a <em>Check</em> to look at, and BDA assessed (vehicles and items).</li>
                         <li><strong>Charts</strong>: reports per NAI, per OBJ, and at each phase line (typed, or a grid within 1 km of the line); reports by hour of day and by day; activity tags; the heading of moving reports; what was reported by type, counted from Size (<code>2x T-72, 4 BMP-2</code>); and BDA outcomes. Each report counts once per place or tag it names; history is not counted. Long lists show their top ten and an <em>Other</em> bar.</li>
                         <li>Hover a bar (or Tab to it) for its number. <strong>Table</strong> shows every value under the chart.</li>
@@ -820,10 +820,7 @@
                                         </div>
                                     </div>
                                     <div class="filter-field">
-                                        <div class="filter-field-head">
-                                            <label>To <span class="filter-mode" id="export-to-mode">(Z)</span></label>
-                                            <button type="button" id="exportClearFilterBtn" class="cancel-btn filter-clear">Clear</button>
-                                        </div>
+                                        <label>To <span class="filter-mode" id="export-to-mode">(Z)</span></label>
                                         <div class="filter-pair">
                                             <input type="date" id="export-to-date" class="filter-date" aria-label="To date">
                                             <input type="text" id="export-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
@@ -834,6 +831,7 @@
                                         <button type="button" class="filter-preset-btn" data-preset-hours="12">12h</button>
                                         <button type="button" class="filter-preset-btn" data-preset-hours="6">6h</button>
                                         <button type="button" class="filter-preset-btn" data-preset-hours="1">1h</button>
+                                        <button type="button" id="exportClearFilterBtn" class="cancel-btn filter-clear">Clear</button>
                                     </div>
                                     <div class="filter-meta">
                                         <span id="export-filter-count" class="filter-count-line">All reports will be exported.</span>
