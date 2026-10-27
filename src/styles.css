@@ -1472,24 +1472,23 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .summary-edited { margin-left: auto; font-size: 0.82em; color: var(--text-secondary); }
 .summary-edited[hidden], .summary-text[hidden] { display: none; }
 .summary-editor { width: 100%; box-sizing: border-box; resize: none; border: 1px solid var(--system-blue); outline: none; }
-/* The report, and beside it (Narrative) the settings panel; under it on a narrow screen. */
-.summary-body { flex: 1; min-height: 0; display: flex; gap: 12px; }
+/* The report's column and, on the Narrative, the settings column beside it,
+   the full height of the view; under it on a narrow screen. */
+.summary-layout { flex: 1; min-height: 0; display: flex; gap: 14px; }
+.summary-col { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.summary-body { flex: 1; min-height: 0; display: flex; }
 .summary-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.summary-settings-btn { margin-left: auto !important; display: inline-flex; align-items: center; gap: 6px; }
-.summary-settings-btn[hidden] { display: none; }
-.summary-settings-btn.active { background: var(--system-blue); color: #fff; }
-.summary-edited:not([hidden]) + .summary-settings-btn { margin-left: 8px !important; }
-.narr-panel { flex: 0 0 330px; min-height: 0; overflow-y: auto; box-sizing: border-box; padding: 12px 14px; border-radius: 12px; background: var(--input-bg); font-size: 0.9em; display: flex; flex-direction: column; gap: 8px; animation: view-in 0.24s cubic-bezier(0.32, 0.72, 0, 1); }
+.narr-panel { flex: 0 0 340px; min-height: 0; overflow-y: auto; box-sizing: border-box; padding: 14px; border-radius: 12px; background: var(--input-bg); font-size: 0.9em; display: flex; flex-direction: column; gap: 8px; }
 .narr-panel[hidden] { display: none; }
-/* Beside the panel the report is narrower: its lines wrap rather than run off. */
-.summary-body.with-side .summary-text { white-space: pre-wrap; }
+/* The narrative is wrapped to fit (app/48-summary.js); should a line still
+   be too long, it wraps rather than runs off. */
+.summary-layout.with-side .summary-text { white-space: pre-wrap; }
 @media (max-width: 1100px) {
-    .summary-body.with-side { flex-direction: column-reverse; }
-    .summary-body.with-side .narr-panel { flex: 0 0 auto; max-height: 50vh; }
-    .summary-body.with-side .summary-main { min-height: 240px; }
+    .summary-layout.with-side { flex-direction: column; }
+    .summary-layout.with-side .narr-panel { flex: 0 0 auto; max-height: none; overflow: visible; }
+    .summary-layout.with-side .summary-col { min-height: 360px; }
 }
 .narr-head { display: flex; align-items: center; justify-content: space-between; font-weight: 600; }
-.narr-close { width: 24px; height: 24px; margin: 0; padding: 0; border: none; border-radius: 50%; background: var(--panel-bg); color: var(--text-secondary); font-size: 1em; line-height: 1; cursor: pointer; }
 .narr-call { display: flex; align-items: center; gap: 10px; margin: 2px 0 0; font-weight: 400; color: var(--text-secondary); }
 .narr-call input { flex: 1; min-width: 0; margin: 0; padding: 8px 12px; font-size: 0.95em; background: var(--panel-bg); }
 .narr-call-hint { margin: -4px 0 4px; }
@@ -1559,7 +1558,7 @@ input[type="checkbox"].narr-switch:checked { background: var(--system-green, #30
 .narr-builtin { font-size: 0.82em; color: var(--text-secondary); line-height: 1.5; }
 .narr-builtin summary { cursor: pointer; color: var(--system-blue); }
 .narr-builtin strong { color: var(--text-primary); font-weight: 600; }
-@media (prefers-reduced-motion: reduce) { .narr-panel, .narr-switch, .narr-switch::after { animation: none; transition: none; } }
+@media (prefers-reduced-motion: reduce) { .narr-switch, .narr-switch::after { transition: none; } }
 .summary-actions button { margin: 0; width: auto; padding: 8px 16px; font-size: 0.85em; }
 #summaryPlaceRow[hidden] { display: none; }
 #summaryPlace { width: auto; margin: 0; padding: 6px 30px 6px 10px; font-size: 0.85em; background-position: right 10px center; }

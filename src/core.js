@@ -1793,9 +1793,10 @@ const SUMMARY_KINDS = {
 // When both ends are set, the same length of time just before is the
 // "previous" period it compares with.
 //   opts: { local, from, to, now, ato, title, by, place, squareDigits, narrative }
-//   (narrative: the team's narrative settings, for the 'narrative' kind)
+//   (narrative: the team's narrative settings, for the 'narrative' kind;
+//   width: the columns it's wrapped to, 100 unless shown narrower)
 const summaryReport = (kind, reps, overlays, opts) => {
-    const { local, from = null, to = null, now = new Date(), ato = '', title = '', by = '', place = '', squareDigits = 2, narrative = null } = opts;
+    const { local, from = null, to = null, now = new Date(), ato = '', title = '', by = '', place = '', squareDigits = 2, narrative = null, width = 100 } = opts;
     const facts = (reps || []).filter(r => !r.deleted).map(r => reportFacts(r, overlays))
         .filter(f => !isNaN(f.ms)).sort((x, y) => x.ms - y.ms);
     const within = (lo, hi) => facts.filter(f => (lo === null || f.ms >= lo) && (hi === null || f.ms <= hi));
@@ -1867,7 +1868,7 @@ const summaryReport = (kind, reps, overlays, opts) => {
             out.push(...(list.length ? list.map(f => reportLine(f, local)) : ['None in this period.']));
         }
     } else if (kind === 'narrative') {
-        out.push(...narrativeLines(cur, prev, { local, hrs, end: to === null ? now.getTime() : to, places: placesTop, settings: narrative }));
+        out.push(...narrativeLines(cur, prev, { local, hrs, end: to === null ? now.getTime() : to, places: placesTop, settings: narrative, width }));
     } else if (kind === 'brief') {
         const last = cur[cur.length - 1];
         out.push(
@@ -2235,11 +2236,11 @@ const confidenceOf = (list) => {
 // The narrative's sections, for the reports in the period (`cur`, in time
 // order) and the period before (`prev`, or null). `settings` are the team's
 // (what the enemy is called, units, equipment, rules: narrativeSettings).
-const narrativeLines = (cur, prev, { local, hrs, end, places, settings }) => {
+const narrativeLines = (cur, prev, { local, hrs, end, places, settings, width = 100 }) => {
     const set = narrativeSettings(settings);
     const facts = cur.map(f => narrativeFacts(f, set.team));
     const out = [];
-    const say = (text, first = '   ', rest = '   ') => out.push(...wrapText(text, first, rest));
+    const say = (text, first = '   ', rest = '   ') => out.push(...wrapText(text, first, rest, width));
     const cite = (list, max = 4) => {
         const l = byTime(list);
         return l.slice(0, max).map(f => `${f.id} ${dayTime(f.ms, local)}`).join(', ') + (l.length > max ? ` and ${l.length - max} more` : '');

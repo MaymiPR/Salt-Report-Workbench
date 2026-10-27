@@ -429,7 +429,7 @@
                                 <li><strong>Gaps</strong>: reports without a grid, equipment not in the catalogue, and places gone quiet for 6 hours or more.</li>
                             </ul>
                             The equipment catalogue starts with Russian and Chinese systems (T-72, BMP-2, 2S19, ZSU-23-4, Type 99, ZBD-04, PHL-16, HQ-9, and more) and plain words (tank, truck, PAX). A type it doesn't know is listed under Gaps.</li>
-                        <li><strong>Settings</strong> (Narrative only) opens a panel beside the report, which updates as you change things. Editors change them; everyone shares them, and they are kept in the backup files:
+                        <li><strong>Narrative settings</strong>, in a column of their own to the right of the Narrative, the full height of the view; the report updates as you change them. Editors change them; everyone shares them, and they are kept in the backup files:
                             <ul>
                                 <li><strong>Call them</strong>: what the narrative calls them when no unit fits, e.g. <em>OPFOR</em>. Empty: <em>enemy forces</em>.</li>
                                 <li><strong>Units</strong>: each unit's name; <em>Where it operates</em>, a dropdown of the NAIs and OBJs (pick several; none: anywhere), with <em>Other</em> for places not in it, like a 10 km square <code>11S NV 31</code>, typed in the box it brings up; and <em>What it has</em>, a dropdown of kinds of equipment (none: any). A judgment about a place in its area, with that kind of equipment in its reports, is said of &ldquo;elements of&rdquo; the unit (two or three fitting: &ldquo;elements of A or B&rdquo;), with a <em>Unit:</em> line saying it came from the unit list. Only in Assessment; Observed just notes whose area a place is.</li>
@@ -1002,61 +1002,65 @@
                                 <div class="export-panel-title"><span>Summary Reports</span></div>
                             </div>
                         </div>
-                        <div class="summary-kinds" role="group" aria-label="Report">
-                            <button type="button" class="ws-tab" data-summary-kind="rollup">Rollup</button>
-                            <button type="button" class="ws-tab" data-summary-kind="trafficked">Most Trafficked</button>
-                            <button type="button" class="ws-tab" data-summary-kind="place">Place Activity</button>
-                            <button type="button" class="ws-tab" data-summary-kind="brief">Shift Brief</button>
-                            <button type="button" class="ws-tab" data-summary-kind="narrative">Narrative</button>
-                        </div>
-                        <div class="stats-filters">
-                            <div class="filter-presets" aria-label="Time window">
-                                <span class="filter-presets-label">Last</span>
-                                <button type="button" class="filter-preset-btn" data-summary-hours="6">6h</button>
-                                <button type="button" class="filter-preset-btn" data-summary-hours="12">12h</button>
-                                <button type="button" class="filter-preset-btn" data-summary-hours="24">24h</button>
-                                <button type="button" class="filter-preset-btn" data-summary-hours="168">7d</button>
-                                <button type="button" class="filter-preset-btn" data-summary-hours="0">All</button>
+                        <!-- The report's column and, on the Narrative, its settings beside it
+                             (app/48-narrative.js), the full height of the view. -->
+                        <div id="summaryLayout" class="summary-layout">
+                        <div class="summary-col">
+                            <div class="summary-kinds" role="group" aria-label="Report">
+                                <button type="button" class="ws-tab" data-summary-kind="rollup">Rollup</button>
+                                <button type="button" class="ws-tab" data-summary-kind="trafficked">Most Trafficked</button>
+                                <button type="button" class="ws-tab" data-summary-kind="place">Place Activity</button>
+                                <button type="button" class="ws-tab" data-summary-kind="brief">Shift Brief</button>
+                                <button type="button" class="ws-tab" data-summary-kind="narrative">Narrative</button>
                             </div>
-                            <div id="summaryPlaceRow" class="stats-range" hidden>
-                                <label for="summaryPlace">Place</label>
-                                <select id="summaryPlace"></select>
-                            </div>
-                        </div>
-                        <div class="filter-grid range-grid">
-                                <div class="filter-field">
-                                    <label>From <span class="filter-mode range-mode">(Zulu)</span></label>
-                                    <div class="filter-pair">
-                                        <input type="date" id="summary-from-date" class="filter-date" aria-label="From date">
-                                        <input type="text" id="summary-from-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
-                                    </div>
+                            <div class="stats-filters">
+                                <div class="filter-presets" aria-label="Time window">
+                                    <span class="filter-presets-label">Last</span>
+                                    <button type="button" class="filter-preset-btn" data-summary-hours="6">6h</button>
+                                    <button type="button" class="filter-preset-btn" data-summary-hours="12">12h</button>
+                                    <button type="button" class="filter-preset-btn" data-summary-hours="24">24h</button>
+                                    <button type="button" class="filter-preset-btn" data-summary-hours="168">7d</button>
+                                    <button type="button" class="filter-preset-btn" data-summary-hours="0">All</button>
                                 </div>
-                                <div class="filter-field">
-                                    <div class="filter-field-head">
-                                        <label>To <span class="filter-mode range-mode">(Zulu)</span></label>
-                                        <button type="button" class="cancel-btn filter-clear" data-summary-hours="0">Clear</button>
-                                    </div>
-                                    <div class="filter-pair">
-                                        <input type="date" id="summary-to-date" class="filter-date" aria-label="To date">
-                                        <input type="text" id="summary-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
-                                    </div>
+                                <div id="summaryPlaceRow" class="stats-range" hidden>
+                                    <label for="summaryPlace">Place</label>
+                                    <select id="summaryPlace"></select>
                                 </div>
                             </div>
-                        <div class="summary-actions">
-                            <button type="button" id="summaryCopyBtn" class="set-btn">Copy</button>
-                            <button type="button" id="summarySaveBtn" class="set-btn">Save .txt</button>
-                            <button type="button" id="summaryPrintBtn" class="set-btn">Print</button>
-                            <button type="button" id="summaryEditBtn" class="cancel-btn">Edit text</button>
-                            <span id="summaryEdited" class="summary-edited" hidden>Edited, not following new reports. <button type="button" id="summaryRevertBtn" class="text-btn">Revert</button></span>
-                            <!-- The narrative's settings (app/48-narrative.js): shared with everyone. -->
-                            <button type="button" id="narrSettingsBtn" class="cancel-btn summary-settings-btn" aria-expanded="false" hidden><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h7M13 4h1M2 8h2M8 8h6M2 12h8M14 12h0"/><circle cx="11" cy="4" r="1.6"/><circle cx="6" cy="8" r="1.6"/><circle cx="12" cy="12" r="1.6"/></svg>Settings</button>
-                        </div>
-                        <div id="summaryBody" class="summary-body">
-                            <div class="summary-main">
-                                <pre id="summaryText" class="summary-text" aria-live="polite"></pre>
-                                <textarea id="summaryEditor" class="summary-text summary-editor" spellcheck="false" aria-label="Edit the report" hidden></textarea>
+                            <div class="filter-grid range-grid">
+                                    <div class="filter-field">
+                                        <label>From <span class="filter-mode range-mode">(Zulu)</span></label>
+                                        <div class="filter-pair">
+                                            <input type="date" id="summary-from-date" class="filter-date" aria-label="From date">
+                                            <input type="text" id="summary-from-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
+                                        </div>
+                                    </div>
+                                    <div class="filter-field">
+                                        <div class="filter-field-head">
+                                            <label>To <span class="filter-mode range-mode">(Zulu)</span></label>
+                                            <button type="button" class="cancel-btn filter-clear" data-summary-hours="0">Clear</button>
+                                        </div>
+                                        <div class="filter-pair">
+                                            <input type="date" id="summary-to-date" class="filter-date" aria-label="To date">
+                                            <input type="text" id="summary-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
+                                        </div>
+                                    </div>
+                                </div>
+                            <div class="summary-actions">
+                                <button type="button" id="summaryCopyBtn" class="set-btn">Copy</button>
+                                <button type="button" id="summarySaveBtn" class="set-btn">Save .txt</button>
+                                <button type="button" id="summaryPrintBtn" class="set-btn">Print</button>
+                                <button type="button" id="summaryEditBtn" class="cancel-btn">Edit text</button>
+                                <span id="summaryEdited" class="summary-edited" hidden>Edited, not following new reports. <button type="button" id="summaryRevertBtn" class="text-btn">Revert</button></span>
                             </div>
-                            <aside id="narrSettings" class="narr-panel" aria-label="Narrative settings" hidden></aside>
+                            <div id="summaryBody" class="summary-body">
+                                <div class="summary-main">
+                                    <pre id="summaryText" class="summary-text" aria-live="polite"></pre>
+                                    <textarea id="summaryEditor" class="summary-text summary-editor" spellcheck="false" aria-label="Edit the report" hidden></textarea>
+                                </div>
+                            </div>
+                        </div>
+                        <aside id="narrSettings" class="narr-panel" aria-label="Narrative settings" hidden></aside>
                         </div>
                     </div>
 

@@ -1144,3 +1144,10 @@ test('backups carry the narrative settings, when there are any', () => {
     assert.deepEqual(core.parseBackup(core.allWorkspacesBackupText({ ALPHA: [report()] }, 'ALPHA', 'Patrol', {}, {}, NOW, [], n)).data.narrative, n);
     assert.equal('narrative' in core.parseBackup(core.backupText('ALPHA', [report()], 'Patrol', {}, {}, NOW, [], {})).data, false);
 });
+
+test('the narrative wraps to the width asked for, 100 columns unless told', () => {
+    const wide = narrative(), narrow = narrative(NARRATIVE_REPS, { width: 60 });
+    assert.ok(wide.some(l => l.length > 60) && wide.every(l => l.length <= 100));
+    assert.ok(narrow.every(l => l.length <= 60), narrow.find(l => l.length > 60));
+    assert.equal(narrow.join(' ').replace(/\s+/g, ' '), wide.join(' ').replace(/\s+/g, ' '), 'the same words');
+});

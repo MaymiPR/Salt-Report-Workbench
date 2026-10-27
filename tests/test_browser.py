@@ -1540,13 +1540,18 @@ class BrowserTests(unittest.TestCase):
         flat = lambda: " ".join(page.inner_text("#summaryText").split())  # noqa: E731
         self.assertIn("that enemy forces are preparing a defense in NAI 1.", flat())
         self.assertIn("logistics (2x trucks)", flat())
-        # The settings: a panel beside the report, which stays in view.
-        page.click("#narrSettingsBtn")
-        side, text = (
-            page.locator("#narrSettings").bounding_box(),
-            page.locator("#summaryText").bounding_box(),
-        )
+        # The settings: always there on the Narrative, a column beside the
+        # report the full height of the view; no other report has them.
+        side = page.locator("#narrSettings").bounding_box()
+        text = page.locator("#summaryText").bounding_box()
+        kinds = page.locator(".summary-col > .summary-kinds").bounding_box()
         self.assertGreaterEqual(side["x"], text["x"] + text["width"], "beside the report")
+        self.assertLessEqual(side["y"], kinds["y"], "from the top")
+        self.assertAlmostEqual(side["y"] + side["height"], text["y"] + text["height"], delta=2)
+        page.click("[data-summary-kind='rollup']")
+        self.assertFalse(page.locator("#narrSettings").is_visible())
+        page.click("[data-summary-kind='narrative']")
+        self.assertTrue(page.locator("#narrSettings").is_visible())
         # What the enemy is called.
         page.fill("#narrEnemy", "OPFOR")
         page.press("#narrEnemy", "Enter")
@@ -1638,7 +1643,6 @@ class BrowserTests(unittest.TestCase):
         viewer.click("#summaryViewToggleBtn")
         viewer.click("[data-summary-kind='narrative']")
         viewer.wait_for_selector("#summaryText:has-text('river crossing')")
-        viewer.click("#narrSettingsBtn")
         self.assertTrue(viewer.is_disabled("#narrEnemy"))
         self.assertFalse(viewer.locator("[data-narr-add]").is_visible())
         # Edit text: your own words, kept for Copy and Save, per workspace and

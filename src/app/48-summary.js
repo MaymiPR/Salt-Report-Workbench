@@ -45,22 +45,24 @@ const renderSummary = () => {
     if (!places.includes(summaryPlace)) summaryPlace = places[0] || '';
     s.place.replaceChildren(...places.map(p => { const o = new Option(p, p); o.selected = p === summaryPlace; return o; }));
     s.placeRow.hidden = summaryKind !== 'place';
-    // The narrative's settings: a button, and a panel beside the report.
-    const narr = summaryKind === 'narrative';
-    document.getElementById('narrSettingsBtn').hidden = !narr;
-    if (!narr && !document.getElementById('narrSettings').hidden) openNarrSettings(false);
-    else renderNarrSettings();
+    // The narrative's settings: always there beside it, the full height of the view.
+    showNarrSettings(summaryKind === 'narrative');
     document.querySelectorAll('[data-summary-kind]').forEach(b => b.classList.toggle('active', b.dataset.summaryKind === summaryKind));
     const { from, to } = windowBounds(s);
-    summaryText = SaltCore.summaryReport(summaryKind, live, currentOverlays(), {
+    const opts = {
         local: timeDisplayMode === 'local', from, to, now: new Date(),
         ato: ato || 'NO WORKSPACE', title: (live.find(r => r.title) || {}).title || localConfig.title || '',
         by: (userProfile && userProfile.initials) || '', place: summaryPlace, narrative: sharedNarrative,
-    });
+    };
+    summaryText = SaltCore.summaryReport(summaryKind, live, currentOverlays(), opts);
+    // On screen the narrative is wrapped to the width it has, so no line breaks
+    // twice; Copy, Save and Print keep the 100 columns.
+    const fit = summaryKind === 'narrative' ? summaryFit() : 100;
+    const onScreen = fit < 100 ? SaltCore.summaryReport(summaryKind, live, currentOverlays(), { ...opts, width: fit }) : summaryText;
     // Edited text is shown as edited; while editing, the box is left alone.
     // Another workspace (or kind) while editing: the box closes, the edit kept.
     if (summaryEditing && summaryEditingKey !== editKey()) summaryEditing = false;
-    s.text.textContent = shownSummary();
+    s.text.textContent = editKey() in summaryEdits ? shownSummary() : onScreen;
     s.text.hidden = summaryEditing;
     s.editor.hidden = !summaryEditing;
     document.getElementById('summaryEditBtn').textContent = summaryEditing ? 'Done' : 'Edit text';
@@ -69,6 +71,17 @@ const renderSummary = () => {
     s.panel.querySelectorAll('.range-mode').forEach(n => { n.textContent = timeDisplayMode === 'local' ? '(Local)' : '(Zulu)'; });
 };
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+// How many monospaced columns fit in the report's box.
+let summaryCanvas = null;
+const summaryFit = () => {
+    const pre = summaryEls().text, cs = getComputedStyle(pre);
+    const ctx = (summaryCanvas = summaryCanvas || document.createElement('canvas').getContext('2d'));
+    ctx.font = `${cs.fontSize} ${cs.fontFamily}`;
+    const col = ctx.measureText('0'.repeat(20)).width / 20;
+    const room = pre.parentElement.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 4;
+    return Math.max(40, Math.min(100, Math.floor(room / col)));
+};
 
 const openSummaryView = () => {
     if (isExportViewActive) closeExportView();
@@ -155,6 +168,8 @@ const summaryFileName = () =>
     [s.fromDate, s.toDate, s.fromTime, s.toTime].forEach(n => { n.addEventListener('change', renderSummary); n.addEventListener('input', renderSummary); });
     [s.fromTime, s.toTime].forEach(n => n.addEventListener('blur', e => { if (autoColonTime(e.target)) renderSummary(); }));
     s.place.addEventListener('change', () => { summaryPlace = s.place.value; renderSummary(); });
+    // A narrower or wider window: the narrative re-wraps to fit.
+    window.addEventListener('resize', debounce(() => { if (isSummaryViewActive && summaryKind === 'narrative') renderSummary(); }, 150));
     // Kept as typed, so Copy and Save have it even before Done.
     s.editor.addEventListener('input', () => {
         setEdit(s.editor.value);

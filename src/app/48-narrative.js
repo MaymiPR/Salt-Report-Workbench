@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// The narrative's settings, in a panel beside the Narrative: what the enemy
+// The narrative's settings, in a column beside the Narrative: what the enemy
 // is called, the units and where they operate, equipment the team adds to
 // the catalogue (or puts right), the built-in rules switched on or off, and
 // the team's own rules. Shared with everyone like the basemaps; editors
@@ -210,10 +210,7 @@ const renderNarrSettings = () => {
     narrBuilt = key;
     const counts = narrCounts(), unknown = narrUnknown().length;
     const tabs = [['units', 'Units'], ['equipment', 'Equipment'], ['rules', 'Rules']];
-    box.innerHTML = `<div class="narr-head">
-            <span>Narrative settings</span>
-            <button type="button" class="narr-close" data-narr-close title="Close" aria-label="Close">&times;</button>
-        </div>
+    box.innerHTML = `<div class="narr-head">Narrative settings</div>
         <label class="narr-call"><span>Call them</span>
             <input type="text" id="narrEnemy" value="${escapeHtml(sharedNarrative.enemy || '')}" placeholder="enemy forces" maxlength="60" spellcheck="false"${isReadOnly ? ' disabled' : ''}></label>
         <div class="narr-hint narr-call-hint">When no unit fits a judgment.</div>
@@ -222,13 +219,11 @@ const renderNarrSettings = () => {
         <div class="narr-body">${{ units: unitsTab, equipment: equipmentTab, rules: rulesTab }[narrTab]()}</div>
         <div class="narr-hint narr-shared">Shared with everyone${isReadOnly ? '; editors change them' : ''}.</div>`;
 };
-const openNarrSettings = (open) => {
-    const box = document.getElementById('narrSettings'), btn = document.getElementById('narrSettingsBtn');
-    box.hidden = !open;
-    btn.setAttribute('aria-expanded', String(open));
-    btn.classList.toggle('active', open);
-    document.getElementById('summaryBody').classList.toggle('with-side', open);
-    narrBuilt = null;
+// Shown with the Narrative, and only then.
+const showNarrSettings = (show) => {
+    const box = document.getElementById('narrSettings');
+    if (box.hidden === show) { box.hidden = !show; narrBuilt = null; }
+    document.getElementById('summaryLayout').classList.toggle('with-side', show);
     renderNarrSettings();
 };
 
@@ -276,9 +271,7 @@ const saveNarrForm = () => {
     if (!box) return;
     const rerender = () => { narrBuilt = null; renderNarrSettings(); };
     const go = (open) => { narrOpen = open; narrRemoving = false; rerender(); };
-    document.getElementById('narrSettingsBtn').addEventListener('click', () => openNarrSettings(box.hidden));
     box.addEventListener('click', e => {
-        if (e.target.closest('[data-narr-close]')) { openNarrSettings(false); return; }
         const tab = e.target.closest('[data-narr-tab]');
         if (tab) { narrTab = tab.dataset.narrTab; go(null); return; }
         const edit = e.target.closest('[data-narr-edit]');
