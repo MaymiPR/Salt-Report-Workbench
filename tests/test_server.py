@@ -68,6 +68,7 @@ def reset_state() -> None:
     srv.workspace_sources.clear()
     srv.client_initials.clear()
     srv._rate_buckets.clear()
+    srv._auth_fail_buckets.clear()
     srv._basemap_buckets.clear()
     srv.invalidate_sync_cache()
     srv._dirty_atos = None
@@ -1125,18 +1126,41 @@ class HttpApiTests(unittest.TestCase):
 
     def test_wrong_codes_are_throttled_on_gets_too(self):
         # Regression: only POSTs were rate limited, so the code could be guessed over GET.
+        body = {"config": {"ato": "A", "title": "T"}}
         with (
-            mock.patch.object(srv, "RATE_BUCKET_CAPACITY", 2),
-            mock.patch.object(srv, "RATE_REFILL_PER_SECOND", 0.0),
+            mock.patch.object(srv, "AUTH_FAIL_CAPACITY", 3),
+            mock.patch.object(srv, "AUTH_FAIL_REFILL_PER_SECOND", 0.0),
         ):
-            self.assertEqual(self.request("/api/sync")[0], 200, "a right code costs nothing")
+            for _ in range(5):
+                self.assertEqual(self.request("/api/sync")[0], 200, "a right code costs nothing")
+            # Wrong or missing codes, on GET and POST alike, drain the failure bucket.
             self.assertEqual(self.request("/api/sync", code="WRONGCODE2")[0], 401)
-            self.assertEqual(self.request("/api/events", code="WRONGCODE2")[0], 401)
-            # Out of tokens: refused before the code is even looked at, the right one too.
-            self.assertEqual(self.request("/api/basemap?u=x", code=CODE)[0], 429)
-            self.assertEqual(self.request("/api/sync")[0], 429)
+            self.assertEqual(self.request("/api/events", code=None)[0], 401)
+            self.assertEqual(self.post("/api/save_config", body, code="WRONGCODE2")[0], 401)
+            # Empty: refused before the code is looked at, so a right guess gets nowhere.
+            status, raw = self.request("/api/sync")
+            self.assertEqual(status, 429)
+            self.assertIn(b"wrong access codes", raw)
+            self.assertEqual(self.request("/api/basemap?u=x")[0], 429)
+            self.assertEqual(self.post("/api/save_config", body)[0], 429)
             # The viewer port needs no code, so it isn't held up.
             self.assertEqual(self.request("/api/sync", base=self.viewer_base, code=None)[0], 200)
+
+    def test_a_burst_of_saves_never_blocks_reading(self):
+        # An editor's own saves use up the POST bucket; that must never turn
+        # their pulls of the data or their event stream into 429s.
+        body = {"config": {"ato": "A", "title": "T"}}
+        with (
+            mock.patch.object(srv, "RATE_BUCKET_CAPACITY", 3),
+            mock.patch.object(srv, "RATE_REFILL_PER_SECOND", 0.0),
+        ):
+            codes = [self.post("/api/save_config", body)[0] for _ in range(5)]
+            self.assertEqual(codes, [200, 200, 200, 429, 429])
+            for _ in range(5):
+                self.assertEqual(self.request("/api/sync")[0], 200)
+            with contextlib.closing(self.open_events()) as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertEqual(resp.readline(), b"data: update\n")
 
     def test_map_images_are_rate_limited_on_both_ports(self):
         with (
