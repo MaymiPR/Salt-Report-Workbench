@@ -53,11 +53,12 @@ Restore offer a ten-second Undo.
 
 ### Map
 
-The map button beside the Report Log heading opens the map under it. It shows your overlays with the reports as a
-heat map, tracks, or dots, over a WMS or tile basemap you add. A sidebar lists
-activities and the busiest places, and a slider shows how things stood earlier.
-Put a drone (a Gray Eagle, say) on it by its grid, and a cone points from the drone
-to the newest report. Shift + click copies the grid of any spot.
+The map button beside the Report Log heading opens the map under it. It shows
+your overlays with the reports as a heat map, tracks, or dots, over a WMS or
+tile basemap you add. A sidebar lists activities and the busiest places, and a
+slider shows how things stood earlier. Put a drone (a Gray Eagle, say) on it by
+its grid, and a cone points from the drone to the newest report. Shift + click
+copies the grid of any spot.
 
 ![The map: NAIs, objectives and phase lines with a heat map, the activity sidebar on the left, and a drone (GE 1) with its 10 km range ring and a cone widening to the newest report, 8.2 km NE](docs/screenshots/map.png)
 
@@ -77,8 +78,9 @@ Narrative for any time window. The Narrative lists what was observed, then
 assessments from 55 rules based on open-source Russian and Chinese tactics, in
 ICD 203 terms, each citing the reports behind it. It recognizes about 790 Russian
 and Chinese equipment types and general terms such as vic, tracked, wheeled and
-support, and counts a total with its breakdown once. Everything comes from fixed rules and templates, not
-AI, so nothing is made up. Reword any report before you copy, save, or print it.
+support, and counts a total with its breakdown once. Everything comes from
+fixed rules and templates, not AI, so nothing is made up. Reword any report
+before you copy, save, or print it.
 
 ![The Narrative summary report with its Observed and Assessment sections, and its settings column on the right](docs/screenshots/narrative.png)
 
@@ -122,6 +124,13 @@ run this in that folder:
 python salt_sync_server.py
 ```
 
+**Upgrading?** Each zip extracts to a new folder named for its version, and
+that new folder starts with an empty `Auto Backups`. **Copy the `Auto Backups`
+folder from your old folder into the new one before starting** (or extract the
+new files over the old ones). Your reports are in that folder; so is the
+server's certificate (`Auto Backups/tls`), so copying it keeps the same
+certificate and browsers don't warn again.
+
 **From source:**
 
 ```bash
@@ -152,7 +161,8 @@ address and the code. Give observers the **Read Only** address.
 </p>
 
 For the one-file `.txt` download, checking checksums, upgrading, HTTPS and the
-browser warning, the Windows launcher, and where backups live, see
+browser warning, the Windows launcher, where backups live, and troubleshooting
+(the firewall prompt, a port in use, missing reports), see
 [docs/INSTALL.md](docs/INSTALL.md). What the security model does and doesn't
 cover is in [SECURITY.md](SECURITY.md).
 
@@ -208,15 +218,15 @@ environment variables.
 
 ```bash
 python scripts/build.py                  # bundle src/ into dist/
-python -m unittest discover -s tests     # server, build and launcher tests
+python -m unittest discover -s tests     # server, build, pack, release, launcher, browser
 node --test tests/js/core.test.js        # the page's logic
 ```
 
 Browser tests run when Playwright is installed, and are skipped otherwise. On
-macOS and Linux, `make check` runs everything CI runs. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for setup and conventions, and
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the code layout and how sync
-works.
+macOS and Linux, `make check` runs most of what CI runs (not the built-server
+smoke test). See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and conventions,
+and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the code layout and how
+sync works.
 
 ## Security
 

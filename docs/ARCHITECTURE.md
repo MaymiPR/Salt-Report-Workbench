@@ -82,10 +82,10 @@ fixed templates over those counts, plus the Narrative below). It
 touches no DOM, storage, or network, so it loads in the page as
 `window.SaltCore` and in Node for `tests/js/`. The rest of the page is
 `src/app/`, thirteen top-level scripts loaded in order (state, rendering,
-form, import/export, overlays, the map, statistics, the narrative's settings,
-summary reports, the map view, sync, handlers, startup) that share one global scope, so a
-name declared in an earlier file is visible in the later ones. Together they
-hold the whole application state in a handful of top-level
+form, import/export, overlays, the map, statistics, summary reports, the
+narrative's settings, the map view, sync, handlers, startup) that share one
+global scope, so a name declared in an earlier file is visible in the later
+ones. Together they hold the whole application state in a handful of top-level
 variables, with `reportsByAto` (every workspace's reports) as the core. Every
 change is applied locally first and mirrored to `localStorage`, so the UI never
 waits on the network. Rendering is one function per surface, such as `renderLog`
@@ -123,6 +123,7 @@ handler's `_POST_ROUTES` table, paired with a schema validator in
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
 | `/`, `/index.html` | GET | The bundled page. On the viewer port it is stamped `read-only` before any script runs; for the host's own browser the access code is injected into a `<meta>` tag. |
+| `/Salt%20Report%20Workbench.html` | GET | The same page, under its old single-file name, so old bookmarks still open it. |
 | `/api/sync` | GET | Full state: workspaces, config, profiles, the report format, overlays, basemaps, drones, the narrative's settings, sources, connected users. |
 | `/api/events` | GET | Server-Sent Events stream. Each message just says "something changed"; clients then call `/api/sync`. |
 | `/api/basemap?u=` | GET | An image from an `http://` basemap, for an HTTPS page that can't load it itself. Only from the host of a saved basemap; a redirect followed only on that host (to https, say); images only, up to 16 MB. |
@@ -183,11 +184,11 @@ training area).
 The map sits under the Report Log in one pager (`#homePager`): the two
 panes are stacked and the pager slides between them with a CSS transform, so
 nothing is laid out again; the pane out of sight is hidden and inert once
-the slide ends. The Map view (`app/49-mapview.js`) is built around that map. After each
-drawing the map tells it (`mapDrawnHook`) what it showed: the view box, the
-reports and their tracks. Once the view settles, the view counts what is
-on the map and fills the table from that. A click that didn't drag
-(`mapClickHook`) is a report (its card), an NAI or OBJ it falls in, or a
+the slide ends. The Map view (`app/49-mapview.js`) is built around that map.
+After each drawing the map tells it (`mapDrawnHook`) what it showed: the
+view box, the reports and their tracks. Once the view settles, the view
+counts what is on the map and fills the table from that. A click that didn't
+drag (`mapClickHook`) is a report (its card), an NAI or OBJ it falls in, or a
 phase line within ten pixels (the table narrows to it). The picked report
 and place are plain variables the next drawing reads; nothing about them is
 stored or synced.
@@ -245,9 +246,10 @@ The server is the meeting point, not the authority over content.
 - **Soft deletes.** Deleting marks a report `deleted` rather than removing it,
   so the deletion itself merges and propagates like any other edit.
 - **Cached sync payload.** The JSON for workspaces, config, profiles, the
-  format, overlays, basemaps, drones and narrative settings is serialized once and cached as a byte prefix; only the small
-  per-request tail (connected users, read-only flag) is appended each time. Any
-  mutation clears the cache. A client that accepts gzip (every browser) gets
+  format, overlays, basemaps, drones and narrative settings is serialized
+  once and cached as a byte prefix; only the small per-request tail
+  (connected users, read-only flag) is appended each time. Any mutation
+  clears the cache. A client that accepts gzip (every browser) gets
   the body compressed, five to eight times smaller; since every client pulls
   the same state after a change, the compressed form is cached too and one
   compression serves them all.
@@ -258,10 +260,10 @@ The server is the meeting point, not the authority over content.
 backup folder, which defaults to `Auto Backups/` beside the server. Writes are
 debounced by 0.5 seconds so a burst of edits becomes one write, and every
 mutation marks its workspace dirty (`mark_dirty`) so only changed workspaces
-are rewritten. The report format, overlays, basemaps, drones, narrative settings, config and profiles ride in every
-file (the format under each workspace's name, as older versions read it), and
-a change to any of them marks all workspaces dirty. On boot the newest file's
-format is the one used.
+are rewritten. The report format, overlays, basemaps, drones, narrative
+settings, config and profiles ride in every file (the format under each
+workspace's name, as older versions read it), and a change to any of them
+marks all workspaces dirty. On boot the newest file's format is the one used.
 
 A backup file has two parts: a readable summary of every report for a person
 to skim, then a JSON block between `##SALT_BACKUP##` and `##SALT_BACKUP_END##`
@@ -336,15 +338,20 @@ against.
 | Lock | Guards |
 | --- | --- |
 | `data_lock` | `DATA_STORE`, `workspace_sources`, the sync cache |
+| `_sync_gz_lock` | the last `/api/sync` body and its gzip form |
 | `sse_lock` | `sse_clients`, `client_initials` |
+| `SSEClient._lock` | one per SSE connection: whole writes to that client's stream |
 | `_disk_lock` | ordering of backup writes |
 | `_save_timer_lock` | the debounce timer |
+| `_workbench_html_lock` | the cached page (`index.html` and its mtime) |
+| `_audit_lock` | appends to `audit.log` |
 | `_rate_lock` | rate-limit buckets |
 
 Each SSE connection holds a thread that waits in `select()` with a timeout of
 `SSE_HEARTBEAT_SECONDS` (15): the socket becoming readable means the client
-left, and a timeout means it's time to send a heartbeat. Broadcasts copy the client list under
-`sse_lock` and write outside it, so one stalled client can't block the others.
+left, and a timeout means it's time to send a heartbeat. Broadcasts copy the
+client list under `sse_lock` and write outside it, so one stalled client can't
+block the others.
 
 ## Build
 
