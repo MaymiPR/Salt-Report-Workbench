@@ -10,11 +10,11 @@
 
 let isMapViewActive = false;
 // Which of the two is on screen: the Report Log ('list') or the map under it. Per browser.
-let logViewMode = localStorage.getItem('salt_log_view') === 'map' ? 'map' : 'list';
+let logViewMode = storedText('salt_log_view') === 'map' ? 'map' : 'list';
 // The table holds only the reports in the part of the map on screen. Per browser.
-let mapOnlyInView = localStorage.getItem('salt_map_only_in_view') !== 'off';
+let mapOnlyInView = storedText('salt_map_only_in_view') !== 'off';
 // The sidebar left of the map (activities, busiest places), or hidden. Per browser.
-let mapSideShown = localStorage.getItem('salt_map_side') !== 'hidden';
+let mapSideShown = storedText('salt_map_side') !== 'hidden';
 const applyMapSide = () => {
     document.querySelector('.map-main').classList.toggle('side-hidden', !mapSideShown);
     const btn = document.getElementById('mapSideBtn');

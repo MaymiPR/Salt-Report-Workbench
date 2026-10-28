@@ -101,7 +101,7 @@ const chartSvg = (chart, themeName, header) => {
 
 let isStatsViewActive = false;
 // The workspace on screen, or every loaded one ('all'). Per browser.
-let statsScope = localStorage.getItem('salt_stats_scope') === 'all' ? 'all' : 'ato';
+let statsScope = storedText('salt_stats_scope') === 'all' ? 'all' : 'ato';
 let statsCharts = [];       // what is on screen, for hover and export
 let statsKpis = [];         // the headline numbers on screen, for the workbook
 let statsBuilt = null;      // what the panel was last drawn from, so a sync that changes nothing leaves it be
@@ -387,7 +387,7 @@ const exportStatsXlsx = () => {
         const scope = e.target.closest('[data-stats-scope]');
         if (scope) {
             statsScope = scope.dataset.statsScope;
-            try { localStorage.setItem('salt_stats_scope', statsScope); } catch (err) { /* storage blocked: this session only */ }
+            writeStored('salt_stats_scope', statsScope);
             renderStats();
             return;
         }

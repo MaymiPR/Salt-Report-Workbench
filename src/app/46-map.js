@@ -8,19 +8,22 @@
 // One of the ordered scripts that make up the page (see src/app/); they
 // share one top-level scope, so names declared earlier are visible here.
 
+// A setting this browser keeps as plain text (not JSON, so not readStored's),
+// or null when there is none or storage is blocked. Used by the map, its
+// view and Statistics; writes go through writeStored.
+const storedText = (key) => { try { return localStorage.getItem(key); } catch (e) { return null; } };
+
 const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', track: '#ff3b30', edge: '#000000' };
 // The layers on, in any mix (per browser); the heat map alone to start with.
 const MAP_LAYERS = [['heat', 'Heat map'], ['tracks', 'Tracks'], ['reports', 'Reports']];
 const mapLayers = (() => {
-    try {
-        const v = JSON.parse(localStorage.getItem('salt_map_layers') || 'null');
-        if (v && typeof v === 'object') return { heat: !!v.heat, tracks: !!v.tracks, reports: !!v.reports };
-    } catch (e) { /* unreadable: the default */ }
+    const v = readStored('salt_map_layers', null);
+    if (v && typeof v === 'object') return { heat: !!v.heat, tracks: !!v.tracks, reports: !!v.reports };
     return { heat: true, tracks: false, reports: false };
 })();
 // The heat map and the dots: each report at its latest grids, or every saved
 // report (its updates too) at its grids. Per browser.
-let mapAllGrids = localStorage.getItem('salt_map_grids') === 'all';
+let mapAllGrids = storedText('salt_map_grids') === 'all';
 let mapActivity = new Set();   // the activity tags picked; none for every report
 let mapHours = 0;              // the window, in hours back from its end; 0 for all
 let mapEnd = null;             // the window's end (ms), set by the time slider; null for now
@@ -34,7 +37,7 @@ let mapDrawnHook = () => {};
 let mapClickHook = () => {};
 let mapView = null;            // { cx, cy, mpp }: centre (Web Mercator metres) and metres per pixel
 // The basemap this browser shows, by name: 'off' for none, '' for the first.
-let mapBaseChoice = localStorage.getItem('salt_map_base') || '';
+let mapBaseChoice = storedText('salt_map_base') || '';
 const activeBasemap = () => (mapBaseChoice === 'off' ? null
     : sharedBasemaps.find(b => b.name === mapBaseChoice) || sharedBasemaps[0] || null);
 let mapBaseFailed = false;
@@ -107,8 +110,8 @@ const svgEsc = escapeHtml;
 
 // Where each drone was last put (shared; editors move it). Whether they show,
 // and whether their view does, is each browser's own choice.
-let droneShow = localStorage.getItem('salt_drone_show') !== 'off';
-let droneView = localStorage.getItem('salt_drone_view') !== 'off';
+let droneShow = storedText('salt_drone_show') !== 'off';
+let droneView = storedText('salt_drone_view') !== 'off';
 const DRONE_COLOR = '#ff9f0a';
 // The sync server's limits (MAX_DRONES, MAX_DRONE_RANGE_KM in server/salt_sync_server.py).
 const MAX_DRONES = 10, MAX_DRONE_RANGE_KM = 1000;
@@ -708,7 +711,7 @@ const addBasemap = (entry) => {
     if (basemapTooLong(entry)) return false;
     // The new one is shown here at once.
     mapBaseChoice = entry.name;
-    try { localStorage.setItem('salt_map_base', entry.name); } catch (err) { /* this session only */ }
+    writeStored('salt_map_base', entry.name);
     saveBasemaps([...sharedBasemaps, entry], `${entry.name} added for everyone.`);
     return true;
 };
@@ -720,7 +723,7 @@ const replaceBasemap = (oldName, entry) => {
     // Renamed: still the one shown here.
     if (mapBaseChoice === oldName && entry.name !== oldName) {
         mapBaseChoice = entry.name;
-        try { localStorage.setItem('salt_map_base', entry.name); } catch (err) { /* this session only */ }
+        writeStored('salt_map_base', entry.name);
     }
     if (baseCheck && baseCheck.name === oldName) baseCheck = null;
     wmsFind = null; baseOpen = null; baseRemoving = null;
@@ -1102,7 +1105,7 @@ const saveDrones = async (list, said) => {
 const zoomToDrone = (d) => {
     const p = dronePoint(d);
     if (!p || !mapView) return;
-    if (!droneShow) { droneShow = true; try { localStorage.setItem('salt_drone_show', 'on'); } catch (err) { /* this session only */ } }
+    if (!droneShow) { droneShow = true; writeStored('salt_drone_show', 'on'); }
     const [x, y] = SaltCore.lonLatToMerc(p.lon, p.lat);
     mapView.cx = x; mapView.cy = y;
     mapView.mpp = Math.min(mapView.mpp, 4);
@@ -1158,14 +1161,14 @@ if (mapBody) {
         const layer = e.target.closest('[data-map-layer]');
         if (layer) {
             mapLayers[layer.dataset.mapLayer] = !mapLayers[layer.dataset.mapLayer];
-            try { localStorage.setItem('salt_map_layers', JSON.stringify(mapLayers)); } catch (err) { /* this session only */ }
+            writeStored('salt_map_layers', JSON.stringify(mapLayers));
             renderMapView();
             return;
         }
         const grids = e.target.closest('[data-map-grids]');
         if (grids) {
             mapAllGrids = grids.dataset.mapGrids === 'all';
-            try { localStorage.setItem('salt_map_grids', mapAllGrids ? 'all' : 'latest'); } catch (err) { /* this session only */ }
+            writeStored('salt_map_grids', mapAllGrids ? 'all' : 'latest');
             renderMapView();
             return;
         }
@@ -1250,14 +1253,14 @@ if (mapBody) {
         if (e.target.id === 'mapDroneShow' || e.target.id === 'mapDroneView') {
             const on = e.target.checked;
             if (e.target.id === 'mapDroneShow') droneShow = on; else droneView = on;
-            try { localStorage.setItem(e.target.id === 'mapDroneShow' ? 'salt_drone_show' : 'salt_drone_view', on ? 'on' : 'off'); } catch (err) { /* this session only */ }
+            writeStored(e.target.id === 'mapDroneShow' ? 'salt_drone_show' : 'salt_drone_view', on ? 'on' : 'off');
             redrawMap();
             return;
         }
         if (e.target.id === 'mapBaseSelect') {
             mapBaseChoice = e.target.value;
             mapBaseFailed = false;
-            try { localStorage.setItem('salt_map_base', mapBaseChoice); } catch (err) { /* this session only */ }
+            writeStored('salt_map_base', mapBaseChoice);
             redrawMap();
         }
     });
