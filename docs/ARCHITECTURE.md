@@ -125,7 +125,7 @@ handler's `_POST_ROUTES` table, paired with a schema validator in
 | `/`, `/index.html` | GET | The bundled page. On the viewer port it is stamped `read-only` before any script runs; for the host's own browser the access code is injected into a `<meta>` tag. |
 | `/api/sync` | GET | Full state: workspaces, config, profiles, the report format, overlays, basemaps, drones, the narrative's settings, sources, connected users. |
 | `/api/events` | GET | Server-Sent Events stream. Each message just says "something changed"; clients then call `/api/sync`. |
-| `/api/basemap?u=` | GET | An image from an `http://` basemap, for an HTTPS page that can't load it itself. Only from the host of a saved basemap; no redirects followed; images only, up to 16 MB. |
+| `/api/basemap?u=` | GET | An image from an `http://` basemap, for an HTTPS page that can't load it itself. Only from the host of a saved basemap; a redirect followed only on that host (to https, say); images only, up to 16 MB. |
 | `/api/save_reports` | POST | Merge a batch of reports into a workspace. |
 | `/api/edit_report` | POST | Overwrite fields of one report in place, without touching its history. |
 | `/api/delete_history` | POST | Remove individual history entries. |

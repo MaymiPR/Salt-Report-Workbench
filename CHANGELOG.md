@@ -52,6 +52,11 @@ All notable changes to this project are documented here. The format follows
 - The note that the basemap service didn't answer came up when only a few
   tiles were missing (a service with no imagery for part of the area), even
   though Check passed; now it shows only when nothing in view came back.
+- A WMS whose capabilities give an http:// address that sends everything on
+  to https:// (EOX Maps, for one) drew no map on an HTTPS page while Check
+  passed: the server's basemap fetch followed no redirects. It now follows a
+  redirect on the same host (never to another), and a WMS linked over https
+  is saved with its https:// address, so the browser asks it directly.
 - Enter in MGRS Lock's box tried to log the report ("Please fill in: Size,
   Activity, Location"); now it sets the zone and square and goes on to
   Location.

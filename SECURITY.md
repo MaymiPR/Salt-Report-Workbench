@@ -70,7 +70,7 @@ a determined attacker on that network.
   log. Run the server on a machine whose network position you're comfortable
   sharing with your editors. `/api/basemap`, which fetches map images for an
   HTTPS page from `http://` basemaps, only fetches from the hosts of basemaps
-  an editor has saved, follows no redirects, and returns only images.
+  an editor has saved, follows a redirect only on that same host, and returns only images.
 
 `--no-access-code` removes the editor gate entirely and is meant only for a
 fully trusted, isolated network.

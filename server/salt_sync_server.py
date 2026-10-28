@@ -1074,14 +1074,24 @@ def basemap_proxy_allowed(url: str) -> bool:
     return False
 
 
-class _NoRedirects(urllib.request.HTTPRedirectHandler):
-    """A redirect could lead off the saved host, so none are followed."""
+class _SameHostRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows a redirect only on the saved host: to another path, or from
+    http:// to https:// (as many services now send every http request). One to
+    any other host could reach past the saved basemaps, so it isn't followed."""
+
+    max_redirections = 3
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
+        old, new = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
+        same = (
+            new.scheme in ('http', 'https')
+            and (new.hostname or '').lower() == (old.hostname or '').lower()
+            and (new.port == old.port or (new.scheme == 'https' and new.port in (None, 443)))
+        )
+        return super().redirect_request(req, fp, code, msg, headers, newurl) if same else None
 
 
-_basemap_opener = urllib.request.build_opener(_NoRedirects)
+_basemap_opener = urllib.request.build_opener(_SameHostRedirects)
 
 
 def basemap_fetch(url: str) -> tuple[int, str, bytes]:

@@ -1076,9 +1076,18 @@ class HttpApiTests(unittest.TestCase):
             def do_GET(self):
                 if self.path.startswith("/tiles/"):
                     body, ctype = b"\x89PNG fake", "image/png"
-                elif self.path.startswith("/moved"):
+                elif self.path.startswith(("/moved", "/hop", "/away")):
+                    # Off to another port, on to a tile on this host, or to another host.
+                    port = self.server.server_address[1]
                     self.send_response(302)
-                    self.send_header("Location", "http://127.0.0.1:1/elsewhere")
+                    self.send_header(
+                        "Location",
+                        {
+                            "/moved": "http://127.0.0.1:1/elsewhere",
+                            "/hop": f"http://127.0.0.1:{port}/tiles/9/9/9.png",
+                            "/away": "http://example.invalid/tiles/1.png",
+                        }[self.path],
+                    )
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
@@ -1112,11 +1121,15 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(self.request(proxied, code=None)[0], 401, "the editor port wants the code")
         for url, why in (
             (host + "/page", "not an image"),
-            (host + "/moved", "a redirect could lead anywhere"),
+            (host + "/moved", "a redirect to another port isn't followed"),
+            (host + "/away", "nor one to another host"),
         ):
             self.assertEqual(
                 self.request("/api/basemap?u=" + urllib.parse.quote(url, safe=""))[0], 502, why
             )
+        # A redirect on the same host (a service sending http on to https, say) is followed.
+        status, body = self.request("/api/basemap?u=" + urllib.parse.quote(host + "/hop", safe=""))
+        self.assertEqual((status, body), (200, b"\x89PNG fake"))
         for url in ("http://127.0.0.1:1/tiles/1.png", "file:///c:/windows/win.ini", ""):
             self.assertEqual(
                 self.request("/api/basemap?u=" + urllib.parse.quote(url, safe=""))[0], 403, url

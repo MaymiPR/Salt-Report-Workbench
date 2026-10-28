@@ -932,6 +932,28 @@ class BrowserTests(unittest.TestCase):
         )
         page.evaluate("saveBasemaps([])")
 
+    def test_a_wms_linked_over_https_is_asked_over_https(self):
+        # Regression (EOX): the capabilities gave http://, which sends everything on
+        # to https://; saved as given, every map image failed on an HTTPS page.
+        page = self.open_editor()
+        url = "f => wmsGetMapUrl(f)"
+        same = {
+            "link": "https://tiles.maps.eox.at/wms?service=wms",
+            "getMap": "http://tiles.maps.eox.at/?",
+        }
+        self.assertEqual(page.evaluate(url, same), "https://tiles.maps.eox.at/?")
+        other = {**same, "getMap": "http://maps.example.mil/wms?"}
+        self.assertEqual(
+            page.evaluate(url, other), "http://maps.example.mil/wms?", "another host: as given"
+        )
+        plain = {**same, "link": "http://tiles.maps.eox.at/wms"}
+        self.assertEqual(
+            page.evaluate(url, plain), "http://tiles.maps.eox.at/?", "linked over http: as given"
+        )
+        self.assertEqual(
+            page.evaluate(url, {"link": " https://x.test/wms ", "getMap": ""}), "https://x.test/wms"
+        )
+
     def test_a_wms_found_through_the_server_in_latitude_longitude(self):
         import http.server as hs
         import threading

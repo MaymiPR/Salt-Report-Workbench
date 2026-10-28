@@ -669,6 +669,19 @@ const removeOpenBasemap = () => {
     saveBasemaps(sharedBasemaps.filter(b => b !== gone), `${gone.name} removed.`);
 };
 
+// Where to ask for the map: the address the service's capabilities give, but
+// over https when it was linked over https and names the same host there
+// (many list an http:// address and send it on to https://), so the browser
+// asks the service itself.
+const wmsGetMapUrl = (f) => {
+    const link = f.link.trim();
+    if (!f.getMap) return link;
+    try {
+        if (/^http:\/\//i.test(f.getMap) && /^https:\/\//i.test(link) && new URL(f.getMap).host === new URL(link).host) return `https://${f.getMap.slice(7)}`;
+    } catch (e) { /* not an address: as given */ }
+    return f.getMap;
+};
+
 // The ticked layers, as one service, in the projection they all offer: added,
 // or saved over the service they were opened from.
 const addFoundLayers = () => {
@@ -681,7 +694,7 @@ const addFoundLayers = () => {
     if (layers.length > 2000) { showToast('Too many layers for one service; tick fewer.', true); return; }
     // Named for itself: the service's title (else the one layer's, or its host); a saved one keeps its name.
     const name = f.edit || freeBasemapName(f.title || (picked.length === 1 ? picked[0].title : new URL(f.link).hostname));
-    const entry = { name, kind: 'wms', url: f.getMap || f.link.trim(), layers, version: f.version, crs, format: SaltCore.pickWmsFormat(f.formats) };
+    const entry = { name, kind: 'wms', url: wmsGetMapUrl(f), layers, version: f.version, crs, format: SaltCore.pickWmsFormat(f.formats) };
     if (!(f.edit ? replaceBasemap(f.edit, entry) : addBasemap(entry))) return false;
     wmsFind = null;
     return true;
