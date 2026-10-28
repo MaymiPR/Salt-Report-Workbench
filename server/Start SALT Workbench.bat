@@ -23,11 +23,11 @@ title S.A.L.T. Report Workbench
 
 rem pushd, not cd: it also works when the folder is on a network share.
 pushd "%~dp0" || (
-    echo  [!] Could not open the folder "%~dp0".
+    echo [!] Could not open the folder "%~dp0".
     goto :fail
 )
 if not exist "salt_sync_server.py" (
-    echo  [!] salt_sync_server.py is missing. Keep this launcher in the same
+    echo [!] salt_sync_server.py is missing. Keep this launcher in the same
     echo      folder as salt_sync_server.py and index.html.
     goto :fail
 )
@@ -38,7 +38,7 @@ rem 1. An explicit choice wins, and a wrong one is reported, not skipped.
 if not defined PYTHON_EXE if defined SALT_PYTHON set "PYTHON_EXE=%SALT_PYTHON%"
 if defined PYTHON_EXE (
     call :try "%PYTHON_EXE%" && goto :run
-    echo  [!] Could not use "%PYTHON_EXE%".
+    echo [!] Could not use "%PYTHON_EXE%".
     echo      Check that the path is right and that it is Python 3.10 or newer.
     goto :fail
 )
@@ -60,7 +60,7 @@ for /d %%D in ("%LOCALAPPDATA%\Programs\Python\Python3*" "%ProgramFiles%\Python3
     call :try "%%D\python.exe" && goto :run
 )
 
-echo  [!] Python 3.10 or newer was not found.
+echo [!] Python 3.10 or newer was not found.
 echo.
 echo      Open this file in Notepad and put the full path to python.exe on the
 echo      PYTHON_EXE line near the top, for example:
@@ -69,13 +69,13 @@ echo          set "PYTHON_EXE=C:\Tools\Python312\python.exe"
 goto :fail
 
 :run
-echo  [*] Using Python: %PY%
+echo [*] Using Python: %PY%
 "%PY%" salt_sync_server.py %*
 set "RC=%ERRORLEVEL%"
 popd
 if not "%RC%"=="0" (
     echo.
-    echo  [!] The server stopped with exit code %RC%.
+    echo [!] The server stopped with exit code %RC%.
     pause
 )
 exit /b %RC%

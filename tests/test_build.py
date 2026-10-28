@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -67,7 +68,7 @@ class BundleTests(unittest.TestCase):
 class MainTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="salt-build-"))
-        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
     def test_produces_a_runnable_dist_folder(self):
         with mock.patch.object(build, "DIST", self.tmp / "dist"), mock.patch("builtins.print"):
@@ -81,6 +82,29 @@ class MainTests(unittest.TestCase):
         self.assertIn(b"salt_sync_server.py", launcher)
         # cmd.exe needs CRLF; every line must end in one, none in a bare LF.
         self.assertEqual(launcher.count(b"\n"), launcher.count(b"\r\n"))
+
+    def test_builds_into_the_folder_it_is_given(self):
+        # The tests and release.py --dist use this, so a developer's own dist/
+        # is never overwritten behind their back.
+        out = self.tmp / "elsewhere" / "dist"
+        with mock.patch.object(build, "DIST", self.tmp / "default"), mock.patch("builtins.print"):
+            self.assertEqual(build.main(out), 0)
+        self.assertEqual(
+            sorted(p.name for p in out.iterdir()),
+            sorted(["index.html", "salt_sync_server.py", build.LAUNCHER.name]),
+        )
+        self.assertFalse((self.tmp / "default").exists(), "the default dist/ is untouched")
+
+    def test_the_command_line_takes_dist(self):
+        out = self.tmp / "cli"
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "build.py"), "--dist", str(out)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((out / "index.html").is_file())
 
     def test_missing_source_returns_nonzero(self):
         with (

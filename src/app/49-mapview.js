@@ -10,11 +10,11 @@
 
 let isMapViewActive = false;
 // Which of the two is on screen: the Report Log ('list') or the map under it. Per browser.
-let logViewMode = localStorage.getItem('salt_log_view') === 'map' ? 'map' : 'list';
+let logViewMode = storedText('salt_log_view') === 'map' ? 'map' : 'list';
 // The table holds only the reports in the part of the map on screen. Per browser.
-let mapOnlyInView = localStorage.getItem('salt_map_only_in_view') !== 'off';
+let mapOnlyInView = storedText('salt_map_only_in_view') !== 'off';
 // The sidebar left of the map (activities, busiest places), or hidden. Per browser.
-let mapSideShown = localStorage.getItem('salt_map_side') !== 'hidden';
+let mapSideShown = storedText('salt_map_side') !== 'hidden';
 const applyMapSide = () => {
     document.querySelector('.map-main').classList.toggle('side-hidden', !mapSideShown);
     const btn = document.getElementById('mapSideBtn');
@@ -101,12 +101,16 @@ const renderMapTable = (reps) => {
     s.only.checked = mapOnlyInView;
     s.chip.innerHTML = mapPlace
         ? `<button type="button" class="map-place-chip" data-map-place="${escapeHtml(mapPlace)}" title="Show every place again">${escapeHtml(mapPlace)} <span aria-hidden="true">&times;</span></button>` : '';
+    // Rebuilt after every drawing: a row with the keyboard's focus keeps it.
+    const focused = s.body.contains(document.activeElement) ? document.activeElement.dataset.mapRow : null;
     s.body.innerHTML = reps.length ? reps.map(r => `
-        <tr data-map-row="${escapeHtml(r.id)}"${r.id === mapSelected ? ' class="selected-row"' : ''}>
+        <tr data-map-row="${escapeHtml(r.id)}" tabindex="0"${r.id === mapSelected ? ' class="selected-row"' : ''}>
             <td>${escapeHtml(formatFullId(r))}</td><td>${escapeHtml(r.size || '')}</td><td>${escapeHtml(r.activity || '')}</td>
             <td>${escapeHtml(r.location || '')}</td><td>${escapeHtml(mapTimeFmt(r.time))}</td>
         </tr>`).join('')
         : `<tr class="map-table-empty"><td colspan="5">${mapOnlyInView ? 'No reports on this part of the map. Zoom out, or untick “Only what’s on the map”.' : 'No reports in this window.'}</td></tr>`;
+    const again = focused && s.body.querySelector(`[data-map-row="${CSS.escape(focused)}"]`);
+    if (again) again.focus({ preventScroll: true });
 };
 
 // After each drawing (panning redraws often), once it settles.
@@ -124,6 +128,7 @@ mapDrawnHook = () => {
 // --- The report card ---
 
 let mapCardAt = null;   // [x, y] in the map box, where it was opened
+let mapCardFrom = null; // the table row it was opened from (by id), for Escape to go back to; null: the map
 
 const renderMapCard = () => {
     const card = document.getElementById('mapCard');
@@ -147,13 +152,15 @@ const renderMapCard = () => {
     card.hidden = false;
     positionMapCard();
 };
-// Beside the report, kept inside the map.
+// Beside the report, kept inside the map (and clear of the sidebar, when
+// it's there: full screen leaves it behind).
 const positionMapCard = () => {
     const card = document.getElementById('mapCard'), box = document.getElementById('mapBox');
     if (!card || card.hidden || !box || !mapCardAt) return;
     const [x, y] = mapCardAt, w = box.clientWidth, h = box.clientHeight;
     const cw = card.offsetWidth, ch = card.offsetHeight;
-    const left = mapSideShown ? 210 : 8;
+    const room = parseFloat(getComputedStyle(box).getPropertyValue('--side-room')) || 0;
+    const left = room > 10 ? room : 8;
     card.style.left = `${Math.max(left, Math.min(x + 16 + cw > w - 8 ? x - 16 - cw : x + 16, w - cw - 8))}px`;
     card.style.top = `${Math.max(8, Math.min(y - ch / 2, h - ch - 8))}px`;
 };
@@ -179,7 +186,7 @@ const centreMapOn = (id) => {
 // A click on the map: a report opens its card; an NAI, OBJ, or phase line
 // narrows the table to it (again to widen it); anywhere else closes the card.
 mapClickHook = ({ item, at, lonLat: [lon, lat], mpp }) => {
-    if (item && item.t) { selectMapReport(item.t.report.id, at); return; }
+    if (item && item.t) { mapCardFrom = null; selectMapReport(item.t.report.id, at); return; }
     const near = mpp * Math.cos(lat * Math.PI / 180) * 10;   // ten pixels, on the ground
     const lines = currentOverlays().filter(o => o.type === 'PL' && SaltCore.metresToGeometry(o.geometry, lon, lat) <= near);
     const areas = currentOverlays().filter(o => o.type !== 'PL' && /Polygon|LineString/.test((o.geometry || {}).type || '')
@@ -195,14 +202,22 @@ mapClickHook = ({ item, at, lonLat: [lon, lat], mpp }) => {
 const renderMapTime = () => {
     const range = document.getElementById('mapEndRange'), label = document.getElementById('mapEndLabel'), now = document.getElementById('mapEndNow');
     if (!range) return;
-    const times = localReports.filter(r => !r.deleted).map(r => new Date(r.time).getTime()).filter(t => !isNaN(t));
-    const first = times.length ? Math.min(...times) : Date.now();
+    // The earliest, by a loop (Math.min(...) runs out of stack on very many reports).
+    let first = Infinity;
+    localReports.forEach(r => {
+        const t = r.deleted ? NaN : new Date(r.time).getTime();
+        if (t < first) first = t;
+    });
+    const any = first !== Infinity;
+    if (!any) first = Date.now();
     range.dataset.first = String(first);
-    range.disabled = !times.length;
+    range.disabled = !any;
     const span = Math.max(1, Date.now() - first);
     range.value = String(mapEnd === null ? 1000 : Math.round((mapEnd - first) / span * 1000));
     const local = timeDisplayMode === 'local';
     label.textContent = mapEnd === null ? 'Now' : SaltCore.dtg(mapEnd, local);
+    // Read out as the time it shows, not a number out of 1000.
+    range.setAttribute('aria-valuetext', label.textContent);
     now.hidden = mapEnd === null;
 };
 
@@ -295,7 +310,8 @@ const hideHomeViews = () => {
                 if (tr) {
                     // Scroll the view only (scrollIntoView would move the page too).
                     const view = tr.closest('.map-view'), vr = view.getBoundingClientRect(), r = tr.getBoundingClientRect();
-                    view.scrollBy({ top: r.top - vr.top - (view.clientHeight - r.height) / 2, behavior: 'smooth' });
+                    const still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+                    view.scrollBy({ top: r.top - vr.top - (view.clientHeight - r.height) / 2, behavior: still ? 'auto' : 'smooth' });
                     tr.classList.add('flash');
                     setTimeout(() => tr.classList.remove('flash'), 1500);
                 }
@@ -314,6 +330,7 @@ const hideHomeViews = () => {
             const id = tr.dataset.mapRow;
             const centred = centreMapOn(id);
             mapSelected = id;
+            mapCardFrom = id;
             // Drawn now, so the card can open beside where the report landed
             // (at the middle, unless the edge of the area held the map back).
             drawMap();
@@ -321,6 +338,27 @@ const hideHomeViews = () => {
             mapCardAt = centred && box && ring ? [+ring.getAttribute('cx'), +ring.getAttribute('cy')] : null;
             renderMapCard();
         }
+    });
+    // A row with the keyboard's focus: Enter or Space does what a click does.
+    s.body.addEventListener('keydown', e => {
+        const tr = (e.key === 'Enter' || e.key === ' ') && e.target.closest && e.target.closest('[data-map-row]');
+        if (!tr || e.target !== tr) return;
+        e.preventDefault();
+        tr.click();
+    });
+    // Escape closes the report's card, back to the row (or the map) it was
+    // opened from, and goes no further (the page's own Escape would cancel an
+    // edit in the form). Only from the map view, or from nowhere in particular.
+    document.addEventListener('keydown', e => {
+        const card = document.getElementById('mapCard'), at = document.activeElement;
+        if (e.key !== 'Escape' || !isMapViewActive || !card || card.hidden) return;
+        if (at && at !== document.body && !s.panel.contains(at)) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const from = mapCardFrom;
+        selectMapReport('', null);
+        const back = (from && s.body.querySelector(`[data-map-row="${CSS.escape(from)}"]`)) || document.getElementById('mapBox');
+        if (back) back.focus({ preventScroll: true });
     });
     s.panel.addEventListener('change', e => {
         if (e.target === s.only) {

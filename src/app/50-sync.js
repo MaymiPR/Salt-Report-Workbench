@@ -7,9 +7,10 @@
 // --- 9. Sync (push, pull, SSE, offline flag) ---
 function setConnectionStatus(isOnline) {
     const cls   = 'status-dot ' + (isOnline ? 'online' : 'offline');
-    const title = isOnline ? (offlinePendingPush ? 'Syncing...' : 'Online & Synced') : 'Offline (Saving Locally)';
+    const title = isOnline ? (offlinePendingPush || pendingAtos.size ? 'Syncing...' : 'Online & Synced') : 'Offline (Saving Locally)';
     el.status.dot.className    = cls;
     el.status.dot.title        = title;
+    el.status.dot.setAttribute('aria-label', title);
     el.status.dotExp.className = cls;
     el.status.dotExp.title     = title;
 }
@@ -42,19 +43,14 @@ const markRefused = (ato, report, reason) => {
 // find exactly which reports it refuses, so one bad report can't hold back
 // the rest. Returns { queued, refused: [reasons] }.
 async function sendBatch(ato, batch, source) {
-    let res;
-    try {
-        res = await postJson('/api/save_reports', source ? { ato, reports: batch, source } : { ato, reports: batch });
-    } catch (err) {
-        return { queued: true, refused: [] };
-    }
+    const res = await apiPost('/api/save_reports', source ? { ato, reports: batch, source } : { ato, reports: batch });
     if (res.ok) { markSaved(ato, batch); return { queued: false, refused: [] }; }
-    if (res.status === 401) { handleUnauthorized(); return { queued: true, refused: [] }; }
-    if (res.status === 429 || res.status >= 500) return { queued: true, refused: [] };
+    // Unreachable, code rejected (apiPost re-prompts), rate limited, or a
+    // server error: sent again later.
+    if (res.status === 0 || res.status === 401 || res.status === 429 || res.status >= 500) return { queued: true, refused: [] };
     if (batch.length === 1) {
-        const message = await res.json().then(j => j.message).catch(() => '') || `HTTP ${res.status}`;
         // The batch index ("reports[0].size ...") means nothing to an operator.
-        const reason = message.replace(/^Validation failed: reports\[\d+\]\./, 'Validation failed: ').replace(/\.?$/, '.');
+        const reason = res.message.replace(/^Validation failed: reports\[\d+\]\./, 'Validation failed: ');
         markRefused(ato, batch[0], reason);
         return { queued: false, refused: [reason] };
     }
@@ -72,13 +68,11 @@ async function sendBatch(ato, batch, source) {
 // as "Not saved" and the user is told why.
 async function pushWorkspace(ato, reports, source) {
     if (!reports.length) {
-        try {
-            const res = await postJson('/api/unload_ato', { ato });
-            if (res.status === 401) { handleUnauthorized(); return 'queued'; }
-            return res.status === 429 || res.status >= 500 ? 'queued' : 'ok';
-        } catch (err) {
-            return 'queued';
-        }
+        const res = await apiPost('/api/unload_ato', { ato });
+        if (res.ok) return 'ok';
+        if (res.status === 0 || res.status === 401 || res.status === 429 || res.status >= 500) return 'queued';
+        showToast(`The server did not unload ${ato}: ${res.message}`, true);
+        return 'rejected';
     }
     const batch = SaltCore.changedReports(reports, serverVersions[ato]).filter(r => {
         const u = unsavedEntry(ato, r);
@@ -105,14 +99,29 @@ async function pushToServer(source) {
     if (!activeAto) return true;
     pushesInFlight++;
     try {
-        const result = await pushWorkspace(activeAto, localReports || [], source);
+        const ato = activeAto;
+        const result = await pushWorkspace(ato, localReports || [], source);
         offlinePendingPush = result === 'queued';
         writeStored('salt_offline_push', String(offlinePendingPush));
+        markPending(ato, offlinePendingPush);
         setConnectionStatus(!offlinePendingPush);
         return !offlinePendingPush;
     } finally {
         if (--pushesInFlight === 0 && pullDeferred) { pullDeferred = false; syncWithServer(); }
     }
+}
+
+// Send again every workspace the server hasn't taken. False while any is
+// still waiting.
+async function pushPending() {
+    for (const ato of [...pendingAtos]) {
+        const reps = ato === activeAto ? localReports : reportsByAto[ato];
+        // Unloaded since (an empty list would unload it on the server): nothing to send.
+        if (!reps || !reps.length) { markPending(ato, false); continue; }
+        if (await pushWorkspace(ato, reps) === 'queued') return false;
+        markPending(ato, false);
+    }
+    return true;
 }
 
 async function syncWithServer() {
@@ -121,10 +130,17 @@ async function syncWithServer() {
         // Never pull over local changes the server hasn't accepted yet: the
         // pull replaces local state, so they would be lost.
         if (offlinePendingPush && activeAto && !(await pushToServer())) return;
+        if (!(await pushPending())) { setConnectionStatus(false); return; }
+        // A switch of workspace started, or still being saved, when this pull
+        // was asked for: the server may answer with the old workspace. Once
+        // the switch is saved, that answer is stale and is asked for again;
+        // while it is still being saved, applyServerUpdate keeps the new one.
+        const epoch = configEpoch, duringSwitch = !!switchingTo;
         const res = await fetch('/api/sync');
         if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) throw new Error('Server unreachable');
         const state = await res.json();
+        if ((epoch !== configEpoch || duringSwitch) && !switchingTo) { setConnectionStatus(true); syncWithServer(); return; }
         applyServerUpdate(state.workspaces, state.config, state.profiles, state.connected_users, state.sources, state.connected_initials, state.read_only, state.format, state.overlays, state.basemaps, state.narrative, state.drones);
         setConnectionStatus(true);
     } catch (err) {
@@ -139,13 +155,14 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
         if (isFormat(format)) {
             if (JSON.stringify(format) !== JSON.stringify(sharedFormat)) adoptFormat(format);
         } else if (sharedFormat && !readOnly && !isStockFormat()) {
-            postJson('/api/save_format', { format: sharedFormat }).catch(() => {});
+            apiPost('/api/save_format', { format: sharedFormat });
         }
     }
-    // The shared overlays: the server's set wins. An unchanged set keeps its
-    // identity, so the location cache survives.
-    if (Array.isArray(overlays) && JSON.stringify(overlays) !== JSON.stringify(sharedOverlays)) {
-        sharedOverlays = overlays;
+    // The shared overlays: the server's set wins, less any that are broken.
+    // An unchanged set keeps its identity, so the location cache survives.
+    const foldedOverlays = Array.isArray(overlays) ? SaltCore.foldOverlays(overlays) : null;
+    if (foldedOverlays && JSON.stringify(foldedOverlays) !== JSON.stringify(sharedOverlays)) {
+        sharedOverlays = foldedOverlays;
         if (!readOnly) storeOverlays();
         renderLocationHints();
     }
@@ -162,7 +179,7 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     // is given this browser's, like the format.
     if (narrative && typeof narrative === 'object' && !Array.isArray(narrative)) {
         if (!Object.keys(narrative).length && Object.keys(sharedNarrative).length && !readOnly) {
-            postJson('/api/save_narrative', { narrative: sharedNarrative }).catch(() => {});
+            apiPost('/api/save_narrative', { narrative: sharedNarrative });
         } else if (JSON.stringify(narrative) !== JSON.stringify(sharedNarrative)) {
             sharedNarrative = narrative;
             if (!readOnly) storeNarrative();
@@ -202,6 +219,7 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     // ATO/Title sync. Editors: server config is authoritative.
     // Viewers: `activeAto` mirrors the editor's choice (server config);
     // `viewerShowingAto` is the viewer's local override. Reports come from showing.
+    serverConfig = config && config.ato && config.title ? { ato: config.ato, title: config.title } : { ato: '', title: '' };
     if (isReadOnly) {
         const prevActive = activeAto;
         // Track the editor's active workspace from server config.
@@ -217,6 +235,12 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
                 || null;
         }
         localReports = viewerShowingAto ? (reportsByAto[viewerShowingAto] || []) : [];
+    } else if (switchingTo) {
+        // This editor is switching workspace and the server hasn't been told
+        // yet: its old one must not come back in the meantime.
+        activeAto = switchingTo.ato;
+        localConfig = { ...switchingTo };
+        localReports = reportsByAto[activeAto] || [];
     } else if (config && config.ato && config.title) {
         activeAto = config.ato;
         localConfig = { ato: config.ato, title: config.title };
@@ -229,19 +253,23 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
         localReports = [];
         localConfig = { ato: '', title: '' };
         writeStored('salt_offline_config', JSON.stringify(localConfig));
-        localStorage.removeItem('salt_last_active_ato');
+        removeStored('salt_last_active_ato');
     }
 
-    loadConfig();
+    loadConfig({ fromSync: true });
     renderLog(el.log.search.value.toLowerCase());
+    // The dropdown of other workspaces stays unlocked while Change is open.
+    const historyOpen = !el.config.history.disabled && !el.config.ato.readOnly;
     populateAtoHistory();
+    if (historyOpen && el.config.history.options.length > 1) el.config.history.disabled = false;
     // Render the workspaces list AFTER activeAto/viewerShowingAto are settled
     // so an editor's live workspace switch updates the ACTIVE / SHOWING tags
     // in real time on every viewer's sidebar.
     renderWorkspacesList();
     // If the startup modal is open, refresh its chips with the fresh
-    // profiles + workspaces that just synced in.
-    if (el.startup.overlay.classList.contains('show')) renderStartupPresets();
+    // profiles + workspaces that just synced in, and the workspace fields
+    // not yet typed in with the server's: they opened with this browser's.
+    if (el.startup.overlay.classList.contains('show')) { renderStartupPresets(); refreshStartupWorkspace(); }
     // If the Builder tab is on screen, reflect format changes from peers.
     const builderPanel = document.querySelector('[data-tab-panel="builder"]');
     if (builderPanel && builderPanel.style.display !== 'none') renderBuilder();

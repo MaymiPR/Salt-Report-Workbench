@@ -6,6 +6,123 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Fixes from a full review of the project.
+
+### Added
+
+- **Troubleshooting** in INSTALL.md and README.txt: the Windows Firewall
+  prompt, a port already in use, a missing Python, the certificate warning,
+  and "my reports are gone" (the wrong folder).
+- **Keyboard and screen reader access.** The Report Log's rows, sort headers,
+  history and BDA work from the keyboard; the map's table rows open with
+  Enter, and the map pans with the arrow keys and zooms with + and -; dialogs
+  take the focus and give it back; the Settings menu works with the arrow
+  keys; toasts are announced. Switches, chips, the time slider and the chart
+  buttons say what they are.
+
+### Changed
+
+- **Upgrading says plainly to copy the `Auto Backups` folder** (a new zip
+  unpacks into a new folder), in INSTALL.md, the README and README.txt.
+- **Secondary text, switches and ticked boxes are easier to read**: each now
+  meets the contrast it should against the dark panels.
+- **Reduced motion** shortens every animation and transition, not just some.
+- **The overlay ×** asks "Remove for everyone?" in its row before it removes,
+  as a basemap's Remove does.
+- **The narrative's Remove** is red when it asks, like a basemap's.
+- **Fixed-wing aircraft no longer suggest a helicopter refueling point or an
+  air assault**; those judgments need helicopters.
+- **Console lines** from the server, the launcher and the scripts all start
+  `[+]`, `[*]` or `[!]` with no leading space.
+
+### Fixed
+
+- **Saving:**
+  - A report whose title or number wasn't text stopped every backup for the
+    rest of the session, silently. Such reports are refused, and a backup
+    that can't be prepared or written is retried until it is.
+  - Basemaps, overlays, drones, the narrative's settings and the format set up
+    before any workspace existed were lost at the next restart. They now have
+    their own `Shared settings.json`.
+  - A backup file that couldn't be read was skipped without a word; it is now
+    named, and the startup banner counts them.
+  - Two workspaces whose names made the same file name (`A B` and `A_B`) lost
+    one on restart; a renamed workspace's old file merged back in at every
+    start. Names now never collide, and an old file is moved into `snapshots/`.
+  - Snapshots kept two days only with one workspace; they're now kept by
+    round, two days whatever the number of workspaces.
+- **Sync:**
+  - A save the server refused (or a workspace switch, unload, profile, format
+    or narrative change) still said it was saved. It now says why it wasn't.
+  - An editor whose clock ran behind had their edits quietly dropped.
+  - Edit or Update wrote over a teammate's newer change without asking; it
+    now asks whether to keep theirs or overwrite.
+  - Importing a backup replaced whole workspaces here instead of merging
+    report by report, and its prompt didn't say what else it changes.
+  - A teammate's sync emptied the workspace fields while you were changing
+    them, and the start screen could move everyone to a stale workspace.
+  - A sync that landed while a workspace switch was being saved, or was asked
+    for just before it, brought the old workspace back, and the next report
+    logged copied all its reports into the new workspace.
+  - Checked rows, the row being edited and opened cells were lost at every
+    sync.
+  - "Send to ATO" could lose reports when the destination refused them.
+  - "Copied" was shown even when the browser blocked the clipboard.
+  - A shared list the server refused (basemaps, drones, the narrative's
+    settings) stayed changed here; it's now put back. Removing or editing a
+    narrative entry or a drone acts on that entry, even if a sync moved it.
+  - Statistics rebuilt (closing open tables) at every sync, even when nothing
+    changed.
+- **Reading reports:**
+  - "moving 120 trucks" read as a heading of 120 degrees, "new" as a
+    direction, and "heading 360" as nothing.
+  - "objective area" and "phase line of the advance" became places (OBJ AREA,
+    PL OF).
+  - Impossible spreadsheet times (31 NOV, 30 FEB, 2500Z) rolled into another
+    day, and a time without its month could land in the future.
+  - A spaced grid was split across the BDA checklist's elements.
+  - BDA and Statistics read the same Size differently ("2x BUSES" against
+    "1x bus", "T-72 x4"), and a team's own types weren't folded in Statistics.
+  - "fire support position" and "launch site" counted as Firing in Statistics
+    and on the map.
+  - One broken overlay (too few points, an unknown type) stopped every
+    analysis; it's now left out. Overlay names are matched as typed names are
+    (`NAI 01` is `NAI 1`).
+  - A damaged shapefile could hang the page; it's now refused in words.
+  - The ArcGIS exports changed a field's type with the data, so appending to
+    an existing layer failed.
+  - "0" vanished from the page and CSV exports; a missing or invalid time
+    printed as "NaN"; the narrative wrote "trackeds" and "2x bus".
+- **The map:**
+  - The heat map stopped counting at about three reports in one place.
+  - A WMS image asked for before the basemap changed could still land.
+  - Full screen kept room for the sidebar it leaves behind.
+  - Escape didn't close the map's menus or report card, and Escape in the
+    narrative's settings also cancelled a report being edited.
+- The Summary's charts counted reports without a time when Statistics didn't.
+- The page didn't start in a browser that blocks storage, and opened as a
+  file it retried the server's events forever.
+- `make lint` passed a syntax error in any script but the last, and tests and
+  `release.py` overwrote the developer's `dist/`; `make run` kept its data in
+  `dist/`, where `make clean` deleted it.
+
+### Security
+
+- **The host's browser can't be used to write from another site.** The
+  server refuses POSTs that aren't JSON or that come from another site, and
+  every reply forbids being framed.
+- **Connections that stall are closed** after 30 seconds (the event stream
+  excepted), and a request with an unreadable length or deeply nested JSON
+  gets a plain error.
+- **Wrong access codes are throttled on GETs too**, in a limit of their own,
+  so a burst of saves never blocks reading; map images and event streams
+  have per-address limits.
+- **Synced colors and overlay types can't add markup or styles** to the page.
+- **The server stops** instead of falling back to plain HTTP when Python has
+  no `ssl` module, and tells an older Python plainly that it needs 3.10.
+- **SECURITY.md** now says exactly what is protected: initials on a report are
+  what the page says, only the address in `audit.log` is the server's own.
+
 ## [2.17.2] - 2026-10-28
 
 ### Changed
@@ -39,14 +156,14 @@ All notable changes to this project are documented here. The format follows
 - **Drones on the map.** A drone button under the basemap button: add a drone
   (a Gray Eagle, say) by name and grid, move it by typing a new grid, remove it.
   Each is drawn in orange with its name. **Its view** is a cone from the drone,
-  narrow at the drone and widening to a rounded end round the newest report on the map, with the
-  sightline down its middle, a box round the report, and the distance and
-  direction; it follows newer reports, the time slider and the filters.
-  **Zoom** centres the map on a drone. **Looking at** points a drone's view
-  at a grid instead of the newest report, and **Range** (km) rings the drone
-  and turns its view red, with how far out of range, when the target is past
-  it. The drones are shared with everyone;
-  showing them and their view is each browser's choice.
+  narrow at the drone and widening to a rounded end round the newest report on
+  the map, with the sightline down its middle, a box round the report, and the
+  distance and direction; it follows newer reports, the time slider and the
+  filters. **Zoom** centres the map on a drone. **Looking at** points a
+  drone's view at a grid instead of the newest report, and **Range** (km)
+  rings the drone and turns its view red, with how far out of range, when the
+  target is past it. The drones are shared with everyone; showing them and
+  their view is each browser's choice.
 - **Grab a grid.** Shift + click on the map copies the ten-digit grid there;
   while Shift is held, the grid under the pointer shows beside it.
 - **General terms in the narrative**: vic, vehicle, tracked, wheeled, support,
@@ -159,9 +276,9 @@ All notable changes to this project are documented here. The format follows
   armor, and loitering munitions as fire after a UAV. 30 or more infantry
   firing is company-sized, and small groups on light vehicles count as
   infiltration.
-- Manual, README, architecture and security notes and the shipped README brought
-  up to date. The Map has its own section in the manual,
-  and the README has new screenshots.
+- Manual, README, architecture and security notes and the shipped README
+  brought up to date. The Map has its own section in the manual, and the
+  README has new screenshots.
 
 ### Fixed
 
@@ -349,15 +466,15 @@ All notable changes to this project are documented here. The format follows
   button at the top right of the card, shown once a range is set.
 - Statistics: *Export All* is now *Charts (.zip)*, beside *Export to Excel*.
 
-### Fixed
-
-- A To time now takes in the whole of its minute: a report logged in the last
-  second of it was left out of exports, statistics and summaries.
-
 ### Removed
 
 - The busiest grid squares chart and its 10 km / 1 km switch, from
   Statistics. The Most Trafficked summary still lists grid squares.
+
+### Fixed
+
+- A To time now takes in the whole of its minute: a report logged in the last
+  second of it was left out of exports, statistics and summaries.
 
 ## [2.10.0] - 2026-10-26
 
@@ -614,24 +731,6 @@ All notable changes to this project are documented here. The format follows
 
 ## [2.4.0] - 2026-10-24
 
-### Fixed
-
-- Updating or editing a report without touching its Time box keeps the
-  report's original timestamp. The box carries only the clock part, so the
-  report used to be re-dated to today, and that counted as a change worth a
-  history entry even when nothing else differed.
-- A just-logged report no longer blinks out of the table when another
-  operator's change arrives while it is still being sent.
-- The server re-checks its own addresses every minute, so the host's browser
-  keeps its free pass on the LAN URL after a DHCP change instead of being
-  asked for the code until a restart.
-- Starting the next report while the previous one is still uploading no
-  longer wipes the fields: the form is cleared (and the report copied) as
-  soon as it is logged, not after the server confirms.
-- The first-run dialog scrolls when it is taller than the screen. With Quick
-  Start chips filled in, "Get Started" could sit below the edge of a small
-  laptop screen with no way to reach it.
-
 ### Changed
 
 - Each workspace is saved to its own backup file, `{ATO}_{Title}.txt`, and
@@ -650,32 +749,25 @@ All notable changes to this project are documented here. The format follows
   installed) and CI runs it: first-run setup, logging, live update on the
   viewer, delete and undo, sorting, the BDA roll-up.
 
-## [2.3.0] - 2026-10-24
-
 ### Fixed
 
-- A browser whose storage is full keeps working. Every browser mirrors every
-  workspace, with history, into the ~5 MB a browser allows, and when that
-  ran out the client went silently offline. It now says so once and carries
-  on from memory.
-- Starting the server a second time on Windows failed to fail: both copies
-  printed the banner and split the traffic between them. The second start now
-  stops with "port already in use".
-- Report ids are escaped wherever they land in the page, and the server
-  accepts only the characters the app generates, so a tampered backup file
-  can't carry markup into everyone's browser.
-- The client reacts to the server's own shutdown notice, instead of waiting
-  for the next failed heartbeat.
-- A typed time more than an hour ahead of now is dated yesterday. In Zulu mode
-  the day rolls over during a US evening, so `23:50` typed at `00:30Z` used to
-  land twenty-three hours in the future.
-- CSV import reads a Time column written as ISO 8601, `YYYY-MM-DD HH:MM`,
-  `HH:MM`/`HHMM` (today), or a DTG such as `241430Z`. Any other value gets the
-  import time and the result says how many. Before, a column in any form but
-  ISO 8601 made the server refuse every imported row.
-- A workspace whose ATO has a dash (`ALPHA-01`) numbers its reports with one
-  prefix. Reports from the form dropped the dash (`ALPHA01001`); CSV imports
-  and "Send to ATO" kept it, so the same workspace had two numbering schemes.
+- Updating or editing a report without touching its Time box keeps the
+  report's original timestamp. The box carries only the clock part, so the
+  report used to be re-dated to today, and that counted as a change worth a
+  history entry even when nothing else differed.
+- A just-logged report no longer blinks out of the table when another
+  operator's change arrives while it is still being sent.
+- The server re-checks its own addresses every minute, so the host's browser
+  keeps its free pass on the LAN URL after a DHCP change instead of being
+  asked for the code until a restart.
+- Starting the next report while the previous one is still uploading no
+  longer wipes the fields: the form is cleared (and the report copied) as
+  soon as it is logged, not after the server confirms.
+- The first-run dialog scrolls when it is taller than the screen. With Quick
+  Start chips filled in, "Get Started" could sit below the edge of a small
+  laptop screen with no way to reach it.
+
+## [2.3.0] - 2026-10-24
 
 ### Added
 
@@ -702,41 +794,35 @@ All notable changes to this project are documented here. The format follows
   storage, and clear any copy an earlier version left. The page comes from the
   server, so the copy was of no use without it.
 
-## [2.2.0] - 2026-10-24
-
 ### Fixed
 
-- Confirming a prompt no longer also runs an earlier prompt that was left
-  unanswered. One click on Confirm could unload, delete, or restore something
-  the dialog wasn't showing.
-- Importing a backup that holds several workspaces (such as an "Export All
-  ATOs" file) restores all of them. Only the active one used to reach the
-  server, and the sync that followed erased the rest.
-- A report the server refuses (a field over its length limit, an upload over
-  the size cap) is reported with the server's reason. It used to show
-  "logged & copied" and "Online & Synced", then vanish on the next sync.
-  Changes that can't reach the server stay queued, and a sync no longer
-  pulls over them. Form fields now carry the server's length limits.
-- Importing someone else's reports no longer makes the server attribute your
-  later edits to them.
-- Restoring an earlier version restores its custom field values too.
-- Updating a report that another operator deleted now says so, instead of
-  silently copying an empty report over the clipboard.
-- Esc on a new report clears custom fields along with the rest.
-- A corrupt value in browser storage no longer stops the app from starting.
-- Server: an oversized or refused upload gets its error reply instead of a
-  connection reset, a negative `Content-Length` is refused at once, and a
-  cookie with non-ASCII characters is denied instead of getting no response.
-- Server: `HEAD` requests no longer report the size and date of files beside
-  the server.
-- Server: `--access-code` refuses a blank value, which used to open the editor
-  port to anyone, and characters a browser cookie can't carry.
-- The access-code box accepts codes longer than 10 characters, so a custom
-  `--access-code` can be typed in.
-- "Send to ATO" from the IMPORT workspace never pushed the destination
-  workspace, so the moved reports were lost on the next sync.
-- The MTI export finds counts written "4x tracked" (and "4 x tracked"), not
-  only "4 tracked".
+- A browser whose storage is full keeps working. Every browser mirrors every
+  workspace, with history, into the ~5 MB a browser allows, and when that
+  ran out the client went silently offline. It now says so once and carries
+  on from memory.
+- Starting the server a second time on Windows failed to fail: both copies
+  printed the banner and split the traffic between them. The second start now
+  stops with "port already in use".
+- The client reacts to the server's own shutdown notice, instead of waiting
+  for the next failed heartbeat.
+- A typed time more than an hour ahead of now is dated yesterday. In Zulu mode
+  the day rolls over during a US evening, so `23:50` typed at `00:30Z` used to
+  land twenty-three hours in the future.
+- CSV import reads a Time column written as ISO 8601, `YYYY-MM-DD HH:MM`,
+  `HH:MM`/`HHMM` (today), or a DTG such as `241430Z`. Any other value gets the
+  import time and the result says how many. Before, a column in any form but
+  ISO 8601 made the server refuse every imported row.
+- A workspace whose ATO has a dash (`ALPHA-01`) numbers its reports with one
+  prefix. Reports from the form dropped the dash (`ALPHA01001`); CSV imports
+  and "Send to ATO" kept it, so the same workspace had two numbering schemes.
+
+### Security
+
+- Report ids are escaped wherever they land in the page, and the server
+  accepts only the characters the app generates, so a tampered backup file
+  can't carry markup into everyone's browser.
+
+## [2.2.0] - 2026-10-24
 
 ### Changed
 
@@ -759,6 +845,43 @@ All notable changes to this project are documented here. The format follows
 ### Removed
 
 - `archive/`, two old snapshots that nothing used. They remain in git history.
+
+### Fixed
+
+- Confirming a prompt no longer also runs an earlier prompt that was left
+  unanswered. One click on Confirm could unload, delete, or restore something
+  the dialog wasn't showing.
+- Importing a backup that holds several workspaces (such as an "Export All
+  ATOs" file) restores all of them. Only the active one used to reach the
+  server, and the sync that followed erased the rest.
+- A report the server refuses (a field over its length limit, an upload over
+  the size cap) is reported with the server's reason. It used to show
+  "logged & copied" and "Online & Synced", then vanish on the next sync.
+  Changes that can't reach the server stay queued, and a sync no longer
+  pulls over them. Form fields now carry the server's length limits.
+- Importing someone else's reports no longer makes the server attribute your
+  later edits to them.
+- Restoring an earlier version restores its custom field values too.
+- Updating a report that another operator deleted now says so, instead of
+  silently copying an empty report over the clipboard.
+- Esc on a new report clears custom fields along with the rest.
+- A corrupt value in browser storage no longer stops the app from starting.
+- The access-code box accepts codes longer than 10 characters, so a custom
+  `--access-code` can be typed in.
+- "Send to ATO" from the IMPORT workspace never pushed the destination
+  workspace, so the moved reports were lost on the next sync.
+- The MTI export finds counts written "4x tracked" (and "4 x tracked"), not
+  only "4 tracked".
+
+### Security
+
+- Server: an oversized or refused upload gets its error reply instead of a
+  connection reset, a negative `Content-Length` is refused at once, and a
+  cookie with non-ASCII characters is denied instead of getting no response.
+- Server: `HEAD` requests no longer report the size and date of files beside
+  the server.
+- Server: `--access-code` refuses a blank value, which used to open the editor
+  port to anyone, and characters a browser cookie can't carry.
 
 ## [2.1.1] - 2026-10-24
 
@@ -794,6 +917,29 @@ GNU AGPL v3.
 
 Changes below are relative to the untracked build this release grew out of.
 
+### Added
+
+- Brand identity: logo, monochrome variants, avatar, README banners, social
+  preview, and an inline favicon.
+- A 54-test suite covering merge rules, backup round trips, validation, rate
+  limiting, access control, and live HTTP behavior.
+- CI: lint, tests on Python 3.10–3.13 and on Windows, and a build smoke test.
+- Ruff, pre-commit, EditorConfig, and a Makefile.
+- README, architecture notes, and contributing, security, and conduct guides.
+
+### Changed
+
+- The config and profile endpoints keep only the fields the app uses, instead
+  of storing and re-broadcasting whatever the client sent.
+- The repository now has a conventional layout: `src/`, `server/`, `scripts/`,
+  `tests/`, `docs/`, `assets/`. The build produces a self-contained `dist/`
+  folder with the page and the server.
+- The server file is renamed `salt_sync_server.py`, and the page is served at
+  `/` and `/index.html`. The old `/Salt%20Report%20Workbench.html` path still
+  works.
+- The build now fails, rather than shipping a broken page, when the stylesheet
+  link or script tag it inlines is missing.
+
 ### Fixed
 
 - Backup writes no longer block requests. The whole save used to run while
@@ -810,29 +956,6 @@ Changes below are relative to the untracked build this release grew out of.
   to sit in Python's output buffer.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
-
-### Changed
-
-- The config and profile endpoints keep only the fields the app uses, instead
-  of storing and re-broadcasting whatever the client sent.
-- The repository now has a conventional layout: `src/`, `server/`, `scripts/`,
-  `tests/`, `docs/`, `assets/`. The build produces a self-contained `dist/`
-  folder with the page and the server.
-- The server file is renamed `salt_sync_server.py`, and the page is served at
-  `/` and `/index.html`. The old `/Salt%20Report%20Workbench.html` path still
-  works.
-- The build now fails, rather than shipping a broken page, when the stylesheet
-  link or script tag it inlines is missing.
-
-### Added
-
-- Brand identity: logo, monochrome variants, avatar, README banners, social
-  preview, and an inline favicon.
-- A 54-test suite covering merge rules, backup round trips, validation, rate
-  limiting, access control, and live HTTP behavior.
-- CI: lint, tests on Python 3.10–3.13 and on Windows, and a build smoke test.
-- Ruff, pre-commit, EditorConfig, and a Makefile.
-- README, architecture notes, and contributing, security, and conduct guides.
 
 [Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.17.2...HEAD
 [2.17.2]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.17.1...v2.17.2

@@ -68,8 +68,14 @@ def reset_state() -> None:
     srv.workspace_sources.clear()
     srv.client_initials.clear()
     srv._rate_buckets.clear()
+    srv._auth_fail_buckets.clear()
+    srv._basemap_buckets.clear()
     srv.invalidate_sync_cache()
     srv._dirty_atos = None
+    srv._shared_dirty = True
+    srv._save_failures = 0
+    srv._file_holds.clear()
+    srv._merged_files.clear()
 
 
 def cancel_pending_save() -> None:
@@ -182,6 +188,24 @@ class BackupFormatTests(unittest.TestCase):
         self.assertEqual(list(parsed["workspaces"]), ["ALPHA"])
         self.assertEqual(parsed["formats"], {})
 
+    def test_odd_values_from_a_hand_edited_backup_still_render(self):
+        # A backup edited by hand is loaded without validation; whatever it
+        # holds, the next backup can still be written from it.
+        odd = [
+            report(title=5, displayId=7, history=None, custom=["x"], user="AB", bda=[1]),
+            report("r2", "ALPHA002", lm="soon", history=[{"lastModified": "x"}, 3]),
+            "not a report",
+        ]
+        name, text = srv.render_backup({"ALPHA": odd}, {}, {}, {}, label=("ALPHA", 5))
+        self.assertEqual(name, "ALPHA_5.txt")
+        self.assertIn("REPORT ALPHA002", text)
+        self.assertEqual(srv.workspace_title("ALPHA", odd, {}), "5")
+        files = srv.render_workspace_backups({"ALPHA": odd}, {}, {}, {})
+        self.assertEqual(len(files), 1)
+        # The config such a file holds is kept to its two strings.
+        text = f'{srv.BACKUP_START}{{"workspaces":{{}},"config":{{"ato":3,"title":"T"}}}}{srv.BACKUP_END}'
+        self.assertEqual(srv._extract_json_from_file(text)["config"], {"ato": "", "title": "T"})
+
     def test_files_without_markers_or_with_corrupt_json_are_rejected(self):
         self.assertIsNone(srv._extract_json_from_file("just some notes"))
         self.assertIsNone(
@@ -222,6 +246,29 @@ class ValidatorTests(unittest.TestCase):
         self.assertRejects(v, {"ato": "A", "reports": [report(rid="a b")]}, ".id")
         # Rows that predate ids are still keyed by displayId alone.
         self.assertIsNone(v({"ato": "A", "reports": [report(rid="")]}))
+
+    def test_report_names_and_flags_are_held_to_their_types(self):
+        # Regression: a numeric title or a list displayId was accepted, and every
+        # later disk save failed on it without a word.
+        v = srv._v_save_reports
+        for field, bad in (
+            ("title", 5),
+            ("title", "T" * 101),
+            ("displayId", ["ALPHA001"]),
+            ("fullId", {"x": 1}),
+            ("ato", 7),
+            ("updated", "yes"),
+            ("deleted", 1),
+        ):
+            self.assertRejects(v, {"ato": "A", "reports": [report(**{field: bad})]}, field)
+        self.assertIsNone(v({"ato": "A", "reports": [report(updated=True, deleted=False)]}))
+        self.assertIsNone(v({"ato": "A", "reports": [report(title=None)]}), "null is tolerated")
+        e = srv._v_edit_report
+        edit = {"ato": "A", "reportId": "r1"}
+        self.assertRejects(e, {**edit, "fields": {"title": 5}}, "fields.title")
+        self.assertRejects(e, {**edit, "fields": {"displayId": 1}}, "fields.displayId")
+        self.assertRejects(e, {**edit, "fields": {"updated": "no"}}, "fields.updated")
+        self.assertIsNone(e({**edit, "fields": {"title": "Patrol", "updated": False}}))
 
     def test_booleans_are_not_accepted_as_timestamps(self):
         # isinstance(True, int) is True in Python; the validator must not be fooled.
@@ -595,6 +642,54 @@ class HttpsTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def raw_exchange(self, data: bytes) -> bytes:
+        import socket
+
+        with socket.create_connection(("127.0.0.1", self.port), timeout=5) as s:
+            s.sendall(data)
+            reply = b""
+            while chunk := s.recv(4096):
+                reply += chunk
+        return reply
+
+    def test_the_redirect_location_carries_only_url_characters(self):
+        # Regression: a bare LF in the request path went into the Location header.
+        reply = self.raw_exchange(
+            b"GET /a\nSet-Cookie:x=1/\xff HTTP/1.1\r\nHost: 127.0.0.1:"
+            + str(self.port).encode()
+            + b"\r\n\r\n"
+        )
+        head = reply.split(b"\r\n\r\n", 1)[0].split(b"\r\n")
+        self.assertEqual(head[0], b"HTTP/1.1 307 Temporary Redirect")
+        location = [h for h in head if h.startswith(b"Location:")]
+        self.assertEqual(
+            location, [f"Location: https://127.0.0.1:{self.port}/a%0ASet-Cookie:x=1/%FF".encode()]
+        )
+        self.assertFalse([h for h in head if h.lower().startswith(b"set-cookie")])
+
+    def test_a_trickling_plain_request_gets_a_bounded_wait(self):
+        # Regression: each read got the full timeout again, so a byte every few
+        # seconds held the thread for as long as the client liked.
+        import socket
+        import time
+
+        got = []
+        with (
+            mock.patch.object(srv, "TLS_HANDSHAKE_TIMEOUT", 0.5),
+            socket.create_connection(("127.0.0.1", self.port), timeout=5) as s,
+        ):
+            s.sendall(b"GET / HTTP/1.1\r\n")
+            reader = threading.Thread(target=lambda: got.append((s.recv(4096), time.monotonic())))
+            start = time.monotonic()
+            reader.start()
+            while reader.is_alive() and time.monotonic() - start < 5:
+                with contextlib.suppress(OSError):
+                    s.sendall(b"X-Slow: 1\r\n")
+                time.sleep(0.1)
+            reader.join(5)
+        self.assertTrue(got and got[0][0].startswith(b"HTTP/1.1 307"), got)
+        self.assertLess(got[0][1] - start, 3)
+
     def test_a_browser_turning_down_the_certificate_leaves_the_server_serving(self):
         with mock.patch.object(srv, "safe_print") as printed:
             with self.assertRaises(urllib.error.URLError):  # not signed by anyone it trusts
@@ -676,6 +771,111 @@ class HttpsFlagTests(unittest.TestCase):
             with mock.patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit, msg=argv):
                 self.parse(*argv)
         self.assertEqual(self.parse("--cert", "c.pem", "--key", "k.pem").cert, "c.pem")
+
+
+class StartupTests(unittest.TestCase):
+    """The server run as a program, in a temporary folder."""
+
+    SERVER = ROOT / "server" / "salt_sync_server.py"
+
+    def run_server(self, *argv, prelude=""):
+        tmp = Path(tempfile.mkdtemp(prefix="salt-start-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        script = (
+            f"{prelude}\n"
+            "import runpy, sys\n"
+            f"sys.argv = {['salt_sync_server', '--backup-dir', str(tmp / 'backups'), *argv]!r}\n"
+            f"runpy.run_path({str(self.SERVER)!r}, run_name='__main__')\n"
+        )
+        import subprocess
+
+        return subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=tmp,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            timeout=60,
+        )
+
+    def test_an_older_python_is_told_plainly(self):
+        result = self.run_server(
+            "--help", prelude="import sys; sys.version_info = (3, 9, 18, 'final', 0)"
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("needs Python 3.10 or newer", result.stderr)
+
+    def test_the_file_parses_on_python_3_8(self):
+        # So 3.8 and 3.9 reach the version check instead of a SyntaxError.
+        import ast
+        import re
+
+        source = self.SERVER.read_text(encoding="utf-8")
+        ast.parse(source, feature_version=(3, 8))
+        self.assertNotRegex(
+            source, re.compile(r"\bwith \($", re.M), "a parenthesized with needs 3.9 or later"
+        )
+        check = source.index("if sys.version_info < (3, 10)")
+        first_annotation = re.search(r"^\w+: [\w |\[\],]+ = ", source, re.M).start()
+        self.assertLess(check, first_annotation, "checked before any 3.10 annotation runs")
+
+    def test_without_ssl_it_stops_unless_told_to_serve_plain_http(self):
+        # Regression: it fell back to plain HTTP, the code readable on the network.
+        import socket
+
+        no_ssl = "import sys; sys.modules['ssl'] = None"
+        args = ("--host", "127.0.0.1", "--viewer-port", "0", "--no-browser", "--no-minimize")
+        result = self.run_server(*args, prelude=no_ssl)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("no ssl module", result.stdout)
+        self.assertIn("--no-https", result.stdout)
+        # With --no-https it goes on, as far as the port (taken here, so it stops there).
+        with socket.socket() as taken:
+            taken.bind(("127.0.0.1", 0))
+            taken.listen()
+            port = str(taken.getsockname()[1])
+            result = self.run_server(*args, "--no-https", "--port", port, prelude=no_ssl)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(f"Could not listen on port {port}", result.stdout)
+        self.assertNotIn("no ssl module", result.stdout)
+
+    def test_the_banner_shows_the_address_listened_on(self):
+        # Regression: with --host 127.0.0.1 it showed (and opened) the LAN
+        # address, where nothing was listening.
+        def banner():
+            with mock.patch.object(srv, "safe_print") as printed:
+                srv.run_boot_dashboard(viewer_port=8081, fingerprint=None)
+            return "\n".join(c.args[0] for c in printed.call_args_list)
+
+        with mock.patch.object(srv, "get_local_ip", return_value="10.0.0.12"):
+            for host, shown in (
+                ("0.0.0.0", "10.0.0.12"),
+                ("", "10.0.0.12"),
+                ("127.0.0.1", "127.0.0.1"),
+                ("10.0.0.7", "10.0.0.7"),
+                ("::1", "[::1]"),
+            ):
+                with mock.patch.object(srv, "HOST", host):
+                    self.assertEqual(srv.display_host(), shown, host)
+                    text = banner()
+                    self.assertIn(f"http://{shown}:{srv.PORT}", text, host)
+                    self.assertIn(f"http://{shown}:8081", text, host)
+
+    def test_console_lines_share_one_prefix_style(self):
+        import re
+
+        source = self.SERVER.read_text(encoding="utf-8")
+        self.assertEqual(re.findall(r"""f?['"](?:\\n)? \[[+*!]\]""", source), [])
+        with (
+            mock.patch.object(sys, "argv", ["salt_sync_server", "--help"]),
+            mock.patch("sys.stdout", io.StringIO()) as out,
+            self.assertRaises(SystemExit),
+        ):
+            srv.parse_cli_args()
+        self.assertIn(
+            "Editor port to listen on, HTTPS unless --no-https", " ".join(out.getvalue().split())
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -860,6 +1060,160 @@ class HttpApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 401)
 
+    def test_posts_must_be_json(self):
+        # A form on another site can POST text/plain without asking first;
+        # the page always sends application/json.
+        body = json.dumps({"config": {"ato": "A", "title": "T"}}).encode()
+        for ctype, expected in (
+            ("text/plain", 415),
+            ("application/x-www-form-urlencoded", 415),
+            ("multipart/form-data; boundary=x", 415),
+            ("application/json; charset=utf-8", 200),
+            ("Application/JSON", 200),
+        ):
+            status, reply = self.request(
+                "/api/save_config", raw=body, headers={"Content-Type": ctype}
+            )
+            self.assertEqual(status, expected, ctype)
+            if status == 415:
+                self.assertIn(b"must be application/json", reply)
+
+    def test_cross_site_posts_are_refused(self):
+        port = self.editor.server_address[1]
+        body = {"config": {"ato": "A", "title": "T"}}
+        for headers, expected in (
+            ({"Sec-Fetch-Site": "cross-site"}, 403),
+            ({"Origin": "https://evil.example"}, 403),
+            ({"Origin": f"http://127.0.0.1:{port + 1}"}, 403),
+            ({"Origin": "null"}, 403),
+            ({"Origin": f"http://127.0.0.1:{port}"}, 200),
+            ({"Origin": f"http://127.0.0.1:{port}", "Sec-Fetch-Site": "same-origin"}, 200),
+            ({}, 200),  # no Origin: not a browser's cross-site request
+        ):
+            status, reply = self.post("/api/save_config", body, headers=headers)
+            self.assertEqual(status, expected, headers)
+            if expected == 403:
+                self.assertEqual(reply["message"], "Cross-site request refused.")
+        self.assertTrue(srv._same_origin("https://host", "host:443", True))
+        self.assertTrue(srv._same_origin("http://[::1]:8080", "[::1]:8080", False))
+        self.assertFalse(srv._same_origin("https://host", "host:8080", True))
+        self.assertFalse(srv._same_origin("https://host:x", "host", True))
+
+    def test_every_reply_forbids_framing_and_sniffing(self):
+        def headers_of(path, **kw):
+            req = urllib.request.Request(
+                self.base + path, headers={"Cookie": f"salt_access={CODE}"}, **kw
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    return resp.headers
+            except urllib.error.HTTPError as exc:
+                with exc:
+                    return exc.headers
+
+        for path in ("/", "/api/sync", "/nowhere"):
+            h = headers_of(path)
+            self.assertEqual(h["X-Frame-Options"], "DENY", path)
+            self.assertEqual(h["Content-Security-Policy"], "frame-ancestors 'none'", path)
+            self.assertEqual(h["X-Content-Type-Options"], "nosniff", path)
+        h = headers_of("/api/save_config", data=b"{}", method="POST")
+        self.assertEqual(h["X-Frame-Options"], "DENY")
+
+    def test_deeply_nested_json_is_just_invalid(self):
+        # Regression: RecursionError got past the handler and the connection dropped.
+        status, raw = self.request("/api/save_reports", raw=b"[" * 100_000)
+        self.assertEqual((status, json.loads(raw)["message"]), (400, "Invalid JSON."))
+
+    def test_wrong_codes_are_throttled_on_gets_too(self):
+        # Regression: only POSTs were rate limited, so the code could be guessed over GET.
+        body = {"config": {"ato": "A", "title": "T"}}
+        with (
+            mock.patch.object(srv, "AUTH_FAIL_CAPACITY", 3),
+            mock.patch.object(srv, "AUTH_FAIL_REFILL_PER_SECOND", 0.0),
+        ):
+            for _ in range(5):
+                self.assertEqual(self.request("/api/sync")[0], 200, "a right code costs nothing")
+            # Wrong or missing codes, on GET and POST alike, drain the failure bucket.
+            self.assertEqual(self.request("/api/sync", code="WRONGCODE2")[0], 401)
+            self.assertEqual(self.request("/api/events", code=None)[0], 401)
+            self.assertEqual(self.post("/api/save_config", body, code="WRONGCODE2")[0], 401)
+            # Empty: refused before the code is looked at, so a right guess gets nowhere.
+            status, raw = self.request("/api/sync")
+            self.assertEqual(status, 429)
+            self.assertIn(b"wrong access codes", raw)
+            self.assertEqual(self.request("/api/basemap?u=x")[0], 429)
+            self.assertEqual(self.post("/api/save_config", body)[0], 429)
+            # The viewer port needs no code, so it isn't held up.
+            self.assertEqual(self.request("/api/sync", base=self.viewer_base, code=None)[0], 200)
+
+    def test_a_burst_of_saves_never_blocks_reading(self):
+        # An editor's own saves use up the POST bucket; that must never turn
+        # their pulls of the data or their event stream into 429s.
+        body = {"config": {"ato": "A", "title": "T"}}
+        with (
+            mock.patch.object(srv, "RATE_BUCKET_CAPACITY", 3),
+            mock.patch.object(srv, "RATE_REFILL_PER_SECOND", 0.0),
+        ):
+            codes = [self.post("/api/save_config", body)[0] for _ in range(5)]
+            self.assertEqual(codes, [200, 200, 200, 429, 429])
+            for _ in range(5):
+                self.assertEqual(self.request("/api/sync")[0], 200)
+            with contextlib.closing(self.open_events()) as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertEqual(resp.readline(), b"data: update\n")
+
+    def test_map_images_are_rate_limited_on_both_ports(self):
+        with (
+            mock.patch.object(srv, "BASEMAP_BUCKET_CAPACITY", 2),
+            mock.patch.object(srv, "BASEMAP_REFILL_PER_SECOND", 0.0),
+        ):
+            codes = [
+                self.request(
+                    "/api/basemap?u=http%3A%2F%2Fx%2F1.png", base=self.viewer_base, code=None
+                )[0]
+                for _ in range(3)
+            ]
+        self.assertEqual(codes, [403, 403, 429])
+        self.assertGreaterEqual(srv.BASEMAP_BUCKET_CAPACITY, 400, "a whole map view at once")
+
+    def test_one_machine_holds_a_limited_number_of_event_streams(self):
+        with mock.patch.object(srv, "MAX_SSE_PER_MACHINE", 2):
+            streams = [self.open_events() for _ in range(3)]
+            try:
+                for s in streams:
+                    s.readline()
+                self.assertTrue(self.wait_until(lambda: len(srv.sse_clients) == 2))
+                streams[0].readline()  # the blank line ending the bootstrap update
+                self.assertEqual(streams[0].readline(), b"", "the oldest was closed")
+                self.post("/api/save_config", {"config": {"ato": "A", "title": "T"}})
+                for s in streams[1:]:
+                    s.readline()
+                    self.assertEqual(s.readline(), b"data: update\n", "the newer ones still flow")
+            finally:
+                for s in streams:
+                    s.close()
+        self.assertTrue(self.wait_until(lambda: not srv.sse_clients))
+
+    def test_a_stalled_client_is_dropped_but_an_event_stream_stays_open(self):
+        import socket
+        import time
+
+        with mock.patch.object(srv.SaltSyncHandler, "timeout", 0.3):
+            stalled = socket.create_connection(self.editor.server_address, timeout=5)
+            try:
+                stalled.sendall(b"GET /api/sync HTTP/1.1\r\n")  # and nothing more
+                start = time.monotonic()
+                self.assertEqual(stalled.recv(1024), b"", "closed by the server")
+                self.assertLess(time.monotonic() - start, 3)
+            finally:
+                stalled.close()
+            with contextlib.closing(self.open_events()) as resp:
+                resp.readline()
+                resp.readline()
+                time.sleep(0.6)  # twice the idle timeout
+                self.post("/api/save_config", {"config": {"ato": "A", "title": "T"}})
+                self.assertEqual(resp.readline(), b"data: update\n")
+
     def test_files_beside_the_server_are_not_exposed(self):
         # Regression: the handler inherited SimpleHTTPRequestHandler, whose HEAD
         # reported the size and date of any file in the launch directory.
@@ -903,6 +1257,78 @@ class HttpApiTests(unittest.TestCase):
         edited = self.sync()["workspaces"]["ALPHA"][0]
         self.assertEqual(edited["size"], "3x T-72")
         self.assertEqual(edited["user"]["initials"], "AB")
+
+    def test_an_edit_to_an_older_copy_is_refused(self):
+        # Regression: edit_report overwrote whatever the server held, so an
+        # edit made to a stale copy undid a later change by someone else.
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report(lm=50, size="v50")]})
+        edit = {"ato": "ALPHA", "reportId": "r1"}
+        status, body = self.post(
+            "/api/edit_report", {**edit, "fields": {"size": "stale", "lastModified": 40}}
+        )
+        self.assertEqual(status, 409)
+        self.assertIn("not edited", body["message"])
+        self.assertEqual(self.sync()["workspaces"]["ALPHA"][0]["size"], "v50")
+        for lm, size in ((50, "same stamp"), (60, "newer")):
+            status, _ = self.post(
+                "/api/edit_report", {**edit, "fields": {"size": size, "lastModified": lm}}
+            )
+            self.assertEqual(status, 200, lm)
+            self.assertEqual(self.sync()["workspaces"]["ALPHA"][0]["size"], size)
+        # What the page does: the edit, then save_reports with the same stamp.
+        now = 70
+        fields = {"size": "page edit", "lastModified": now}
+        self.assertEqual(self.post("/api/edit_report", {**edit, "fields": fields})[0], 200)
+        status, _ = self.post(
+            "/api/save_reports", {"ato": "ALPHA", "reports": [report(lm=now, size="page edit")]}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(self.sync()["workspaces"]["ALPHA"][0]["lastModified"], now)
+        # No stamp sent: the server stamps it now, as before.
+        self.assertEqual(self.post("/api/edit_report", {**edit, "fields": {"size": "x"}})[0], 200)
+        self.assertGreater(self.sync()["workspaces"]["ALPHA"][0]["lastModified"], now)
+
+    def test_writes_that_change_nothing_are_not_saved_broadcast_or_audited(self):
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        tiles = {"name": "Topo", "kind": "tiles", "url": "http://10.0.0.5/tiles/{z}/{y}/{x}.png"}
+        drone = {"name": "GE 1", "grid": "11S NV 39697 06762", "at": 1793018940000}
+        fmt = {"preset": "custom", "lines": [{"type": "id"}]}
+        writes = (
+            ("/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol"}}),
+            ("/api/save_format", {"format": fmt}),
+            ("/api/save_overlays", {"overlays": [NAI1]}),
+            ("/api/save_basemaps", {"basemaps": [tiles]}),
+            ("/api/save_drones", {"drones": [drone]}),
+            ("/api/save_narrative", {"narrative": {"enemy": "OPFOR"}}),
+            ("/api/save_profile", {"profile": {"initials": "AB", "color": "#32d74b"}}),
+        )
+        for path, body in writes:
+            self.assertEqual(self.post(path, body)[0], 200, path)
+        cancel_pending_save()
+        with srv.data_lock:
+            srv._dirty_atos, srv._shared_dirty = set(), False  # as if just saved
+        repeats = (
+            *writes,
+            ("/api/save_config", {}),
+            (
+                "/api/delete_history",
+                {"ato": "ALPHA", "deletions": [{"reportId": "r1", "lastModified": 5}]},
+            ),
+            ("/api/unload_ato", {"ato": "NOT-LOADED"}),
+        )
+        with (
+            mock.patch.object(srv, "schedule_save") as saved,
+            mock.patch.object(srv, "broadcast_update") as broadcast,
+            mock.patch.object(srv, "audit") as audited,
+        ):
+            for path, body in repeats:
+                status, reply = self.post(path, body)
+                self.assertEqual((status, reply["status"]), (200, "success"), path)
+        self.assertEqual(reply["message"], "ATO unloaded.", "the same reply as a real unload")
+        saved.assert_not_called()
+        broadcast.assert_not_called()
+        audited.assert_not_called()
+        self.assertEqual((srv._dirty_atos, srv._shared_dirty), (set(), False), "nothing to write")
 
     def test_importing_reports_does_not_change_who_the_importer_is(self):
         # Regression: a backup of someone else's reports re-labelled the
@@ -1424,6 +1850,123 @@ class HttpApiTests(unittest.TestCase):
         for source in srv.workspace_sources.values():
             self.assertNotRegex(source, r"^\d{8}_\d{6}Z_", "a snapshot was loaded")
 
+    def test_snapshots_are_kept_by_round_not_by_file(self):
+        # Regression: pruning counted files, so with N workspaces the 48 kept
+        # covered 48/N hours instead of the two days promised.
+        folder = self.own_backup_dir()
+        snap_dir = folder / srv.SNAPSHOT_DIR_NAME
+        for ato in ("ALPHA", "BRAVO", "CHARLIE"):
+            self.post(
+                "/api/save_reports", {"ato": ato, "reports": [report(f"{ato}1", f"{ato}001")]}
+            )
+        cancel_pending_save()
+        (snap_dir).mkdir()
+        (snap_dir / "Superseded_20200101_000000Z_OLD_T.txt").write_text("x", encoding="utf-8")
+        with (
+            mock.patch.object(srv, "SNAPSHOT_KEEP", 2),
+            mock.patch.object(srv, "_last_snapshot_at", None),
+        ):
+            for n in range(3):
+                self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report(lm=n + 2)]})
+                srv.flush_pending_save()
+                srv._last_snapshot_at -= srv.SNAPSHOT_INTERVAL_SECONDS  # an hour passes
+        rounds = {}
+        for f in snap_dir.iterdir():
+            if m := srv._SNAPSHOT_NAME_RE.match(f.name):
+                rounds.setdefault(m.group(1), set()).add(f.name[len(m.group(0)) :])
+        self.assertEqual(len(rounds), 2, "the newest two rounds")
+        every = {
+            "ALPHA_Patrol.txt",
+            "BRAVO_Patrol.txt",
+            "CHARLIE_Patrol.txt",
+            srv.SHARED_SETTINGS_NAME,
+        }
+        for files in rounds.values():
+            self.assertEqual(files, every, "each round has every workspace and the shared settings")
+        self.assertTrue((snap_dir / "Superseded_20200101_000000Z_OLD_T.txt").exists())
+
+    def test_workspaces_whose_file_names_collide_both_survive(self):
+        # Regression: "A B" and "A_B" both made A_B_Patrol.txt, so one
+        # overwrote the other and was gone after a restart. Windows doesn't
+        # tell case apart, so "patrol" and "Patrol" collide too.
+        import hashlib
+
+        folder = self.own_backup_dir()
+        self.post("/api/save_reports", {"ato": "A_B", "reports": [report("x", "AB001")]})
+        self.post(
+            "/api/save_reports", {"ato": "A B", "reports": [report("y", "AB001", title="patrol")]}
+        )
+        srv.flush_pending_save()
+        tag = hashlib.sha256(b"A B").hexdigest()[:6]
+        self.assertEqual(
+            sorted(f.name for f in folder.glob("*.txt")),
+            ["A_B_Patrol.txt", f"A_B_{tag}_patrol.txt"],
+        )
+        # The same names at the next save: nothing is renamed back and forth.
+        self.post(
+            "/api/save_reports", {"ato": "A B", "reports": [report("y2", "AB002", title="patrol")]}
+        )
+        srv.flush_pending_save()
+        self.assertEqual(len(list(folder.glob("*.txt"))), 2)
+        reset_state()
+        srv.load_data_from_disk()
+        ws = srv.DATA_STORE["workspaces"]
+        self.assertEqual(sorted(ws), ["A B", "A_B"])
+        self.assertEqual(sorted(r["id"] for r in ws["A B"]), ["y", "y2"])
+        self.assertEqual([r["id"] for r in ws["A_B"]], ["x"])
+
+    def test_a_retitled_workspace_leaves_no_old_file_to_merge_back(self):
+        # Regression: the file under the old title stayed beside the new one
+        # and was merged back in at every start. It is moved, never deleted.
+        folder = self.own_backup_dir()
+        self.post("/api/save_config", {"config": {"ato": "ALPHA", "title": "Old"}})
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        srv.flush_pending_save()
+        self.assertTrue((folder / "ALPHA_Old.txt").exists())
+        self.post("/api/save_config", {"config": {"ato": "ALPHA", "title": "New"}})
+        srv.flush_pending_save()
+        self.assertEqual([f.name for f in folder.glob("*.txt")], ["ALPHA_New.txt"])
+        moved = list((folder / srv.SNAPSHOT_DIR_NAME).glob("Superseded_*_ALPHA_Old.txt"))
+        self.assertEqual(len(moved), 1, "kept in snapshots/")
+        self.assertIn('"r1"', moved[0].read_text("utf-8"))
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(srv.workspace_sources, {"ALPHA": "ALPHA_New.txt"})
+
+    def test_old_files_found_at_boot_are_moved_once_their_reports_are_rewritten(self):
+        import time
+
+        folder = self.own_backup_dir()
+        for name, title, ws, age in (
+            ("ALPHA_Day1.txt", "Day1", {"ALPHA": [report("r2", "ALPHA002")]}, 100),
+            ("ALPHA_Day2.txt", "Day2", {"ALPHA": [report()]}, 50),
+            ("BRAVO_Screen.txt", "Screen", {"BRAVO": [report("b1", "BRAVO001")]}, 0),
+        ):
+            _, text = srv.render_backup(
+                ws, {"ato": "ALPHA", "title": "Day2"}, {}, {}, label=(next(iter(ws)), title)
+            )
+            (folder / name).write_text(text, encoding="utf-8")
+            os.utime(folder / name, (time.time() - age, time.time() - age))
+        srv.load_data_from_disk()
+        self.post("/api/unload_ato", {"ato": "BRAVO"})
+        srv.flush_pending_save()
+        self.assertEqual(
+            sorted(f.name for f in folder.glob("*.txt")),
+            ["ALPHA_Day2.txt", "BRAVO_Screen.txt"],
+            "Day1's report is in Day2's file now; BRAVO's file is its only copy",
+        )
+        text = (folder / "ALPHA_Day2.txt").read_text("utf-8")
+        self.assertEqual(len(srv._extract_json_from_file(text)["workspaces"]["ALPHA"]), 2)
+        # An unloaded workspace's file isn't overwritten by one whose name collides with it.
+        self.post(
+            "/api/save_reports",
+            {"ato": "BRAVO", "reports": [report("b9", "BRAVO009", title="Screen")]},
+        )
+        srv.flush_pending_save()
+        old = srv._extract_json_from_file((folder / "BRAVO_Screen.txt").read_text("utf-8"))
+        self.assertEqual([r["id"] for r in old["workspaces"]["BRAVO"]], ["b1"])
+        self.assertEqual(len(list(folder.glob("BRAVO_*_Screen.txt"))), 1)
+
     def test_disk_write_does_not_hold_the_data_lock(self):
         # Regression: the whole save used to run under data_lock, freezing every
         # request handler for the duration of the disk I/O.
@@ -1438,7 +1981,194 @@ class HttpApiTests(unittest.TestCase):
 
         with mock.patch.object(srv.os, "replace", spying_replace):
             srv.save_data_to_disk()
-        self.assertEqual(lock_held_during_write, [False])
+        # The workspace's backup and the shared settings.
+        self.assertEqual(lock_held_during_write, [False, False])
+
+    def pending_retry(self):
+        """The delay of the save the server has scheduled, or None."""
+        with srv._save_timer_lock:
+            t = srv._save_timer
+        return t.interval if t is not None and t.is_alive() else None
+
+    def test_a_backup_that_cannot_be_prepared_keeps_its_changes_and_is_retried(self):
+        # Regression: a failure while rendering happened after the pending
+        # changes were cleared, outside any try, and every later save failed silently.
+        self.addCleanup(cancel_pending_save)
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        srv.flush_pending_save()
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report("r2", "ALPHA002")]})
+        cancel_pending_save()
+        boom = RuntimeError("bad report")
+        with (
+            mock.patch.object(srv, "render_workspace_backups", side_effect=boom),
+            mock.patch.object(srv, "safe_print") as printed,
+        ):
+            srv.save_data_to_disk()
+        self.assertEqual(srv._dirty_atos, {"ALPHA"}, "the change is still pending")
+        self.assertTrue(printed.call_args_list[0].args[0].startswith("[!] Could not prepare"))
+        self.assertIn("bad report", printed.call_args_list[0].args[0])
+        self.assertEqual(self.pending_retry(), 1.0)
+        cancel_pending_save()
+        with mock.patch.object(srv, "safe_print"):
+            srv.save_data_to_disk()
+        text = (Path(srv.BACKUP_DIR) / "ALPHA_Patrol.txt").read_text("utf-8")
+        self.assertEqual(len(srv._extract_json_from_file(text)["workspaces"]["ALPHA"]), 2)
+
+    def test_a_locked_backup_is_retried_with_a_growing_wait(self):
+        # Windows antivirus or OneDrive holding the file makes os.replace fail;
+        # the save must come back by itself, not wait for the next edit.
+        self.addCleanup(cancel_pending_save)
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        cancel_pending_save()
+        calls = []
+        real_fsync = srv.os.fsync
+
+        def locked(src, dst):
+            calls.append("replace")
+            raise PermissionError(13, "The process cannot access the file")
+
+        def fsync(fd):
+            calls.append("fsync")
+            return real_fsync(fd)
+
+        with (
+            mock.patch.object(srv.os, "replace", locked),
+            mock.patch.object(srv.os, "fsync", fsync),
+            mock.patch.object(srv, "safe_print") as printed,
+        ):
+            delays, said = [], []
+            for _ in range(5):
+                srv.save_data_to_disk()
+                delays.append(self.pending_retry())
+                said.append(len(printed.call_args_list))
+                cancel_pending_save()
+        self.assertEqual(calls[:2], ["fsync", "replace"], "flushed to disk before replacing")
+        self.assertEqual(delays, [1.0, 2.0, 5.0, 30.0, 30.0])
+        self.assertEqual(srv._dirty_atos, {"ALPHA"})
+        self.assertEqual(len(set(said)), 1, "said once for the whole run of failures")
+        lines = [c.args[0] for c in printed.call_args_list]
+        self.assertIn("[!] Error saving ALPHA_Patrol.txt: [Errno 13]", lines[0])
+        self.assertIn("retried", lines[-1])
+        with mock.patch.object(srv, "safe_print") as printed:
+            srv.save_data_to_disk()
+        self.assertEqual(printed.call_args_list[0].args[0], "[+] Backups are being saved again.")
+        self.assertIsNone(self.pending_retry())
+        self.assertEqual(srv._dirty_atos, set())
+
+    def own_backup_dir(self):
+        """An empty backup folder for this test alone."""
+        folder = Path(tempfile.mkdtemp(prefix="salt-own-"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        patcher = mock.patch.object(srv, "BACKUP_DIR", str(folder))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return folder
+
+    def test_shared_settings_survive_a_restart_with_no_workspace(self):
+        # Regression: with no workspace loaded nothing was written, and the
+        # loader read the shared settings only when some workspace came back.
+        folder = self.own_backup_dir()
+        tiles = {"name": "Topo", "kind": "tiles", "url": "http://10.0.0.5/tiles/{z}/{y}/{x}.png"}
+        drone = {"name": "GE 1", "grid": "11S NV 39697 06762", "at": 1793018940000}
+        fmt = {"preset": "custom", "lines": [{"type": "id"}, {"type": "size"}]}
+        for path, body in (
+            ("/api/save_basemaps", {"basemaps": [tiles]}),
+            ("/api/save_drones", {"drones": [drone]}),
+            ("/api/save_narrative", {"narrative": {"enemy": "OPFOR"}}),
+            ("/api/save_overlays", {"overlays": [NAI1]}),
+            ("/api/save_format", {"format": fmt}),
+            ("/api/save_profile", {"profile": {"initials": "AB", "color": "#32d74b"}}),
+            ("/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol"}}),
+        ):
+            self.assertEqual(self.post(path, body)[0], 200, path)
+        before = self.sync()
+        srv.flush_pending_save()
+        self.assertEqual([f.name for f in folder.glob("*.txt")], [], "no workspace, no backup")
+        self.assertTrue((folder / srv.SHARED_SETTINGS_NAME).is_file())
+        reset_state()
+        self.assertEqual(srv.load_data_from_disk(), 0)
+        after = self.sync()
+        for key in ("basemaps", "drones", "narrative", "overlays", "format", "profiles", "config"):
+            self.assertEqual(after[key], before[key], key)
+        self.assertEqual(after["drones"], [drone])
+        self.assertEqual(after["workspaces"], {})
+
+    def test_the_newest_file_decides_the_shared_settings(self):
+        import time
+
+        folder = self.own_backup_dir()
+        old = {"name": "Old", "kind": "tiles", "url": "http://10.0.0.5/old/{z}/{x}/{y}.png"}
+        new = {**old, "name": "New"}
+        self.post("/api/save_basemaps", {"basemaps": [old]})
+        srv.flush_pending_save()
+        settings = folder / srv.SHARED_SETTINGS_NAME
+        os.utime(settings, (time.time() - 100, time.time() - 100))
+        # A workspace backup written later (say by an older version) holds newer ones.
+        _, text = srv.render_backup({"ALPHA": [report()]}, {}, {}, {}, basemaps=[new])
+        (folder / "ALPHA_Patrol.txt").write_text(text, encoding="utf-8")
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(self.sync()["basemaps"], [new])
+        # And the other way about.
+        os.utime(settings, (time.time() + 100, time.time() + 100))
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(self.sync()["basemaps"], [old])
+        self.assertEqual(list(self.sync()["workspaces"]), ["ALPHA"])
+
+    def test_backups_that_cannot_be_read_are_named_and_counted(self):
+        # Regression: they were skipped without a word, so a session could
+        # start without a workspace and nobody would know why.
+        folder = self.own_backup_dir()
+        (folder / "notes.txt").write_text("nothing to see", encoding="utf-8")
+        (folder / "BROKEN_T.txt").write_text(
+            f"{srv.BACKUP_START}{{oops{srv.BACKUP_END}", encoding="utf-8"
+        )
+        (folder / "ALPHA_Patrol.txt").write_text(
+            srv.render_backup({"ALPHA": [report()]}, {}, {}, {})[1], encoding="utf-8"
+        )
+        (folder / srv.SHARED_SETTINGS_NAME).write_text("[1, 2]", encoding="utf-8")
+        with mock.patch.object(srv, "safe_print") as printed:
+            skipped = srv.load_data_from_disk()
+        self.assertEqual(skipped, 3)
+        lines = sorted(c.args[0] for c in printed.call_args_list)
+        self.assertEqual(len(lines), 3)
+        self.assertTrue(
+            lines[0].startswith("[!] Skipped BROKEN_T.txt: its backup data is not valid JSON")
+        )
+        self.assertEqual(lines[1], f"[!] Skipped {srv.SHARED_SETTINGS_NAME}: not a JSON object")
+        self.assertEqual(lines[2], "[!] Skipped notes.txt: no backup data block in it")
+        self.assertEqual(list(srv.DATA_STORE["workspaces"]), ["ALPHA"], "the good one still loads")
+        with mock.patch.object(srv, "safe_print") as printed:
+            srv.run_boot_dashboard(skipped=skipped)
+        banner = "\n".join(c.args[0] for c in printed.call_args_list)
+        self.assertIn("Skipped     : 3 backup file(s)", banner)
+
+    def test_a_hand_edited_backup_cannot_stop_saves(self):
+        folder = Path(tempfile.mkdtemp(prefix="salt-odd-"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        odd = {
+            "workspaces": {
+                "ALPHA": [
+                    report(title=5, displayId=7, history=None),
+                    report("r2", "ALPHA002", lm="x"),
+                    "junk",
+                ],
+                "BRAVO": "not a list",
+            },
+            "config": {"ato": ["ALPHA"], "title": 9},
+            "profiles": [],
+        }
+        (folder / "ALPHA_x.txt").write_text(
+            f"{srv.BACKUP_START}{json.dumps(odd)}{srv.BACKUP_END}", encoding="utf-8"
+        )
+        with mock.patch.object(srv, "BACKUP_DIR", str(folder)):
+            srv.load_data_from_disk()
+            self.assertEqual(len(srv.DATA_STORE["workspaces"]["ALPHA"]), 2)
+            with mock.patch.object(srv, "safe_print") as printed:
+                srv.flush_pending_save()
+            self.assertEqual(printed.call_args_list, [])
+            self.assertTrue((folder / "ALPHA_5.txt").exists())
 
     def test_boot_merges_every_backup_file(self):
         for name, ws in (

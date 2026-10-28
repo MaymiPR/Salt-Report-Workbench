@@ -2,16 +2,23 @@
 
 r"""Build a release in one go: the zip, the one-file .txt, and one checksum file.
 
-    python scripts/release.py 2.6.0 [-o OUT_DIR]
+    python scripts/release.py <version> [-o OUT_DIR] [--dist DIR] [--notes FILE]
+                                        [--allow-dirty]
 
-Builds ``dist/``, then writes to OUT_DIR (default ``release/``):
+Builds ``dist/`` (or ``--dist DIR``), then writes to OUT_DIR (default ``release/``):
 
-    SaltReportWorkbench-v2.6.0.zip      the five files, in a folder
-    SALT-Workbench-v2.6.0.txt           the same five, as one self-unpacking text file
+    SaltReportWorkbench-v<version>.zip  the five files, in a folder
+    SALT-Workbench-v<version>.txt       the same five, as one self-unpacking text file
     SHA256SUMS.txt                      both checksums: ``sha256sum -c`` checks both
 
-Run it from a clean checkout of the release tag. Zip entries carry the
-commit's timestamp, so rebuilding a tag gives byte-identical files.
+Run it from a clean checkout of the release tag: it refuses a working tree with
+changes and a HEAD that isn't tagged ``v<version>`` (``--allow-dirty`` skips
+both checks, for tests and dry runs). Zip entries carry the commit's timestamp,
+so rebuilding a tag gives byte-identical files.
+
+CHANGELOG.md must have a ``## [<version>]`` section and its compare link.
+``--notes FILE`` writes the release page's text: that section without its
+heading, a blank line, then ``**Full changelog:** <compare link>``.
 """
 
 from __future__ import annotations
@@ -31,12 +38,25 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import build  # noqa: E402
 import pack  # noqa: E402
 
+CHANGELOG = ROOT / "CHANGELOG.md"
+
 QUICKSTART = """S.A.L.T. Report Workbench {version}
 Field-ready SALT reporting with real-time LAN sync.
 =====================================================================
 
 REQUIREMENTS
   Python 3.10 or newer, and any modern browser. Nothing else to install.
+
+UPGRADING? COPY YOUR "Auto Backups" FOLDER FIRST
+  A new release's zip extracts to a NEW folder named for its version,
+  and a new folder starts with an empty "Auto Backups": started from
+  there, the workbench shows none of your reports. They are still in the
+  old folder. Copy the Auto Backups folder from your old folder into the
+  new one before starting (or extract the new files over the old ones).
+  The server's certificate is in the "tls" folder inside Auto Backups,
+  so copying it keeps the same certificate and browsers don't warn again.
+  (The one-file .txt download, run from the same place as before,
+  upgrades its folder in place and keeps Auto Backups.)
 
 START THE SERVER
   On Windows, double-click "Start SALT Workbench.bat". No admin rights
@@ -70,6 +90,16 @@ YOUR DATA
   to the server. They are plain text. Handle that folder according to your
   data-handling rules.
 
+TROUBLESHOOTING
+  Firewall prompt: allow Python on Private networks (on a managed laptop,
+    IT may need to allow python.exe or ports 8080 and 8081).
+  "Could not listen on port": close the other copy, or start with
+    --port 9090 --viewer-port 9091 (after the launcher's name works too).
+  Browser warns again: the certificate is new (a new address, or Auto
+    Backups not copied). Check the fingerprint, then Proceed.
+  Reports gone: copy your old Auto Backups folder here (see UPGRADING).
+  Change log: Auto Backups/audit.log. Dated copies: Auto Backups/snapshots.
+
 SECURITY
   The server encrypts every connection (HTTPS), so the reports and the access
   code can't be read off the network. To be sure you reached the real server,
@@ -86,9 +116,9 @@ for others over a network, you must offer them your modified source.
 """
 
 
-def release_files(version: str) -> dict[str, bytes]:
-    """The five files every release carries, from ``dist/`` and the repo."""
-    dist = ROOT / "dist"
+def release_files(version: str, dist: Path | None = None) -> dict[str, bytes]:
+    """The five files every release carries, from ``dist`` (default ``dist/``) and the repo."""
+    dist = Path(dist) if dist is not None else ROOT / "dist"
     readme = QUICKSTART.format(version=version)
     return {
         "index.html": (dist / "index.html").read_bytes(),
@@ -110,10 +140,46 @@ def write_zip(path: Path, version: str, files: dict[str, bytes], stamp: tuple) -
             zf.writestr(info, files[name])
 
 
+def _git(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True)
+
+
 def commit_stamp() -> tuple:
     """The checked-out commit's time, as a zip date (UTC)."""
     ts = int(subprocess.check_output(["git", "-C", str(ROOT), "log", "-1", "--format=%ct"]).strip())
     return time.gmtime(ts)[:6]
+
+
+def checkout_problems(version: str) -> list[str]:
+    """Why this checkout isn't a clean checkout of tag ``v<version>``; empty if it is."""
+    problems = []
+    status = _git("status", "--porcelain")
+    if status.returncode != 0:
+        problems.append(f"git status failed: {status.stderr.strip()}")
+    elif status.stdout.strip():
+        problems.append("the working tree has changes:\n" + status.stdout.rstrip())
+    tag = f"v{version}"
+    found = _git("describe", "--exact-match", "--tags", "HEAD")
+    # describe names one tag; a commit with several may still carry this one.
+    if found.stdout.strip() != tag and tag not in _git("tag", "--points-at", "HEAD").stdout.split():
+        problems.append(f"HEAD is not tagged {tag}")
+    return problems
+
+
+def changelog_notes(version: str, text: str) -> str:
+    """The release page for ``version``: its CHANGELOG section without the heading,
+    a blank line, then the compare link. Raises ``ValueError`` if either is missing."""
+    v = re.escape(version)
+    section = re.search(
+        rf"^## \[{v}\][^\n]*\n(.*?)(?=^## \[|^\[[^\]\n]+\]: |\Z)", text, re.MULTILINE | re.DOTALL
+    )
+    link = re.search(rf"^\[{v}\]: (\S+)[ \t]*$", text, re.MULTILINE)
+    if not section or not section.group(1).strip():
+        raise ValueError(f"CHANGELOG.md has no ## [{version}] section")
+    if not link:
+        raise ValueError(f"CHANGELOG.md has no [{version}]: compare link")
+    body = "\n".join(line.rstrip() for line in section.group(1).strip("\n").splitlines())
+    return f"{body}\n\n**Full changelog:** {link.group(1)}\n"
 
 
 def project_version() -> str:
@@ -123,16 +189,38 @@ def project_version() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Build the release zip, one-file .txt, and checksums.")
-    p.add_argument("version", help="the version being released, e.g. 2.6.0")
+    p.add_argument("version", help="the version being released, e.g. 2.17.2")
     p.add_argument("-o", "--out", type=Path, default=ROOT / "release", help="output folder")
+    p.add_argument(
+        "--dist", type=Path, default=ROOT / "dist", help="folder to build into (default: dist/)"
+    )
+    p.add_argument(
+        "--notes", type=Path, metavar="FILE", help="also write the release page's text to FILE"
+    )
+    p.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="skip the clean-tree and release-tag checks (tests and dry runs)",
+    )
     args = p.parse_args(argv)
     if args.version != project_version():
         p.error(f"pyproject.toml says {project_version()!r}, not {args.version!r}")
-    if build.main() != 0:
+    try:
+        notes = changelog_notes(args.version, CHANGELOG.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        p.error(str(exc))
+    if not args.allow_dirty:
+        problems = checkout_problems(args.version)
+        if problems:
+            p.error(
+                "run it from a clean checkout of the release tag "
+                "(--allow-dirty skips this for a dry run):\n  " + "\n  ".join(problems)
+            )
+    if build.main(args.dist) != 0:
         return 1
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
-    files = release_files(args.version)
+    files = release_files(args.version, args.dist)
     zip_path = out / f"SaltReportWorkbench-v{args.version}.zip"
     write_zip(zip_path, args.version, files, commit_stamp())
     txt_path = out / f"SALT-Workbench-v{args.version}.txt"
@@ -146,9 +234,15 @@ def main(argv: list[str] | None = None) -> int:
     # The conventional name (as in ChanSampler); .txt so Windows opens it in Notepad.
     sums_path = out / "SHA256SUMS.txt"
     sums_path.write_text(sums, encoding="utf-8", newline="\n")
+    if args.notes:
+        # UTF-8 without a BOM, LF: what `gh release create --notes-file` takes as is.
+        args.notes.parent.mkdir(parents=True, exist_ok=True)
+        args.notes.write_text(notes, encoding="utf-8", newline="\n")
     for f in (zip_path, txt_path):
         print(f"{f.name}  {f.stat().st_size / 1024:.1f} KB")
     print(f"{sums_path.name}:\n{sums}", end="")
+    if args.notes:
+        print(f"Release notes: {args.notes}")
     return 0
 
 

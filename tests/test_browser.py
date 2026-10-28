@@ -38,66 +38,112 @@ ROOT = Path(__file__).resolve().parent.parent
 CODE = "TESTCODE23"
 
 
-def free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+def free_ports(n: int = 2) -> list[int]:
+    """``n`` distinct ports free right now. Another process can still take one
+    before the server binds it, so the server is started with retries."""
+    socks = [socket.socket() for _ in range(n)]
+    try:
+        for s in socks:
+            s.bind(("127.0.0.1", 0))
+        return [s.getsockname()[1] for s in socks]
+    finally:
+        for s in socks:
+            s.close()
+
+
+def log_tail(path: Path, lines: int = 30) -> str:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "(no server log)"
+    return "\n".join(text.splitlines()[-lines:]) or "(the server printed nothing)"
 
 
 @unittest.skipUnless(sync_playwright, "playwright is not installed")
 class BrowserTests(unittest.TestCase):
     """One built server and one browser for the class; a fresh browser context per test."""
 
-    @classmethod
-    def setUpClass(cls):
-        subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / "build.py")], check=True, capture_output=True
-        )
-        cls.tmp = Path(tempfile.mkdtemp(prefix="salt-browser-"))
-        cls.port, cls.viewer_port = free_port(), free_port()
-        cls.server = subprocess.Popen(
-            [
-                sys.executable,
-                str(ROOT / "dist" / "salt_sync_server.py"),
-                "--host",
-                "127.0.0.1",
-                "--port",
-                str(cls.port),
-                "--viewer-port",
-                str(cls.viewer_port),
-                "--access-code",
-                CODE,
-                "--backup-dir",
-                str(cls.tmp / "backups"),
-                "--no-browser",
-                "--no-minimize",
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        # HTTPS, as the server starts by default, with its self-signed certificate.
-        cls.editor = f"https://127.0.0.1:{cls.port}"
-        cls.viewer = f"https://127.0.0.1:{cls.viewer_port}"
-        unverified = ssl._create_unverified_context()
-        deadline = time.monotonic() + 15
-        while True:
-            try:
-                urllib.request.urlopen(cls.editor + "/", timeout=1, context=unverified).close()
-                break
-            except OSError:
-                if time.monotonic() > deadline:
-                    raise RuntimeError("the server did not come up") from None
-                time.sleep(0.1)
-        cls.pw = sync_playwright().start()
-        cls.browser = cls.pw.chromium.launch()
+    START_ATTEMPTS = 3
+    START_SECONDS = 15
 
     @classmethod
-    def tearDownClass(cls):
-        cls.browser.close()
-        cls.pw.stop()
-        cls.server.terminate()
-        cls.server.wait(timeout=10)
-        shutil.rmtree(cls.tmp, ignore_errors=True)
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="salt-browser-"))
+        cls.addClassCleanup(shutil.rmtree, cls.tmp, ignore_errors=True)
+        # Built into the temp folder, so a developer's own dist/ is left alone.
+        build = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "build.py"), "--dist", str(cls.tmp / "dist")],
+            capture_output=True,
+            text=True,
+        )
+        if build.returncode != 0:
+            raise RuntimeError(f"the build failed:\n{build.stdout}{build.stderr}")
+        cls.start_server()
+        cls.pw = sync_playwright().start()
+        cls.addClassCleanup(cls.pw.stop)
+        cls.browser = cls.pw.chromium.launch()
+        cls.addClassCleanup(cls.browser.close)
+
+    @classmethod
+    def start_server(cls):
+        """Start the built server on free ports and wait until both answer.
+        A port taken in the meantime makes the server exit (or skip its
+        viewer), so that is retried on fresh ports. Its output goes to a log
+        file, whose tail is in the error if it never comes up."""
+        unverified = ssl._create_unverified_context()
+        for attempt in range(1, cls.START_ATTEMPTS + 1):
+            cls.port, cls.viewer_port = free_ports()
+            cls.log_path = cls.tmp / f"server-{attempt}.log"
+            with open(cls.log_path, "wb") as log:
+                cls.server = subprocess.Popen(
+                    [
+                        sys.executable,
+                        str(cls.tmp / "dist" / "salt_sync_server.py"),
+                        "--host",
+                        "127.0.0.1",
+                        "--port",
+                        str(cls.port),
+                        "--viewer-port",
+                        str(cls.viewer_port),
+                        "--access-code",
+                        CODE,
+                        "--backup-dir",
+                        str(cls.tmp / "backups"),
+                        "--no-browser",
+                        "--no-minimize",
+                    ],
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                )
+            # HTTPS, as the server starts by default, with its self-signed certificate.
+            cls.editor = f"https://127.0.0.1:{cls.port}"
+            cls.viewer = f"https://127.0.0.1:{cls.viewer_port}"
+            deadline = time.monotonic() + cls.START_SECONDS
+            waiting = [cls.editor, cls.viewer]
+            while waiting and cls.server.poll() is None and time.monotonic() < deadline:
+                try:
+                    urllib.request.urlopen(waiting[0] + "/", timeout=1, context=unverified).close()
+                    waiting.pop(0)
+                except OSError:
+                    time.sleep(0.1)
+            if not waiting:
+                cls.addClassCleanup(cls.stop_server)
+                return
+            cls.stop_server()
+        raise RuntimeError(
+            f"the server did not come up in {cls.START_ATTEMPTS} attempts; "
+            f"the last one's output ({cls.log_path}):\n{log_tail(cls.log_path)}"
+        )
+
+    @classmethod
+    def stop_server(cls):
+        if cls.server.poll() is None:
+            cls.server.terminate()
+            try:
+                cls.server.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                cls.server.kill()
+                cls.server.wait(timeout=10)
 
     def setUp(self):
         # A fresh context has empty storage, so every test starts at the first-run modal.
@@ -109,6 +155,38 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(self.errors, [], "the page threw")
 
     # -- helpers ------------------------------------------------------------- #
+    def wait_until(self, condition, message, page=None, timeout=5.0):
+        """Poll ``condition`` until it is true, or fail with ``message``. With
+        ``page``, wait through it, so Playwright keeps running route handlers."""
+        deadline = time.monotonic() + timeout
+        while not condition():
+            if time.monotonic() > deadline:
+                self.fail(f"{message} (waited {timeout:g} s)")
+            if page is None:
+                time.sleep(0.05)
+            else:
+                page.wait_for_timeout(50)
+
+    @staticmethod
+    def next_frames(page, n=2):
+        """Wait for ``n`` rendering frames: whatever an event scheduled has run."""
+        page.evaluate(
+            "n => new Promise(done => { const tick = k => k ? requestAnimationFrame(() => tick(k - 1)) : done(); tick(n); })",
+            n,
+        )
+
+    @classmethod
+    def settle(cls, page, condition="true"):
+        """Instead of sleeping through a slide or a fade: wait until every
+        finite CSS transition and animation on the page has finished, and
+        the JavaScript expression ``condition`` holds."""
+        cls.next_frames(page)  # let a transition the last action triggered start
+        page.wait_for_function(
+            "() => !document.getAnimations().some(a => a.playState === 'running'"
+            " && a.effect && a.effect.getComputedTiming().iterations !== Infinity)"
+            f" && ({condition})"
+        )
+
     def open_editor(self, initials="AB", ato=None, title="Patrol"):
         """The editor page past its first-run modal. The server trusts
         127.0.0.1, so the code is auto-filled; identity and workspace are not.
@@ -163,6 +241,50 @@ class BrowserTests(unittest.TestCase):
     def sizes(page):
         return page.locator("#reportLogBody tr[data-id] .col-size").all_text_contents()
 
+    @staticmethod
+    def wait_for_server(page, predicate, timeout=15):
+        """Wait until ``predicate`` (JS, given the /api/sync state) holds.
+        Not wait_for_function: it takes the promise a fetch returns as true."""
+        check = f"() => fetch('/api/sync').then(r => r.json()).then({predicate})"
+        deadline = time.monotonic() + timeout
+        while not page.evaluate(check):
+            if time.monotonic() > deadline:
+                # What it had instead: each workspace's sizes, and the config.
+                had = page.evaluate(
+                    "() => fetch('/api/sync').then(r => r.json()).then(s => JSON.stringify({"
+                    " config: s.config, workspaces: Object.fromEntries(Object.entries(s.workspaces)"
+                    ".map(([k, v]) => [k, v.map(r => r.size + (r.deleted ? ' (deleted)' : ''))])) }))"
+                )
+                raise AssertionError(f"the server never had {predicate}; it had {had}")
+            page.wait_for_timeout(100)
+
+    def second_editor(self, initials, ato):
+        """Another operator on the same server: a browser with storage of its own."""
+        context = self.browser.new_context(ignore_https_errors=True)
+        self.addCleanup(context.close)
+        other = context.new_page()
+        other.on("pageerror", lambda exc: self.errors.append(str(exc)))
+        other.goto(self.editor + "/")
+        other.fill("#startup-initials", initials)
+        other.fill("#startup-ato", ato)
+        other.fill("#startup-title", "Patrol")
+        other.click("#startupContinueBtn")
+        other.wait_for_selector("#startupModal.show", state="hidden")
+        return other
+
+    @staticmethod
+    def refuse(message, status=400):
+        """A route handler answering as the server does when it refuses a POST."""
+
+        def handler(route):
+            route.fulfill(
+                status=status,
+                content_type="application/json",
+                body=json.dumps({"status": "error", "message": message}),
+            )
+
+        return handler
+
     # -- tests --------------------------------------------------------------- #
     def test_a_logged_report_reaches_the_server_and_every_viewer(self):
         editor = self.open_editor()
@@ -187,9 +309,61 @@ class BrowserTests(unittest.TestCase):
         page.click("#toast-notification .toast-undo")
         page.wait_for_selector("#reportLogBody .col-size:has-text('2x BTR')")
         # And the server agrees: the report is live again.
-        page.wait_for_function(
-            f"() => fetch('/api/sync').then(r => r.json()).then(s => s.workspaces['{self.ato}'].every(r => !r.deleted))"
+        self.wait_for_server(page, f"s => s.workspaces['{self.ato}'].every(r => !r.deleted)")
+
+    def test_a_save_the_server_refuses_says_so(self):
+        # Regression: every POST resolved whatever the server answered, so a
+        # refused save showed the same toast as one that worked.
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        page.route("**/api/save_config", self.refuse("Validation failed: config.title is too long"))
+        page.click("#setAtoBtn")  # Change
+        page.fill("#reportTitlePrefix", "Other")
+        page.click("#setAtoBtn")
+        page.wait_for_selector(
+            "#toast-notification:has-text('Not saved: Validation failed: config.title is too long.')"
         )
+        # An error is announced at once, on a red white text can be read on.
+        toast = page.locator("#toast-notification")
+        self.assertEqual(toast.get_attribute("role"), "alert")
+        self.assertEqual(
+            toast.evaluate("t => getComputedStyle(t).backgroundColor"), "rgb(192, 38, 28)"
+        )
+        # An unload the server refuses leaves the workspace here.
+        page.route("**/api/unload_ato", self.refuse("Unload refused"))
+        page.click("#dataMgmtBtn")
+        page.click("#clearAllBtn")
+        page.click("#confirmActionBtn")
+        page.wait_for_selector("#toast-notification:has-text('Not unloaded: Unload refused.')")
+        self.assertEqual(self.sizes(page), ["2x BTR"])
+        self.assertTrue(
+            page.evaluate(f"!!reportsByAto['{self.ato}']"),
+            page.evaluate(
+                """async () => JSON.stringify({ activeAto, mine: Object.keys(reportsByAto),
+                    pending: [...pendingAtos], offlinePendingPush,
+                    server: Object.keys((await (await fetch('/api/sync')).json()).workspaces) })"""
+            ),
+        )
+
+    def test_toasts_are_announced_and_undo_waits_while_pointed_at(self):
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        toast = page.locator("#toast-notification")
+        self.assertEqual(
+            (toast.get_attribute("role"), toast.get_attribute("aria-live")), ("status", "polite")
+        )
+        page.check("#reportLogBody .row-selector")
+        page.click("#deleteSelectedBtn")
+        page.click("#confirmActionBtn")
+        page.wait_for_selector("#toast-notification .toast-undo")
+        page.hover("#toast-notification")
+        self.assertTrue(page.evaluate("toastHeld"), "the clock stops under the pointer")
+        page.wait_for_timeout(300)
+        self.assertIn("show", toast.get_attribute("class"))
+        page.mouse.move(5, 5)
+        self.assertFalse(page.evaluate("toastHeld"), "and runs again when it leaves")
+        page.focus("#toast-notification .toast-undo")
+        self.assertTrue(page.evaluate("toastHeld"), "and stops while the Undo button has focus")
 
     def test_sorting_by_size_is_numeric(self):
         page = self.open_editor()
@@ -199,6 +373,112 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(self.sizes(page), ["2x BTR", "10x T-72"])
         page.click("th[data-sort='size']")
         self.assertEqual(self.sizes(page), ["10x T-72", "2x BTR"])
+
+    def test_checked_rows_the_edited_row_and_open_cells_survive_a_redraw(self):
+        # Regression: every sync redrew the table and dropped all three, and
+        # Delete stayed on with nothing checked.
+        page = self.open_editor()
+        long = "10x T-72, 4x BMP-2, 2x BTR-82A, 3x MT-LB, 6x Ural trucks, 2x 2S19 Msta, 1x BREM-1"
+        self.log(page, long)
+        self.log(page, "1x truck")
+
+        def row(size):
+            return f"#reportLogBody tr[data-id]:has(.col-size:has-text('{size}'))"
+
+        page.check(f"{row('1x truck')} .row-selector")
+        page.click(f"{row('1x truck')} .id-edit-btn")  # into the form
+        page.click(f"{row(long)} .col-size .cell-clamp.clampable")
+        page.evaluate("renderLog()")  # what a sync from another operator does
+        self.assertTrue(page.is_checked(f"{row('1x truck')} .row-selector"))
+        self.assertIn("selected-row", page.get_attribute(row("1x truck"), "class"))
+        self.assertIn("expanded", page.get_attribute(f"{row(long)} .col-size .cell-clamp", "class"))
+        self.assertTrue(page.is_visible("#deleteSelectedBtn"))
+        # A checked report that goes away (deleted elsewhere) takes Delete with it.
+        page.evaluate("localReports.find(r => r.size === '1x truck').deleted = true; renderLog()")
+        self.assertFalse(page.is_visible("#deleteSelectedBtn"))
+        self.assertEqual(page.evaluate("selectedRows.size"), 0)
+
+    def test_the_log_works_from_the_keyboard(self):
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        ident = page.evaluate("formatFullId(localReports.find(r => !r.deleted))")
+        self.assertEqual(
+            page.get_attribute("#reportLogBody .copy-btn", "aria-label"), f"Copy {ident}"
+        )
+        self.assertEqual(
+            page.get_attribute("#reportLogBody .row-selector", "aria-label"), f"Select {ident}"
+        )
+        # The Identifier is a button: Enter loads the report into the form.
+        page.focus("#reportLogBody .id-edit-btn")
+        page.keyboard.press("Enter")
+        self.assertIn("Updating", page.text_content("#form-title"))
+        page.fill("#size", "3x BTR")
+        page.click("#updateButton")
+        page.wait_for_selector("#reportLogBody .col-size:has-text('3x BTR')")
+        history = "#reportLogBody .history-btn[data-history-id]"
+        self.assertEqual(page.get_attribute(history, "aria-expanded"), "false")
+        page.click(history)
+        self.assertEqual(page.get_attribute(history, "aria-expanded"), "true")
+        # Sorting from the keyboard; the header says how it sorts.
+        self.assertEqual(page.get_attribute("th[data-sort='id']", "aria-sort"), "other")
+        page.focus("th[data-sort='size'] .sort-btn")
+        page.keyboard.press("Enter")
+        self.assertEqual(page.get_attribute("th[data-sort='size']", "aria-sort"), "ascending")
+        self.assertEqual(page.get_attribute("th[data-sort='id']", "aria-sort"), "none")
+        for box in ("#size", "#activity", "#location", "#time", "#reportStartNum", "#searchBar",
+                    "#yourAnalysis", "#atoHistorySelect"):  # fmt: skip
+            self.assertTrue(page.get_attribute(box, "aria-label"), box)
+        self.assertEqual(
+            page.get_attribute("#color-swatches .color-swatch.selected", "aria-pressed"), "true"
+        )
+
+    def test_escape_and_tab_in_dialogs_and_the_settings_menu(self):
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        # The confirmation takes focus on Cancel, keeps Tab inside, and Escape
+        # cancels it, giving focus back.
+        page.check("#reportLogBody .row-selector")
+        page.click("#deleteSelectedBtn")
+        page.wait_for_selector("#confirmation-toast.show")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "cancelActionBtn")
+        page.keyboard.press("Tab")
+        page.keyboard.press("Tab")
+        self.assertTrue(
+            page.evaluate("el.toast.confirm.contains(document.activeElement)"), "Tab stays inside"
+        )
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#confirmation-toast.show", state="hidden")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "deleteSelectedBtn")
+        self.assertEqual(self.sizes(page), ["2x BTR"])
+        # The Settings menu: open says so, arrows move, Escape closes it.
+        page.click("#dataMgmtBtn")
+        self.assertEqual(page.get_attribute("#dataMgmtBtn", "aria-expanded"), "true")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "toggleLayoutBtn")
+        page.keyboard.press("ArrowDown")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "toggleTimeFormatBtn")
+        page.keyboard.press("End")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "clearAllBtn")
+        page.keyboard.press("Escape")
+        self.assertFalse(page.is_visible("#dataMgmtMenu"))
+        self.assertEqual(page.get_attribute("#dataMgmtBtn", "aria-expanded"), "false")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "dataMgmtBtn")
+        # The manual from the menu: focus on Close, back to the menu's button.
+        page.click("#dataMgmtBtn")
+        page.click("#userManualBtn")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "manualCloseBtn")
+        page.keyboard.press("Tab")
+        self.assertTrue(page.evaluate("el.manual.modal.contains(document.activeElement)"))
+        page.keyboard.press("Escape")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "dataMgmtBtn")
+        # A search with spaces round it still finds; Escape clears it.
+        page.fill("#searchBar", "  btr ")
+        page.wait_for_timeout(300)
+        self.assertEqual(self.sizes(page), ["2x BTR"])
+        page.fill("#searchBar", "nothing like it")
+        page.wait_for_timeout(300)
+        self.assertEqual(self.sizes(page), [])
+        page.press("#searchBar", "Escape")
+        self.assertEqual(self.sizes(page), ["2x BTR"])
 
     def test_bda_roll_up_counts_and_filters(self):
         page = self.open_editor()
@@ -212,13 +492,20 @@ class BrowserTests(unittest.TestCase):
             "#reportLogBody tr[data-id]:has(.col-size:has-text('4x T-72, 2x BMP-2')) .bda-btn"
         )
         page.click(".bda-check-row[data-row='0'] .bda-eff-btn[data-bda-eff='Destroyed']")
+        # Note when a pull brings the assessment back from the server.
+        page.evaluate(
+            """() => { const apply = applyServerUpdate; window.bdaPulled = false;
+                applyServerUpdate = (...args) => { apply(...args);
+                    if (Object.values(args[0] || {}).flat().some(r => (r.bda || []).length === 1)) window.bdaPulled = true; }; }"""
+        )
         page.click(".bda-commit-btn")
         page.wait_for_selector("#bdaRollup:has-text('BDA 4 / 7')")
         # Let that save settle: the server has it and this page has pulled it back.
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => Object.values(s.workspaces).flat().some(r => (r.bda || []).length === 1))"
+        self.wait_for_server(
+            page, "s => Object.values(s.workspaces).flat().some(r => (r.bda || []).length === 1)"
         )
-        page.wait_for_timeout(500)
+        page.wait_for_function("() => window.bdaPulled && pushesInFlight === 0 && !pullDeferred")
+        self.next_frames(page)  # and redrawn
         # One of the two BMP-2s damaged: the other stays on the checklist.
         self.assertEqual(page.input_value(".bda-check-row[data-row='0'] .bda-ck-target"), "BMP-2")
         page.fill(".bda-check-row[data-row='0'] .bda-ck-qty", "1")
@@ -245,10 +532,138 @@ class BrowserTests(unittest.TestCase):
         page = self.open_editor()
         page.click("#size")
         page.keyboard.type("2x B")
-        page.evaluate("() => syncWithServer()")
-        page.wait_for_timeout(200)
+        page.evaluate("() => syncWithServer()")  # resolves once the pull is applied
+        self.next_frames(page)  # and the redraw it scheduled has run
         page.keyboard.type("MP")
         self.assertEqual(page.input_value("#size"), "2x BMP")
+
+    def test_a_sync_leaves_the_workspace_being_changed(self):
+        # Regression: a peer's sync rewrote the ATO and title boxes and locked
+        # them again while a new workspace was being typed.
+        page = self.open_editor()
+        page.click("#setAtoBtn")  # Change
+        page.fill("#atoDesignator", "SOMEWHERE")
+        page.evaluate("() => syncWithServer()")
+        page.wait_for_timeout(300)
+        self.assertEqual(page.input_value("#atoDesignator"), "SOMEWHERE")
+        self.assertFalse(page.evaluate("el.config.ato.readOnly"))
+
+    def test_a_sync_during_a_workspace_switch_brings_no_reports_along(self):
+        # Regression: a sync landing while save_config was on its way put the
+        # old workspace's reports back in the log, and the next report logged
+        # copied them all into the new workspace (seen first on CI).
+        page = self.open_editor()
+        old = self.ato
+        self.log(page, "1x BTR")
+        held = []
+        page.route("**/api/save_config", lambda route: held.append(route))
+        page.click("#setAtoBtn")  # Change
+        new = old[:24] + "SWITCH"
+        page.fill("#atoDesignator", new)
+        page.click("#setAtoBtn")  # Set: save_config is held
+        self.wait_until(lambda: held, "save_config was never sent", page=page)
+        # The server still says the old workspace.
+        page.evaluate("() => syncWithServer()")
+        self.assertEqual(page.evaluate("activeAto"), new)
+        self.assertEqual(self.sizes(page), [])
+        held[0].continue_()
+        page.wait_for_selector("#toast-notification:has-text('Configuration synced')")
+        self.log(page, "2x BMP")
+        self.assertEqual(self.sizes(page), ["2x BMP"])
+        self.wait_for_server(
+            page, f"s => (s.workspaces['{new}'] || []).map(r => r.size).join() === '2x BMP'"
+        )
+        self.wait_for_server(
+            page, f"s => (s.workspaces['{old}'] || []).map(r => r.size).join() === '1x BTR'"
+        )
+
+    def test_a_pull_asked_for_before_a_switch_doesnt_switch_back(self):
+        # Regression: a pull asked for before a workspace switch, answered
+        # after it, put this editor back in the old workspace (seen on CI as
+        # one test's reports showing up in the next).
+        page = self.open_editor()
+        old = self.ato
+        self.log(page, "1x BTR")
+        self.wait_for_server(
+            page, f"s => (s.workspaces['{old}'] || []).map(r => r.size).join() === '1x BTR'"
+        )
+        # The next pull is answered now (the old workspace) but arrives later.
+        page.evaluate(
+            """async () => {
+                const answer = await (await fetch('/api/sync')).text();
+                const realFetch = window.fetch;
+                let release;
+                const gate = new Promise(r => { release = r; });
+                window.fetch = (url, opts) => {
+                    if (url !== '/api/sync') return realFetch(url, opts);
+                    window.fetch = realFetch;
+                    return gate.then(() => new Response(answer, { status: 200, headers: { 'Content-Type': 'application/json' } }));
+                };
+                window.releasePull = release;
+                window.heldPull = syncWithServer();
+            }"""
+        )
+        new = old[:24] + "LATER"
+        page.click("#setAtoBtn")  # Change
+        page.fill("#atoDesignator", new)
+        page.click("#setAtoBtn")  # Set
+        page.wait_for_selector("#toast-notification:has-text('Configuration synced')")
+        # The old answer arrives only now.
+        self.assertEqual(
+            page.evaluate("async () => { releasePull(); await heldPull; return activeAto; }"), new
+        )
+        self.assertEqual(self.sizes(page), [])
+        self.log(page, "2x BMP")
+        self.wait_for_server(
+            page, f"s => (s.workspaces['{new}'] || []).map(r => r.size).join() === '2x BMP'"
+        )
+        self.wait_for_server(
+            page, f"s => (s.workspaces['{old}'] || []).map(r => r.size).join() === '1x BTR'"
+        )
+
+    def test_an_update_asks_when_someone_else_changed_the_report(self):
+        # Regression: Edit and Update wrote over a peer's newer change, silently.
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        other = self.second_editor("CD", self.ato)
+        other.wait_for_selector("#reportLogBody .col-size:has-text('2x BTR')")
+        page.click("#reportLogBody .id-edit-btn")
+        # Someone else updates it while it is in this form.
+        other.click("#reportLogBody .id-edit-btn")
+        other.fill("#size", "3x BTR")
+        other.click("#updateButton")
+        page.wait_for_selector("#reportLogBody .col-size:has-text('3x BTR')")
+        page.fill("#activity", "Moving S")
+        page.click("#updateButton")
+        page.wait_for_selector(
+            "#choice-toast.show:has-text('CD changed this report since you opened it')"
+        )
+        page.click("#choiceButtons button:text-is('Keep theirs')")
+        self.assertEqual(
+            (page.input_value("#size"), page.input_value("#activity")), ("3x BTR", "Moving N")
+        )
+        # The server holding a newer version (409) asks the same; Overwrite
+        # saves this one over it.
+        answered = []
+
+        def newer_on_the_server(route):
+            if answered:
+                route.continue_()
+                return
+            answered.append(route.request.url)
+            self.refuse("A newer version is saved.", status=409)(route)
+
+        page.route("**/api/edit_report", newer_on_the_server)
+        page.fill("#size", "4x BTR")
+        page.click("#editButton")
+        page.wait_for_selector(
+            "#choice-toast.show:has-text('changed this report since you opened it')"
+        )
+        page.click("#choiceButtons button:text-is('Overwrite theirs')")
+        self.wait_for_server(
+            page, f"s => s.workspaces['{self.ato}'].some(r => r.size === '4x BTR')"
+        )
+        self.assertEqual(len(answered), 1)
 
     # -- overlays and ArcGIS -------------------------------------------------- #
     def overlay_kmz(self) -> Path:
@@ -327,9 +742,7 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(place(page, "4x BRDM"), ["38SMB4500085200, NAI 1, PL BLUE", []])
         # Synced: the server holds them, and a viewer tags the same way
         # without keeping a copy (and can't settle a check).
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.overlays.length === 4)"
-        )
+        self.wait_for_server(page, "s => s.overlays.length === 4")
         viewer = self.open_viewer()
         viewer.wait_for_selector("#reportLogBody span.loc-tag.warn")
         self.assertEqual(viewer.locator("#reportLogBody button.loc-tag").count(), 0)
@@ -468,10 +881,47 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-overlay-fold='close']")
         self.assertEqual(page.locator(".overlay-group[open]").count(), 0, "all closed")
         page.click(".overlay-group[data-overlay-group='OBJ'] summary")
+        # The × asks first (see test_an_overlay_is_removed_on_the_second_press).
         page.click(".overlay-group[data-overlay-group='OBJ'] .overlay-remove")
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.overlays.map(o => o.type + ' ' + o.name).join() === 'NAI 1,NAI 2')"
+        page.click(".overlay-group[data-overlay-group='OBJ'] .overlay-remove")
+        self.wait_for_server(
+            page, "s => s.overlays.map(o => o.type + ' ' + o.name).join() === 'NAI 1,NAI 2'"
         )
+
+    def test_an_overlay_is_removed_on_the_second_press(self):
+        # Regression: one press of the × removed it for everyone.
+        page = self.open_editor()
+        self.import_overlays(page)
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.click("[data-overlay-fold='open']")
+        nai1 = ".overlay-group[data-overlay-group='NAI'] tr:has([aria-label='Unload NAI 1'])"
+        box = page.locator(nai1).bounding_box()
+        page.click(f"{nai1} .overlay-remove")
+        # Its name asks, in red, and nothing on the row moves.
+        page.wait_for_selector(f"{nai1} .map-base-ask:has-text('Remove for everyone?')")
+        self.assertEqual(page.locator(nai1).bounding_box(), box)
+        here = "currentOverlays().some(o => o.type === 'NAI' && o.name === '1')"
+        self.assertTrue(page.evaluate(here))
+        # Any other button lets it go.
+        page.click("[data-overlay-fold='open']")
+        self.assertEqual(page.locator("#overlaysBody .map-base-ask").count(), 0)
+        page.click(f"{nai1} .overlay-remove")
+        page.click(f"{nai1} .overlay-remove")
+        self.wait_for_server(page, "s => !s.overlays.some(o => o.type === 'NAI' && o.name === '1')")
+        self.assertFalse(page.evaluate(here))
+
+    def test_a_synced_color_cant_add_css(self):
+        page = self.open_editor()
+        page.evaluate(
+            """() => {
+                localProfiles = { ZZ: { initials: 'ZZ', color: 'red;background:url(https://example.invalid/x.png)' } };
+                renderStartupPresets();
+            }"""
+        )
+        chip = "#startup-preset-profiles [data-initials='ZZ']"
+        self.assertNotIn("url(", page.get_attribute(f"{chip} .chip-dot", "style"))
+        self.assertEqual(page.get_attribute(chip, "data-color"), "#0a84ff")
 
     def test_statistics_across_every_ato(self):
         page = self.open_editor(ato="SCOPEA")
@@ -578,6 +1028,88 @@ class BrowserTests(unittest.TestCase):
         page.click(".ws-tab[data-tab='export']")
         page.set_input_files("#ioDropInput", [str(csv), str(self.overlay_kmz())])
         page.wait_for_selector("#toast-notification:has-text('Drop one backup or CSV at a time')")
+
+    def test_backup_import_merges_report_by_report(self):
+        # Regression: importing replaced each workspace in the file whole, so
+        # whatever was logged or updated since the backup went.
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        with page.expect_download() as dl:
+            self.run_io(page, "backup")
+        backup = self.tmp / f"{self._testMethodName}.txt"
+        backup.write_text(Path(dl.value.path()).read_text(encoding="utf-8"), encoding="utf-8")
+        page.click("#exportViewToggleBtn")
+        # Since the backup: one report logged, the other updated.
+        self.log(page, "3x T-72")
+        page.click("#reportLogBody tr:has(.col-size:has-text('2x BTR')) .id-edit-btn")
+        page.fill("#size", "5x BTR")
+        page.click("#updateButton")
+        page.wait_for_selector("#reportLogBody .col-size:has-text('5x BTR')")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        page.set_input_files("#ioDropInput", str(backup))
+        page.wait_for_selector(
+            "#confirmation-message:has-text('A report in both keeps whichever version is newer')"
+        )
+        page.click("#confirmActionBtn")
+        page.wait_for_selector("#toast-notification:has-text('Import successful')")
+        self.assertEqual(
+            page.evaluate(
+                f"reportsByAto['{self.ato}'].filter(r => !r.deleted).map(r => r.size).sort()"
+            ),
+            ["3x T-72", "5x BTR"],
+        )
+        self.wait_for_server(
+            page,
+            f"s => s.workspaces['{self.ato}'].filter(r => !r.deleted).map(r => r.size).sort().join() === '3x T-72,5x BTR'",
+        )
+
+    def test_send_to_ato_keeps_the_reports_until_the_destination_has_them(self):
+        # Regression: Send took the reports out of IMPORT first and never
+        # checked that the destination got them.
+        page = self.open_editor()
+        self.log(page, "1x BTR")
+        dest = self.ato
+        csv = self.tmp / f"{self._testMethodName}.csv"
+        csv.write_text("Name,Count,MGRS\nA1,2x SENT,18SUJ1234\n", encoding="utf-8")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        page.set_input_files("#ioDropInput", str(csv))
+        page.wait_for_selector("#csvImportPanel", state="visible")
+        page.select_option("#csvDestSelect", "IMPORT")
+        page.click("#csvConfirmBtn")
+        # Work in IMPORT, as everyone's active workspace (a sync keeps it).
+        page.click("#setAtoBtn")
+        page.fill("#atoDesignator", "IMPORT")
+        page.fill("#reportTitlePrefix", "IMPORT")
+        page.click("#setAtoBtn")
+        page.wait_for_function("() => activeAto === 'IMPORT'")
+        sent = "#reportLogBody tr[data-id]:has(.col-size:has-text('2x SENT'))"
+        page.check(f"{sent} .row-selector")
+        page.select_option("#sendToAtoSelect", dest)
+
+        def destination_down(route):
+            if json.loads(route.request.post_data or "{}").get("ato") == dest:
+                self.refuse("Down.", status=500)(route)
+            else:
+                route.continue_()
+
+        page.route("**/api/save_reports", destination_down)
+        page.click("#sendToAtoBtn")
+        page.wait_for_selector("#toast-notification:has-text('Not moved')")
+        self.assertTrue(page.is_visible(sent), "still in IMPORT")
+        self.assertTrue(page.is_checked(f"{sent} .row-selector"), "and still checked")
+        page.unroute("**/api/save_reports")
+        page.click("#sendToAtoBtn")
+        page.wait_for_selector(f"#toast-notification:has-text('Moved 1 report(s) to {dest}')")
+        page.wait_for_selector(sent, state="detached")
+        self.wait_for_server(
+            page,
+            f"s => s.workspaces['{dest}'].some(r => r.size === '2x SENT')"
+            " && s.workspaces['IMPORT'].every(r => r.size !== '2x SENT' || r.deleted)",
+        )
 
     def test_horizontal_layout_fits_the_window(self):
         page = self.open_editor()
@@ -722,6 +1254,47 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-map-zoom='out']")
         page.click("[data-map-zoom='out']")
         page.wait_for_function(f"() => Math.abs(mapView.mpp - {before}) < 1e-6")
+        # The heat drawn on the map has colour in it.
+        self.assertGreater(
+            page.evaluate(
+                """async () => {
+                    const img = new Image();
+                    img.src = document.querySelector('#mapSvg image.map-heat').getAttribute('href');
+                    await img.decode();
+                    const c = document.createElement('canvas');
+                    c.width = img.width; c.height = img.height;
+                    const ctx = c.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    return ctx.getImageData(0, 0, c.width, c.height).data.filter((v, i) => i % 4 === 3 && v > 0).length;
+                }"""
+            ),
+            100,
+        )
+
+    def test_the_heat_map_keeps_counting_past_three_reports_in_one_place(self):
+        # Regression: each report added to an 8-bit canvas, which stopped at
+        # about three in one place, so 3 and 10 there looked the same and a
+        # lone report beside them didn't fade as the busy place grew.
+        page = self.open_editor()
+        alpha = """async (n) => {
+            const pts = [{ lon: 40, lat: 50, w: 1 }, ...Array.from({ length: n }, () => ({ lon: 140, lat: 50, w: 1 }))];
+            const svg = heatLayer(pts, (lon, lat) => [lon, lat], 200, 100);
+            const img = new Image();
+            img.src = svg.match(/href="([^"]+)"/)[1];
+            await img.decode();
+            const c = document.createElement('canvas');
+            c.width = 200; c.height = 100;
+            const ctx = c.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            return [ctx.getImageData(40, 50, 1, 1).data[3], ctx.getImageData(140, 50, 1, 1).data[3]];
+        }"""
+        lone3, busy3 = page.evaluate(alpha, 3)
+        lone10, busy10 = page.evaluate(alpha, 10)
+        self.assertGreater(busy3, 220)
+        self.assertGreater(busy10, 220)
+        self.assertGreater(lone3, lone10 + 40, (lone3, lone10))
+        # A lone report on its own is the top of the ramp, as before.
+        self.assertEqual(page.evaluate(alpha, 0)[0], busy3)
 
     @staticmethod
     def pick_basemap(page, value):
@@ -819,10 +1392,8 @@ class BrowserTests(unittest.TestCase):
         self.open_map(page)
         self.add_wms(page, "https://basemap.test/wms", [])  # its one layer comes ticked
         page.wait_for_function("() => document.querySelectorAll('#mapBase image').length === 1")
-        for _ in range(50):  # the image is on the page before its request is logged
-            if asked:
-                break
-            page.wait_for_timeout(100)
+        # The image is on the page before its request is logged.
+        self.wait_until(lambda: asked, "the map asked the WMS for no image", page)
         url = asked[-1]
         for part in ("REQUEST=GetMap", "LAYERS=imagery", "CRS=EPSG:3857", "map=ops"):
             self.assertIn(part, url)
@@ -836,10 +1407,7 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_function(
             "() => [...document.querySelectorAll('#mapBase image')].some(i => i.dataset.url.includes('/tiles/'))"
         )
-        for _ in range(50):
-            if asked:
-                break
-            page.wait_for_timeout(100)
+        self.wait_until(lambda: asked, "the map asked the tile service for no tile", page)
         self.assertTrue(asked and len(asked) < 100, len(asked))
         self.assertTrue(all("/tiles/" in u for u in asked))
         options = page.locator("#mapBaseSelect option").all_text_contents()
@@ -850,8 +1418,8 @@ class BrowserTests(unittest.TestCase):
         )
         self.pick_basemap(page, "off")
         page.wait_for_function("() => document.querySelectorAll('#mapBase image').length === 0")
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.map(b => b.name).join() === 'Imagery,basemap.test')"
+        self.wait_for_server(
+            page, "s => s.basemaps.map(b => b.name).join() === 'Imagery,basemap.test'"
         )
         # Viewers get the map too (its layers, window and basemap picker), the
         # same list to pick from, and can't change it; the Overlays tab isn't theirs.
@@ -897,9 +1465,7 @@ class BrowserTests(unittest.TestCase):
         page.fill("#mapTileUrl", "https://basemap.test/topo/{z}/{x}/{y}.png")
         page.click("#mapTileSave")
         page.wait_for_selector("#toast-notification:has-text('basemap.test saved')")
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps[1].url.includes('/topo/'))"
-        )
+        self.wait_for_server(page, "s => s.basemaps[1].url.includes('/topo/')")
         self.back_to_map(page)
         self.assertEqual(
             page.locator("#mapBaseSelect option").all_text_contents(),
@@ -941,6 +1507,55 @@ class BrowserTests(unittest.TestCase):
             page.locator("#mapBaseSelect option").all_text_contents(),
             ["No basemap", "basemap.test"],
         )
+        page.evaluate("saveBasemaps([])")
+
+    def test_a_malformed_basemap_address_is_said_to_be_invalid(self):
+        # Regression: new URL() threw on it, with nothing said.
+        page = self.open_editor()
+        self.open_basemaps(page)
+        for text in ("https://[bad/{z}/{x}/{y}.png", "https://[bad/wms"):
+            page.fill("#mapBaseInput", text)
+            page.click("#mapBaseAddBtn")
+            page.wait_for_selector("#toast-notification:has-text(\"That address isn't valid.\")")
+        page.wait_for_timeout(300)
+        self.assertEqual(page.locator(".map-find-head, .map-find-error, .map-find-msg").count(), 0)
+
+    def test_switching_basemaps_leaves_no_stale_wms_image(self):
+        # Regression: a WMS asked for just before No basemap (or tiles) was
+        # picked still turned up, and one landing late wiped the tiles.
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.context.route(
+            "https://race.test/**",
+            lambda route: route.fulfill(status=200, content_type="image/png", body=self.PNG_1PX),
+        )
+        self.open_map(page)
+        page.evaluate(
+            """saveBasemaps([
+                { name: 'Race WMS', kind: 'wms', url: 'https://race.test/wms', layers: 'a', version: '1.3.0', crs: 'EPSG:3857', format: 'image/png' },
+                { name: 'Race tiles', kind: 'tiles', url: 'https://race.test/t/{z}/{x}/{y}.png' },
+            ])"""
+        )
+        images = "[...document.querySelectorAll('#mapBase image')].map(i => i.dataset.url)"
+        # The WMS is asked for once the view settles (300 ms): picked, then No
+        # basemap before that, nothing turns up later.
+        self.pick_basemap(page, "Race WMS")
+        page.wait_for_timeout(100)
+        self.pick_basemap(page, "off")
+        page.wait_for_timeout(800)
+        self.assertEqual(page.evaluate(images), [])
+        # Tiles picked before that: they stay, and no WMS lands on them.
+        self.pick_basemap(page, "Race WMS")
+        page.wait_for_timeout(100)
+        self.pick_basemap(page, "Race tiles")
+        page.wait_for_function(
+            "() => { const i = [...document.querySelectorAll('#mapBase image')]; return i.length && i.every(e => e.dataset.state === 'ok'); }"
+        )
+        tiles = len(page.evaluate(images))
+        page.wait_for_timeout(800)
+        urls = page.evaluate(images)
+        self.assertEqual(len(urls), tiles, urls)
+        self.assertTrue(all("/t/" in u for u in urls), urls)
         page.evaluate("saveBasemaps([])")
 
     def test_a_wms_linked_over_https_is_asked_over_https(self):
@@ -1025,9 +1640,7 @@ class BrowserTests(unittest.TestCase):
         page.click("#mapWmsAdd")
         page.wait_for_selector("#toast-notification:has-text('Range Maps added')")
         self.back_to_map(page)
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.some(b => b.name === 'Range Maps'))"
-        )
+        self.wait_for_server(page, "s => s.basemaps.some(b => b.name === 'Range Maps')")
         entry = page.evaluate(
             "fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.find(b => b.name === 'Range Maps'))"
         )
@@ -1048,10 +1661,9 @@ class BrowserTests(unittest.TestCase):
             page.get_attribute("#mapBase image", "href").startswith("/api/basemap?u=http")
         )
         # The image is on the page before the fake service has logged its request.
-        for _ in range(50):
-            if any("GetMap" in p for p in seen):
-                break
-            time.sleep(0.1)
+        self.wait_until(
+            lambda: any("GetMap" in p for p in seen), "the fake WMS got no GetMap request"
+        )
         get_map = next(p for p in reversed(seen) if "GetMap" in p)
         self.assertIn("SRS=EPSG:4326", get_map)
         self.assertIn("VERSION=1.1.1", get_map)
@@ -1064,11 +1676,14 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector(".map-base-check.ok")
         self.assertIn("map image", page.text_content(".map-base-check"))
         page.wait_for_selector(".map-base-check", state="detached", timeout=8000)
+        # A fake clock (still running) lets the test skip past the moment an
+        # OK message would fold away, instead of waiting it out.
+        page.clock.install()
         page.evaluate(
             f"checkBasemap({{ name: 'Range Maps', kind: 'wms', url: '{base}', layers: 'bad' }})"
         )
         page.wait_for_selector(".map-base-check:has-text('not defined')")
-        page.wait_for_timeout(4600)
+        page.clock.run_for(page.evaluate("BASE_CHECK_MS") + 600)
         self.assertTrue(page.locator(".map-base-check:has-text('not defined')").is_visible())
         # Back to the same service for its layers: looked up again, those in use
         # ticked; one the service has dropped is still there, marked.
@@ -1093,8 +1708,8 @@ class BrowserTests(unittest.TestCase):
         page.check(".map-layer-row:has-text('Roads') input")
         page.click("#mapWmsAdd")
         page.wait_for_selector("#toast-notification:has-text('Range Maps saved')")
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.length === 1 && s.basemaps[0].layers === 'roads')"
+        self.wait_for_server(
+            page, "s => s.basemaps.length === 1 && s.basemaps[0].layers === 'roads'"
         )
         self.assertEqual(page.locator(".map-base-detail").count(), 0)
         page.evaluate("saveBasemaps([])")
@@ -1147,7 +1762,10 @@ class BrowserTests(unittest.TestCase):
         # Clicking inside NAI 1 narrows the table to it; its chip widens it again.
         page.click("[data-map-zoom='fit']")
         page.evaluate("document.querySelector('.map-view').scrollTop = 0")
-        page.wait_for_timeout(300)
+        self.settle(
+            page,
+            "document.querySelector('.map-view').scrollTop === 0 && mapView.mpp >= mapFitMpp * 0.99",
+        )
         xy = page.evaluate("""() => {
             const r = document.getElementById('mapBox').getBoundingClientRect();
             const [x, y] = SaltCore.lonLatToMerc(44.36, 33.34);
@@ -1207,6 +1825,63 @@ class BrowserTests(unittest.TestCase):
         viewer.locator("#mapTableBody tr[data-map-row]").first.click()
         viewer.wait_for_selector("#mapCard:not([hidden])")
         self.assertFalse(viewer.locator("[data-card-act='edit']").is_visible())
+
+    def test_escape_and_the_keyboard_on_the_map(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
+        self.log(page, "1x truck", activity="parked", location="38SMB5500082000")
+        self.open_map(page)
+        page.wait_for_selector("#mapTableBody tr[data-map-row] >> nth=1")
+        # A row takes the keyboard's focus, and Enter does what a click does.
+        row = "#mapTableBody tr[data-map-row]:has-text('1x truck')"
+        self.assertEqual(page.get_attribute(row, "tabindex"), "0")
+        page.focus(row)
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#mapCard:not([hidden])")
+        self.assertIn("1x truck", page.text_content("#mapCard"))
+        # The table is redrawn after the map moves; the row keeps the focus.
+        page.wait_for_timeout(300)
+        self.assertIn("1x truck", page.evaluate("document.activeElement.textContent"))
+        # With a report being edited, Escape closes the card, back to its row,
+        # and leaves the edit alone.
+        page.click("[data-card-act='edit']")
+        self.assertTrue(page.locator("#cancelButton").is_visible())
+        page.focus(row)
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#mapCard:not([hidden])")
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#mapCard", state="hidden")
+        self.assertIn("1x truck", page.evaluate("document.activeElement.textContent"))
+        self.assertTrue(page.locator("#cancelButton").is_visible(), "still editing")
+        # The basemap and drone menus close on Escape too, back to their buttons.
+        for btn, pop in (("#mapBaseBtn", "#mapBasePop"), ("#mapDroneBtn", "#mapDronePop")):
+            page.click(btn)
+            page.wait_for_selector(pop, state="visible")
+            page.keyboard.press("Escape")
+            page.wait_for_selector(pop, state="hidden")
+            self.assertEqual(page.evaluate("'#' + document.activeElement.id"), btn)
+            self.assertEqual(page.get_attribute(btn, "aria-expanded"), "false")
+        self.assertTrue(page.locator("#cancelButton").is_visible(), "still editing")
+        # With nothing of the map's open, Escape is the page's again.
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#toast-notification:has-text('Editing cancelled')")
+        # The map itself: arrow keys pan, + and - zoom, 0 shows all.
+        page.focus("#mapBox")
+        before = page.evaluate("mapView.mpp")
+        page.keyboard.press("+")
+        page.wait_for_function(f"() => mapView.mpp < {before}")
+        cx = page.evaluate("mapView.cx")
+        page.keyboard.press("ArrowRight")
+        page.wait_for_function(f"() => mapView.cx > {cx}")
+        cy = page.evaluate("mapView.cy")
+        page.keyboard.press("ArrowUp")
+        page.wait_for_function(f"() => mapView.cy > {cy}")
+        page.keyboard.press("0")
+        page.wait_for_function("() => mapView.mpp >= mapFitMpp * 0.99")
+        page.keyboard.press("+")
+        page.keyboard.press("-")
+        page.wait_for_function("() => mapView.mpp >= mapFitMpp * 0.99")
 
     def test_map_layers_together_all_reports_and_activity(self):
         page = self.open_editor()
@@ -1349,6 +2024,24 @@ class BrowserTests(unittest.TestCase):
         page.click("#exportPanel .ws-tab[data-tab='identity']")
         self.assertEqual(code.inner_text(), "\u2022" * len(CODE))
 
+    def test_the_page_starts_when_browser_storage_throws(self):
+        # Regression: a browser that blocks storage threw on the first raw
+        # localStorage read, and the page never started.
+        self.context.add_init_script(
+            """(() => {
+                const blocked = () => { throw new DOMException('Storage is blocked.', 'SecurityError'); };
+                // Every read throws, the map's and statistics' own settings included.
+                Storage.prototype.getItem = blocked;
+                Storage.prototype.setItem = blocked;
+                Storage.prototype.removeItem = blocked;
+            })();"""
+        )
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        page.click("#dataMgmtBtn")
+        page.click("#toggleTimeFormatBtn")
+        self.assertEqual(page.evaluate("timeDisplayMode"), "local")
+
     def test_mgrs_lock_keeps_its_zone_and_square_after_a_report(self):
         # Regression: logging reset the form, which emptied the box while the lock went on.
         page = self.open_editor()
@@ -1358,7 +2051,7 @@ class BrowserTests(unittest.TestCase):
         # Enter sets it and goes on to Location; it doesn't try to log the report.
         page.press("#mgrsPrefix", "Enter")
         self.assertEqual(page.evaluate("document.activeElement.id"), "location")
-        page.wait_for_timeout(300)
+        self.settle(page)  # a wrong toast would have shown by now
         self.assertNotIn("Please fill in", page.text_content("#toast-notification") or "")
         self.log(page, "2x BMP", location="45000 82000")
         self.assertEqual(page.input_value("#mgrsPrefix"), "38S MB")
@@ -1368,7 +2061,7 @@ class BrowserTests(unittest.TestCase):
         page = self.open_editor()
         self.import_overlays(page)
         self.open_map(page)
-        page.wait_for_timeout(500)
+        self.settle(page)  # the slide to the map and the sidebar's own
         side, btn = (
             page.locator("#mapSide").bounding_box(),
             page.locator("#mapSideBtn").bounding_box(),
@@ -1425,8 +2118,8 @@ class BrowserTests(unittest.TestCase):
         page.check("#mapDroneShow")
         page.wait_for_selector("#mapSvg .map-drone")
         # Shared: the server has it, and a viewer sees it but can't move it.
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.drones.length === 1 && s.drones[0].grid === '38S MB 41000 79000')"
+        self.wait_for_server(
+            page, "s => s.drones.length === 1 && s.drones[0].grid === '38S MB 41000 79000'"
         )
         viewer = self.open_viewer()
         self.open_map(viewer)
@@ -1473,15 +2166,17 @@ class BrowserTests(unittest.TestCase):
         page.fill("#mapDroneRange0", "")
         page.press("#mapDroneRange0", "Enter")
         page.wait_for_function("() => !document.querySelector('#mapSvg .map-drone-range')")
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.drones.length === 1 && !('look' in s.drones[0]) && !('range' in s.drones[0]))"
+        self.wait_for_server(
+            page,
+            "s => s.drones.length === 1 && !('look' in s.drones[0]) && !('range' in s.drones[0])",
         )
         # Moving it keeps where it looks and its range.
         page.evaluate("saveDrones([{ ...sharedDrones[0], look: '38S MB 40000 90000', range: 15 }])")
         page.fill("#mapDroneGrid0", "38SMB4100078000")
         page.press("#mapDroneGrid0", "Enter")
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.drones[0].grid === '38S MB 41000 78000' && s.drones[0].range === 15 && s.drones[0].look === '38S MB 40000 90000')"
+        self.wait_for_server(
+            page,
+            "s => s.drones[0].grid === '38S MB 41000 78000' && s.drones[0].range === 15 && s.drones[0].look === '38S MB 40000 90000'",
         )
         viewer = self.open_viewer()
         self.open_map(viewer)
@@ -1489,6 +2184,81 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("38S MB 40000 90000", viewer.text_content("#mapDronePop"))
         self.assertIn("15 km", viewer.text_content("#mapDronePop"))
         self.assertEqual(viewer.locator("#mapDroneLook0").count(), 0, "viewers can't change it")
+        page.evaluate("saveDrones([])")
+
+    def test_a_refused_save_puts_the_shared_lists_back(self):
+        # Regression: the basemaps, drones and narrative settings were changed
+        # here first, and stayed changed when the server refused them.
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        asked = []
+
+        def refuse(route):
+            asked.append(route.request.url)
+            route.fulfill(status=400, content_type="application/json", body='{"message": "no"}')
+
+        for api in ("save_basemaps", "save_drones", "save_narrative"):
+            page.route(f"**/api/{api}", refuse)
+        basemaps = page.evaluate("JSON.stringify(sharedBasemaps)")
+        page.evaluate(
+            "saveBasemaps([...sharedBasemaps, { name: 'Refused', kind: 'tiles', url: 'https://refused.test/{z}/{x}/{y}.png' }])"
+        )
+        page.wait_for_selector("#toast-notification:has-text('The server refused the basemaps')")
+        self.assertEqual(page.evaluate("JSON.stringify(sharedBasemaps)"), basemaps)
+        self.assertEqual(page.evaluate("localStorage.getItem('salt_basemaps')"), basemaps)
+        self.assertNotIn("Refused", page.text_content("#mapBaseSelect"))
+        page.click("#mapDroneBtn")
+        page.fill("#mapDroneName", "GE 9")
+        page.fill("#mapDroneGridNew", "38SMB4000078000")
+        page.click("#mapDroneAdd")
+        page.wait_for_selector("#toast-notification:has-text('The server refused the drones')")
+        self.assertEqual(page.evaluate("sharedDrones.length"), 0)
+        # The map redraws on the next frame.
+        page.wait_for_function("() => !document.querySelector('#mapSvg .map-drone')")
+        enemy = page.evaluate("sharedNarrative.enemy || ''")
+        page.evaluate("saveNarrative({ enemy: 'NOPE' })")
+        page.wait_for_selector("#toast-notification:has-text('The server refused the narrative')")
+        self.assertEqual(page.evaluate("sharedNarrative.enemy || ''"), enemy)
+        # Past the server's limits: said at once, without asking it.
+        asked.clear()
+        page.evaluate("""() => {
+            sharedDrones = Array.from({ length: 10 }, (_, i) => ({ name: 'D' + i, grid: '38S MB 40000 78000', at: i }));
+            document.getElementById('mapDroneName').value = 'GE 10';
+            document.getElementById('mapDroneGridNew').value = '38SMB4000078000';
+            document.getElementById('mapDroneAdd').click();
+        }""")
+        page.wait_for_selector("#toast-notification:has-text('10 drones at most')")
+        page.evaluate("""() => {
+            sharedBasemaps = Array.from({ length: 20 }, (_, i) => ({ name: 'B' + i, kind: 'tiles', url: 'https://b.test/{z}/{x}/{y}.png' }));
+            addBasemap({ name: 'One more', kind: 'tiles', url: 'https://b.test/{z}/{x}/{y}.png' });
+        }""")
+        page.wait_for_selector("#toast-notification:has-text('20 basemaps at most')")
+        self.assertEqual(asked, [])
+        page.evaluate("sharedDrones = []; sharedBasemaps = []; renderMapView()")
+
+    def test_removing_a_drone_removes_that_drone_whatever_synced_meanwhile(self):
+        # Regression: Remove matched the drone object, so a sync while it
+        # asked "for everyone?" left it in place yet said it was removed.
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        page.evaluate(
+            "saveDrones([{ name: 'GE 1', grid: '38S MB 40000 78000', at: 1 }, { name: 'GE 2', grid: '38S MB 41000 78000', at: 2 }])"
+        )
+        page.click("#mapDroneBtn")
+        page.click("[data-drone-remove='0']")
+        page.wait_for_selector("#confirmation-message:has-text('Remove GE 1')")
+        page.evaluate("sharedDrones = sharedDrones.map(d => ({ ...d })).reverse()")
+        page.click("#confirmActionBtn")
+        page.wait_for_selector("#toast-notification:has-text('GE 1 removed')")
+        self.assertEqual(page.evaluate("sharedDrones.map(d => d.name)"), ["GE 2"])
+        # Gone already: it says so, rather than that it removed it.
+        page.click("[data-drone-remove='0']")
+        page.wait_for_selector("#confirmation-message:has-text('Remove GE 2')")
+        page.evaluate("sharedDrones = []")
+        page.click("#confirmActionBtn")
+        page.wait_for_selector("#toast-notification:has-text('GE 2 is no longer on the map')")
         page.evaluate("saveDrones([])")
 
     def test_shift_click_copies_the_grid_under_it(self):
@@ -1557,7 +2327,7 @@ class BrowserTests(unittest.TestCase):
             page.set_viewport_size({"width": width, "height": 900})
             page.evaluate("mapBaseFailed = true; redrawMap()")
             page.wait_for_selector("#mapNote", state="visible")
-            page.wait_for_timeout(500)  # the sidebar's slide
+            self.settle(page)  # the sidebar's slide
             note = page.locator("#mapNote").bounding_box()
             lowest = page.evaluate(
                 "Math.max(...[...document.querySelectorAll('#mapBox .map-tools > :not(#mapNote):not(.map-tools-break)')]"
@@ -1616,6 +2386,7 @@ class BrowserTests(unittest.TestCase):
     def test_map_full_screen_and_names_on_screen_when_zoomed(self):
         page = self.open_editor()
         self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
         self.open_map(page)
         labels = lambda: page.locator("#mapSvg .map-labels text").all_text_contents()  # noqa: E731
         self.assertIn("NAI 1", labels())
@@ -1634,8 +2405,26 @@ class BrowserTests(unittest.TestCase):
         )
         # The button changes when the browser says full screen began.
         page.wait_for_selector("#mapFullBtn[title='Leave full screen (Esc)']")
+        # The sidebar stays behind, so nothing keeps room for it: the key, the
+        # controls and the card go to the left edge, and its button goes.
+        room = "getComputedStyle(document.getElementById('mapBox')).getPropertyValue('--side-room').trim()"
+        self.assertEqual(page.evaluate(room), "10px")
+        self.assertTrue(page.locator("#mapSideBtn").is_hidden())
+        page.wait_for_function(
+            "() => Math.abs(document.querySelector('#mapBox .map-tools').getBoundingClientRect().left - document.getElementById('mapBox').getBoundingClientRect().left - 10) < 2"
+        )
+        page.evaluate("selectMapReport(localReports[0].id, [20, 100])")
+        page.wait_for_selector("#mapCard:not([hidden])")
+        self.assertLess(
+            page.evaluate("parseFloat(document.getElementById('mapCard').style.left)"), 60
+        )
         page.evaluate("document.exitFullscreen()")
         page.wait_for_function("() => !document.fullscreenElement")
+        self.assertEqual(page.evaluate(room), "210px")
+        self.assertTrue(page.locator("#mapSideBtn").is_visible())
+        page.wait_for_function(
+            "() => parseFloat(document.getElementById('mapCard').style.left) >= 210"
+        )
 
     def test_the_format_stays_when_switching_workspaces(self):
         page = self.open_editor(ato="FORMATA")
@@ -1655,9 +2444,7 @@ class BrowserTests(unittest.TestCase):
             1,
             "kept in a new workspace",
         )
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => (s.format.lines || []).some(l => l.label === 'W'))"
-        )
+        self.wait_for_server(page, "s => (s.format.lines || []).some(l => l.label === 'W')")
         # Another browser, in yet another workspace, has it too.
         second = self.browser.new_context(ignore_https_errors=True)
         self.addCleanup(second.close)
@@ -1670,9 +2457,7 @@ class BrowserTests(unittest.TestCase):
         other.click("#startupContinueBtn")
         other.wait_for_selector("#salt-fields [data-custom-label='W']")
         page.evaluate("saveWorkspaceFormat(defaultFormat())")
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => !(s.format.lines || []).some(l => l.label === 'W'))"
-        )
+        self.wait_for_server(page, "s => !(s.format.lines || []).some(l => l.label === 'W')")
 
     def test_updating_shows_which_report_and_the_panel_keeps_its_width(self):
         page = self.open_editor(title="A very long workspace title for this patrol")
@@ -1697,7 +2482,7 @@ class BrowserTests(unittest.TestCase):
                 page.click(btn)
             widths.append(round(page.locator(".report-section").bounding_box()["width"]))
             # One top bar for every view: the name in the same spot, saying which.
-            page.wait_for_timeout(400)
+            self.settle(page)  # the title's own fade-in
             box = page.locator("#homeTitle").bounding_box()
             spots.append((round(box["x"]), round(box["y"])))
             names.append(page.text_content("#homeTitle"))
@@ -1714,7 +2499,7 @@ class BrowserTests(unittest.TestCase):
         # The button by each heading slides between the two; the heading doesn't scroll.
         page.hover(".report-header h2")
         page.mouse.wheel(0, 120)
-        page.wait_for_timeout(700)
+        self.settle(page)  # a slide the wheel set off would be over
         self.assertTrue(page.locator("#logView").is_visible())
         self.assertEqual(page.text_content("#homeTitle"), "Report Log")
         page.click("[data-home-go='map']")
@@ -1846,6 +2631,46 @@ class BrowserTests(unittest.TestCase):
         page.click("#statsViewToggleBtn")
         page.wait_for_selector(".stats-tile:has-text('Reports') .stats-tile-value:text-is('3')")
 
+    def test_statistics_keep_an_open_table_through_a_sync(self):
+        # Regression: every sync rebuilt the panel, closing the tables opened.
+        page = self.open_editor()
+        self.log(page, "2x T-72", activity="moving N", location="38SMB4500082000")
+        page.click("#statsViewToggleBtn")
+        card = ".stats-card[data-chart='equipment']"
+        table = f"{card} [data-stats-act='table']"
+        page.click(table)
+        self.assertTrue(page.locator(f"{card} .stats-table").is_visible())
+        # A sync that changes nothing leaves the panel as it is.
+        page.evaluate("document.querySelector('.stats-grid').dataset.mark = 'same'")
+        page.evaluate("renderStats()")
+        self.assertEqual(page.get_attribute(".stats-grid", "data-mark"), "same")
+        # One that does redraws it, the open table still open.
+        page.fill("#size", "1x BMP-2")
+        page.fill("#activity", "parked")
+        page.fill("#location", "38SMB4500082100")
+        page.click("#logButton")
+        page.wait_for_selector(".stats-tile:has-text('Reports') .stats-tile-value:text-is('2')")
+        self.assertIsNone(page.get_attribute(".stats-grid", "data-mark"))
+        self.assertTrue(page.locator(f"{card} .stats-table").is_visible())
+        self.assertEqual(page.get_attribute(table, "aria-pressed"), "true")
+        self.assertIn("BMP-2", page.text_content(f"{card} .stats-table"))
+        # And the focus where it was.
+        page.focus(table)
+        page.evaluate("statsBuilt = null; renderStats()")
+        self.assertEqual(
+            page.evaluate(
+                "[document.activeElement.dataset.statsAct, document.activeElement.closest('.stats-card').dataset.chart]"
+            ),
+            ["table", "equipment"],
+        )
+        # The table is the chart's accessible version: reachable, labelled, and
+        # the bars aren't tab stops of their own.
+        self.assertEqual(page.locator(".stats-hit[tabindex]").count(), 0)
+        self.assertEqual(
+            page.get_attribute(table, "aria-label"), "Table of Reported by type, from Size"
+        )
+        self.assertEqual(page.locator(".stats-tip[role]").count(), 0)
+
     def test_summary_reports_write_copy_save_and_print(self):
         page = self.open_editor()
         self.import_overlays(page)
@@ -1884,6 +2709,74 @@ class BrowserTests(unittest.TestCase):
             self.assertIn(part, text)
         self.assertLess(text.index("1. OBSERVED"), text.index("2. ASSESSMENT"))
         self.assertEqual(page.evaluate("summaryCharts().map(c => c.id)"), ["nai", "tags"])
+
+    def test_summary_charts_count_what_statistics_counts(self):
+        # Regression: the Summary's charts always left out a report with no
+        # time; Statistics only when the window has a bound.
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x T-72", activity="moving N", location="38SMB4500082000")
+        page.click("#summaryViewToggleBtn")
+        # Both over every report, one of them with no time (in one go, so no
+        # sync replaces the reports between).
+        counts = page.evaluate("""() => {
+            localReports.push({ ...localReports[0], id: 'no-time', time: '' });
+            fillWindow(summaryEls(), 0);
+            fillWindow(statsEls(), 0);
+            const nai = items => items.find(i => i.label === 'NAI 1').value;
+            const summary = nai(summaryCharts().find(c => c.id === 'nai').items);
+            const stats = nai(SaltCore.statsData(statsWindow().reps, currentOverlays(), {}).nai);
+            localReports.pop();
+            return [summary, stats];
+        }""")
+        self.assertEqual(counts, [2, 2])
+        # Straight from one view to another: the Report Log isn't drawn and
+        # animated in between.
+        page.evaluate("document.getElementById('homeView').classList.remove('view-in')")
+        page.click("#statsViewToggleBtn")
+        page.wait_for_selector("#statsPanel", state="visible")
+        page.click("#summaryViewToggleBtn")
+        self.assertFalse(
+            page.evaluate("document.getElementById('homeView').classList.contains('view-in')")
+        )
+        # Closed, it's the Report Log again.
+        page.click("#summaryViewToggleBtn")
+        page.wait_for_selector("#reportLogTable")
+        self.assertTrue(
+            page.evaluate("document.getElementById('homeView').classList.contains('view-in')")
+        )
+
+    def test_summary_edge_cases_and_the_narrative_edited_unwrapped(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        long = "moving north along the main supply route toward the river crossing site by the old bridge"
+        self.log(page, "2x T-72", activity=long, location="38SMB4500082000")
+        self.log(page, "3x BMP-2", activity=long, location="38SMB4600082000")
+        page.click("#summaryViewToggleBtn")
+        # An unknown kind (from another version) or a one-line text: no charts, no error.
+        self.assertEqual(
+            page.evaluate("""() => {
+                const kind = summaryKind, text = summaryText;
+                summaryKind = 'bogus'; const a = summaryCharts().length;
+                summaryKind = kind; summaryText = 'ONE LINE'; const b = summaryCharts().length >= 0;
+                summaryText = text;
+                return [a, b];
+            }"""),
+            [0, True],
+        )
+        # Edit on the Narrative starts from its paragraphs unwrapped: the box
+        # wraps them to its width, so no line breaks twice.
+        page.click("[data-summary-kind='narrative']")
+        page.wait_for_selector("#summaryText:has-text('2. ASSESSMENT')")
+        shown = page.inner_text("#summaryText")
+        page.click("#summaryEditBtn")
+        edited = page.input_value("#summaryEditor")
+        self.assertEqual(" ".join(edited.split()), " ".join(shown.split()))
+        self.assertLess(len(edited.splitlines()), len(shown.splitlines()))
+        self.assertGreater(max(len(line) for line in edited.splitlines()), 100)
+        # Opened and closed without a change: not an edit.
+        page.click("#summaryEditBtn")
+        self.assertFalse(page.locator("#summaryEdited").is_visible())
 
     def test_the_narrative_names_units_takes_your_equipment_and_rules_and_can_be_edited(self):
         page = self.open_editor()
@@ -2024,6 +2917,111 @@ class BrowserTests(unittest.TestCase):
         self.assertFalse(page.locator("#summaryEdited").is_visible())
         page.evaluate("saveNarrative({ enemy: '', units: [], equipment: [], off: [], custom: [] })")
 
+    def test_narrative_settings_save_and_remove_the_entry_opened(self):
+        # Regression: an open entry was known by its place in the list, so an
+        # entry added or removed by someone else meanwhile made Save overwrite,
+        # and Remove delete, the wrong one.
+        page = self.open_editor()
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        unit = "u => ({ name: u, places: [], kinds: [] })"
+        page.evaluate(f"saveNarrative({{ units: ['A-1', 'B-2'].map({unit}) }})")
+        page.wait_for_selector("[data-narr-id='b-2']")
+        page.click("[data-narr-id='b-2']")
+        # Someone else removes A-1 (a sync), under the open form.
+        page.evaluate(
+            f"sharedNarrative = {{ ...sharedNarrative, units: ['B-2'].map({unit}) }}; renderSummary()"
+        )
+        page.fill("#narrUnitName", "B-3")
+        page.click("[data-narr-save]")
+        page.wait_for_selector("#toast-notification:has-text('B-3 saved')")
+        self.assertEqual(page.evaluate("sharedNarrative.units.map(u => u.name)"), ["B-3"])
+        # And removes B-3 while it's open here: Remove says so and changes nothing.
+        page.click("[data-narr-id='b-3']")
+        page.evaluate(
+            f"sharedNarrative = {{ ...sharedNarrative, units: ['C-4'].map({unit}) }}; renderSummary()"
+        )
+        page.click("[data-narr-remove]")
+        page.click("[data-narr-remove]")
+        page.wait_for_selector("#toast-notification:has-text('Someone else removed B-3')")
+        self.assertEqual(page.evaluate("sharedNarrative.units.map(u => u.name)"), ["C-4"])
+        page.wait_for_selector("#narrUnitName", state="detached")
+        page.evaluate("saveNarrative({ enemy: '', units: [], equipment: [], off: [], custom: [] })")
+
+    def test_the_narrative_settings_and_map_controls_say_what_they_are(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "1x XYZ-9", location="38SMB4500082000")
+        self.open_map(page)
+        # Labelled groups, the slider read as the time it shows, switches as switches.
+        self.assertEqual(page.get_attribute("#mapBox .map-tools", "role"), "group")
+        self.assertEqual(page.get_attribute("#mapBox .filter-presets", "role"), "group")
+        self.assertEqual(page.get_attribute("#mapEndRange", "aria-valuetext"), "Now")
+        page.fill("#mapEndRange", "0")
+        page.dispatch_event("#mapEndRange", "input")
+        self.assertEqual(
+            page.get_attribute("#mapEndRange", "aria-valuetext"), page.text_content("#mapEndLabel")
+        )
+        page.click("#mapEndNow")
+        page.click("#mapDroneBtn")
+        self.assertEqual(page.locator("#mapDronePop input[role='switch']").count(), 2)
+        page.click("#mapDroneBtn")
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        # The dot on Equipment is said, not only shown.
+        self.assertIn("catalogue doesn't know", page.text_content("[data-narr-tab='equipment']"))
+        # A dropdown's menu is a group of toggle buttons, its button named by its question.
+        page.click("[data-narr-add]")
+        page.click("[data-narr-dd='kind'] .narr-dd-btn")
+        self.assertEqual(page.get_attribute("[data-narr-dd='kind'] .narr-dd-menu", "role"), "group")
+        page.click("[data-narr-kind='infantry']")
+        self.assertEqual(page.get_attribute("[data-narr-kind='infantry']", "aria-pressed"), "true")
+        self.assertEqual(
+            page.locator(".narr-panel [role='option'], .narr-panel [role='listbox']").count(), 0
+        )
+        self.assertEqual(
+            page.get_by_role("button", name="What it has dismounted personnel").count(), 1
+        )
+        page.click("[data-narr-back]")
+        # One choice of several: radios, one tab stop, the arrow keys move the choice.
+        page.click("[data-narr-tab='equipment']")
+        page.click("[data-narr-fill='XYZ-9']")
+        radio = "[role='radiogroup'][aria-label='What it is'] [role='radio']"
+        self.assertEqual(
+            page.locator(radio).evaluate_all("rs => rs.filter(r => r.tabIndex === 0).length"), 1
+        )
+        page.focus(f"{radio} >> nth=0")
+        page.keyboard.press("ArrowRight")
+        self.assertEqual(page.get_attribute(f"{radio} >> nth=1", "aria-checked"), "true")
+        self.assertEqual(page.get_attribute(f"{radio} >> nth=0", "aria-checked"), "false")
+        self.assertEqual(
+            page.evaluate("document.activeElement.getAttribute('aria-checked')"), "true"
+        )
+        page.click("[data-narr-back]")
+        page.click("[data-narr-tab='rules']")
+        self.assertEqual(
+            page.locator("input.narr-switch:not([role='switch'])").count(), 0, "every one a switch"
+        )
+
+    def test_escape_in_the_narrative_settings_leaves_an_edit_alone(self):
+        # Regression: Escape closed the settings' form and cancelled the edit too.
+        page = self.open_editor()
+        self.log(page, "2x BMP")
+        page.click("#reportLogBody tr[data-id] .col-size:has-text('2x BMP')")
+        self.assertTrue(page.locator("#cancelButton").is_visible())
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        page.click("[data-narr-add]")
+        page.click("[data-narr-dd='kind'] .narr-dd-btn")
+        page.keyboard.press("Escape")
+        self.assertFalse(page.locator("[data-narr-kind='infantry']").is_visible())
+        self.assertEqual(
+            page.evaluate("document.activeElement.closest('[data-narr-dd]').dataset.narrDd"), "kind"
+        )
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#narrUnitName", state="detached")
+        self.assertTrue(page.locator("#cancelButton").is_visible(), "still editing")
+
     def test_the_welcome_screen_hides_the_page_whichever_view_was_last(self):
         # The map's panes set their own visibility to slide; none may show through.
         self.context.add_init_script("localStorage.setItem('salt_log_view', 'map')")
@@ -2031,7 +3029,7 @@ class BrowserTests(unittest.TestCase):
         page.on("pageerror", lambda exc: self.errors.append(str(exc)))
         page.goto(self.editor + "/")
         page.wait_for_selector("#startupModal.show")
-        page.wait_for_timeout(800)  # past the panes' own transitions
+        self.settle(page)  # past the panes' own transitions
         shown = page.evaluate(
             """[...document.querySelectorAll('.app-wrapper *')]
                 .filter(e => getComputedStyle(e).visibility === 'visible' && e.getClientRects().length)

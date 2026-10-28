@@ -77,7 +77,7 @@ const buildBdaRow = (report) => {
     // Checklist: one row per element from the report, already paired with its
     // grid, less what has been assessed of it, so the list only ever shows
     // what's still outstanding. How many to log defaults to all that's left.
-    const pending  = SaltCore.bdaPending(report);
+    const pending  = SaltCore.bdaPending(report, narrTeam());
     const effBtns  = (i, picked) => BDA_EFFECTS.map(e =>
         `<button type="button" class="bda-eff-btn bda-eff-${e.cls}${e.name === picked ? ' picked' : ''}" data-bda-eff="${e.name}" data-row="${i}" title="${e.name}">${e.key}</button>`).join('');
     const rows = pending.map((e, i) => {
@@ -118,7 +118,7 @@ const commitBdaEntries = (reportId, wrap) => {
     if (isReadOnly) { showToast('View-only mode. BDA entry is disabled here.', true); return; }
     const report = localReports.find(r => r.id === reportId);
     if (!report) return;
-    const now  = Date.now();
+    const now  = nextStamp(report);
     const iso  = new Date().toISOString();
     const adds = [];
     wrap.querySelectorAll('.bda-check-row').forEach(row => {
@@ -160,7 +160,7 @@ const updateBdaEffect = (reportId, lm, effect) => {
     entry.effect = effect;
     entry.time   = new Date().toISOString();
     entry.user   = userProfile || null;
-    report.lastModified = Date.now();
+    report.lastModified = nextStamp(report);
     reportsByAto[activeAto] = localReports;
     saveLocalAndSync(reportsByAto);
     showToast(`${entry.target || 'Assessment'}: ${prev} → ${effect}.`);
@@ -172,15 +172,13 @@ const deleteBdaEntry = (reportId, lm) => {
     if (!report || !report.bda) return;
     showConfirmation('Delete this BDA assessment?', () => {
         report.bda = report.bda.filter(b => b.lastModified !== lm);
-        report.lastModified = Date.now();
+        report.lastModified = nextStamp(report);
         reportsByAto[activeAto] = localReports;
         saveLocalAndSync(reportsByAto);
         showToast('BDA assessment deleted.');
     });
 };
 
-// `filterText` defaults to the current search-bar value so every repaint
-// preserves the active filter without the caller having to pass it.
 // The BDA roll-up strip: totals for the whole workspace as chips. Clicking a
 // chip shows only the reports with that outcome (Unassessed: reports with
 // elements still to assess); clicking it again clears the filter.
@@ -207,7 +205,8 @@ const locationTags = (text, id) => {
     const a = locationInfo(text);
     const tags = [];
     [a.nai, a.obj].forEach(p => {
-        if (p.from === 'grid') p.keys.forEach(k => tags.push(`<span class="loc-tag loc-${k.split(' ')[0].toLowerCase()}" title="The grid is inside ${escapeHtml(k)}">${escapeHtml(k)}</span>`));
+        // The key comes from an overlay's name: only letters, digits and hyphens make the class.
+        if (p.from === 'grid') p.keys.forEach(k => tags.push(`<span class="loc-tag loc-${k.split(' ')[0].toLowerCase().replace(/[^a-z0-9-]/g, '')}" title="The grid is inside ${escapeHtml(k)}">${escapeHtml(k)}</span>`));
     });
     const near = a.nearestPl;
     if (near && !a.pl.includes(near.key) && a.pls.includes(near.key)) {
@@ -224,7 +223,7 @@ const locationTags = (text, id) => {
 // on its own (N, SW...) matches the Activity's word; anything else, the
 // report's text, time, custom fields and BDA. The table and the map both use it.
 const matchesSearch = (r, filterText) => {
-    const q = String(filterText || '').trim();
+    const q = String(filterText || '').trim().toLowerCase();
     if (!q) return true;
     if (/^(n|ne|nw|s|se|sw|e|w)$/i.test(q)) return new RegExp(`\\b${q}\\b`, 'i').test(r.activity);
     const ts  = (timeDisplayMode === 'local' ? toLocalTimeString : toZuluTimeString)(r.time);
@@ -232,12 +231,37 @@ const matchesSearch = (r, filterText) => {
     // so "destroyed" or a weather note finds its report.
     const cus = Object.values(r.custom || {}).join(' ');
     const bda = (r.bda || []).map(b => `${b.effect||''} ${b.target||''} ${b.coords||''} ${b.note||''}`).join(' ');
-    return `${r.fullId} ${r.displayId} ${r.size} ${r.activity} ${r.location} ${r.yourAnalysis||''} ${r.user?.initials||''} ${ts} ${cus} ${bda}`.toLowerCase().includes(filterText);
+    return `${r.fullId} ${r.displayId} ${r.size} ${r.activity} ${r.location} ${r.yourAnalysis||''} ${r.user?.initials||''} ${ts} ${cus} ${bda}`.toLowerCase().includes(q);
 };
 
+// Forget checked rows and expanded cells whose report (or history entry) is
+// gone: deleted, or in another workspace now.
+const pruneTableState = (live) => {
+    const byId = new Map(live.map(r => [r.id, r]));
+    selectedRows.forEach(id => { if (!byId.has(id)) selectedRows.delete(id); });
+    selectedHistory.forEach(k => {
+        const [id, lm] = k.split('|');
+        if (!((byId.get(id) || {}).history || []).some(h => String(h.lastModified) === lm)) selectedHistory.delete(k);
+    });
+    expandedCells.forEach(k => { if (!byId.has(k.split('|')[0])) expandedCells.delete(k); });
+};
+
+// `filterText` defaults to the current search-bar value so every repaint
+// preserves the active filter without the caller having to pass it.
 const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
     keepBdaDrafts();
+    // A row control with keyboard focus gets it back after the redraw (the
+    // checklist's boxes are put back by keepBdaDrafts' own record).
+    // Found again by what names it (its report, its version); one named by
+    // nothing of the kind is left, rather than focusing the wrong one.
+    const had = document.activeElement;
+    const names = had && had !== document.body && el.log.body.contains(had) && !bdaFocus
+        ? ['data-id', 'data-lm', 'data-history-id', 'data-bda-id', 'data-edit-id', 'data-restore-id', 'data-discard-id', 'data-bda-del', 'data-fix-loc']
+            .filter(a => had.hasAttribute(a)).map(a => `[${a}="${CSS.escape(had.getAttribute(a))}"]`)
+        : [];
+    const refocus = names.length ? had.tagName.toLowerCase() + names.join('') + (had.classList[0] ? `.${CSS.escape(had.classList[0])}` : '') : null;
     let rows = localReports.filter(r => !r.deleted);
+    pruneTableState(rows);
     el.log.count.textContent = `${rows.length} unique reports`;
     // Total = each live report + its history entries. Deleted excluded.
     const totalReports = rows.reduce((sum, r) => sum + 1 + ((r.history && r.history.length) || 0), 0);
@@ -265,16 +289,18 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
 
     // Dense free-text content (several MGRS grids, a long analysis) can wrap
     // into a very tall cell. Clamp to 2 lines; cells that actually overflow
-    // get a click-to-expand affordance (marked post-render, see below).
-    const clampCell = (text) => `<span class="cell-clamp" title="${escapeHtml(text)}">${escapeHtml(text)}</span>`;
+    // get a click-to-expand affordance (marked post-render, see below). `key`
+    // names the cell, so one expanded stays expanded over a redraw.
+    const clampCell = (text, key) => `<span class="cell-clamp${expandedCells.has(key) ? ' expanded' : ''}" data-cell="${escapeHtml(key)}" title="${escapeHtml(text)}">${escapeHtml(text)}</span>`;
 
     // Keep the header's custom columns in step with the format, then emit a
     // matching cell per row (works for history rows too, which carry their
     // own `custom` snapshot).
     syncCustomColumns();
     const cusCols  = customColumns();
-    const cusCells = (obj) => cusCols.map(l =>
-        `<td class="col-custom">${clampCell((obj || {})[l.label] || '')}</td>`).join('');
+    const cusCells = (obj, key) => cusCols.map(l =>
+        `<td class="col-custom">${clampCell((obj || {})[l.label] || '', `${key}|custom:${l.label}`)}</td>`).join('');
+    const editingId = el.form.reportId.value;
 
     // Build into a fragment — one reflow on attach instead of N.
     const frag = document.createDocumentFragment();
@@ -283,13 +309,23 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
         const isOpen = openHistoryRows.has(report.id);
         const row    = document.createElement('tr');
         row.dataset.id = report.id;
+        // The report in the form stays highlighted through a redraw.
+        if (report.id === editingId) row.classList.add('selected-row');
+        const rid    = report.id;
+        const shownId = formatFullId(report);
         const histBtn = (report.history && report.history.length > 0)
-            ? `<button class="history-btn ${isOpen ? 'open' : ''}" data-history-id="${escapeHtml(report.id)}" title="View past versions">&#8250;</button>`
-            : `<button class="history-btn" style="visibility:hidden;" disabled>&#8250;</button>`;
+            ? `<button class="history-btn ${isOpen ? 'open' : ''}" data-history-id="${escapeHtml(report.id)}" title="View past versions" aria-label="Past versions of ${escapeHtml(shownId)}" aria-expanded="${isOpen}">&#8250;</button>`
+            : `<button class="history-btn" style="visibility:hidden;" disabled aria-hidden="true">&#8250;</button>`;
         const refused     = isReadOnly ? null : unsavedEntry(activeAto, report);
-        const statusText  = (report.updated || refused)
-            ? `<span class="id-cell-wrap">${escapeHtml(formatFullId(report))}${report.updated ? '<span class="id-updated-badge">(Updated)</span>' : ''}${refused ? `<span class="unsaved-badge" title="${escapeHtml(refused.reason)}">Not saved</span>` : ''}</span>`
-            : escapeHtml(formatFullId(report));
+        let statusText    = (report.updated || refused)
+            ? `<span class="id-cell-wrap">${escapeHtml(shownId)}${report.updated ? '<span class="id-updated-badge">(Updated)</span>' : ''}${refused ? `<span class="unsaved-badge" title="${escapeHtml(refused.reason)}">Not saved</span>` : ''}</span>`
+            : escapeHtml(shownId);
+        // Editors load a report into the form from its row; the Identifier is
+        // a button so the keyboard can too (it looks as the text did).
+        if (!isReadOnly) {
+            const said = `Edit ${shownId}${report.updated ? ', updated' : ''}${refused ? `, not saved: ${refused.reason}` : ''}`;
+            statusText = `<button type="button" class="id-edit-btn" data-edit-id="${escapeHtml(report.id)}" aria-label="${escapeHtml(said)}">${statusText}</button>`;
+        }
         const discardBtn  = refused ? `<button class="discard-btn" data-discard-id="${escapeHtml(report.id)}" title="Drop this unsaved change">Discard</button>` : '';
         // Use the user recorded on the report itself (avoids color collisions
         // when two operators share initials).
@@ -312,9 +348,9 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
             const tip   = done === 0 ? 'No assessments yet'
                         : (total && done < total) ? `${done} of ${total} assessed`
                         : `All ${done} assessed`;
-            bdaBtn = `<button class="bda-btn ${state}${worstCls ? ' bda-worst-' + worstCls : ''}${openBdaRows.has(report.id) ? ' open' : ''}" data-bda-id="${escapeHtml(report.id)}" title="${tip}">${label}</button>`;
+            bdaBtn = `<button class="bda-btn ${state}${worstCls ? ' bda-worst-' + worstCls : ''}${openBdaRows.has(report.id) ? ' open' : ''}" data-bda-id="${escapeHtml(report.id)}" title="${tip}" aria-expanded="${openBdaRows.has(report.id)}">${label}</button>`;
         }
-        row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${escapeHtml(report.id)}" title="Select"> ${histBtn} <button class="copy-btn" data-id="${escapeHtml(report.id)}">Copy</button>${discardBtn}${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${clampCell(report.size)}</td><td class="col-activity">${clampCell(report.activity)}</td><td class="col-location">${clampCell(report.location)}${locationTags(report.location, report.id)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}</td><td class="col-analysis">${clampCell(report.yourAnalysis)}</td>${cusCells(report.custom)}`;
+        row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${escapeHtml(report.id)}" title="Select" aria-label="Select ${escapeHtml(shownId)}"${selectedRows.has(rid) ? ' checked' : ''}> ${histBtn} <button class="copy-btn" data-id="${escapeHtml(report.id)}" aria-label="Copy ${escapeHtml(shownId)}">Copy</button>${discardBtn}${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${clampCell(report.size, `${rid}|size`)}</td><td class="col-activity">${clampCell(report.activity, `${rid}|activity`)}</td><td class="col-location">${clampCell(report.location, `${rid}|location`)}${locationTags(report.location, report.id)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}</td><td class="col-analysis">${clampCell(report.yourAnalysis, `${rid}|analysis`)}</td>${cusCells(report.custom, rid)}`;
         frag.appendChild(row);
 
         if (bdaMode && openBdaRows.has(report.id)) frag.appendChild(buildBdaRow(report));
@@ -325,13 +361,17 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
                 hRow.className = 'history-sub-row';
                 const hRep  = h.user || null;
                 const hHTML = hRep ? `<span style="color:${safeColor(hRep.color)};">${escapeHtml(hRep.initials)}</span>` : '?';
-                hRow.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="history-selector" data-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Select history entry"> <span class="hist-arrow">&#8618;</span> <button class="restore-btn" data-restore-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Restore this version as current">Restore</button></div></td><td class="col-by reporter-col">${hHTML}</td><td class="col-id"><span class="id-cell-wrap">${escapeHtml(formatFullId(report))}<span class="id-updated-badge">(Update #${arr.length - i})</span></span></td><td class="col-size">${clampCell(h.size)}</td><td class="col-activity">${clampCell(h.activity)}</td><td class="col-location">${clampCell(h.location)}</td><td class="col-time">${escapeHtml(timeFmt(h.time))}</td><td class="col-analysis">${clampCell(h.yourAnalysis)}</td>${cusCells(h.custom)}`;
+                const hk = `${rid}|${h.lastModified}`;
+                hRow.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="history-selector" data-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Select history entry" aria-label="Select update ${arr.length - i} of ${escapeHtml(shownId)}"${selectedHistory.has(hk) ? ' checked' : ''}> <span class="hist-arrow">&#8618;</span> <button class="restore-btn" data-restore-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Restore this version as current">Restore</button></div></td><td class="col-by reporter-col">${hHTML}</td><td class="col-id"><span class="id-cell-wrap">${escapeHtml(formatFullId(report))}<span class="id-updated-badge">(Update #${arr.length - i})</span></span></td><td class="col-size">${clampCell(h.size, `${hk}|size`)}</td><td class="col-activity">${clampCell(h.activity, `${hk}|activity`)}</td><td class="col-location">${clampCell(h.location, `${hk}|location`)}</td><td class="col-time">${escapeHtml(timeFmt(h.time))}</td><td class="col-analysis">${clampCell(h.yourAnalysis, `${hk}|analysis`)}</td>${cusCells(h.custom, hk)}`;
                 frag.appendChild(hRow);
             });
         }
     });
 
     el.log.body.replaceChildren(frag);
+    // Delete (and Send) follow what is checked now.
+    updateSelectionUI();
+    if (refocus) { const again = el.log.body.querySelector(refocus); if (again) again.focus({ preventScroll: true }); }
     if (bdaFocus) {
         const wrap = el.log.body.querySelector(`[data-bda-commit="${CSS.escape(bdaFocus.id)}"]`);
         const row = wrap && [...wrap.closest('.bda-wrap').querySelectorAll('.bda-check-row')].find(r => r.dataset.key === bdaFocus.key);
@@ -352,12 +392,20 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
     });
 };
 
-const loadConfig = () => {
-    el.config.ato.value   = localConfig.ato   || '';
-    el.config.title.value = localConfig.title || '';
-    setAtoState(!!(localConfig.ato && localConfig.title));
-    // A brand-new workspace inherits the format you were just using.
-    // Form field order follows the active workspace's format.
+// True from Change (or typing in the workspace fields) until Set applies it.
+let configChanging = false;
+// `fromSync`: a peer's change arriving. It leaves the workspace fields alone
+// while they're being changed or have focus, so it can't overwrite what's
+// typed there or lock them again mid-change.
+const loadConfig = ({ fromSync = false } = {}) => {
+    const cfg = [el.config.ato, el.config.title, el.config.history];
+    const busy = fromSync && (configChanging || cfg.includes(document.activeElement));
+    if (!busy) {
+        el.config.ato.value   = localConfig.ato   || '';
+        el.config.title.value = localConfig.title || '';
+        setAtoState(!!(localConfig.ato && localConfig.title));
+    }
+    // Form field order follows the format, shared by every workspace.
     applyFormFieldOrder();
 };
 
@@ -385,6 +433,8 @@ const updateSortIcons = () => {
         const icon   = th.querySelector('.sort-icon');
         icon.textContent = !active ? '⇅' : currentSortMode === 'recent' ? '⊙' : currentSortMode.endsWith('Asc') ? '▲' : '▼';
         icon.classList.toggle('active', active);
+        // Most recently changed first is neither ascending nor descending.
+        th.setAttribute('aria-sort', !active ? 'none' : currentSortMode === 'recent' ? 'other' : currentSortMode.endsWith('Asc') ? 'ascending' : 'descending');
     });
 };
 
@@ -399,7 +449,9 @@ const updateSelectionUI = () => {
     el.log.deleteBtn.style.display = n > 0 ? 'inline-block' : 'none';
     if (activeAto === 'IMPORT' && nMain > 0) {
         const targets = Object.keys(reportsByAto).filter(k => k !== 'IMPORT' && (reportsByAto[k]||[]).some(r => !r.deleted));
+        const picked  = el.log.sendSelect.value;   // kept over a redraw
         el.log.sendSelect.innerHTML = targets.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
+        if (targets.includes(picked)) el.log.sendSelect.value = picked;
         el.log.sendSelect.style.display = targets.length > 0 ? 'inline-block' : 'none';
         el.log.sendBtn.style.display    = targets.length > 0 ? 'inline-block' : 'none';
     } else {

@@ -6,6 +6,30 @@
 
 // --- 10. Event handlers ---
 
+// Someone saved the report in the form after it was loaded. Resolves 'mine'
+// (write over theirs), 'theirs' (theirs is loaded into the form instead), or
+// null for Cancel.
+const askEditConflict = async (theirs) => {
+    const who = (theirs.user && theirs.user.initials) || 'Someone';
+    const now = [theirs.size, theirs.activity, theirs.location].filter(Boolean).join(' · ');
+    const pick = await askChoice(`${who} changed this report since you opened it`,
+        `${formatFullId(theirs)} now reads ${now}.`,
+        [{ label: 'Keep theirs', value: 'theirs', primary: true }, { label: 'Overwrite theirs', value: 'mine' }]);
+    if (pick === 'theirs') loadReportForEditing(theirs.id);
+    return pick;
+};
+
+// The form's values put back over a report loaded for editing.
+const refillForm = (data) => {
+    el.form.size.value     = data.size;
+    el.form.activity.value = data.activity;
+    el.form.location.value = data.location;
+    el.form.analysis.value = data.yourAnalysis || '';
+    el.form.time.value     = clockValue(new Date(data.time), timeDisplayMode === 'local');
+    document.querySelectorAll('#salt-fields [data-custom-label]').forEach(i => { i.value = (data.custom || {})[i.dataset.customLabel] || ''; });
+    renderLocationHints();
+};
+
 // Form submit. `mode`: 'new' (log new), 'edit' (overwrite, no history),
 // 'update' (snapshot old values to history[]).
 async function handleFormSubmit(mode) {
@@ -32,13 +56,25 @@ async function handleFormSubmit(mode) {
     // With MGRS Lock on, grids typed as digits get the locked zone and square.
     const locked = lockedLocation(el.form.location.value);
     if (locked !== el.form.location.value) el.form.location.value = locked;
+    // Toasts from here on (settling the Location, a refused upload) say more
+    // than "logged", which then stays out of their way.
+    const toastsBefore = toastsShown;
     // Name the NAI / OBJ / PL the grid is in, and settle any that disagree.
     const settled = await settleLocation(el.form.location.value);
     if (settled === null) { el.form.location.focus(); return; }
     if (settled !== el.form.location.value) { el.form.location.value = settled; renderLocationHints(); }
 
-    let reports = [...localReports];
     const idToUpdate = el.form.reportId.value;
+    // Changed by someone else since it was loaded: ask before writing over it.
+    if (idToUpdate && (mode === 'edit' || mode === 'update') && editingVersion && editingVersion.id === idToUpdate) {
+        const cur = localReports.find(r => r.id === idToUpdate);
+        if (cur && !cur.deleted && editedFields(cur) !== editingVersion.fields) {
+            if (await askEditConflict(cur) !== 'mine') return;
+            editingVersion = { id: cur.id, fields: editedFields(cur) };
+        }
+    }
+
+    let reports = [...localReports];
     const timeValue  = el.form.time.value.trim();
     // An edited report whose time box was left alone keeps its timestamp;
     // a typed time gets today's date, or yesterday's when it is more than an
@@ -47,7 +83,8 @@ async function handleFormSubmit(mode) {
     const finalTime = SaltCore.submittedTime(timeValue, timeDisplayMode === 'local', editing ? editing.time : null);
     if (!finalTime) { showToast('Invalid time. Use HH:MM (24-hour).', true); return; }
 
-    const now  = Date.now();
+    // Past the version being replaced, whatever this browser's clock says.
+    const now  = nextStamp(editing);
     const data = { size:el.form.size.value, activity:el.form.activity.value, location:normalizeLocation(el.form.location.value), time:finalTime, yourAnalysis:el.form.analysis.value, custom:collectCustomValues() };
     let finalReport;
     // Track whether this iteration is an Edit so we can route to the dedicated
@@ -88,8 +125,6 @@ async function handleFormSubmit(mode) {
             finalReport = { ...orig, ...data, history:hist, updated:changed, lastModified:now, user:userProfile };
         }
         reports[idx] = finalReport;
-        const verb = mode === 'edit' ? 'edited' : 'saved';
-        showToast(`${formatFullId(finalReport)} ${verb} & copied!`);
     } else {
         // NEW REPORT path
         const atoPrefix   = SaltCore.atoPrefix(el.config.ato.value);
@@ -102,7 +137,6 @@ async function handleFormSubmit(mode) {
         if (reports.some(r => !r.deleted && r.displayId === newDid)) { showToast(`${newDid} already exists.`, true); return; }
         finalReport = { ...data, id:generateUUID(), displayId:newDid, ato:atoPrefix, title:titlePrefix, fullId:`${titlePrefix}${newDid}`, history:[], updated:false, lastModified:now, user:userProfile };
         reports.push(finalReport);
-        showToast(`${formatFullId(finalReport)} logged & copied!`);
     }
 
     localReports = reports;
@@ -110,34 +144,55 @@ async function handleFormSubmit(mode) {
     // Copy and clear now, while the click is fresh (clipboard access needs
     // it) and before the upload: an operator who starts the next report while
     // this one is still being sent must not have the fields wiped under them.
-    copyToClipboard(generateReportText(finalReport));
+    const copying = copyToClipboard(generateReportText(finalReport));
     resetForm();
+    // Not awaited: the upload doesn't wait on the clipboard. Nor does it
+    // cover a toast the upload has shown by then (a refusal says more).
+    const verb = !idToUpdate || mode === 'new' ? 'logged' : mode === 'edit' ? 'edited' : 'saved';
+    const shownId = formatFullId(finalReport);
+    copying.then(ok => {
+        if (toastsShown === toastsBefore) showToast(ok ? `${shownId} ${verb} and copied.` : `${shownId} ${verb}. It couldn't be copied: use Copy on its row.`);
+    });
 
     // Edit mode also hits the dedicated server route so the server can apply a
     // surgical overwrite (no history mutation) and broadcast SSE to peers. The
     // subsequent saveLocalAndSync push still runs as a safety net via merge.
+    // Unreachable or refused, the save_reports push below reconciles or says
+    // why. A 409 is the server holding a newer version than the one edited:
+    // fetch it and ask, as when the change is seen before submitting.
     if (editTargetId && finalReport) {
-        try {
-            await postJson('/api/edit_report', {
-                ato:      activeAto,
-                reportId: editTargetId,
-                fields: {
-                    size:         finalReport.size,
-                    activity:     finalReport.activity,
-                    location:     finalReport.location,
-                    time:         finalReport.time,
-                    yourAnalysis: finalReport.yourAnalysis,
-                    displayId:    finalReport.displayId,
-                    fullId:       finalReport.fullId,
-                    ato:          finalReport.ato,
-                    title:        finalReport.title,
-                    updated:      finalReport.updated,
-                    custom:       finalReport.custom || {},
-                    user:         userProfile,
-                    lastModified: now
-                }
-            });
-        } catch (err) { /* offline — save_reports below will reconcile on next push */ }
+        const res = await apiPost('/api/edit_report', {
+            ato:      activeAto,
+            reportId: editTargetId,
+            fields: {
+                size:         finalReport.size,
+                activity:     finalReport.activity,
+                location:     finalReport.location,
+                time:         finalReport.time,
+                yourAnalysis: finalReport.yourAnalysis,
+                displayId:    finalReport.displayId,
+                fullId:       finalReport.fullId,
+                ato:          finalReport.ato,
+                title:        finalReport.title,
+                updated:      finalReport.updated,
+                custom:       finalReport.custom || {},
+                user:         userProfile,
+                lastModified: now
+            }
+        });
+        if (res.status === 409) {
+            await syncWithServer();
+            const theirs = localReports.find(r => r.id === editTargetId && !r.deleted);
+            if (!theirs) { showToast('That report no longer exists. Another operator may have deleted it.', true); return; }
+            const pick = await askEditConflict(theirs);
+            if (pick === 'theirs') return;
+            // Mine, or Cancel: this edit goes back in the form over theirs;
+            // mine is then saved again, past their version.
+            loadReportForEditing(theirs.id);
+            refillForm(data);
+            if (pick === 'mine') await handleFormSubmit(mode);
+            return;
+        }
     }
 
     // Await the push so a stale broadcast from another client can't clobber the
@@ -198,10 +253,13 @@ el.log.body.addEventListener('click', e => {
     }
     if (e.target.classList.contains('copy-btn')) {
         const report = localReports.find(r => r.id === e.target.dataset.id);
-        if (report) { copyToClipboard(generateReportText(report)); showToast(`Copied ${formatFullId(report)} to clipboard`); }
+        if (report) copyToClipboard(generateReportText(report)).then(ok => showToast(ok
+            ? `Copied ${formatFullId(report)} to the clipboard.`
+            : `Couldn't copy ${formatFullId(report)}: the browser blocked the clipboard.`, !ok));
         return;
     }
-    // BDA controls — toggle sub-row, target chip fill, add, delete.
+    // BDA controls — toggle the sub-row, revise an effect, stage and log the
+    // checklist, delete an assessment.
     const bdaToggle = e.target.closest('[data-bda-id]');
     if (bdaToggle) {
         const id = bdaToggle.dataset.bdaId;
@@ -252,7 +310,8 @@ el.log.body.addEventListener('click', e => {
     // listeners on the same element.
     const clamp = e.target.closest('.cell-clamp');
     if (clamp && (clamp.classList.contains('clampable') || clamp.classList.contains('expanded'))) {
-        clamp.classList.toggle('expanded');
+        const open = clamp.classList.toggle('expanded');
+        if (open) expandedCells.add(clamp.dataset.cell); else expandedCells.delete(clamp.dataset.cell);
         return;
     }
     const tr = e.target.closest('tr');
@@ -269,7 +328,20 @@ if (el.log.bdaRollup) el.log.bdaRollup.addEventListener('click', e => {
     renderLog();
 });
 
-el.log.body.addEventListener('change', e => { if (e.target.classList.contains('row-selector') || e.target.classList.contains('history-selector')) updateSelectionUI(); });
+// A checkbox's state lives in selectedRows / selectedHistory, so a redraw keeps it.
+const keepChecked = (cb) => {
+    if (cb.classList.contains('row-selector')) cb.checked ? selectedRows.add(cb.dataset.id) : selectedRows.delete(cb.dataset.id);
+    else if (cb.classList.contains('history-selector')) {
+        const k = `${cb.dataset.id}|${cb.dataset.lm}`;
+        cb.checked ? selectedHistory.add(k) : selectedHistory.delete(k);
+    }
+};
+const clearChecked = () => { selectedRows.clear(); selectedHistory.clear(); };
+el.log.body.addEventListener('change', e => {
+    if (!e.target.classList.contains('row-selector') && !e.target.classList.contains('history-selector')) return;
+    keepChecked(e.target);
+    updateSelectionUI();
+});
 
 el.log.deleteBtn.addEventListener('click', () => {
     // Single pass over the checked boxes — partition into main vs history
@@ -299,7 +371,7 @@ el.log.deleteBtn.addEventListener('click', () => {
         // ── Main report deletions (soft-delete via the deleted flag) ─────────
         if (mainIds.length) {
             const deletedSet = new Set(mainIds);
-            localReports.forEach(r => { if (deletedSet.has(r.id)) { r.deleted = true; r.lastModified = Date.now(); undone.ids.push(r.id); } });
+            localReports.forEach(r => { if (deletedSet.has(r.id)) { r.deleted = true; r.lastModified = nextStamp(r); undone.ids.push(r.id); } });
             reportsByAto[activeAto] = localReports;
             // Prune the history-open Set so deleted report IDs don't linger in
             // memory across long sessions (no functional impact, just hygiene).
@@ -315,52 +387,69 @@ el.log.deleteBtn.addEventListener('click', () => {
                     const removed = r.history.filter(h => lms.has(h.lastModified));
                     if (removed.length) undone.history[r.id] = removed;
                     r.history = r.history.filter(h => !lms.has(h.lastModified));
-                    r.lastModified = Date.now(); // bump so server merge prefers our copy
+                    r.lastModified = nextStamp(r); // bump so server merge prefers our copy
                 }
             });
             reportsByAto[activeAto] = localReports;
-            // Tell the server to remove the same entries server-side and broadcast SSE.
-            try {
-                await postJson('/api/delete_history', { ato: activeAto, deletions: histSel });
-            } catch (err) { /* offline — local change persists, server reconciles on next push */ }
+            // Tell the server to remove the same entries server-side and broadcast
+            // SSE. Unreachable or refused, the push below carries the same change.
+            await apiPost('/api/delete_history', { ato: activeAto, deletions: histSel });
         }
         // Persist locally + push (save_reports merges by lastModified, which we bumped above).
-        await saveLocalAndSync(reportsByAto);
+        clearChecked();
+        const saved = await saveLocalAndSync(reportsByAto);
         resetForm();
-        el.log.deleteBtn.style.display = 'none';
+        updateSelectionUI();
         const canUndo = undone.ids.length || Object.keys(undone.history).length;
-        showToast(`${total} item(s) deleted.`, false, canUndo ? { ms: UNDO_MS, undo: () => undoDeletion(ato, undone) } : {});
+        showToast(saved || isLocalFile ? `${total} item(s) deleted.` : `${total} item(s) deleted here; the server can't be reached.`,
+            false, canUndo ? { ms: UNDO_MS, undo: () => undoDeletion(ato, undone) } : {});
     });
 });
 
-el.log.selectAll.addEventListener('click',   () => { document.querySelectorAll('.row-selector, .history-selector').forEach(cb => cb.checked=true);  updateSelectionUI(); el.menu.panel.style.display='none'; });
-el.log.deselectAll.addEventListener('click', () => { document.querySelectorAll('.row-selector, .history-selector').forEach(cb => cb.checked=false); updateSelectionUI(); el.menu.panel.style.display='none'; });
+el.log.selectAll.addEventListener('click',   () => { document.querySelectorAll('.row-selector, .history-selector').forEach(cb => { cb.checked=true; keepChecked(cb); });  updateSelectionUI(); el.menu.panel.style.display='none'; });
+el.log.deselectAll.addEventListener('click', () => { clearChecked(); document.querySelectorAll('.row-selector, .history-selector').forEach(cb => cb.checked=false); updateSelectionUI(); el.menu.panel.style.display='none'; });
 
 el.log.sendBtn.addEventListener('click', async () => {
     const target = el.log.sendSelect.value;
     if (!target) { showToast('Select a destination ATO first.', true); return; }
     const ids = [...document.querySelectorAll('.row-selector:checked')].map(cb => cb.dataset.id);
     if (!ids.length) return;
-    const targetReps = reportsByAto[target]||[];
-    const lastNum = targetReps.reduce((m,r) => Math.max(m, reportNum(r)), 0);
-    let moved = 0;
-    ids.forEach((id, i) => {
-        const idx = (reportsByAto['IMPORT']||[]).findIndex(r => r.id===id); if(idx===-1) return;
-        const rep = { ...reportsByAto['IMPORT'][idx] };
-        const did = `${SaltCore.atoPrefix(target)}${String(lastNum+moved+1).padStart(3,'0')}`;
-        rep.ato=SaltCore.atoPrefix(target); rep.title=(reportsByAto[target].find(r=>r.title&&!r.deleted)||{}).title||target; rep.displayId=did; rep.fullId=`${rep.title}${did}`; rep.lastModified=Date.now();
-        targetReps.push(rep);
-        // Bump the IMPORT copy too, or the deletion would never be sent.
-        reportsByAto['IMPORT'][idx] = { ...reportsByAto['IMPORT'][idx], deleted: true, lastModified: Date.now() };
-        moved++;
+    const existing = reportsByAto[target] || [];
+    const lastNum = existing.reduce((m,r) => Math.max(m, reportNum(r)), 0);
+    const title = (existing.find(r => r.title && !r.deleted) || {}).title || target;
+    // The copies for the destination, numbered on from its last report.
+    const moving = [];
+    ids.forEach(id => {
+        const src = (reportsByAto['IMPORT'] || []).find(r => r.id === id && !r.deleted);
+        if (!src) return;
+        const did = `${SaltCore.atoPrefix(target)}${String(lastNum + moving.length + 1).padStart(3,'0')}`;
+        moving.push({ ...src, ato: SaltCore.atoPrefix(target), title, displayId: did, fullId: `${title}${did}`, lastModified: nextStamp(src) });
     });
-    reportsByAto[target] = targetReps;
-    showToast(`Moved ${moved} report(s) to ${target}.`);
-    updateSelectionUI(); populateAtoHistory();
-    // The destination isn't the active workspace, so push it explicitly;
-    // otherwise the next sync would drop the moved reports.
+    if (!moving.length) return;
+    // The destination first, and only what it took leaves IMPORT: a send
+    // that didn't arrive keeps every report where it was.
+    const result = isLocalFile ? 'ok' : await pushWorkspace(target, [...existing, ...moving]);
+    if (result === 'queued') { showToast(`Not moved: the server can't be reached. The reports are still in IMPORT.`, true); return; }
+    const refusedNote = {};
+    const taken = moving.filter(r => {
+        const u = unsavedEntry(target, r);
+        if (!u) return true;
+        // Refused: it stays in IMPORT instead of showing in the destination as "Not saved".
+        refusedNote.reason = refusedNote.reason || u.reason;
+        delete unsaved[target][SaltCore.reportKey(r)];
+        return false;
+    });
+    if (refusedNote.reason) saveUnsaved();
+    const left = moving.length - taken.length;
+    if (!taken.length) { showToast(`Not moved: ${refusedNote.reason}`, true); return; }
+    // A sync during the send may already have brought them in.
+    const takenIds = new Set(taken.map(r => r.id));
+    reportsByAto[target] = [...(reportsByAto[target] || existing).filter(r => !takenIds.has(r.id)), ...taken];
+    // Bump the IMPORT copies too, or the deletion would never be sent.
+    reportsByAto['IMPORT'] = (reportsByAto['IMPORT'] || []).map(r => (takenIds.has(r.id) ? { ...r, deleted: true, lastModified: nextStamp(r) } : r));
+    populateAtoHistory();
     await saveLocalAndSync(reportsByAto);
-    await pushWorkspace(target, reportsByAto[target]);
+    showToast(left ? `Moved ${taken.length} report(s) to ${target}. ${left} stayed in IMPORT: ${refusedNote.reason}` : `Moved ${taken.length} report(s) to ${target}.`, !!left);
 });
 
 el.log.search.addEventListener('input', debounce(e => { renderLog(e.target.value.toLowerCase()); renderMapView(); }, 100));
@@ -375,6 +464,7 @@ el.log.search.addEventListener('keydown', e => {
         if (el.log.search.value !== '') {
             el.log.search.value = '';
             renderLog('');
+            renderMapView();   // the search narrows the map too
         }
         el.log.search.blur();
     }
@@ -388,11 +478,13 @@ el.log.sortHeaders.forEach(th => th.addEventListener('click', () => {
     writeStored('salt_sort_mode', currentSortMode); updateSortIcons(); renderLog(el.log.search.value.toLowerCase());
 }));
 
-// Config / ATO — shared logic for Set button and history dropdown
-async function applyAtoConfig() {
+// Config / ATO — shared logic for Set button and history dropdown. `post`
+// false keeps it here only (it is already the server's).
+async function applyAtoConfig({ post = true } = {}) {
     const newAto   = el.config.ato.value.trim().toUpperCase();
     const newTitle = el.config.title.value.trim();
     if (!newAto || !newTitle) { showToast('Enter both an ATO Designator and a Report Title.', true); return; }
+    configChanging = false;
     const newConfig = { ato: newAto, title: newTitle };
     // Commit local state immediately so the rest of the UI is consistent.
     activeAto    = newAto;
@@ -401,20 +493,39 @@ async function applyAtoConfig() {
     writeStored('salt_last_active_ato', activeAto);
     writeStored('salt_offline_config', JSON.stringify(localConfig));
     setAtoState(true); renderLog();
-    try { await postJson('/api/save_config', { config: newConfig }); showToast('Configuration Synced.'); }
-    catch(e) { showToast('Configuration Saved Locally.'); }
-    // If a sync ran during the await and clobbered anything, restore the intended state.
+    // While it's being sent, a sync carrying the server's old workspace keeps
+    // this one (applyServerUpdate reads switchingTo), and a pull asked for
+    // before now is asked for again (syncWithServer reads configEpoch).
+    configEpoch++;
+    switchingTo = newConfig;
+    try {
+        if (post) saveToast(await apiPost('/api/save_config', { config: newConfig }), isLocalFile ? 'Configuration saved.' : 'Configuration synced.');
+    } finally {
+        if (switchingTo === newConfig) switchingTo = null;
+    }
+    // If a sync ran during the await and clobbered anything, restore the
+    // intended state, the reports with it: left as the old workspace's, the
+    // next report logged would have copied them all into this one.
     activeAto    = newAto;
     localConfig  = newConfig;
+    localReports = reportsByAto[activeAto] || [];
     writeStored('salt_last_active_ato', activeAto);
     writeStored('salt_offline_config', JSON.stringify(localConfig));
+    renderLog();
+    // The fields too (an earlier sync's empty config may have landed), unless
+    // the user has started changing them again.
+    if (!configChanging) { el.config.ato.value = newAto; el.config.title.value = newTitle; setAtoState(true); }
 }
+
+// Typed in: a sync leaves the fields alone until Set.
+[el.config.ato, el.config.title].forEach(inp => inp.addEventListener('input', () => { if (!inp.readOnly) configChanging = true; }));
 
 el.config.setBtn.addEventListener('click', () => {
     if (el.config.ato.readOnly) {
         // The button is in its "Change" state. Drop into editable mode, then
         // unlock the history dropdown so the user can pick a different ATO
         // (or just type a new one in the inputs above).
+        configChanging = true;
         setAtoState(false); activeAto=null; localReports=[]; renderLog(); el.form.startNum.value=''; resetForm();
         if (el.config.history.options.length > 1) {
             el.config.history.disabled = false;
@@ -450,12 +561,12 @@ el.profile.setBtn.addEventListener('click', async () => {
     if (!initials) { showToast('Enter your initials.', true); return; }
     userProfile = { initials, color };
     writeStored('salt_user_profile_local', JSON.stringify(userProfile));
-    try { await postJson('/api/save_profile', { profile:userProfile }); } catch(e){}
-    showToast('Profile saved!'); updateProfilePreview(); syncWithServer();
+    saveToast(await apiPost('/api/save_profile', { profile:userProfile }), 'Profile saved.');
+    updateProfilePreview(); syncWithServer();
 });
 // Scope this to the profile menu's swatches so the startup-modal swatches
 // (same class, different container) don't trigger the profile-side update.
-el.profile.menu.querySelectorAll('.color-swatch').forEach(sw => sw.addEventListener('click', e => { e.stopPropagation(); const c=sw.dataset.color; el.profile.color.value=c; el.profile.avatar.style.backgroundColor=c; el.profile.menu.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('selected')); sw.classList.add('selected'); }));
+el.profile.menu.querySelectorAll('.color-swatch').forEach(sw => sw.addEventListener('click', e => { e.stopPropagation(); const c=sw.dataset.color; el.profile.color.value=c; el.profile.avatar.style.backgroundColor=c; markSwatch(el.profile.menu, c); }));
 el.profile.initials.addEventListener('input', () => { el.profile.avatar.textContent = el.profile.initials.value.trim().toUpperCase()||'?'; });
 
 // Copy the access code to clipboard for quick sharing. Disabled when no
@@ -463,8 +574,9 @@ el.profile.initials.addEventListener('input', () => { el.profile.avatar.textCont
 if (el.profile.accessCopy) {
     el.profile.accessCopy.addEventListener('click', () => {
         if (!accessCode) return;
-        copyToClipboard(accessCode);
-        showToast('Access code copied to clipboard');
+        copyToClipboard(accessCode).then(ok => showToast(ok
+            ? 'Access code copied to the clipboard.'
+            : 'Couldn\'t copy the access code: the browser blocked the clipboard. Press Show to read it.', !ok));
     });
 }
 
@@ -510,8 +622,9 @@ const renderStartupPresets = () => {
     ])].sort().slice(0, CAP);
 
     fill('startup-preset-profiles', profs.map(p => {
-        const c = p.color || '#0a84ff';
-        return `<button type="button" class="startup-profile-chip" data-preset="profile" data-initials="${escapeHtml(p.initials)}" data-color="${escapeHtml(c)}"><span class="chip-dot" style="background:${escapeHtml(c)}"></span>${escapeHtml(p.initials)}</button>`;
+        // A synced color goes into a style: only a plain color, never more CSS.
+        const c = safeColor(p.color) === p.color ? p.color : '#0a84ff';
+        return `<button type="button" class="startup-profile-chip" data-preset="profile" data-initials="${escapeHtml(p.initials)}" data-color="${escapeHtml(c)}"><span class="chip-dot" style="background:${c}"></span>${escapeHtml(p.initials)}</button>`;
     }).join(''));
     fill('startup-preset-atos', atos.map(a =>
         `<button type="button" class="startup-profile-chip" data-preset="ato" data-ato="${escapeHtml(a)}">${escapeHtml(a)}</button>`).join(''));
@@ -534,9 +647,10 @@ if (el.startup.presets) el.startup.presets.addEventListener('click', e => {
         el.startup.color.value = c;
         el.startup.avatar.textContent = ini;
         el.startup.avatar.style.backgroundColor = c;
-        el.startup.swatches.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('selected', s.dataset.color === c));
+        markSwatch(el.startup.swatches, c);
     } else if (chip.dataset.preset === 'ato') {
         el.startup.ato.value = chip.dataset.ato;
+        el.startup.ato.dataset.touched = '1';
         // Offer that workspace's known title unless the user typed one already.
         if (!el.startup.title.value) {
             const rep = (reportsByAto[chip.dataset.ato] || []).find(r => r.title && !r.deleted);
@@ -544,6 +658,7 @@ if (el.startup.presets) el.startup.presets.addEventListener('click', e => {
         }
     } else if (chip.dataset.preset === 'title') {
         el.startup.title.value = chip.dataset.title;
+        el.startup.title.dataset.touched = '1';
     }
     // Mark the active choice in each row.
     const row = chip.closest('.startup-preset-row');
@@ -561,17 +676,20 @@ const openStartupModal = () => {
         el.startup.color.value = c;
         el.startup.avatar.textContent = userProfile.initials;
         el.startup.avatar.style.backgroundColor = c;
-        el.startup.swatches.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('selected', s.dataset.color === c));
+        markSwatch(el.startup.swatches, c);
     } else {
         el.startup.initials.value = '';
         el.startup.color.value = '#0a84ff';
         el.startup.avatar.textContent = '?';
         el.startup.avatar.style.backgroundColor = '#0a84ff';
-        el.startup.swatches.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('selected', s.dataset.color === '#0a84ff'));
+        markSwatch(el.startup.swatches, '#0a84ff');
     }
     renderStartupPresets();
     el.startup.ato.value   = activeAto || (localConfig && localConfig.ato) || '';
     el.startup.title.value = (localConfig && localConfig.title) || '';
+    delete el.startup.ato.dataset.touched;
+    delete el.startup.title.dataset.touched;
+    refreshStartupWorkspace();
     // Access code: pre-fill from whatever's already known (host auto-fill
     // via the server-injected <meta>, or a previously-typed value cached
     // in localStorage). Empty for fresh non-host editors — they type it.
@@ -586,10 +704,12 @@ const openStartupModal = () => {
     el.startup.overlay.setAttribute('aria-hidden', 'false');
 
     // Focus the first empty field for a smooth flow.
+    const opener = document.activeElement;
     setTimeout(() => {
-        if      (!el.startup.initials.value) el.startup.initials.focus();
-        else if (!el.startup.ato.value)      el.startup.ato.focus();
-        else                                  el.startup.title.focus();
+        if (!el.startup.overlay.classList.contains('show')) return;
+        if (!dialogOpeners.has(el.startup.overlay)) dialogOpeners.set(el.startup.overlay, opener);
+        enterDialog(el.startup.overlay, !el.startup.initials.value ? el.startup.initials
+            : !el.startup.ato.value ? el.startup.ato : el.startup.title);
     }, 50);
 };
 
@@ -603,10 +723,21 @@ const closeStartupModal = () => {
     forceStartupModal = false;
     el.startup.overlay.classList.remove('show');
     el.startup.overlay.setAttribute('aria-hidden', 'true');
+    leaveDialog(el.startup.overlay);
     // Lift the pre-paint gate now that the user has confirmed setup — the
     // app body becomes visible behind the closing modal.
     document.documentElement.classList.remove('salt-ready-gate');
 };
+
+// The modal opens before the first sync, with this browser's last workspace.
+// When the server says which is active, the fields not typed in follow it,
+// so Get Started doesn't switch everyone back to an old one.
+const refreshStartupWorkspace = () => {
+    if (!serverConfig || !serverConfig.ato) return;
+    if (!el.startup.ato.dataset.touched)   el.startup.ato.value   = serverConfig.ato;
+    if (!el.startup.title.dataset.touched) el.startup.title.value = serverConfig.title;
+};
+[el.startup.ato, el.startup.title].forEach(box => box.addEventListener('input', () => { box.dataset.touched = '1'; }));
 
 // Live preview: avatar tracks the initials as the user types.
 el.startup.initials.addEventListener('input', () => {
@@ -620,8 +751,7 @@ el.startup.swatches.querySelectorAll('.color-swatch').forEach(sw => sw.addEventL
     const c = sw.dataset.color;
     el.startup.color.value = c;
     el.startup.avatar.style.backgroundColor = c;
-    el.startup.swatches.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
-    sw.classList.add('selected');
+    markSwatch(el.startup.swatches, c);
 }));
 
 // Enter in any field advances to the next or submits.
@@ -658,6 +788,8 @@ el.startup.continueBtn.addEventListener('click', async () => {
     // Validate the access code by attempting a sync. The server returns
     // 401 if the cookie's code doesn't match; on success we save the
     // code and proceed to save identity + workspace.
+    // The same answer says which workspace the server has active.
+    let current = serverConfig;
     if (!isReadOnly && !isLocalFile) {
         setAccessCode(code);
         try {
@@ -670,6 +802,8 @@ el.startup.continueBtn.addEventListener('click', async () => {
                 }
                 return;
             }
+            const state = probe.ok ? await probe.json().catch(() => null) : null;
+            if (state) current = state.config || {};
         } catch (e) {
             // Network error — let the user proceed; the offline path will
             // catch up when the server is reachable.
@@ -682,7 +816,7 @@ el.startup.continueBtn.addEventListener('click', async () => {
         // 1. Save the user's identity locally + to the server.
         userProfile = { initials, color: el.startup.color.value || '#0a84ff' };
         writeStored('salt_user_profile_local', JSON.stringify(userProfile));
-        try { await postJson('/api/save_profile', { profile: userProfile }); } catch(e){}
+        const saved = isLocalFile ? { ok: true } : await apiPost('/api/save_profile', { profile: userProfile });
         // Sync the profile preview in the header.
         el.profile.initials.value = initials;
         el.profile.color.value    = userProfile.color;
@@ -690,10 +824,14 @@ el.startup.continueBtn.addEventListener('click', async () => {
         updateProfilePreview();
 
         // 2. Save the workspace config via the same path the Set button uses,
-        //    so all clients adopt the new ATO/Title on their next sync.
+        //    so all clients adopt the new ATO/Title on their next sync. Only
+        //    when it differs from the server's: the same one needn't be sent.
         el.config.ato.value   = ato;
         el.config.title.value = title;
-        await applyAtoConfig();
+        const unchanged = !!current && String(current.ato || '').toUpperCase() === ato && (current.title || '') === title;
+        await applyAtoConfig({ post: !unchanged });
+        // Said last, so the workspace's toast doesn't cover it.
+        if (!saved.ok && saved.status !== 0 && saved.status !== 401) showToast(`Identity not saved: ${saved.message}`, true);
     } finally {
         el.startup.continueBtn.disabled = false;
     }
@@ -718,9 +856,8 @@ const needsStartupSetup = () => {
 };
 const maybeShowStartupModal = () => { if (needsStartupSetup()) openStartupModal(); };
 
-// Import
-
-// CSV import — column mapping view
+// Import: files come in through the drop area (app/40-io.js). A CSV opens
+// the column mapping view, wired here.
 el.csv.closeBtn  .addEventListener('click', closeCsvImportView);
 el.csv.cancelBtn .addEventListener('click', closeCsvImportView);
 el.csv.confirmBtn.addEventListener('click', confirmCsvImport);
@@ -797,7 +934,7 @@ document.getElementById('exportArcgisCsvBtn').addEventListener('click', () => {
 el.menu.exportBtn.addEventListener('click', () => isExportViewActive ? closeExportView() : openExportView());
 
 el.ioPicker.select.addEventListener('change', () => {
-    try { localStorage.setItem('salt_io_export', el.ioPicker.select.value); } catch (e) { /* storage blocked: this session only */ }
+    writeStored('salt_io_export', el.ioPicker.select.value);
     renderIoPicker();
 });
 el.ioPicker.run.addEventListener('click', runIoPicker);
@@ -837,7 +974,7 @@ el.exp.fromTime.addEventListener('blur', formatTimeOnBlur);
 el.exp.toTime  .addEventListener('blur', formatTimeOnBlur);
 el.exp.clearBtn.addEventListener('click', clearExportFilter);
 
-// Quick-range presets (Last 12h / 6h / 1h).
+// Quick-range presets (Last 24h / 12h / 6h / 1h).
 // Writes both the From and To pairs from a single click, honoring the current
 // Zulu/Local time mode so the values line up with what the user sees elsewhere.
 const writeFilterPair = (dateField, timeField, d) => {
@@ -913,12 +1050,32 @@ el.menu.bdaBtn.addEventListener('click', () => { bdaMode = !bdaMode; bdaFilter =
 setupMenuToggle(el.menu.btn, el.menu.panel);
 el.menu.panel.addEventListener('click', e => { if(e.target.tagName==='BUTTON') el.menu.panel.style.display='none'; });
 document.addEventListener('click', e => { if(!el.menu.btn.contains(e.target)&&!el.menu.panel.contains(e.target)) el.menu.panel.style.display='none'; });
-// (The person icon used to live in the report-log header and toggle a popup;
-// it's now the Identity tab itself, wired through the normal tab handler.)
+// The Settings menu for the keyboard: its button says whether it is open
+// (whatever opened or closed it), opening it puts focus on its first item,
+// the arrows, Home and End move between the items shown, and Tab leaves it.
+const menuItems = () => [...el.menu.panel.querySelectorAll('[role="menuitem"]')].filter(b => b.getClientRects().length);
+new MutationObserver(() => el.menu.btn.setAttribute('aria-expanded', String(el.menu.panel.style.display === 'block')))
+    .observe(el.menu.panel, { attributes: true, attributeFilter: ['style'] });
+el.menu.btn.addEventListener('click', () => { if (el.menu.panel.style.display === 'block') { const first = menuItems()[0]; if (first) first.focus(); } });
+el.menu.btn.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    if (el.menu.panel.style.display !== 'block') el.menu.btn.click();
+    const items = menuItems();
+    if (items.length) (e.key === 'ArrowUp' ? items[items.length - 1] : items[0]).focus();
+});
+el.menu.panel.addEventListener('keydown', e => {
+    const items = menuItems();
+    const i = items.indexOf(document.activeElement);
+    const go = { ArrowDown: i + 1, ArrowUp: i < 0 ? -1 : i - 1, Home: 0, End: items.length - 1 }[e.key];
+    if (go !== undefined && items.length) { e.preventDefault(); items[(go + items.length) % items.length].focus(); return; }
+    if (e.key === 'Tab') el.menu.panel.style.display = 'none';
+});
+// Identity is a tab of Manage, wired with the other tabs above.
 
 // User Manual modal
-const openManual  = () => { el.manual.modal.classList.add('show');    el.manual.modal.setAttribute('aria-hidden', 'false'); el.manual.modal.querySelector('.manual-body').scrollTop = 0; };
-const closeManual = () => { el.manual.modal.classList.remove('show'); el.manual.modal.setAttribute('aria-hidden', 'true');  };
+const openManual  = () => { el.manual.modal.classList.add('show');    el.manual.modal.setAttribute('aria-hidden', 'false'); el.manual.modal.querySelector('.manual-body').scrollTop = 0; enterDialog(el.manual.modal, el.manual.closeBtn); };
+const closeManual = () => { el.manual.modal.classList.remove('show'); el.manual.modal.setAttribute('aria-hidden', 'true'); leaveDialog(el.manual.modal); };
 el.manual.openBtn .addEventListener('click', openManual);
 el.manual.closeBtn.addEventListener('click', closeManual);
 // Click outside the modal card closes it.
@@ -928,12 +1085,15 @@ el.manual.modal.addEventListener('click', e => { if (e.target === el.manual.moda
 document.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); el.log.search.focus(); el.log.search.select(); return; }
     if (e.key==='Escape' && pendingChoice) { e.preventDefault(); pendingChoice(null); return; }
+    if (e.key==='Escape' && el.toast.confirm.classList.contains('show')) { e.preventDefault(); hideConfirmation(); return; }
+    if (e.key==='Escape' && el.menu.panel.style.display === 'block') { e.preventDefault(); el.menu.panel.style.display = 'none'; el.menu.btn.focus(); return; }
     if (e.key==='Escape' && el.manual.modal.classList.contains('show')) { e.preventDefault(); closeManual(); return; }
+    if (e.key==='Escape' && el.csv.panel.style.display === 'flex') { e.preventDefault(); closeCsvImportView(); return; }
     if (e.key==='Escape' && el.form.cancelBtn.style.visibility==='visible') { e.preventDefault(); resetForm(); showToast('Editing cancelled.'); return; }
     // Escape clears any selected table rows (before the form-clear fallback).
     if (e.key==='Escape') {
         const sel = document.querySelectorAll('.row-selector:checked, .history-selector:checked');
-        if (sel.length) { e.preventDefault(); sel.forEach(cb => cb.checked = false); updateSelectionUI(); return; }
+        if (sel.length) { e.preventDefault(); clearChecked(); sel.forEach(cb => cb.checked = false); updateSelectionUI(); return; }
     }
     // New-report mode: Escape clears the form fields if focus is inside the form
     // AND any of the SALT fields has content. Doesn't clear when the form is

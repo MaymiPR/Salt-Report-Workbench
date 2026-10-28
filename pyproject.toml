@@ -31,6 +31,12 @@ ignore = [
     "RUF003",
 ]
 
+[tool.ruff.lint.isort]
+# The scripts and the server are imported by path in the tests. Naming them
+# keeps the import order the same on every machine, whatever folders (a local
+# release/ or build/, say) sit beside them.
+known-first-party = ["build", "pack", "release", "salt_sync_server"]
+
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B011"]
 

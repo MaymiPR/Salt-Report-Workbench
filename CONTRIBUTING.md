@@ -23,9 +23,14 @@ you agree that it is licensed under the same terms.
 ```bash
 git clone https://github.com/MaymiPR/SaltReportWorkbench.git
 cd SaltReportWorkbench
-pip install ruff==0.17.2 pre-commit   # optional, but CI runs both
+pip install ruff==0.17.2 pre-commit   # optional; CI runs the same ruff checks
 pre-commit install
+pip install playwright                # optional: the browser tests
+python -m playwright install chromium
 ```
+
+`make setup` and `make setup-browser` do the same on macOS and Linux. Without
+Playwright the browser tests are skipped; CI runs them.
 
 ## Workflow
 
@@ -36,8 +41,12 @@ pre-commit install
 
    ```bash
    python scripts/build.py
-   python dist/salt_sync_server.py
+   python dist/salt_sync_server.py --backup-dir .dev-data
    ```
+
+   `--backup-dir .dev-data` (git-ignored) keeps your test reports, snapshots
+   and the TLS key out of `dist/`, so `make clean` or deleting `dist/` never
+   takes them. `make run` does the same.
 
 4. Run the checks:
 
@@ -47,7 +56,8 @@ pre-commit install
    ruff check . && ruff format --check .
    ```
 
-   `make check` does all of this on macOS and Linux.
+   `make check` does all of this on macOS and Linux: most of what CI runs (not
+   the built-server smoke test).
 5. Update the in-app user manual in `src/index.html` if behavior a user can see
    changed, and add an entry under *Unreleased* in [CHANGELOG.md](CHANGELOG.md).
 6. Open a pull request. CI must pass before merging.
@@ -82,10 +92,13 @@ Common types: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `style`,
 
 ## Tests
 
-Server, build, and launcher tests use the standard library's `unittest`, so
-they run anywhere Python does. The page's pure logic lives in `src/core.js`
-(no DOM, storage, or network) and is tested with Node's built-in runner in
-`tests/js/`; put new logic there when it can be, and test it. The DOM layer
+`python -m unittest discover -s tests` runs the server, build, pack, release,
+launcher, docs and browser tests. They use the standard library's `unittest`,
+so all but the browser tests run anywhere Python does. The build, release and
+browser tests build into temporary folders, so they leave your `dist/` alone.
+The page's pure logic lives in `src/core.js` (no DOM, storage, or network)
+and is tested with Node's built-in runner in `tests/js/`; put new logic there
+when it can be, and test it. The DOM layer
 in `src/app/` is covered by `tests/test_browser.py`, which drives the built
 page in Chromium through Playwright (`pip install playwright && playwright
 install chromium`); it is skipped when Playwright isn't installed, and CI

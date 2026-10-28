@@ -59,7 +59,7 @@ const chartSvg = (chart, themeName, header) => {
                 + (w > 0 ? `<path class="stats-mark" d="${barPath(x0, y + (rowH - barH) / 2, w, barH)}" fill="${t.mark}"/>` : '')
                 + `<text x="${labelW}" y="${y + rowH / 2}" dy=".35em" text-anchor="end" font-size="12" fill="${t.ink2}">${escapeHtml(shorten(it.label, 26))}</text>`
                 + `<text x="${x0 + w + 6}" y="${y + rowH / 2}" dy=".35em" font-size="12" font-weight="600" fill="${t.ink}">${it.value}</text>`
-                + `<rect class="stats-hit" x="0" y="${y}" width="${CHART_W}" height="${rowH}" fill="transparent" tabindex="0" aria-label="${escapeHtml(`${it.label}: ${it.value}`)}"/></g>`;
+                + `<rect class="stats-hit" x="0" y="${y}" width="${CHART_W}" height="${rowH}" fill="transparent"/></g>`;
         }).join('')
             + `<line x1="${x0}" x2="${x0}" y1="${top}" y2="${top + items.length * rowH}" stroke="${t.base}" stroke-width="1"/>`;
         height = top + items.length * rowH + 8;
@@ -85,7 +85,7 @@ const chartSvg = (chart, themeName, header) => {
             return `<g class="stats-row" data-i="${i}">`
                 + (h > 0 ? `<path class="stats-mark" d="${columnPath(cx - colW / 2, yOf(it.value), colW, h)}" fill="${t.mark}"/>` : '')
                 + label + peakLabel
-                + `<rect class="stats-hit" x="${left + band * i}" y="${top}" width="${band}" height="${plotH}" fill="transparent" tabindex="0" aria-label="${escapeHtml(`${chart.fmtX(it.label)}: ${it.value}`)}"/></g>`;
+                + `<rect class="stats-hit" x="${left + band * i}" y="${top}" width="${band}" height="${plotH}" fill="transparent"/></g>`;
         }).join('')
             + `<line x1="${left}" x2="${CHART_W - right}" y1="${y0}" y2="${y0}" stroke="${t.base}" stroke-width="1"/>`;
         height = y0 + bottom;
@@ -101,9 +101,10 @@ const chartSvg = (chart, themeName, header) => {
 
 let isStatsViewActive = false;
 // The workspace on screen, or every loaded one ('all'). Per browser.
-let statsScope = localStorage.getItem('salt_stats_scope') === 'all' ? 'all' : 'ato';
+let statsScope = storedText('salt_stats_scope') === 'all' ? 'all' : 'ato';
 let statsCharts = [];       // what is on screen, for hover and export
 let statsKpis = [];         // the headline numbers on screen, for the workbook
+let statsBuilt = null;      // what the panel was last drawn from, so a sync that changes nothing leaves it be
 
 const FOLD_AT = 10;  // longer lists show their top ten and an "Other" bar
 const fold = (items) => (items.length <= FOLD_AT + 1 ? items : [
@@ -161,7 +162,7 @@ const renderStats = () => {
     const ato = shownAto();
     const { reps, phrase, atoOf, atos } = statsWindow();
     const local = timeDisplayMode === 'local';
-    const d = SaltCore.statsData(reps, currentOverlays(), { local });
+    const d = SaltCore.statsData(reps, currentOverlays(), { local, team: narrTeam() });
     const scope = statsScope === 'all' ? `All ATOs (${atos})` : (ato || 'No workspace');
     const context = `${scope} · ${phrase} · ${reps.length} report${reps.length === 1 ? '' : 's'}`;
     s.subtitle.textContent = context;
@@ -203,28 +204,50 @@ const renderStats = () => {
             <div class="stats-card-head">
                 <div><h4>${escapeHtml(c.title)}</h4>${c.note ? `<div class="stats-note">${escapeHtml(c.note)}</div>` : ''}</div>
                 <div class="stats-card-actions">
-                    <button type="button" data-stats-act="table" aria-pressed="false"${c.hasData ? '' : ' disabled'}>Table</button>
-                    <button type="button" data-stats-act="png"${c.hasData ? '' : ' disabled'}>PNG</button>
-                    <button type="button" data-stats-act="svg"${c.hasData ? '' : ' disabled'}>SVG</button>
-                    <button type="button" data-stats-act="csv"${c.hasData ? '' : ' disabled'}>CSV</button>
+                    <button type="button" data-stats-act="table" aria-pressed="false" aria-controls="stats-table-${c.id}" aria-label="Table of ${escapeHtml(c.title)}"${c.hasData ? '' : ' disabled'}>Table</button>
+                    <button type="button" data-stats-act="png" aria-label="Save ${escapeHtml(c.title)} as PNG"${c.hasData ? '' : ' disabled'}>PNG</button>
+                    <button type="button" data-stats-act="svg" aria-label="Save ${escapeHtml(c.title)} as SVG"${c.hasData ? '' : ' disabled'}>SVG</button>
+                    <button type="button" data-stats-act="csv" aria-label="Save ${escapeHtml(c.title)} as CSV"${c.hasData ? '' : ' disabled'}>CSV</button>
                 </div>
             </div>
             <div class="stats-chart">${c.hasData ? chartSvg(c, 'dark', false) : `<div class="stats-empty">${escapeHtml(c.empty || 'Nothing yet.')}</div>`}
-                <div class="stats-tip" role="status" hidden></div></div>
-            <div class="stats-table" hidden><table><thead><tr><th>${c.kind === 'bar' ? 'Item' : 'When'}</th><th>${escapeHtml(c.unit)}</th></tr></thead>
+                <div class="stats-tip" hidden></div></div>
+            <div class="stats-table" id="stats-table-${c.id}" hidden><table><thead><tr><th>${c.kind === 'bar' ? 'Item' : 'When'}</th><th>${escapeHtml(c.unit)}</th></tr></thead>
                 <tbody>${c.items.map(i => `<tr><td>${escapeHtml(c.tipX(i.label))}</td><td>${i.value}</td></tr>`).join('')}</tbody></table></div>
         </section>`;
+    // A sync redraws the panel only when what it shows has changed, so an
+    // open table, the focus and the readout stay; when it does, the open
+    // tables and the focus come back.
+    const key = JSON.stringify([context, local, statsKpis, statsCharts.map(c => [c.id, c.items])]);
+    if (key === statsBuilt && s.body.childElementCount) return;
+    statsBuilt = key;
+    const open = new Set([...s.body.querySelectorAll('.stats-card')].filter(c => !c.querySelector('.stats-table').hidden).map(c => c.dataset.chart));
+    const had = s.body.contains(document.activeElement) ? document.activeElement : null;
+    const focusAt = had && had.closest('.stats-card') && had.dataset.statsAct ? [had.closest('.stats-card').dataset.chart, had.dataset.statsAct] : null;
     s.body.innerHTML = !reps.length ? '<div class="stats-empty">No reports in this window.</div>' : `
         <div class="stats-tiles">
             ${tile('Reports', k.reports)}${tile('With a grid', k.withGrid)}${tile('In an NAI or OBJ', k.inPlace)}${tile('Checks to look at', k.checks)}
             ${k.bdaDone ? tile('BDA assessed', `${k.bdaDone} / ${k.bdaTotal}`) : ''}
         </div>
         <div class="stats-grid">${statsCharts.map(card).join('')}</div>`;
+    open.forEach(id => {
+        const c = s.body.querySelector(`.stats-card[data-chart="${CSS.escape(id)}"]`), btn = c && c.querySelector('[data-stats-act="table"]');
+        if (btn && !btn.disabled) setStatsTable(c, true);
+    });
+    const back = focusAt && s.body.querySelector(`.stats-card[data-chart="${CSS.escape(focusAt[0])}"] [data-stats-act="${focusAt[1]}"]`);
+    if (back) back.focus({ preventScroll: true });
+};
+// A chart's table shown or hidden, and its button saying so.
+const setStatsTable = (cardEl, on) => {
+    const tbl = cardEl.querySelector('.stats-table'), btn = cardEl.querySelector('[data-stats-act="table"]');
+    tbl.hidden = !on;
+    btn.setAttribute('aria-pressed', String(on));
+    btn.classList.toggle('active', on);
 };
 
 const openStatsView = () => {
     if (isExportViewActive) closeExportView();
-    closeSummaryView();
+    closeSummaryView(true);
     hideHomeViews();
     isStatsViewActive = true;
     setViewIcon('statsViewToggleBtn', true);
@@ -235,12 +258,14 @@ const openStatsView = () => {
     writeStored('salt_view', 'stats');
     renderStats();
 };
-const closeStatsView = () => {
+// `next`: another view opens straight after, so the Report Log (and its map)
+// isn't drawn and animated in only to be hidden again.
+const closeStatsView = (next = false) => {
     if (!isStatsViewActive) return;
     isStatsViewActive = false;
     setViewIcon('statsViewToggleBtn', false);
     statsEls().panel.style.display = 'none';
-    showHomeView();
+    if (!next) showHomeView();
 };
 
 // --- Export ---
@@ -362,7 +387,7 @@ const exportStatsXlsx = () => {
         const scope = e.target.closest('[data-stats-scope]');
         if (scope) {
             statsScope = scope.dataset.statsScope;
-            try { localStorage.setItem('salt_stats_scope', statsScope); } catch (err) { /* storage blocked: this session only */ }
+            writeStored('salt_stats_scope', statsScope);
             renderStats();
             return;
         }
@@ -371,16 +396,14 @@ const exportStatsXlsx = () => {
             const cardEl = act.closest('.stats-card');
             const c = statsCharts.find(x => x.id === cardEl.dataset.chart);
             if (act.dataset.statsAct === 'table') {
-                const tbl = cardEl.querySelector('.stats-table');
-                tbl.hidden = !tbl.hidden;
-                act.setAttribute('aria-pressed', String(!tbl.hidden));
-                act.classList.toggle('active', !tbl.hidden);
+                setStatsTable(cardEl, cardEl.querySelector('.stats-table').hidden);
             } else if (c) {
                 exportChart(c, act.dataset.statsAct).catch(err => showToast('Export error: ' + err.message, true));
             }
         }
     });
-    // Hover and keyboard focus: one readout per chart, value first.
+    // Hover: one readout per chart, value first. (The keyboard reads the
+    // values in the chart's table.)
     const showTip = (e) => {
         const row = e.target.closest && e.target.closest('.stats-row');
         const box = row && row.closest('.stats-chart');
@@ -403,7 +426,5 @@ const exportStatsXlsx = () => {
         if (box && !box.contains(e.relatedTarget)) box.querySelector('.stats-tip').hidden = true;
     };
     s.body.addEventListener('pointermove', showTip);
-    s.body.addEventListener('focusin', showTip);
     s.body.addEventListener('pointerout', hideTip);
-    s.body.addEventListener('focusout', hideTip);
 })();

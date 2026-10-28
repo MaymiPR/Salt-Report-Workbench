@@ -2,7 +2,7 @@
 
 The [README](../README.md#quick-start) has the short version. This page covers
 the details: the two downloads, checking them, upgrading, the Windows launcher,
-and where your data lives.
+where your data lives, and troubleshooting.
 
 ## The two downloads
 
@@ -34,9 +34,13 @@ suspicious. If your network blocks scripts on purpose, ask your security office
 before sending it this way.
 
 `python scripts/release.py <version>` builds both downloads and their checksum
-file into `release/` in one go. `scripts/pack.py` packs an existing zip on its
-own, and `scripts/pack.py --plain` writes a larger form where every line of
-every file can be read.
+file into `release/` in one go. Run it from a clean checkout of the release
+tag: it refuses uncommitted changes, a commit that isn't tagged `v<version>`,
+and a version with no section or compare link in `CHANGELOG.md`.
+`--notes FILE` also writes the release page's text from that section, and
+`--allow-dirty` skips the checkout checks for a dry run. `scripts/pack.py`
+packs an existing zip on its own, and `scripts/pack.py --plain` writes a larger
+form where every line of every file can be read.
 
 ## Verify a download
 
@@ -60,11 +64,24 @@ Only the file you downloaded needs to say OK; the other shows as not here.
 
 ## Upgrading
 
-Stop the server and drop the new files over the old ones, or run the new `.txt`
-from the folder that holds `SALT Report Workbench`. Keep the `Auto Backups`
-folder: reports, overlays, and settings load from it as they are. A
-`PYTHON_EXE` path set in the launcher survives an upgrade by `.txt`. If you drop
-files in by hand, set it again.
+> [!WARNING]
+> Each zip extracts to a **new folder** named for its version
+> (`SaltReportWorkbench-v<version>/`), and a new folder starts with an empty
+> `Auto Backups`. Started from there, the workbench shows no reports, and it
+> looks as if every report is lost. They aren't: they are still in the old
+> folder. **Copy the `Auto Backups` folder from your old folder into the new one
+> before starting** (or extract the new files over the old ones).
+
+Stop the server first. Then either copy `Auto Backups` across as above, or drop
+the new files over the old ones, or run the new `.txt` from the folder that
+holds `SALT Report Workbench` (it upgrades that folder in place and leaves
+`Auto Backups` alone). Reports, overlays, and settings load from `Auto Backups`
+as they are.
+
+The server's certificate lives in `Auto Backups/tls`, so copying the folder
+also keeps the same certificate, and browsers that already accepted it don't
+warn again. A `PYTHON_EXE` path set in the launcher survives an upgrade by
+`.txt`. If you use the zip, set it again in the new launcher.
 
 Coming from a version that spoke plain HTTP, old `http://` addresses and
 bookmarks are sent on to the `https://` address, and each browser warns once
@@ -153,16 +170,23 @@ Every change is written, debounced, to the changed workspace's own file,
 `{ATO}_{Title}.txt`, in the backup folder (`Auto Backups/` beside the server,
 or `--backup-dir`): a readable summary of each report on top, and a
 machine-readable JSON block below that the server reloads on the next start.
-Writes are atomic, so a crash never leaves a half-written file. Unloading a
+Writes are atomic, so a crash never leaves a half-written file, and a write
+that fails (a file held open by antivirus or a sync tool) is retried until it
+succeeds. The shared settings (overlays, basemaps, drones, the narrative's
+settings, the report format) also have their own `Shared settings.json`, so
+they're kept even before any workspace exists. Unloading a
 workspace leaves its file in place, so a restart brings it back. (Before 2.4
 one file held every loaded workspace; such files still load, and the first save
 after upgrading gives each workspace its own file.)
 
 Because that file is replaced within half a second of every change, the server
 also keeps dated copies in `Auto Backups/snapshots/`: one on every start and
-then at most one an hour, the newest 48 kept. To go back to an earlier state,
-stop the server, copy the snapshot you want over the live file, and start it
-again. The snapshots folder itself is never loaded.
+then at most one an hour, the newest 48 rounds kept (about two days; a round is
+every backup file from one save). To go back to an earlier state, stop the
+server, copy the snapshot you want over the live file, and start it again. The
+snapshots folder itself is never loaded. It also holds `Superseded_` files: an
+old backup file whose reports now live in another file (after a title change,
+for example), moved aside so it can't merge back in.
 
 `Auto Backups/audit.log` records every accepted write as one line: when, who
 (the operator's initials and address), and what, such as
@@ -173,3 +197,47 @@ fact; nothing reads it.
 > [!IMPORTANT]
 > Backups contain your actual reports. `Auto Backups/` is git-ignored; keep it
 > that way, and handle the folder according to your unit's data-handling rules.
+
+## Troubleshooting
+
+**Windows Defender Firewall asks about Python on the first start.** The server
+listens on the network, so Windows asks whether to allow it. Allow it on
+**Private networks**; without that, other machines can't reach the workbench,
+though the browser on the server's own machine still works. On a managed laptop
+the prompt may need an administrator, or may not appear at all and the
+connections are simply blocked: ask your IT staff to allow that `python.exe`,
+or inbound TCP on the two ports (8080 and 8081 unless you changed them). This
+is the one step that can need admin rights; running the server never does.
+
+**"Could not listen on port 8080".** Another program, often a second copy of
+the workbench, already uses the port. Close it, or start on other ports:
+`python salt_sync_server.py --port 9090 --viewer-port 9091` (with the launcher,
+`"Start SALT Workbench.bat" --port 9090 --viewer-port 9091`). If only the
+read-only port is taken, the console says it could not start the viewer and the
+editor port runs without it. `--viewer-port 0` turns the read-only port off.
+
+**The launcher can't find Python, or finds the wrong one.** It needs Python
+3.10 or newer. Put the full path to the right `python.exe` on the
+`set "PYTHON_EXE="` line in the launcher, or set `SALT_PYTHON` (see
+[Windows launcher](#windows-launcher)). A path set there that doesn't work is
+reported, not skipped.
+
+**The browser warns that the connection isn't private.** Expected: once per
+browser for each certificate (see
+[HTTPS and the browser warning](#https-and-the-browser-warning)). It comes
+back when the server makes a new certificate: when this machine's address
+changes, when the old one nears expiry, or when the server starts with an
+`Auto Backups` folder that has no `tls` folder, such as a new release folder
+that `Auto Backups` wasn't copied into.
+
+**My reports are gone.** They almost never are. The server reads them from the
+`Auto Backups` folder beside it (or `--backup-dir`), so a server started from
+another folder, such as a newly extracted release, starts empty. Stop it, copy
+`Auto Backups` from the old folder into the folder you start from, and start
+again (see [Upgrading](#upgrading)). Also check that you opened the right
+workspace (ATO and title).
+
+**Where to look.** `Auto Backups/audit.log` lists every accepted change and
+every server start and stop, with times in UTC. `Auto Backups/snapshots/` holds
+dated copies of the backup files (see [Data and backups](#data-and-backups)),
+and the console window shows the server's own messages.

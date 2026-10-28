@@ -172,6 +172,17 @@ const readStored = (key, fallback) => {
         return fallback;
     }
 };
+// A plain string from localStorage, or the fallback when there is none or the
+// browser blocks storage (where even reading it throws).
+const readRaw = (key, fallback = null) => {
+    try {
+        const raw = localStorage.getItem(key);
+        return raw === null ? fallback : raw;
+    } catch (e) {
+        return fallback;
+    }
+};
+const removeStored = (key) => { try { localStorage.removeItem(key); } catch (e) { /* blocked: nothing kept to remove */ } };
 // Write to localStorage. Storage can be full (a long operation's reports and
 // history, cached in every browser) or blocked. The app works from memory
 // either way, so a failure is reported once instead of thrown into whatever
@@ -185,7 +196,7 @@ const writeStored = (key, value) => {
         if (!storageWarned) {
             storageWarned = true;
             // Deferred: the first writes run before the toast exists.
-            setTimeout(() => showToast('Browser storage is full. This tab keeps working, but it can\'t save its offline copy or settings until space is freed.', true), 0);
+            setTimeout(() => showToast('Browser storage is full or blocked. This tab keeps working, but it can\'t save its offline copy or settings until that changes.', true), 0);
         }
         return false;
     }
@@ -194,7 +205,7 @@ const writeStored = (key, value) => {
 // cached copy is useless without it, and it would leave every report at rest
 // on a machine that only watches. Whatever an earlier version left is cleared.
 const viewerAtLoad = document.body.classList.contains('read-only');
-if (viewerAtLoad) ['salt_reports_by_ato', 'salt_unsaved'].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+if (viewerAtLoad) ['salt_reports_by_ato', 'salt_unsaved'].forEach(removeStored);
 let reportsByAto  = viewerAtLoad ? {} : readStored('salt_reports_by_ato', {});
 let activeAto     = null;
 // Viewer-only: the workspace the viewer has clicked to look at locally.
@@ -210,6 +221,15 @@ let localProfiles = {};
 // sync of a later session (or offline).
 const _PROFILES_CACHE_KEY = 'salt_profiles_cache';
 let localConfig   = readStored('salt_offline_config', { ato: '', title: '' });
+// The active workspace as the server last said ({ ato, title }, empty when it
+// has none), or null before the first sync. The startup modal goes by it.
+let serverConfig  = null;
+// The workspace this editor is switching to while save_config is on its way
+// ({ ato, title }), so a sync in between can't switch it back. Null otherwise.
+let switchingTo   = null;
+// Counts this editor's workspace switches, so a pull asked for before one
+// can tell its answer is out of date (syncWithServer).
+let configEpoch   = 0;
 let userProfile   = null;
 // ato → source descriptor ("alpha01.txt" | "Uploaded backup" | "In-session").
 let workspaceSources = {};
@@ -272,7 +292,7 @@ const setAccessCode = (code) => {
 };
 const clearAccessCode = () => {
     accessCode = '';
-    localStorage.removeItem(_ACCESS_CODE_KEY);
+    removeStored(_ACCESS_CODE_KEY);
     clearAccessCookie();
     renderIdentityAccessCode();
 };
@@ -285,9 +305,9 @@ const clearAccessCode = () => {
     const metaCode = (document.querySelector('meta[name="salt-access-code"]') || {}).content || '';
     if (metaCode) {
         setAccessCode(metaCode);
-        if ((localStorage.getItem(_ACCESS_CONFIRMED_KEY) || '') !== metaCode) forceStartupModal = true;
+        if (readRaw(_ACCESS_CONFIRMED_KEY, '') !== metaCode) forceStartupModal = true;
     } else {
-        const cached = localStorage.getItem(_ACCESS_CODE_KEY);
+        const cached = readRaw(_ACCESS_CODE_KEY);
         if (cached) setAccessCode(cached);
     }
 })();
@@ -299,7 +319,7 @@ let isReadOnly = document.body.classList.contains('read-only');
 // Access-code auth is meaningless here: the field is hidden and not required.
 const isLocalFile = location.protocol === 'file:';
 if (isLocalFile) document.body.classList.add('local-mode');
-let currentSortMode  = localStorage.getItem('salt_sort_mode') || 'recent';
+let currentSortMode  = readRaw('salt_sort_mode', 'recent');
 // Each sortable column's modes, in the order a click steps through them. The
 // Identifier header also offers "recent" (last modified first), the default.
 const SORT_MODES = {
@@ -309,9 +329,9 @@ const SORT_MODES = {
     activity: ['activityAsc', 'activityDesc'],
     location: ['locationAsc', 'locationDesc'],
 };
-let timeDisplayMode  = localStorage.getItem('salt_time_mode')  || 'zulu';
+let timeDisplayMode  = readRaw('salt_time_mode', 'zulu');
 // Separator between the ATO designator and the workspace title: 'dash' | 'space'.
-let atoTitleSep      = localStorage.getItem('salt_ato_title_sep') || 'dash';
+let atoTitleSep      = readRaw('salt_ato_title_sep', 'dash');
 
 // --- Report format (builder) ---
 // A format is an ordered list of lines: one for every workspace, synced via
@@ -333,7 +353,7 @@ const isFormat = f => !!(f && Array.isArray(f.lines) && f.lines.length);
 let sharedFormat = readStored('salt_format', null);
 if (!isFormat(sharedFormat)) sharedFormat = readStored('salt_last_format', null);
 if (!isFormat(sharedFormat)) sharedFormat = null;
-try { localStorage.removeItem('salt_ws_formats'); localStorage.removeItem('salt_last_format'); } catch (e) {}
+removeStored('salt_ws_formats'); removeStored('salt_last_format');
 const defaultFormat  = () => ({ preset: 'salt', lines: FORMAT_PRESETS['salt'].map(l => ({...l})) });
 const currentFormat  = () => sharedFormat || defaultFormat();
 const isStockFormat  = () => !sharedFormat || JSON.stringify(sharedFormat.lines) === JSON.stringify(FORMAT_PRESETS['salt']);
@@ -345,12 +365,12 @@ const formatsFor = (atos) => Object.fromEntries(atos.map(a => [a, currentFormat(
 // Map tab and synced. Viewers keep none locally. Browsers from before
 // they were shared kept them per workspace ('salt_ws_overlays'); those are
 // folded into one set once.
-if (viewerAtLoad) { try { localStorage.removeItem('salt_ws_overlays'); localStorage.removeItem('salt_overlays'); } catch (e) {} }
+if (viewerAtLoad) { removeStored('salt_ws_overlays'); removeStored('salt_overlays'); }
 let sharedOverlays = viewerAtLoad ? [] : SaltCore.foldOverlays(readStored('salt_overlays', null) || readStored('salt_ws_overlays', []));
 const storeOverlays = () => {
     if (isReadOnly || viewerAtLoad) return;
     writeStored('salt_overlays', JSON.stringify(sharedOverlays));
-    try { localStorage.removeItem('salt_ws_overlays'); } catch (e) {}
+    removeStored('salt_ws_overlays');
 };
 // The workspace on screen: the editor's active one, or the viewer's pick.
 const shownAto        = () => (isReadOnly ? viewerShowingAto : activeAto) || '';
@@ -381,11 +401,11 @@ const locationInfo = (text) => {
 // --- BDA mode ---
 // Hidden until enabled from the ellipsis menu. Assessments live on each
 // report under `bda: []` and sync like everything else.
-let bdaMode = localStorage.getItem('salt_bda_mode') === 'on';
+let bdaMode = readRaw('salt_bda_mode') === 'on';
 // MGRS Lock (per browser): a grid zone and 100 km square ("11S NV") put in
 // front of grids typed as digits alone, so operators type "39697 06762".
-let mgrsLock = localStorage.getItem('salt_mgrs_lock') === 'on';
-let mgrsLockPrefix = SaltCore.mgrsPrefix(localStorage.getItem('salt_mgrs_prefix') || '') || '';
+let mgrsLock = readRaw('salt_mgrs_lock') === 'on';
+let mgrsLockPrefix = SaltCore.mgrsPrefix(readRaw('salt_mgrs_prefix', '')) || '';
 document.body.classList.toggle('mgrs-lock', mgrsLock);
 // The Location as it will be logged: with the locked prefix, when it is on.
 const lockedLocation = (text) => (mgrsLock && mgrsLockPrefix ? SaltCore.applyMgrsPrefix(text, mgrsLockPrefix) : text);
@@ -394,9 +414,24 @@ document.body.classList.toggle('bda-mode', bdaMode);
 let bdaFilter = null;
 const openBdaRows = new Set();
 const openHistoryRows = new Set();
+// What else survives a redraw of the table (a sync from another operator):
+// the rows checked (report ids), the history rows checked ("id|lastModified")
+// and the cells expanded ("id|column", "id|lastModified|column" on history).
+const selectedRows = new Set();
+const selectedHistory = new Set();
+const expandedCells = new Set();
 let isExportViewActive = false;
 let pendingCsv         = null; // { headers, rows, filename }
-let offlinePendingPush = localStorage.getItem('salt_offline_push') === 'true';
+let offlinePendingPush = readRaw('salt_offline_push') === 'true';
+// Every workspace with changes the server hasn't taken yet (the active one,
+// or another changed by Undo, Send or a backup import while it couldn't be
+// reached), so each is sent again when it is back, not only the active one.
+const pendingAtos = new Set((v => (Array.isArray(v) ? v : []))(readStored('salt_offline_push_atos', [])));
+const markPending = (ato, pending) => {
+    if (!ato || pendingAtos.has(ato) === pending) return;
+    if (pending) pendingAtos.add(ato); else pendingAtos.delete(ato);
+    writeStored('salt_offline_push_atos', JSON.stringify([...pendingAtos]));
+};
 // What the server holds, per workspace (report key -> lastModified), so a
 // push sends only what changed. Refreshed on every pull; a workspace with no
 // record yet (say, right after a reload) is pushed in full.
@@ -408,7 +443,7 @@ const saveUnsaved = () => { writeStored('salt_unsaved', JSON.stringify(unsaved))
 const unsavedEntry = (ato, report) => ((unsaved[ato] || {})[SaltCore.reportKey(report)]) || null;
 
 // Dedupe localStorage writes — skip if the JSON hasn't actually changed.
-let lastSavedReportsJson = localStorage.getItem('salt_reports_by_ato') || '';
+let lastSavedReportsJson = readRaw('salt_reports_by_ato', '');
 const saveReportsByAtoToLocal = () => {
     if (isReadOnly) return;
     const json = JSON.stringify(reportsByAto);
@@ -441,6 +476,10 @@ const generateUUID = () => {
 // Pure helpers live in core.js (window.SaltCore) so the tests can reach them.
 const { dateFields, clockValue, fileStamp, escapeHtml, safeColor,
         reportNum, normalizeLocation, BDA_EFFECTS, bdaElements, bdaSummary } = SaltCore;
+// The lastModified for a report's next version: now, but always past the
+// version it replaces. The server keeps the higher stamp, so a browser whose
+// clock runs behind a peer's would otherwise have its change thrown away.
+const nextStamp = (prev) => Math.max(Date.now(), ((prev && prev.lastModified) || 0) + 1);
 const debounce    = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 const toZuluTimeString  = (d) => SaltCore.toTimeString(d, false);
 const toLocalTimeString = (d) => SaltCore.toTimeString(d, true);
@@ -451,15 +490,51 @@ const autoColonTime = (input) => {
     input.value = v;
     return true;
 };
-const copyToClipboard = (text) => {
-    if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).catch(() => {}); return; }
-    const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px'; document.body.appendChild(ta); ta.focus(); ta.select(); try { document.execCommand('copy'); } catch(e){} ta.remove();
+// Resolves whether the text reached the clipboard, so a toast can say so.
+// The Clipboard API needs a secure context; elsewhere (or if it refuses) the
+// old copy command is tried, and focus goes back where it was.
+const copyToClipboard = async (text) => {
+    if (navigator.clipboard && window.isSecureContext) {
+        try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* try the copy command */ }
+    }
+    const back = document.activeElement;
+    const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px'; document.body.appendChild(ta); ta.focus(); ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    ta.remove();
+    if (back && back !== document.body && back.isConnected && typeof back.focus === 'function') back.focus();
+    return ok;
 };
 // POST a JSON body to the sync server. Resolves to the Response whatever its
 // status; rejects only when the server can't be reached.
 const postJson = (path, body) => fetch(path, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });
+// POST and say how it went: { ok, status, message }, where message is the
+// server's reason when it gives one. Never throws: a server that can't be
+// reached is status 0. A rejected access code (401) re-prompts for it.
+const apiPost = async (path, body) => {
+    let res;
+    try {
+        res = await postJson(path, body);
+    } catch (e) {
+        return { ok: false, status: 0, message: 'The server can\'t be reached.' };
+    }
+    const json = await res.json().catch(() => null);
+    const said = json && typeof json.message === 'string' ? json.message.trim() : '';
+    let message = said || (res.ok ? '' : `The server answered ${res.status}`);
+    if (message && !/[.!?]$/.test(message)) message += '.';
+    if (res.status === 401) handleUnauthorized();
+    return { ok: res.ok, status: res.status, message };
+};
+// The toast for a save: `okText` when the server took it (or there is no
+// server, opened from a file), else why not. Unreachable is not an error: the
+// change is kept here.
+const saveToast = (r, okText) => {
+    if (r.ok || isLocalFile) showToast(okText);
+    else if (r.status === 0) showToast('Saved here; the server can\'t be reached.');
+    else showToast(`Not saved: ${r.message}`, true);
+};
 // A dropdown never runs past the bottom of the window or of the panel that
 // holds it (which clips it): it gets the room below its button, and scrolls
 // inside that if it needs more.
@@ -484,27 +559,99 @@ const setViewIcon = (id, on) => {
 
 // --- 4. Notifications (toasts + confirmation dialog) ---
 let toastTimer = null;
+let toastsShown = 0;   // so a late toast can tell whether another came first
+// The toast's clock: when it hides, and, while held (an Undo toast under the
+// pointer or holding focus), how long it has left.
+let toastUntil = 0, toastLeft = 0, toastHeld = false, toastHasUndo = false;
+const hideToastIn = (ms) => {
+    clearTimeout(toastTimer);
+    toastUntil = Date.now() + ms;
+    toastTimer = setTimeout(() => el.toast.regular.classList.remove('show'), ms);
+};
+const toastInUse = () => el.toast.regular.matches(':hover') || el.toast.regular.contains(document.activeElement);
 // `ms` is how long the toast stays; `undo` adds an Undo button that runs it.
+// Screen readers hear it as a status, an error at once (an alert).
 const showToast = (msg, isErr = false, { ms = 4000, undo = null } = {}) => {
-    el.toast.regular.textContent = msg;
+    toastsShown++;
+    const t = el.toast.regular;
+    t.textContent = msg;
     if (undo) {
         const btn = document.createElement('button');
         btn.className = 'toast-undo';
         btn.textContent = 'Undo';
-        btn.addEventListener('click', () => { clearTimeout(toastTimer); el.toast.regular.classList.remove('show'); undo(); });
-        el.toast.regular.appendChild(btn);
+        btn.addEventListener('click', () => { clearTimeout(toastTimer); toastHeld = false; t.classList.remove('show'); undo(); });
+        t.appendChild(btn);
     }
-    el.toast.regular.style.backgroundColor = isErr ? 'rgba(255,69,58,0.9)' : 'rgba(28,28,30,0.85)';
-    el.toast.regular.classList.add('show');
+    // The error red is a class: dark enough for its white text to be read.
+    t.style.backgroundColor = isErr ? '' : 'rgba(28,28,30,0.85)';
+    t.classList.toggle('toast-error', isErr);
+    t.setAttribute('role', isErr ? 'alert' : 'status');
+    t.setAttribute('aria-live', isErr ? 'assertive' : 'polite');
+    t.classList.add('show');
     // Restart the clock, so an earlier toast's timer can't hide this one early.
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.toast.regular.classList.remove('show'), ms);
+    toastHasUndo = !!undo;
+    if (undo && toastInUse()) { clearTimeout(toastTimer); toastHeld = true; toastLeft = ms; }
+    else { toastHeld = false; hideToastIn(ms); }
 };
+// An Undo toast waits while the pointer is on it or focus is in it, and
+// then has the rest of its time.
+const holdToast = () => {
+    if (!toastHasUndo || toastHeld || !el.toast.regular.classList.contains('show')) return;
+    toastHeld = true;
+    clearTimeout(toastTimer);
+    toastLeft = Math.max(2000, toastUntil - Date.now());
+};
+const releaseToast = () => {
+    if (!toastHeld || toastInUse()) return;
+    toastHeld = false;
+    if (el.toast.regular.classList.contains('show')) hideToastIn(toastLeft);
+};
+el.toast.regular.addEventListener('mouseenter', holdToast);
+el.toast.regular.addEventListener('focusin', holdToast);
+el.toast.regular.addEventListener('mouseleave', releaseToast);
+el.toast.regular.addEventListener('focusout', () => setTimeout(releaseToast, 0));
 const UNDO_MS = 10000;
+
+// --- Dialogs ---
+// Each takes focus when it opens (its safe or main button), keeps Tab inside
+// it while open, and gives focus back to whatever had it when it closes.
+const dialogOpeners = new Map();   // dialog -> what had focus before it opened
+const FOCUSABLE = 'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+const focusablesIn = (box) => [...box.querySelectorAll(FOCUSABLE)]
+    .filter(n => n.getClientRects().length && getComputedStyle(n).visibility !== 'hidden');
+const enterDialog = (box, target) => {
+    // From the Settings menu, which closes behind it: back to the menu's button.
+    const from = el.menu.panel.contains(document.activeElement) ? el.menu.btn : document.activeElement;
+    if (!dialogOpeners.has(box)) dialogOpeners.set(box, from);
+    const to = target || focusablesIn(box)[0];
+    if (to) to.focus();
+};
+const leaveDialog = (box) => {
+    const back = dialogOpeners.get(box);
+    dialogOpeners.delete(box);
+    // Unless what was picked put focus somewhere else on purpose.
+    const now = document.activeElement;
+    const lost = !now || now === document.body || box.contains(now);
+    if (lost && back && back !== document.body && back.isConnected && typeof back.focus === 'function') back.focus();
+};
+// The modal dialogs, topmost first; Tab stays in the first one open.
+const modalDialogs = () => [document.getElementById('choice-toast'), el.toast.confirm, el.startup.overlay, el.manual.modal];
+document.addEventListener('keydown', e => {
+    if (e.key !== 'Tab') return;
+    const box = modalDialogs().find(b => b && b.classList.contains('show'));
+    if (!box) return;
+    const items = focusablesIn(box);
+    if (!items.length) { e.preventDefault(); return; }
+    const first = items[0], last = items[items.length - 1];
+    if (!box.contains(document.activeElement)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+    else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
 // One prompt at a time: a new prompt replaces an unanswered one and drops its
 // action, so Confirm only ever runs what the dialog is showing.
 let pendingConfirm = null;
-const hideConfirmation = () => { el.toast.confirm.classList.remove('show'); pendingConfirm = null; };
+const hideConfirmation = () => { el.toast.confirm.classList.remove('show'); pendingConfirm = null; leaveDialog(el.toast.confirm); };
 
 // A question with several answers: `options` are { label, value, primary? };
 // resolves to the value picked, or null for Cancel (or Escape). A new
@@ -518,7 +665,7 @@ const askChoice = (message, detail, options) => {
     const buttons = document.getElementById('choiceButtons');
     buttons.innerHTML = '';
     return new Promise(resolve => {
-        const done = (value) => { pendingChoice = null; box.classList.remove('show'); resolve(value); };
+        const done = (value) => { pendingChoice = null; box.classList.remove('show'); leaveDialog(box); resolve(value); };
         [...options, { label: 'Cancel', value: null, cancel: true }].forEach(o => {
             const b = document.createElement('button');
             b.type = 'button';
@@ -529,13 +676,15 @@ const askChoice = (message, detail, options) => {
         });
         pendingChoice = done;
         box.classList.add('show');
-        (buttons.querySelector('.choice-primary') || buttons.firstChild).focus();
+        enterDialog(box, buttons.querySelector('.choice-primary') || buttons.firstChild);
     });
 };
+// Focus starts on Cancel: what Confirm runs usually can't be taken back.
 const showConfirmation = (msg, onConfirm) => {
     el.toast.message.textContent = msg;
     pendingConfirm = onConfirm;
     el.toast.confirm.classList.add('show');
+    enterDialog(el.toast.confirm, el.toast.cancelBtn);
 };
 el.toast.confirmBtn.addEventListener('click', () => { const run = pendingConfirm; hideConfirmation(); if (run) run(); });
 el.toast.cancelBtn .addEventListener('click', hideConfirmation);

@@ -41,8 +41,18 @@ from typing import ClassVar
 
 try:
     import ssl
-except ImportError:  # a Python built without OpenSSL serves plain HTTP
+except ImportError:  # a Python built without OpenSSL can only run with --no-https
     ssl = None
+
+# As early as it can be: the imports above work on older Pythons too, and what
+# follows (annotations like ``int | None``) needs 3.10. The file is kept free of
+# syntax 3.8 and 3.9 can't parse, so they reach this line and say why plainly.
+if sys.version_info < (3, 10):  # noqa: UP036
+    sys.exit(
+        'The S.A.L.T. sync server needs Python 3.10 or newer; this is Python '
+        + sys.version.split()[0]
+        + '.'
+    )
 
 # --- Configuration ---
 PORT: int = 8080
@@ -60,15 +70,24 @@ MAX_BODY_BYTES: int = 16 * 1024 * 1024
 # error reply (see SaltSyncHandler._discard_body); larger ones just close.
 MAX_DRAIN_BYTES: int = 2 * MAX_BODY_BYTES
 SAVE_DEBOUNCE_SECONDS: float = 0.5  # coalesce rapid mutations into one disk write
+# A save that fails (a backup held open by antivirus or a sync client such as
+# OneDrive, a full disk) is tried again after these waits, then every last one.
+SAVE_RETRY_SECONDS: tuple = (1.0, 2.0, 5.0, 30.0)
 # The backup file is rewritten within half a second of every change, so a bad
-# import or a wrong delete replaces the only copy at once. A dated copy goes to
-# BACKUP_DIR/snapshots/ at most once an hour (and on every start), and the
-# oldest are pruned past SNAPSHOT_KEEP, so two days of hourly history is kept.
+# import or a wrong delete replaces the only copy at once. A dated copy of
+# every backup goes to BACKUP_DIR/snapshots/ at most once an hour (and on every
+# start), and the oldest rounds are pruned past SNAPSHOT_KEEP, so two days of
+# hourly history is kept however many workspaces there are.
 SNAPSHOT_DIR_NAME = 'snapshots'
 SNAPSHOT_INTERVAL_SECONDS: float = 3600.0
 SNAPSHOT_KEEP: int = 48
 # One line per accepted write (when, who, what), beside the backups.
 AUDIT_LOG_NAME = 'audit.log'
+# The settings every workspace shares (config, profiles, format, overlays,
+# basemaps, drones, narrative), beside the backups in a file of their own, so
+# they last with no workspace loaded. Not a .txt: the loader never takes it for
+# a workspace backup. Workspace backups still carry them too, for older versions.
+SHARED_SETTINGS_NAME = 'Shared settings.json'
 
 # The bundled page sits beside the server in a built `dist/` folder; when run
 # straight from `server/` during development, fall back to `../dist/`.
@@ -180,14 +199,23 @@ _workbench_html_lock = threading.Lock()
 
 
 class SSEClient:
-    """Thread-safe SSE writer; carries client IP for attribution lookups."""
+    """Thread-safe SSE writer. ``ip`` is the machine key (see _machine), not the
+    raw address: every address of the host is one machine. ``sock``, when
+    given, lets the stream be closed from another thread."""
 
-    __slots__ = ('_lock', 'ip', 'wfile')
+    __slots__ = ('_lock', 'ip', 'sock', 'wfile')
 
-    def __init__(self, wfile, ip: str = ''):
+    def __init__(self, wfile, ip: str = '', sock=None):
         self.wfile = wfile
         self._lock = threading.Lock()
         self.ip = ip
+        self.sock = sock
+
+    def close(self) -> None:
+        """End the stream: its thread sees the connection close and cleans up."""
+        if self.sock is not None:
+            with contextlib.suppress(OSError):
+                self.sock.shutdown(socket.SHUT_RDWR)
 
     def send(self, payload: bytes) -> bool:
         """Write to SSE stream; False on disconnect."""
@@ -240,13 +268,18 @@ def invalidate_sync_cache() -> None:
 # Workspaces changed since the last disk write; None means every workspace
 # (at boot, so the first save writes each one its own file). Protected by data_lock.
 _dirty_atos: set | None = None
+# The shared settings changed since Shared settings.json was last written
+# (True at boot, so the first save writes it). Protected by data_lock.
+_shared_dirty: bool = True
 
 
 def mark_dirty(ato: str | None = None) -> None:
-    """Note that ``ato`` (or, with None, every workspace) needs writing. Caller holds data_lock."""
-    global _dirty_atos
+    """Note that ``ato`` (or, with None, every workspace and the shared
+    settings) needs writing. Caller holds data_lock."""
+    global _dirty_atos, _shared_dirty
     if ato is None:
         _dirty_atos = None
+        _shared_dirty = True
     elif _dirty_atos is not None:
         _dirty_atos.add(ato)
 
@@ -258,6 +291,19 @@ def schedule_save() -> None:
         if _save_timer is not None:
             _save_timer.cancel()
         _save_timer = threading.Timer(SAVE_DEBOUNCE_SECONDS, save_data_to_disk)
+        _save_timer.daemon = True
+        _save_timer.start()
+
+
+def _retry_save_in(delay: float) -> None:
+    """Try a failed save again after ``delay`` seconds, unless one is already
+    pending (a change since schedules one sooner)."""
+    global _save_timer
+    with _save_timer_lock:
+        pending = _save_timer
+        if pending is not None and pending is not threading.current_thread() and pending.is_alive():
+            return
+        _save_timer = threading.Timer(delay, save_data_to_disk)
         _save_timer.daemon = True
         _save_timer.start()
 
@@ -289,10 +335,10 @@ def audit(actor: str, what: str) -> None:
     line = f'{stamp}  {actor:<20}  {" ".join(what.split())}\n'
     try:
         os.makedirs(BACKUP_DIR, exist_ok=True)
-        with (
-            _audit_lock,
-            open(os.path.join(BACKUP_DIR, AUDIT_LOG_NAME), 'a', encoding='utf-8') as f,
-        ):
+        log = os.path.join(BACKUP_DIR, AUDIT_LOG_NAME)
+        # One line, unparenthesized: Python 3.8 can't parse a parenthesized
+        # `with`, and must get as far as the version check at the top.
+        with _audit_lock, open(log, 'a', encoding='utf-8') as f:
             f.write(line)
     except OSError as exc:
         if not _audit_failed:
@@ -425,7 +471,7 @@ MAX_BDA_ENTRIES = 200  # BDA assessments per report
 MAX_BDA_TARGET = 200
 MAX_BDA_EFFECT = 30
 MAX_BDA_NOTE = 500
-MAX_OVERLAYS = 500  # NAI / OBJ / PL features per workspace
+MAX_OVERLAYS = 500  # NAI / OBJ / PL features, one set shared by every workspace
 MAX_DRONES = 10  # drones on the map
 MAX_DRONE_NAME = 40
 MAX_DRONE_RANGE_KM = 1000  # how far a drone can see, at most
@@ -542,7 +588,18 @@ TLS_DIR_NAME = 'tls'
 TLS_CERT_DAYS = 825
 TLS_RENEW_DAYS = 30
 TLS_HANDSHAKE_TIMEOUT = 10
-MAX_OVERLAY_POINTS = 200_000  # coordinate pairs per workspace, all features together
+# Seconds a connection may sit idle mid-request before it is closed. Not the
+# event stream, which stays open; see SaltSyncHandler.timeout.
+REQUEST_IDLE_TIMEOUT = 30
+# Event streams one machine may hold open at once (a tab each); a new one past
+# this closes that machine's oldest, which is most likely a tab long gone.
+MAX_SSE_PER_MACHINE = 10
+_SECURITY_HEADERS = (
+    ('X-Frame-Options', 'DENY'),
+    ('Content-Security-Policy', "frame-ancestors 'none'"),
+    ('X-Content-Type-Options', 'nosniff'),
+)
+MAX_OVERLAY_POINTS = 200_000  # coordinate pairs in the shared set, all features together
 _FORMAT_LINE_TYPES = {'id', 'size', 'activity', 'location', 'time', 'analysis', 'custom'}
 # Report fields /api/edit_report may overwrite. History and BDA change through
 # save_reports, where merging applies.
@@ -632,9 +689,34 @@ def _validate_report_fields(r: dict, prefix: str) -> str | None:
     return _validate_user(r.get('user'), f'{prefix}.user')
 
 
+# The fields a report is named, sorted and flagged by. A number or a list in
+# one of them stopped every later disk save (the backup file is named after the
+# title and sorted by displayId), so they are held to their real types.
+_REPORT_TEXT_FIELDS = (
+    ('displayId', MAX_ID_LEN),
+    ('fullId', MAX_FIELD_LEN),  # a CSV import may use a whole cell for it
+    ('ato', MAX_ATO_LEN),
+    ('title', MAX_TITLE_LEN),
+)
+_REPORT_FLAG_FIELDS = ('updated', 'deleted')
+
+
+def _validate_report_identity(r: dict, prefix: str) -> str | None:
+    """Name and flag fields, where present: strings and true/false (null tolerated)."""
+    for k, most in _REPORT_TEXT_FIELDS:
+        if r.get(k) is not None and not _is_str(r[k], most):
+            return f'{prefix}.{k} must be a string ≤{most} chars'
+    for k in _REPORT_FLAG_FIELDS:
+        if r.get(k) is not None and not isinstance(r[k], bool):
+            return f'{prefix}.{k} must be true or false'
+    return None
+
+
 def _validate_report(r, idx: int) -> str | None:
     if not isinstance(r, dict):
         return f'reports[{idx}] must be an object'
+    if err := _validate_report_identity(r, f'reports[{idx}]'):
+        return err
     # At least one identity field; merge path uses either.
     has_id = _is_str(r.get('id'), MAX_ID_LEN) and r.get('id')
     has_did = _is_str(r.get('displayId'), MAX_ID_LEN) and r.get('displayId')
@@ -711,6 +793,8 @@ def _v_edit_report(data: dict) -> str | None:
     if not isinstance(fields, dict):
         return 'fields must be an object'
     # Edit fields share the report shape (it's the same data model).
+    if err := _validate_report_identity(fields, 'fields'):
+        return err
     return _validate_report_fields(fields, 'fields')
 
 
@@ -1063,7 +1147,7 @@ def basemap_proxy_allowed(url: str) -> bool:
     if target.scheme.lower() != 'http' or not target.netloc:
         return False
     with data_lock:
-        saved = [str(b.get('url', '')) for b in DATA_STORE.get('basemaps') or []]
+        saved = [str(b.get('url', '')) for b in _dicts(DATA_STORE.get('basemaps'))]
     for u in saved:
         try:
             base = urllib.parse.urlsplit(u.strip())
@@ -1135,30 +1219,63 @@ _VALIDATORS = {
 RATE_BUCKET_CAPACITY = 60
 RATE_REFILL_PER_SECOND = 5.0
 RATE_BUCKET_PRUNE_AFTER = 600.0  # drop buckets inactive longer than this
+# Wrong or missing access codes, on any request, drain a bucket of their own;
+# an editor's own burst of saves never touches it. Once it is empty the
+# address is refused before its code is looked at, so a right guess made while
+# throttled gets nowhere. A request with the right code never costs a token.
+AUTH_FAIL_CAPACITY = 30
+AUTH_FAIL_REFILL_PER_SECOND = 1.0
+# /api/basemap has its own, roomier bucket: a map view on a tiled basemap asks
+# for up to 400 tiles at once (core.js tilesFor), and panning asks for more.
+BASEMAP_BUCKET_CAPACITY = 600
+BASEMAP_REFILL_PER_SECOND = 10.0
 
 _rate_buckets: dict = {}  # ip -> (tokens: float, last_seen: float)
+_auth_fail_buckets: dict = {}  # the same, for wrong access codes
+_basemap_buckets: dict = {}  # the same, for /api/basemap
 _rate_lock = threading.Lock()
 
 
-def rate_limit_check(ip: str) -> bool:
-    """Token-bucket consume; True allowed, False rate-limited. Lazy refill on access."""
+def _take_token(buckets: dict, ip: str, capacity: float, refill: float, take: bool) -> bool:
+    """Token-bucket consume (or with ``take`` False, just look); True allowed,
+    False rate-limited. Lazy refill on access."""
     now = time.monotonic()  # immune to wall-clock changes
     with _rate_lock:
         # Lazy prune fires only on first contact for a new IP — keeps dict bounded without a thread.
-        if ip not in _rate_buckets:
+        if ip not in buckets:
             cutoff = now - RATE_BUCKET_PRUNE_AFTER
-            stale = [k for k, (_, t) in _rate_buckets.items() if t < cutoff]
+            stale = [k for k, (_, t) in buckets.items() if t < cutoff]
             for k in stale:
-                del _rate_buckets[k]
-        tokens, last = _rate_buckets.get(ip, (float(RATE_BUCKET_CAPACITY), now))
+                del buckets[k]
+        tokens, last = buckets.get(ip, (float(capacity), now))
         # Refill based on elapsed; cap at capacity.
         elapsed = max(0.0, now - last)
-        tokens = min(float(RATE_BUCKET_CAPACITY), tokens + elapsed * RATE_REFILL_PER_SECOND)
+        tokens = min(float(capacity), tokens + elapsed * refill)
         if tokens < 1.0:
-            _rate_buckets[ip] = (tokens, now)
+            buckets[ip] = (tokens, now)
             return False
-        _rate_buckets[ip] = (tokens - 1.0, now)
+        buckets[ip] = (tokens - (1.0 if take else 0.0), now)
         return True
+
+
+def rate_limit_check(ip: str) -> bool:
+    """The POST bucket: True allowed, False rate-limited."""
+    return _take_token(_rate_buckets, ip, RATE_BUCKET_CAPACITY, RATE_REFILL_PER_SECOND, True)
+
+
+def auth_fail_check(ip: str, take: bool) -> bool:
+    """The wrong-access-code bucket: with ``take`` False, whether the address
+    may try a code at all; with True, charge it for a wrong one."""
+    return _take_token(
+        _auth_fail_buckets, ip, AUTH_FAIL_CAPACITY, AUTH_FAIL_REFILL_PER_SECOND, take
+    )
+
+
+def basemap_rate_check(ip: str) -> bool:
+    """The /api/basemap bucket: True allowed, False rate-limited."""
+    return _take_token(
+        _basemap_buckets, ip, BASEMAP_BUCKET_CAPACITY, BASEMAP_REFILL_PER_SECOND, True
+    )
 
 
 # =============================================================================
@@ -1166,58 +1283,121 @@ def rate_limit_check(ip: str) -> bool:
 # =============================================================================
 
 
-def _extract_json_from_file(raw_text: str) -> dict | None:
-    """DATA_STORE dict from a backup file; handles legacy single-ATO format. None on failure."""
+def _clean_config(c) -> dict:
+    """The active workspace and title from a backup, as strings whatever it holds."""
+    c = c if isinstance(c, dict) else {}
+    return {k: c[k] if isinstance(c.get(k), str) else '' for k in ('ato', 'title')}
+
+
+def _parse_backup(raw_text: str) -> dict:
+    """DATA_STORE dict from a backup file; handles legacy single-ATO format.
+
+    Raises ValueError saying what is wrong with a file that isn't a backup.
+    Reports that aren't objects are dropped, and the config is kept to its two
+    strings, so a hand-edited file can't hold anything a save would trip on.
+    """
     s = raw_text.find(BACKUP_START)
     e = raw_text.find(BACKUP_END)
+    if s == -1 or e == -1:
+        raise ValueError('no backup data block in it')
+    try:
+        d = json.loads(raw_text[s + len(BACKUP_START) : e].strip())
+    except (ValueError, RecursionError) as exc:
+        raise ValueError(f'its backup data is not valid JSON ({exc})') from None
+    if not isinstance(d, dict):
+        raise ValueError('its backup data is not a JSON object')
+    config = _clean_config(d.get('config'))
+    profiles = d.get('profiles') if isinstance(d.get('profiles'), dict) else {}
+    if 'workspaces' in d:
+        if not isinstance(d['workspaces'], dict):
+            raise ValueError('its "workspaces" is not an object')
+        return {
+            'workspaces': {
+                ato: _dicts(reps) for ato, reps in d['workspaces'].items() if isinstance(reps, list)
+            },
+            'config': config,
+            'profiles': profiles,
+            'formats': d.get('formats', {}),
+            # None when the file has no overlays at all (older than 2.5).
+            'overlays': d.get('overlays'),
+            'basemaps': d.get('basemaps'),
+            'drones': d.get('drones'),
+            'narrative': d.get('narrative'),
+        }
+    # Legacy marker format: single ATO inferred from config
+    ato = config['ato']
+    reps = _dicts(d.get('reports'))
+    return {
+        'workspaces': {ato: reps} if ato and reps else {},
+        'config': config,
+        'profiles': profiles,
+        'formats': {},
+        'overlays': None,
+        'basemaps': None,
+        'drones': None,
+        'narrative': None,
+    }
 
-    if s != -1 and e != -1:
-        json_text = raw_text[s + len(BACKUP_START) : e].strip()
-        try:
-            d = json.loads(json_text)
-            if 'workspaces' in d:
-                return {
-                    'workspaces': d.get('workspaces', {}),
-                    'config': d.get('config', {'ato': '', 'title': ''}),
-                    'profiles': d.get('profiles', {}),
-                    'formats': d.get('formats', {}),
-                    # None when the file has no overlays at all (older than 2.5).
-                    'overlays': d.get('overlays'),
-                    'basemaps': d.get('basemaps'),
-                    'drones': d.get('drones'),
-                    'narrative': d.get('narrative'),
-                }
-            # Legacy marker format: single ATO inferred from config
-            ato = d.get('config', {}).get('ato', '')
-            reps = d.get('reports', [])
-            return {
-                'workspaces': {ato: reps} if ato and reps else {},
-                'config': d.get('config', {'ato': '', 'title': ''}),
-                'profiles': d.get('profiles', {}),
-                'formats': {},
-                'overlays': None,
-                'basemaps': None,
-                'drones': None,
-                'narrative': None,
-            }
-        except (ValueError, KeyError):
-            return None
 
-    # No marker block — not a recognised backup.
-    return None
+def _parse_shared_settings(raw_text: str) -> dict:
+    """``Shared settings.json`` in the shape ``_parse_backup`` returns, with no
+    workspaces. Raises ValueError when it isn't one."""
+    try:
+        d = json.loads(raw_text)
+    except (ValueError, RecursionError) as exc:
+        raise ValueError(f'not valid JSON ({exc})') from None
+    if not isinstance(d, dict):
+        raise ValueError('not a JSON object')
+    fmt = d.get('format')
+    return {
+        'workspaces': {},
+        'config': _clean_config(d.get('config')),
+        'profiles': d.get('profiles') if isinstance(d.get('profiles'), dict) else {},
+        'formats': {'': fmt} if isinstance(fmt, dict) else {},
+        'overlays': d.get('overlays'),
+        'basemaps': d.get('basemaps'),
+        'drones': d.get('drones'),
+        'narrative': d.get('narrative'),
+    }
+
+
+def _extract_json_from_file(raw_text: str) -> dict | None:
+    """DATA_STORE dict from a backup file (see ``_parse_backup``). None on failure."""
+    try:
+        return _parse_backup(raw_text)
+    except ValueError:
+        return None
+
+
+def _sort_num(v) -> float:
+    """A number to compare by, whatever a hand-edited backup holds (else 0)."""
+    return v if isinstance(v, (int, float)) else 0
+
+
+def _dicts(v) -> list:
+    """The objects in a list, whatever a hand-edited backup holds (else none)."""
+    return [x for x in v if isinstance(x, dict)] if isinstance(v, list) else []
+
+
+def _report_key(r: dict) -> str | None:
+    """The id a report merges by: its id, or the legacy displayId."""
+    key = r.get('id') or r.get('displayId')
+    return str(key) if key and isinstance(key, (str, int, float)) else None
 
 
 def _merge_reports(existing_list: list, incoming_list: list) -> list:
     """Merge by id (or legacy displayId); higher lastModified wins."""
     by_id: dict = {}
     for r in existing_list:
-        if key := r.get('id') or r.get('displayId'):
+        if key := _report_key(r):
             by_id[key] = r
     for r in incoming_list:
-        if not (key := r.get('id') or r.get('displayId')):
+        if not (key := _report_key(r)):
             continue
         existing = by_id.get(key)
-        if existing is None or r.get('lastModified', 0) >= existing.get('lastModified', 0):
+        if existing is None or _sort_num(r.get('lastModified')) >= _sort_num(
+            existing.get('lastModified')
+        ):
             by_id[key] = r
     return list(by_id.values())
 
@@ -1227,18 +1407,29 @@ def _merge_reports(existing_list: list, incoming_list: list) -> list:
 # =============================================================================
 
 
-def load_data_from_disk() -> None:
-    """Read mtime-sorted .txt backups from BACKUP_DIR into DATA_STORE + workspace_sources."""
+def load_data_from_disk() -> int:
+    """Read the backups in BACKUP_DIR into DATA_STORE + workspace_sources.
+
+    Every ``.txt`` backup adds its workspaces. The shared settings (config,
+    profiles, format, overlays, basemaps, drones, narrative) come from the
+    newest file that holds them, ``Shared settings.json`` among them, so they
+    return even when no workspace does. A file that can't be read is named on
+    the console and skipped; returns how many were.
+    """
     with data_lock:
         os.makedirs(BACKUP_DIR, exist_ok=True)
 
         candidates = sorted(
-            [os.path.join(BACKUP_DIR, f) for f in os.listdir(BACKUP_DIR) if f.endswith('.txt')],
+            [
+                os.path.join(BACKUP_DIR, f)
+                for f in os.listdir(BACKUP_DIR)
+                if f.endswith('.txt') or f == SHARED_SETTINGS_NAME
+            ],
             key=os.path.getmtime,
         )
 
         if not candidates:
-            return
+            return 0
 
         all_workspaces: dict = {}
         merged_profiles: dict = {}
@@ -1255,61 +1446,68 @@ def load_data_from_disk() -> None:
         basemaps: list = []
         drones: list = []
         narrative: dict = {}
+        skipped = 0
+        _file_holds.clear()
+        _merged_files.clear()
 
         for filepath in candidates:
+            fname = os.path.basename(filepath)
             try:
                 with open(filepath, encoding='utf-8') as f:
                     raw = f.read()
-                if (result := _extract_json_from_file(raw)) is not None:
-                    fname = os.path.basename(filepath)
-                    for ato_name, reports in result.get('workspaces', {}).items():
-                        # Normalize like every handler does — lowercase keys from disk would miss uppercase requests.
-                        key = (ato_name or '').strip().upper() or 'ATO'
-                        if key in all_workspaces:
-                            all_workspaces[key] = _merge_reports(all_workspaces[key], reports)
-                        else:
-                            all_workspaces[key] = reports
-                        # Last file to touch a workspace becomes its recorded
-                        # source; mtime-sorted candidates ensure that's the
-                        # most recent backup file holding it.
-                        source_by_ato[key] = fname
-                    merged_profiles.update(result.get('profiles', {}))
-                    if (
-                        fmt := pick_format(result.get('formats'), result.get('config'))
-                    ) is not None:
-                        shared_format = fmt
-                    if isinstance(result.get('basemaps'), list):
-                        basemaps = result['basemaps']  # the newest file's
-                    if isinstance(result.get('drones'), list):
-                        drones = result['drones']  # the newest file's
-                    if isinstance(result.get('narrative'), dict):
-                        narrative = result['narrative']  # the newest file's
-                    ovs = result.get('overlays')
-                    if isinstance(ovs, list):
-                        shared_overlays = fold_overlays(ovs)
-                    elif isinstance(ovs, dict):
-                        legacy_overlays.update(
-                            {(o.get('type'), o.get('name')): o for o in fold_overlays(ovs)}
-                        )
-                    latest_config = result.get('config', latest_config)
-            except Exception:
-                # Skip unreadable / malformed files silently.
-                continue
+                if fname == SHARED_SETTINGS_NAME:
+                    result = _parse_shared_settings(raw)
+                else:
+                    result = _parse_backup(raw)
+                for ato_name, reports in result.get('workspaces', {}).items():
+                    # Normalize like every handler does — lowercase keys from disk would miss uppercase requests.
+                    key = (ato_name or '').strip().upper() or 'ATO'
+                    if key in all_workspaces:
+                        all_workspaces[key] = _merge_reports(all_workspaces[key], reports)
+                    else:
+                        all_workspaces[key] = reports
+                    # Last file to touch a workspace becomes its recorded
+                    # source; mtime-sorted candidates ensure that's the
+                    # most recent backup file holding it.
+                    source_by_ato[key] = fname
+                    _file_holds.setdefault(fname.casefold(), (fname, set()))[1].add(key)
+                    _merged_files.setdefault(key, set()).add(fname.casefold())
+                merged_profiles.update(result.get('profiles', {}))
+                if (fmt := pick_format(result.get('formats'), result.get('config'))) is not None:
+                    shared_format = fmt
+                if isinstance(result.get('basemaps'), list):
+                    basemaps = result['basemaps']  # the newest file's
+                if isinstance(result.get('drones'), list):
+                    drones = result['drones']  # the newest file's
+                if isinstance(result.get('narrative'), dict):
+                    narrative = result['narrative']  # the newest file's
+                ovs = result.get('overlays')
+                if isinstance(ovs, list):
+                    shared_overlays = fold_overlays(ovs)
+                elif isinstance(ovs, dict):
+                    legacy_overlays.update(
+                        {(o.get('type'), o.get('name')): o for o in fold_overlays(ovs)}
+                    )
+                latest_config = result.get('config', latest_config)
+            except Exception as exc:
+                # Not silently: a backup that doesn't load is data missing from the session.
+                skipped += 1
+                safe_print(f'[!] Skipped {fname}: {exc}')
 
-        if all_workspaces:
-            DATA_STORE['workspaces'] = all_workspaces
-            DATA_STORE['profiles'] = merged_profiles
-            DATA_STORE['config'] = latest_config
-            DATA_STORE['format'] = shared_format
-            DATA_STORE['overlays'] = (
-                shared_overlays if shared_overlays is not None else list(legacy_overlays.values())
-            )
-            DATA_STORE['basemaps'] = basemaps
-            DATA_STORE['drones'] = drones
-            DATA_STORE['narrative'] = narrative
-            workspace_sources.clear()
-            workspace_sources.update(source_by_ato)
-            invalidate_sync_cache()
+        DATA_STORE['workspaces'] = all_workspaces
+        DATA_STORE['profiles'] = merged_profiles
+        DATA_STORE['config'] = latest_config
+        DATA_STORE['format'] = shared_format
+        DATA_STORE['overlays'] = (
+            shared_overlays if shared_overlays is not None else list(legacy_overlays.values())
+        )
+        DATA_STORE['basemaps'] = basemaps
+        DATA_STORE['drones'] = drones
+        DATA_STORE['narrative'] = narrative
+        workspace_sources.clear()
+        workspace_sources.update(source_by_ato)
+        invalidate_sync_cache()
+        return skipped
 
 
 def pick_format(formats, config) -> dict | None:
@@ -1334,6 +1532,16 @@ def pick_format(formats, config) -> dict | None:
 def formats_for(workspaces: dict, fmt: dict | None) -> dict:
     """The shared format under each workspace's name, the shape backup files keep."""
     return {ato: fmt for ato in workspaces} if fmt else {}
+
+
+def _filename_part(s) -> str:
+    """Letters, digits, '-' and '_' kept, anything else made '_'."""
+    return ''.join(c if c.isalnum() or c in '-_' else '_' for c in str(s)).strip('_')
+
+
+def backup_filename(ato, title) -> str:
+    """The ``{ATO}_{Title}.txt`` a workspace's backup is named."""
+    return f'{_filename_part(ato)}_{_filename_part(title)}.txt'
 
 
 def render_backup(
@@ -1368,14 +1576,11 @@ def render_backup(
         if not ato:
             ato = sorted(workspaces)[0]
             if not title:
-                first = next((r for r in workspaces.get(ato, []) if r.get('title')), None)
+                first = next((r for r in _dicts(workspaces.get(ato)) if r.get('title')), None)
                 title = first.get('title') if first else 'SALT'
     title = title or 'SALT'
 
-    def _safe(s: str) -> str:
-        return ''.join(c if c.isalnum() or c in '-_' else '_' for c in s).strip('_')
-
-    filename = f'{_safe(ato)}_{_safe(title)}.txt'
+    filename = backup_filename(ato, title)
 
     div = '=' * 72
     sub = '-' * 72
@@ -1397,14 +1602,16 @@ def render_backup(
         ' S.A.L.T. REPORT WORKBENCH — AUTO BACKUP (SESSION)',
         f' ATO Designator : {ato}',
         f' Report Title   : {title}',
-        f' Total Reports  : {sum(len(v) for v in workspaces.values())}',
+        f' Total Reports  : {sum(len(_dicts(v)) for v in workspaces.values())}',
         f' Exported       : {ts}',
         div,
         '',
     ]
 
+    # The summary copes with any shape a hand-edited backup loaded at boot can
+    # hold: a report it can't sort or print must not stop the file being written.
     for ws_ato, reports in workspaces.items():
-        for report in sorted(reports, key=lambda r: r.get('displayId', '')):
+        for report in sorted(_dicts(reports), key=lambda r: str(r.get('displayId') or '')):
             flag = ' [UPDATED]' if report.get('updated') else ''
             lines += [
                 sub,
@@ -1418,11 +1625,13 @@ def render_backup(
             ]
             if report.get('yourAnalysis'):
                 lines.append(f' Analysis : {report["yourAnalysis"]}')
-            for ck, cv in (report.get('custom') or {}).items():
+            custom = report.get('custom')
+            for ck, cv in custom.items() if isinstance(custom, dict) else ():
                 lines.append(f' {ck} : {cv}')
-            if (report.get('user') or {}).get('initials'):
-                lines.append(f' By       : {report["user"]["initials"]}')
-            for bi, b in enumerate(report.get('bda') or []):
+            user = report.get('user')
+            if isinstance(user, dict) and user.get('initials'):
+                lines.append(f' By       : {user["initials"]}')
+            for bi, b in enumerate(_dicts(report.get('bda'))):
                 coords = f' @ {b.get("coords")}' if b.get('coords') else ''
                 note = f' - {b.get("note")}' if b.get('note') else ''
                 lines.append(
@@ -1430,7 +1639,9 @@ def render_backup(
                 )
 
             for i, h in enumerate(
-                sorted(report.get('history', []), key=lambda x: x.get('lastModified', 0))
+                sorted(
+                    _dicts(report.get('history')), key=lambda x: _sort_num(x.get('lastModified'))
+                )
             ):
                 lines += [
                     '',
@@ -1471,6 +1682,28 @@ def render_backup(
     return filename, '\n'.join(lines)
 
 
+def render_shared_settings(
+    config: dict,
+    profiles: dict,
+    fmt: dict | None,
+    overlays: list | None,
+    basemaps: list | None,
+    drones: list | None,
+    narrative: dict | None,
+) -> str:
+    """The text of ``Shared settings.json``. Pure, like ``render_backup``."""
+    shared = {
+        'config': config,
+        'profiles': profiles,
+        'format': fmt or {},
+        'overlays': overlays or [],
+        'basemaps': basemaps or [],
+        'drones': drones or [],
+        'narrative': narrative or {},
+    }
+    return json.dumps(shared, indent=1, ensure_ascii=False) + '\n'
+
+
 def workspace_title(ato: str, reports: list, config: dict) -> str:
     """The title a workspace's file is named after.
 
@@ -1480,12 +1713,38 @@ def workspace_title(ato: str, reports: list, config: dict) -> str:
     """
     if (config.get('ato') or '').strip().upper() == ato and (config.get('title') or '').strip():
         return config['title'].strip()
+    reports = _dicts(reports)
     titled = [r for r in reports if r.get('title') and not r.get('deleted')] or [
         r for r in reports if r.get('title')
     ]
     if titled:
-        return max(titled, key=lambda r: r.get('lastModified', 0))['title']
+        return str(max(titled, key=lambda r: _sort_num(r.get('lastModified')))['title'])
     return 'SALT'
+
+
+def workspace_filenames(workspaces: dict, config: dict, held: set | None = None) -> dict:
+    """The backup file each workspace is written to, ATO -> name. Pure.
+
+    ``{ATO}_{Title}.txt``, unless that name is taken: by another workspace in
+    this save ("A B" and "A_B" both come out ``A_B``, and Windows doesn't tell
+    case apart), or by a file on disk holding reports that aren't loaded, an
+    unloaded workspace's say, whose only copy it may be (``held``: their
+    casefolded names). Then the ATO gets a short hash of itself, so no file is
+    overwritten. An ATO already fit for a file name is served first, so a name
+    stays the same from one save to the next.
+    """
+    held = held or set()
+    names: dict = {}
+    used: set = set()
+    for ato in sorted(workspaces, key=lambda a: (_filename_part(a) != a, a)):
+        title = workspace_title(ato, workspaces[ato], config)
+        name = backup_filename(ato, title)
+        if name.casefold() in used or name.casefold() in held:
+            tag = hashlib.sha256(ato.encode('utf-8')).hexdigest()[:6]
+            name = backup_filename(f'{_filename_part(ato)}_{tag}', title)
+        names[ato] = name
+        used.add(name.casefold())
+    return names
 
 
 def render_workspace_backups(
@@ -1498,13 +1757,17 @@ def render_workspace_backups(
     basemaps: list | None = None,
     narrative: dict | None = None,
     drones: list | None = None,
+    names: dict | None = None,
 ) -> list[tuple[str, str, str]]:
     """One ``(ato, filename, text)`` per workspace, for those in ``only`` (None: all).
 
     Each file holds a single workspace with its format and overlays, plus the shared
     config and profiles, so on boot every file contributes its workspace and
-    the newest file decides the active one. Pure, like ``render_backup``.
+    the newest file decides the active one. ``names`` is what
+    ``workspace_filenames`` gave (None: worked out here). Pure, like ``render_backup``.
     """
+    if names is None:
+        names = workspace_filenames(workspaces, config)
     out = []
     for ato in sorted(workspaces):
         if only is not None and ato not in only:
@@ -1522,7 +1785,7 @@ def render_workspace_backups(
             drones=drones or [],
         )
         if rendered is not None:
-            out.append((ato, *rendered))
+            out.append((ato, names[ato], rendered[1]))
     return out
 
 
@@ -1531,29 +1794,82 @@ def render_workspace_backups(
 _disk_lock = threading.Lock()
 # When the last dated copy was taken; None means the next save takes one.
 _last_snapshot_at: float | None = None
+# The UTC time the last round of snapshots is named with. Each round gets a
+# later one, so two rounds never share a name. Protected by _disk_lock.
+_last_snapshot_stamp: datetime | None = None
+# A snapshot's name: the UTC time of its round, then the backup's own name.
+_SNAPSHOT_NAME_RE = re.compile(r'(\d{8}_\d{6}Z)_')
+# A backup moved out of the way when its workspace's file took a new name.
+# Never pruned: it is moved, not deleted, as it may be the copy someone wants.
+SUPERSEDED_PREFIX = 'Superseded_'
+
+# Which workspaces each backup file in BACKUP_DIR holds that no newer file
+# written by this server does (casefolded name -> (name, set of ATOs)), and for
+# each loaded workspace the files its reports were read from or last written
+# to (ATO -> casefolded names). A file left holding nothing has been superseded
+# (by a new title, say) and is moved to snapshots/, or every restart would merge
+# it back in. Protected by data_lock.
+_file_holds: dict = {}
+_merged_files: dict = {}
 
 
 def write_snapshot(filename: str, content: str, now: datetime | None = None) -> str:
-    """Keep a dated copy of a backup in ``BACKUP_DIR/snapshots/`` and prune old ones.
+    """Keep a dated copy of a backup in ``BACKUP_DIR/snapshots/`` and prune old rounds.
 
     Snapshot names start with the UTC time so a directory listing is
-    chronological. Returns the path written. Caller holds ``_disk_lock``.
+    chronological. Every file of a round (one save) is named with the same
+    time, and the newest SNAPSHOT_KEEP rounds are kept however many workspaces
+    each holds. Returns the path written. Caller holds ``_disk_lock``.
     """
     snap_dir = os.path.join(BACKUP_DIR, SNAPSHOT_DIR_NAME)
     os.makedirs(snap_dir, exist_ok=True)
     stamp = f'{(now or datetime.now(timezone.utc)):%Y%m%d_%H%M%S}Z'
     base = os.path.join(snap_dir, f'{stamp}_{filename}')
+    stem, ext = os.path.splitext(base)
     path, n = base, 1
     while os.path.exists(path):  # several saves in one second
         n += 1
-        path = base[: -len('.txt')] + f'_{n}.txt'
+        path = f'{stem}_{n}{ext}'
     with open(path, 'w', encoding='utf-8') as f:
         f.write(content)
-    snaps = sorted(f for f in os.listdir(snap_dir) if f.endswith('.txt'))
-    for old in snaps[: max(0, len(snaps) - SNAPSHOT_KEEP)]:
-        with contextlib.suppress(OSError):
-            os.unlink(os.path.join(snap_dir, old))
+    rounds: dict = {}
+    for f in os.listdir(snap_dir):
+        if m := _SNAPSHOT_NAME_RE.match(f):
+            rounds.setdefault(m.group(1), []).append(f)
+    for old in sorted(rounds)[: max(0, len(rounds) - SNAPSHOT_KEEP)]:
+        for f in rounds[old]:
+            with contextlib.suppress(OSError):
+                os.unlink(os.path.join(snap_dir, f))
     return path
+
+
+def _move_superseded(name: str) -> None:
+    """Move a backup no workspace is written to any more into snapshots/, where
+    the loader doesn't read it. Caller holds ``_disk_lock``."""
+    snap_dir = os.path.join(BACKUP_DIR, SNAPSHOT_DIR_NAME)
+    os.makedirs(snap_dir, exist_ok=True)
+    stamp = f'{datetime.now(timezone.utc):%Y%m%d_%H%M%S}Z'
+    os.replace(
+        os.path.join(BACKUP_DIR, name),
+        os.path.join(snap_dir, f'{SUPERSEDED_PREFIX}{stamp}_{name}'),
+    )
+
+
+def _note_written(written: list) -> list:
+    """Record the workspace backups just written, ``[(ato, filename)]``, and
+    return the names of the files that now hold nothing. Caller holds data_lock."""
+    for ato, filename in written:
+        key = filename.casefold()
+        # A workspace unloaded since its text was made: the file may now be
+        # the only copy of what it held, so nothing else is let go for it.
+        if ato in DATA_STORE.get('workspaces', {}):
+            for other in _merged_files.get(ato, set()) - {key}:
+                if other in _file_holds:
+                    _file_holds[other][1].discard(ato)
+            _merged_files[ato] = {key}
+        _file_holds[key] = (filename, {ato})
+    empty = [k for k, (_, atos) in _file_holds.items() if not atos]
+    return [_file_holds.pop(k)[0] for k in empty]
 
 
 def _write_atomically(dest: str, content: str) -> None:
@@ -1562,11 +1878,36 @@ def _write_atomically(dest: str, content: str) -> None:
     try:
         with open(tmp_fd, 'w', encoding='utf-8') as tmp_f:
             tmp_f.write(content)
+            # On the disk itself before it takes the old file's place, so a
+            # power cut can't leave the new name on a file whose data never landed.
+            tmp_f.flush()
+            os.fsync(tmp_f.fileno())
         os.replace(tmp_path, dest)
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(tmp_path)
         raise
+
+
+# Saves that failed in a row. Protected by _disk_lock.
+_save_failures = 0
+
+
+def _note_save_result(errors: list) -> None:
+    """After a save: on failure, say why (once per run of failures) and try
+    again with a growing wait; on the first success after that, say so."""
+    global _save_failures
+    if not errors:
+        if _save_failures:
+            safe_print('[+] Backups are being saved again.')
+        _save_failures = 0
+        return
+    if not _save_failures:
+        for e in errors:
+            safe_print(f'[!] {e}')
+        safe_print('[!] Changes are kept in memory and the save is retried until it works.')
+    _save_failures += 1
+    _retry_save_in(SAVE_RETRY_SECONDS[min(_save_failures, len(SAVE_RETRY_SECONDS)) - 1])
 
 
 def save_data_to_disk() -> None:
@@ -1578,44 +1919,94 @@ def save_data_to_disk() -> None:
     the disk I/O, which is noticeable on the USB sticks and network shares
     this often runs from. Only workspaces marked dirty since the last save
     are rewritten, except when a dated snapshot is due, which covers all.
+    ``Shared settings.json`` is rewritten when the shared settings changed.
     """
-    global _last_snapshot_at, _dirty_atos
+    global _last_snapshot_at, _last_snapshot_stamp, _dirty_atos, _shared_dirty
     with _disk_lock:
         now = time.monotonic()
         snapshot_due = (
             _last_snapshot_at is None or now - _last_snapshot_at >= SNAPSHOT_INTERVAL_SECONDS
         )
+        errors = []
         with data_lock:
-            only = None if (snapshot_due or _dirty_atos is None) else set(_dirty_atos)
-            _dirty_atos = set()
-            files = render_workspace_backups(
-                DATA_STORE.get('workspaces', {}),
-                DATA_STORE.get('config', {}),
-                DATA_STORE.get('profiles', {}),
-                formats_for(DATA_STORE.get('workspaces', {}), DATA_STORE.get('format')),
-                only,
-                DATA_STORE.get('overlays', []),
-                DATA_STORE.get('basemaps', []),
-                DATA_STORE.get('narrative', {}),
-                DATA_STORE.get('drones', []),
-            )
-        if not files:
-            return
-        os.makedirs(BACKUP_DIR, exist_ok=True)
+            pending, shared_pending = _dirty_atos, _shared_dirty
+            only = None if (snapshot_due or pending is None) else set(pending)
+            _dirty_atos, _shared_dirty = set(), False
+            try:
+                workspaces = DATA_STORE.get('workspaces', {})
+                files = render_workspace_backups(
+                    workspaces,
+                    DATA_STORE.get('config', {}),
+                    DATA_STORE.get('profiles', {}),
+                    formats_for(workspaces, DATA_STORE.get('format')),
+                    only,
+                    DATA_STORE.get('overlays', []),
+                    DATA_STORE.get('basemaps', []),
+                    DATA_STORE.get('narrative', {}),
+                    DATA_STORE.get('drones', []),
+                    names=workspace_filenames(
+                        workspaces,
+                        DATA_STORE.get('config', {}),
+                        {
+                            k
+                            for k, (_, atos) in _file_holds.items()
+                            if any(k not in _merged_files.get(a, ()) for a in atos)
+                        },
+                    ),
+                )
+                if shared_pending or snapshot_due:
+                    # None for the ATO: the shared settings, not a workspace.
+                    shared = render_shared_settings(
+                        DATA_STORE.get('config', {}),
+                        DATA_STORE.get('profiles', {}),
+                        DATA_STORE.get('format'),
+                        DATA_STORE.get('overlays', []),
+                        DATA_STORE.get('basemaps', []),
+                        DATA_STORE.get('drones', []),
+                        DATA_STORE.get('narrative', {}),
+                    )
+                    files.append((None, SHARED_SETTINGS_NAME, shared))
+            except Exception as exc:
+                # Nothing was written: keep every change pending, so a report
+                # the backup can't be made from never silently stops saving.
+                _dirty_atos, _shared_dirty = pending, shared_pending
+                files = []
+                errors.append(f'Could not prepare the backups: {exc!r}')
+        if files:
+            os.makedirs(BACKUP_DIR, exist_ok=True)
         written = []
         for ato, filename, content in files:
             try:
                 _write_atomically(os.path.join(BACKUP_DIR, filename), content)
-                written.append((filename, content))
+                written.append((ato, filename, content))
             except Exception as exc:
-                safe_print(f'[!] Error saving {filename}: {exc}')
-                with data_lock:
-                    mark_dirty(ato)  # try again on the next save
+                errors.append(f'Error saving {filename}: {exc}')
+                with data_lock:  # try again on the next save
+                    if ato is None:
+                        _shared_dirty = True
+                    else:
+                        mark_dirty(ato)
+        if written:
+            with data_lock:
+                superseded = _note_written([(a, f) for a, f, _ in written if a is not None])
+            for name in superseded:
+                try:
+                    _move_superseded(name)
+                except FileNotFoundError:
+                    pass
+                except OSError as exc:
+                    # It stays, and a restart merges it back in, as before.
+                    safe_print(f'[!] Could not move the old {name} to {SNAPSHOT_DIR_NAME}: {exc}')
+        _note_save_result(errors)
         if snapshot_due and written:
+            # One time for the whole round, later than the last round's.
+            stamp = datetime.now(timezone.utc).replace(microsecond=0)
+            if _last_snapshot_stamp is not None and stamp <= _last_snapshot_stamp:
+                stamp = _last_snapshot_stamp + timedelta(seconds=1)
             try:
-                for filename, content in written:
-                    write_snapshot(filename, content)
-                _last_snapshot_at = now
+                for _, filename, content in written:
+                    write_snapshot(filename, content, stamp)
+                _last_snapshot_at, _last_snapshot_stamp = now, stamp
             except Exception as exc:
                 # The live backups are already safe; a missed snapshot is worth a line, not a crash.
                 safe_print(f'[!] Error writing snapshot: {exc}')
@@ -1626,9 +2017,37 @@ def save_data_to_disk() -> None:
 # =============================================================================
 
 
+def _same_origin(origin: str, host: str, tls: bool) -> bool:
+    """True when an ``Origin`` header names the host and port the request was
+    sent to (its ``Host`` header), default ports filled in."""
+    try:
+        o = urllib.parse.urlsplit(origin)
+        h = urllib.parse.urlsplit('//' + host)
+        if o.scheme not in ('http', 'https') or not o.hostname:
+            return False
+        return o.hostname == h.hostname and (o.port or (443 if o.scheme == 'https' else 80)) == (
+            h.port or (443 if tls else 80)
+        )
+    except ValueError:  # a port that isn't a number
+        return False
+
+
 class SaltSyncHandler(server.BaseHTTPRequestHandler):
+    # A connection that sends nothing for this long is closed (StreamRequestHandler
+    # applies it in setup()), so a client that stalls can't hold a thread forever.
+    # The event stream clears it: it is meant to stay open.
+    timeout = REQUEST_IDLE_TIMEOUT
+
     def log_message(self, format, *args):
         return  # suppress per-request console noise
+
+    def end_headers(self):
+        # On every reply, error pages included: no framing by other sites
+        # (clickjacking), and no guessing a type the server didn't send. No
+        # script or style rules: the page's own are inline.
+        for name, value in _SECURITY_HEADERS:
+            self.send_header(name, value)
+        super().end_headers()
 
     def _send_body(
         self, body: bytes, content_type: str, status: int = 200, headers: tuple = ()
@@ -1660,7 +2079,13 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             if self._authorized():
                 self._handle_sse()
         elif path == '/api/basemap':
-            if self._authorized():
+            # Each one can make the server fetch and hold up to 16 MB, and the
+            # viewer port needs no code, so it is limited on both ports.
+            if not basemap_rate_check(self.client_address[0]):
+                self._send_body(
+                    b'Too many map images. Retry shortly.', 'text/plain; charset=utf-8', 429
+                )
+            elif self._authorized():
                 self._handle_basemap()
         elif path in (
             '/',
@@ -1691,10 +2116,22 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _authorized(self, body_length: int = 0) -> bool:
-        """Editor-port code check; sends 401 + False if denied. Viewer/localhost always pass."""
+        """Editor-port code check; sends 401 (or 429) + False if denied. Viewer/localhost always pass.
+
+        Wrong or missing codes, on GET and POST alike, drain the address's
+        own failure bucket (see AUTH_FAIL_CAPACITY). While it is empty, every
+        gated request from that address is refused before its code is looked
+        at, so guessing is slow whatever the method. The right code costs nothing.
+        """
         view_only = getattr(self.server, 'view_only', False)
-        if _check_access_code(self.headers, view_only, self.client_address[0]):
+        ip = self.client_address[0]
+        gated = not view_only and _access_code is not None and not _is_localhost(ip)
+        if gated and not auth_fail_check(ip, take=False):
+            self._refuse(429, 'Too many wrong access codes. Retry shortly.', body_length)
+            return False
+        if _check_access_code(self.headers, view_only, ip):
             return True
+        auth_fail_check(ip, take=True)
         self._refuse(
             401, 'Access denied. Enter the access code from the server console.', body_length
         )
@@ -1715,6 +2152,21 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         with contextlib.suppress(OSError):
             while length > 0 and (chunk := self.rfile.read(min(length, 65536))):
                 length -= len(chunk)
+
+    def _drain_available(self) -> None:
+        """Drop what a client has already sent of a body whose length is unknown.
+
+        For the same reason as _discard_body: unread data turns the close into
+        a reset that can swallow the reply. It waits only briefly for more,
+        and never reads past MAX_DRAIN_BYTES.
+        """
+        self.close_connection = True
+        self.connection.settimeout(0.2)
+        read = 0
+        with contextlib.suppress(OSError):
+            while read < MAX_DRAIN_BYTES and (chunk := self.rfile.read1(65536)):
+                read += len(chunk)
+        self.connection.settimeout(5)
 
     def _refuse(self, status: int, message: str, body_length: int) -> None:
         """Send an error reply to a POST without processing its body."""
@@ -1784,14 +2236,22 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-cache')
         self.send_header('Connection', 'keep-alive')
         self.end_headers()
+        sock = self.request  # underlying TCP socket
+        sock.settimeout(None)  # the stream stays open: no idle timeout
 
-        client = SSEClient(self.wfile, _machine(self.client_address[0]))
+        client = SSEClient(self.wfile, _machine(self.client_address[0]), sock)
         with sse_lock:
+            # Past the cap, the machine's oldest streams make way (a tab long
+            # gone, most likely), so no one machine can hold threads without end.
+            mine = [c for c in sse_clients if c.ip == client.ip]
+            oldest = mine[: max(0, len(mine) + 1 - MAX_SSE_PER_MACHINE)]
+            sse_clients[:] = [c for c in sse_clients if c not in oldest]
             sse_clients.append(client)
+        for c in oldest:
+            c.close()
 
         client.send(b'data: update\n\n')  # bootstrap the connecting client
 
-        sock = self.request  # underlying TCP socket
         try:
             while True:
                 ready, _, _ = select.select([sock], [], [], SSE_HEARTBEAT_SECONDS)
@@ -1854,13 +2314,25 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         except (TypeError, ValueError):
             length = -1
         if length < 0:
-            # Unknowable body: answer and close rather than read.
-            self.close_connection = True
+            # Unknowable body: drop what has already arrived, answer, and close.
+            self._drain_available()
             self._send_json({'status': 'error', 'message': 'Invalid Content-Length header.'}, 400)
             return
         # Viewer port rejects every mutation up front.
         if getattr(self.server, 'view_only', False):
             self._refuse(405, 'This server is read-only.', length)
+            return
+        # Another site's page can make a browser send a POST here (the host's
+        # own browser needs no code). Browsers say where a request comes from;
+        # anything not from the server's own page is refused.
+        origin = self.headers.get('Origin')
+        if self.headers.get('Sec-Fetch-Site', '').lower() == 'cross-site' or (
+            origin is not None
+            and not _same_origin(
+                origin, self.headers.get('Host', ''), getattr(self.server, 'tls', None) is not None
+            )
+        ):
+            self._refuse(403, 'Cross-site request refused.', length)
             return
         # Rate-limit before auth/body so wrong-code floods are throttled too.
         if not rate_limit_check(self.client_address[0]):
@@ -1868,12 +2340,18 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             return
         if not self._authorized(length):
             return
+        # The page always sends JSON. A form on another site can't (only a
+        # script, which the browser then asks the server about first).
+        ctype = self.headers.get('Content-Type', '').split(';', 1)[0].strip().lower()
+        if path.startswith('/api/') and ctype != 'application/json':
+            self._refuse(415, 'Content-Type must be application/json.', length)
+            return
         if length > MAX_BODY_BYTES:
             self._refuse(413, 'Payload too large.', length)
             return
         try:
             data = json.loads(self.rfile.read(length))
-        except (ValueError, KeyError):
+        except (ValueError, RecursionError):  # RecursionError: nesting too deep
             self._send_json({'status': 'error', 'message': 'Invalid JSON.'}, 400)
             return
         if not isinstance(data, dict):
@@ -1908,6 +2386,22 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         broadcast_update()
         self._send_json({'status': 'success', **extra})
 
+    def _unchanged(self, **extra) -> None:
+        """The end of a write that changed nothing: the same reply, but nothing
+        is saved, broadcast to every client, or written to the audit log."""
+        self._send_json({'status': 'success', **extra})
+
+    def _store_shared(self, key: str, value) -> bool:
+        """Put a shared setting in place, for every workspace. False, with
+        nothing stored, when it already holds exactly that."""
+        with data_lock:
+            if DATA_STORE.get(key) == value:
+                return False
+            DATA_STORE[key] = value
+            invalidate_sync_cache()
+            mark_dirty()  # every workspace's backup carries it, and the shared file
+        return True
+
     # -------------------------------------------------------------------------
     # POST routes. Each gets the parsed, validated body and sends the reply.
     # -------------------------------------------------------------------------
@@ -1936,7 +2430,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             # Console bulk-import notification (browser shows full state).
             label = 'Backup (.txt)' if source == 'backup' else 'CSV (.csv)'
             safe_print('\n' + '─' * 64)
-            safe_print(f" [+] Loaded {label}: {len(incoming)} report(s) merged into ATO '{ato}'.")
+            safe_print(f"[+] Loaded {label}: {len(incoming)} report(s) merged into ATO '{ato}'.")
             safe_print('─' * 64)
         else:
             # Learn this connection's operator from the reports it logs, for IP
@@ -1963,17 +2457,24 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             self._bad_request('Missing ATO.')
             return
         with data_lock:
-            DATA_STORE['workspaces'].pop(ato, None)
+            changed = DATA_STORE['workspaces'].pop(ato, None) is not None
             workspace_sources.pop(ato, None)
+            # Its files now hold the only copy of it: none is let go as superseded.
+            _merged_files.pop(ato, None)
             cfg = DATA_STORE.get('config') or {}
             if (cfg.get('ato') or '').strip().upper() == ato:
                 DATA_STORE['config'] = {}
-            invalidate_sync_cache()
-            # Every file carries the config, and the unloaded workspace's own
-            # file stays on disk (unload is "from view"; a restart reloads it).
-            mark_dirty()
-        # Persisted like any write: an unload that lived only in memory came
-        # back on the next server restart.
+                changed = True
+            if changed:
+                invalidate_sync_cache()
+                # Every file carries the config, and the unloaded workspace's own
+                # file stays on disk (unload is "from view"; a restart reloads it).
+                mark_dirty()
+        if not changed:
+            self._unchanged(message='ATO unloaded.')
+            return
+        # Saved at once like any write, so the cleared active workspace is on
+        # disk; the workspace itself comes back on a restart, from its own file.
         self._commit(f'unload_ato {ato}', message='ATO unloaded.')
 
     def _post_edit_report(self, data: dict) -> None:
@@ -1993,23 +2494,40 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 known_profile = DATA_STORE['profiles'].get(known_initials)
             if known_profile:
                 fields['user'] = known_profile
-        found = False
+        found = stale = False
         with data_lock:
             for r in DATA_STORE['workspaces'].get(ato, []):
                 if r.get('id') != report_id:
                     continue
+                found = True
+                # Newest edit wins, as when reports merge: an edit made to an
+                # older copy than the server's would undo someone's later change.
+                if 'lastModified' in fields and _sort_num(fields['lastModified']) < _sort_num(
+                    r.get('lastModified')
+                ):
+                    stale = True
+                    break
                 for k in _EDITABLE_FIELDS:
                     if k in fields:
                         r[k] = fields[k]
                 if 'lastModified' not in fields:
                     r['lastModified'] = int(time.time() * 1000)
-                found = True
                 break
-            if found:
+            if found and not stale:
                 invalidate_sync_cache()
                 mark_dirty(ato)
         if not found:
             self._send_json({'status': 'error', 'message': 'Report not found.'}, 404)
+            return
+        if stale:
+            self._send_json(
+                {
+                    'status': 'error',
+                    'message': 'This report was changed after the copy being edited. '
+                    'It was not edited; open it again.',
+                },
+                409,
+            )
             return
         self._commit(f'edit_report {ato} {report_id}')
 
@@ -2033,7 +2551,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 if not (lms := drop.get(r.get('id'))):
                     continue
                 hist = r.get('history') or []
-                kept = [h for h in hist if h.get('lastModified') not in lms]
+                kept = [
+                    h for h in hist if not isinstance(h, dict) or h.get('lastModified') not in lms
+                ]
                 if len(kept) != len(hist):
                     removed += len(hist) - len(kept)
                     r['history'] = kept
@@ -2041,30 +2561,30 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             if removed > 0:
                 invalidate_sync_cache()
                 mark_dirty(ato)
+        if not removed:
+            self._unchanged(removed=0)
+            return
         self._commit(f'delete_history {ato}: {removed} entries', removed=removed)
 
     def _post_save_config(self, data: dict) -> None:
         cfg = data.get('config')
-        if cfg:
-            # Keep only the fields the app uses: config is re-broadcast to
-            # every client on every sync, so arbitrary extra keys would
-            # bloat everyone's payload and the backup file.
-            clean = {'ato': cfg.get('ato', ''), 'title': cfg.get('title', '')}
-            with data_lock:
-                DATA_STORE['config'] = clean
-                invalidate_sync_cache()
-                mark_dirty()  # the config rides in every file
-            self._commit(f'save_config {clean["ato"]} / {clean["title"]}')
+        if not cfg:
+            self._unchanged()
             return
-        self._commit('save_config (unchanged)')
+        # Keep only the fields the app uses: config is re-broadcast to
+        # every client on every sync, so arbitrary extra keys would
+        # bloat everyone's payload and the backup file.
+        clean = {'ato': cfg.get('ato', ''), 'title': cfg.get('title', '')}
+        if not self._store_shared('config', clean):  # the config rides in every file
+            self._unchanged()
+            return
+        self._commit(f'save_config {clean["ato"]} / {clean["title"]}')
 
     def _post_save_format(self, data: dict) -> None:
         # One format for every workspace; an older page's ATO is ignored.
-        fmt = data['format']
-        with data_lock:
-            DATA_STORE['format'] = fmt
-            invalidate_sync_cache()
-            mark_dirty()  # every workspace's file carries it
+        if not self._store_shared('format', data['format']):
+            self._unchanged()
+            return
         self._commit('save_format')
 
     def _post_save_overlays(self, data: dict) -> None:
@@ -2082,10 +2602,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             }
             for o in data.get('overlays') or []
         ]
-        with data_lock:
-            DATA_STORE['overlays'] = clean
-            invalidate_sync_cache()
-            mark_dirty()  # every workspace's backup carries the shared set
+        if not self._store_shared('overlays', clean):
+            self._unchanged()
+            return
         self._commit(f'save_overlays: {len(clean)} overlay(s)')
 
     def _post_save_basemaps(self, data: dict) -> None:
@@ -2099,10 +2618,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             }
             for b in data.get('basemaps') or []
         ]
-        with data_lock:
-            DATA_STORE['basemaps'] = clean
-            invalidate_sync_cache()
-            mark_dirty()  # every workspace's backup carries them
+        if not self._store_shared('basemaps', clean):
+            self._unchanged()
+            return
         self._commit(f'save_basemaps: {len(clean)} service(s)')
 
     def _post_save_drones(self, data: dict) -> None:
@@ -2116,18 +2634,16 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             }
             for d in data.get('drones') or []
         ]
-        with data_lock:
-            DATA_STORE['drones'] = clean
-            invalidate_sync_cache()
-            mark_dirty()  # every workspace's backup carries them
+        if not self._store_shared('drones', clean):
+            self._unchanged()
+            return
         self._commit(f'save_drones: {len(clean)} drone(s)')
 
     def _post_save_narrative(self, data: dict) -> None:
         clean = clean_narrative(data['narrative'])
-        with data_lock:
-            DATA_STORE['narrative'] = clean
-            invalidate_sync_cache()
-            mark_dirty()  # every workspace's backup carries them
+        if not self._store_shared('narrative', clean):
+            self._unchanged()
+            return
         self._commit(
             f'save_narrative: {len(clean["units"])} unit(s), {len(clean["equipment"])} type(s), '
             f'{len(clean["custom"])} rule(s)'
@@ -2150,13 +2666,21 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         # initials the IP map uses, so server-stamped attribution matches.
         clean = {'initials': ini, 'color': profile.get('color', '#0a84ff')}
         with data_lock:
-            DATA_STORE['profiles'][ini] = clean
-            invalidate_sync_cache()
-            mark_dirty()  # profiles ride in every file
+            changed = DATA_STORE['profiles'].get(ini) != clean
+            if changed:
+                DATA_STORE['profiles'][ini] = clean
+                invalidate_sync_cache()
+                mark_dirty()  # profiles ride in every file
         # IP -> initials so /api/sync includes them and /api/edit_report can server-stamp.
         machine = _machine(self.client_address[0])
         with sse_lock:
+            known = client_initials.get(machine) == ini
             client_initials[machine] = ini
+        if not changed:
+            if not known:
+                broadcast_update()  # who is connected changed, if nothing else did
+            self._unchanged()
+            return
         self._commit(f'save_profile {ini}')
 
     _POST_ROUTES: ClassVar[dict] = {
@@ -2387,15 +2911,28 @@ def _redirect_to_https(sock: socket.socket) -> None:
     """Answer a plain-HTTP request on an HTTPS port (an old bookmark, a typed
     address) with a redirect to the same address over https://."""
     head = b''
+    # TLS_HANDSHAKE_TIMEOUT for the whole head, not per read: a client sending
+    # a byte at a time must not hold the thread for long.
+    deadline = time.monotonic() + TLS_HANDSHAKE_TIMEOUT
     with contextlib.suppress(OSError):
         while b'\r\n\r\n' not in head and len(head) < 16384:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            sock.settimeout(left)
             chunk = sock.recv(4096)
             if not chunk:
                 break
             head += chunk
     lines = head.split(b'\r\n')
     parts = lines[0].split(b' ')
-    path = parts[1].decode('latin-1') if len(parts) > 1 and parts[1].startswith(b'/') else '/'
+    # Percent-encoded byte for byte, so nothing but URL characters (no CR, LF
+    # or space) can reach the Location header; an encoded path stays as it is.
+    path = (
+        urllib.parse.quote_from_bytes(parts[1], safe="/?#[]@!$&'()*+,;=:%~")
+        if len(parts) > 1 and parts[1].startswith(b'/')
+        else '/'
+    )
     host = next(
         (
             line.split(b':', 1)[1].strip().decode('latin-1')
@@ -2451,7 +2988,7 @@ class SaltSyncServer(socketserver.ThreadingTCPServer):
         except OSError:  # a browser turning the certificate down, or a client gone
             return
         try:
-            conn.settimeout(None)  # event streams stay open
+            # The handler sets its idle timeout in setup(); event streams clear it.
             super().finish_request(conn, client_address)
         finally:
             with contextlib.suppress(OSError):
@@ -2470,7 +3007,7 @@ class SaltSyncServer(socketserver.ThreadingTCPServer):
             ssl is not None and isinstance(exc, ssl.SSLError)
         ):
             return
-        safe_print(f' [!] Error handling a request from {client_address[0]}: {exc!r}')
+        safe_print(f'[!] Error handling a request from {client_address[0]}: {exc!r}')
 
 
 # =============================================================================
@@ -2478,44 +3015,64 @@ class SaltSyncServer(socketserver.ThreadingTCPServer):
 # =============================================================================
 
 
+def display_host() -> str:
+    """The address the banner shows and the browser opens: the LAN address when
+    listening on every interface, else the one listened on (``--host``)."""
+    if HOST in ('', '0.0.0.0', '::'):
+        return get_local_ip()
+    return f'[{HOST}]' if ':' in HOST else HOST
+
+
 def run_boot_dashboard(
-    viewer_port: int | None = None, fingerprint: str | None = None, own_cert: bool = False
+    viewer_port: int | None = None,
+    fingerprint: str | None = None,
+    own_cert: bool = False,
+    skipped: int = 0,
 ) -> None:
-    """Boot banner — title, network URL, access code, optional viewer URL, and
-    with HTTPS the certificate's fingerprint (``fingerprint`` None: plain HTTP)."""
-    ip = get_local_ip()
+    """Boot banner — title, network URL, access code, optional viewer URL, with
+    HTTPS the certificate's fingerprint (``fingerprint`` None: plain HTTP), and
+    how many backup files could not be loaded."""
+    ip = display_host()
     scheme = 'http' if fingerprint is None else 'https'
     safe_print('\n' + '═' * 64)
     safe_print('                      S.A.L.T. Sync Server')
     safe_print('═' * 64)
-    safe_print(' [*] Starting S.A.L.T. Sync Server...')
-    safe_print(f' [+] Workbench   : {scheme}://{ip}:{PORT}')
+    safe_print('[*] Starting S.A.L.T. Sync Server...')
+    safe_print(f'[+] Workbench   : {scheme}://{ip}:{PORT}')
     if _access_code is None:
-        safe_print(' [!] Access Code : UNGATED  (no code — anyone can edit)')
+        safe_print('[!] Access Code : UNGATED  (no code — anyone can edit)')
     else:
-        safe_print(f' [+] Access Code : {_access_code}')
+        safe_print(f'[+] Access Code : {_access_code}')
     if viewer_port is not None:
-        safe_print(f' [+] Read Only   : {scheme}://{ip}:{viewer_port}')
+        safe_print(f'[+] Read Only   : {scheme}://{ip}:{viewer_port}')
     if fingerprint is None:
-        safe_print(' [!] Plain HTTP  : the code and reports cross the network unencrypted.')
+        safe_print('[!] Plain HTTP  : the code and reports cross the network unencrypted.')
     else:
-        safe_print(f' [+] Certificate : {fingerprint[:47]}')
-        safe_print(f'                   {fingerprint[48:]}')
+        safe_print(f'[+] Certificate : {fingerprint[:47]}')
+        safe_print(f'                  {fingerprint[48:]}')
         if not own_cert:
-            safe_print(' [*] Browsers warn once about this self-signed certificate:')
-            safe_print('     choose Advanced, then Proceed. Its fingerprint is shown above.')
-    safe_print(' [!] Press Ctrl+C to stop.')
+            safe_print('[*] Browsers warn once about this self-signed certificate:')
+            safe_print('    choose Advanced, then Proceed. Its fingerprint is shown above.')
+    if skipped:
+        safe_print(
+            f'[!] Skipped     : {skipped} backup file(s) that could not be read (named above)'
+        )
+    safe_print('[!] Press Ctrl+C to stop.')
     safe_print('═' * 64 + '\n')
 
 
 def parse_cli_args() -> argparse.Namespace:
-    """CLI knobs for port, bind, backup dir, auto-launch, access code."""
+    """CLI knobs for ports, bind, backup dir, auto-launch, access code, and
+    HTTPS (--no-https, or your own --cert and --key)."""
     p = argparse.ArgumentParser(
         prog='salt_sync_server',
         description='S.A.L.T. Report Workbench sync server.',
     )
     p.add_argument(
-        '--port', type=int, default=PORT, help=f'HTTP port to listen on (default: {PORT}).'
+        '--port',
+        type=int,
+        default=PORT,
+        help=f'Editor port to listen on, HTTPS unless --no-https (default: {PORT}).',
     )
     p.add_argument(
         '--host',
@@ -2597,9 +3154,9 @@ def graceful_drain() -> None:
         pass
     try:
         flush_pending_save()
-        safe_print(' [+] Pending changes flushed to disk.')
+        safe_print('[+] Pending changes flushed to disk.')
     except Exception as exc:
-        safe_print(f' [!] Error flushing on shutdown: {exc}')
+        safe_print(f'[!] Error flushing on shutdown: {exc}')
     audit('server', 'stopped')
 
 
@@ -2617,30 +3174,35 @@ if __name__ == '__main__':
     else:
         _access_code = _generate_access_code()
 
-    load_data_from_disk()
+    # Never fall back to plain HTTP unasked: the code and every report would
+    # cross the network readable while the operator believed them encrypted.
+    if ssl is None and not args.no_https:
+        safe_print('\n[!] This Python has no ssl module, so the server cannot serve HTTPS.')
+        safe_print('    Use a Python that has it (the python.org installers do), or start')
+        safe_print('    with --no-https to serve plain HTTP on a trusted network.')
+        sys.exit(1)
+
+    skipped = load_data_from_disk()
 
     # HTTPS unless --no-https: a certificate given with --cert, or the server's own.
     tls = None
     fingerprint = None
     if not args.no_https:
-        if ssl is None:
-            safe_print('\n [!] This Python has no ssl module, so the server speaks plain HTTP.')
-        else:
-            try:
-                certfile, keyfile = (args.cert, args.key) if args.cert else tls_files(BACKUP_DIR)
-                tls = tls_context(certfile, keyfile)
-                fingerprint = cert_fingerprint(certfile)
-            except (OSError, ValueError) as exc:
-                safe_print(f'\n [!] Could not set up HTTPS: {exc}')
-                safe_print('     Fix the certificate files, or start with --no-https.')
-                sys.exit(1)
+        try:
+            certfile, keyfile = (args.cert, args.key) if args.cert else tls_files(BACKUP_DIR)
+            tls = tls_context(certfile, keyfile)
+            fingerprint = cert_fingerprint(certfile)
+        except (OSError, ValueError) as exc:
+            safe_print(f'\n[!] Could not set up HTTPS: {exc}')
+            safe_print('    Fix the certificate files, or start with --no-https.')
+            sys.exit(1)
     scheme = 'http' if tls is None else 'https'
 
     try:
         httpd = SaltSyncServer((HOST, PORT), SaltSyncHandler, tls=tls)
     except OSError as exc:
-        safe_print(f'\n [!] Could not listen on port {PORT}: {exc}')
-        safe_print('     Is the server already running? Close it, or start this one with --port.')
+        safe_print(f'\n[!] Could not listen on port {PORT}: {exc}')
+        safe_print('    Is the server already running? Close it, or start this one with --port.')
         sys.exit(1)
 
     # Optional viewer listener — same DATA_STORE; view_only=True returns 405 on POST. SSE spans both.
@@ -2656,19 +3218,22 @@ if __name__ == '__main__':
             threading.Thread(target=viewer_httpd.serve_forever, daemon=True).start()
             viewer_port_bound = requested_vp
         except OSError as exc:
-            safe_print(f' [!] Could not start viewer on port {requested_vp}: {exc}')
+            safe_print(f'[!] Could not start viewer on port {requested_vp}: {exc}')
     elif requested_vp == PORT:
-        safe_print(f' [!] --viewer-port matches --port ({PORT}); ignored.')
+        safe_print(f'[!] --viewer-port matches --port ({PORT}); ignored.')
 
     run_boot_dashboard(
-        viewer_port=viewer_port_bound, fingerprint=fingerprint, own_cert=bool(args.cert)
+        viewer_port=viewer_port_bound,
+        fingerprint=fingerprint,
+        own_cert=bool(args.cert),
+        skipped=skipped,
     )
     audit(
         'server',
         f'started ({scheme}): editor port {PORT}, viewer port {viewer_port_bound or "off"}',
     )
 
-    _server_ip = get_local_ip()
+    _server_ip = display_host()
 
     def _launch():
         time.sleep(0.3)  # let the server come up
@@ -2691,7 +3256,7 @@ if __name__ == '__main__':
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        safe_print('\n [*] Shutting down gracefully...')
+        safe_print('\n[*] Shutting down gracefully...')
     finally:
         graceful_drain()
         httpd.server_close()
