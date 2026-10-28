@@ -168,7 +168,7 @@ unloaded_workspaces: set = set()
 
 # This release. The page carries the same (APP_VERSION in src/app/10-state.js)
 # and warns when the two differ; tests/test_docs.py checks they agree.
-APP_VERSION = '2.19.0'
+APP_VERSION = '2.20.0'
 # When this server started, for /api/health.
 STARTED_AT = time.time()
 
