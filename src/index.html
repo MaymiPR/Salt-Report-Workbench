@@ -475,17 +475,29 @@
                         <li><strong>Keeps dated snapshots</strong> in <code>Auto Backups/snapshots/</code>: one when the server starts, then at most one an hour, the newest 48 kept. If something goes badly wrong (a bad import, a wrong delete), stop the server, copy the snapshot you want over the live backup file, and start it again.</li>
                         <li><strong>Broadcasts changes to all clients</strong> in real time via Server-Sent Events, so every connected browser updates instantly without anyone needing to refresh.</li>
                         <li><strong>Generates a fresh access code</strong> on every launch (shown in the console) so a previous session&rsquo;s code can&rsquo;t be reused.</li>
+                        <li><strong>Encrypts every connection (HTTPS)</strong>, so nobody watching the network can read the reports or the access code, or copy the code to get in. On first start it makes its own certificate, kept in <code>Auto Backups/tls/</code>. Old <code>http://</code> addresses are sent on to <code>https://</code>. <code>--no-https</code> turns this off; <code>--cert</code> and <code>--key</code> use a certificate of your own.</li>
                         <li><strong>Validates every request</strong>: malformed payloads are rejected with a clear error, a rate limiter throttles abuse per-IP, and edits to existing reports are server-stamped with the operator the server knows is behind that connection (so attribution can&rsquo;t be spoofed by a misbehaving client).</li>
                         <li><strong>Atomic disk writes</strong>: backup files are written via a temp-file-then-rename, so a crash mid-save can never leave a corrupted backup.</li>
                         <li><strong>Graceful drain on Ctrl+C</strong>: notifies connected clients, flushes any pending disk write, then exits.</li>
                     </ul>
                     <h4 class="manual-subhead">Boot Dashboard</h4>
-                    <p>On launch the server prints a compact boot banner naming itself, then four labeled lines:</p>
+                    <p>On launch the server prints a compact boot banner naming itself, then these labeled lines:</p>
                     <ul>
                         <li><code>Workbench</code>: the LAN URL editors hit to use the tool (default port <code>8080</code>).</li>
                         <li><code>Access Code</code>: the 10-character per-launch code editors must enter on the startup modal. Shows <code>UNGATED</code> when started with <code>--no-access-code</code>.</li>
                         <li><code>Read Only</code>: the read-only viewer URL (default port <code>8081</code>). Omitted when <code>--viewer-port 0</code> disables the listener.</li>
+                        <li><code>Certificate</code>: the SHA-256 fingerprint of the server&rsquo;s certificate, on two lines. Shows <code>Plain HTTP</code> instead when started with <code>--no-https</code>.</li>
                         <li>A <code>Press Ctrl+C to stop.</code> hint.</li>
+                    </ul>
+                </section>
+
+                <section class="manual-section">
+                    <h3>The Browser Warning <span class="manual-tag online">Online only</span></h3>
+                    <p>The server makes its own certificate, and no authority vouches for it, so each browser warns <strong>once</strong> that the connection isn&rsquo;t private. Choose <strong>Advanced</strong>, then <strong>Proceed</strong> (Firefox: <strong>Accept the Risk and Continue</strong>).</p>
+                    <ul>
+                        <li>To be sure it&rsquo;s really your server and not a look-alike, open the certificate details from the warning (or the padlock afterwards) and compare its <strong>SHA-256 fingerprint</strong> with the <code>Certificate</code> lines in the server console.</li>
+                        <li>The browser asks again if the server&rsquo;s address changes, since the certificate is made again for the new address.</li>
+                        <li>Basemaps on an <code>http://</code> address still show: the server fetches their map images for the page, from the hosts of saved basemaps only.</li>
                     </ul>
                 </section>
 

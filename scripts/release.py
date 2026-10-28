@@ -50,13 +50,16 @@ START THE SERVER
 
       set "PYTHON_EXE=C:\\Tools\\Python312\\python.exe"
 
-  The console shows three lines, and your browser opens automatically:
+  The console shows these lines, and your browser opens automatically:
 
-      Workbench   : http://<this-machine>:8080   <- give this to editors
+      Workbench   : https://<this-machine>:8080  <- give this to editors
       Access Code : XXXXXXXXXX                   <- and this, read it aloud
-      Read Only   : http://<this-machine>:8081   <- give this to observers
+      Read Only   : https://<this-machine>:8081  <- give this to observers
+      Certificate : the server's fingerprint
 
-  Your own browser fills in the access code for you.
+  Each browser warns once that the connection isn't private, because the
+  server made its own certificate: choose Advanced, then Proceed. Your own
+  browser fills in the access code for you.
 
 WITHOUT A SERVER
   Double-click index.html. It runs in local mode from your browser's
@@ -68,8 +71,9 @@ YOUR DATA
   data-handling rules.
 
 SECURITY
-  The server uses plain HTTP: reports and the access code cross the network
-  unencrypted. Run it only on a network you trust, or over a VPN.
+  The server encrypts every connection (HTTPS), so the reports and the access
+  code can't be read off the network. To be sure you reached the real server,
+  compare the certificate's fingerprint in the browser with the console's.
 
 OPTIONS
   python salt_sync_server.py --help

@@ -61,8 +61,8 @@ Three constraints drive almost every decision:
                           ▼
    dist/index.html ◄──── served by ────► dist/salt_sync_server.py
    (single file)                          │
-        ▲  ▲                              ├─ editor port  :8080  (read/write, access code)
-        │  │  GET /api/sync, SSE          ├─ viewer port  :8081  (read-only, no code)
+        ▲  ▲                              ├─ editor port  :8080  (HTTPS, read/write, access code)
+        │  │  GET /api/sync, SSE          ├─ viewer port  :8081  (HTTPS, read-only, no code)
         │  └──── POST /api/* ─────────────┤
         │                                 └─ Auto Backups/{ATO}_{Title}.txt
    localStorage (offline cache + queue)
@@ -125,6 +125,7 @@ handler's `_POST_ROUTES` table, paired with a schema validator in
 | `/`, `/index.html` | GET | The bundled page. On the viewer port it is stamped `read-only` before any script runs; for the host's own browser the access code is injected into a `<meta>` tag. |
 | `/api/sync` | GET | Full state: workspaces, config, profiles, the report format, overlays, basemaps, the narrative's settings, sources, connected users. |
 | `/api/events` | GET | Server-Sent Events stream. Each message just says "something changed"; clients then call `/api/sync`. |
+| `/api/basemap?u=` | GET | An image from an `http://` basemap, for an HTTPS page that can't load it itself. Only from the host of a saved basemap; no redirects followed; images only, up to 16 MB. |
 | `/api/save_reports` | POST | Merge a batch of reports into a workspace. |
 | `/api/edit_report` | POST | Overwrite fields of one report in place, without touching its history. |
 | `/api/delete_history` | POST | Remove individual history entries. |
@@ -296,6 +297,20 @@ unload is "from view", and a restart reloads the file. That is documented
 behavior, not a limitation.
 
 ## Access control
+
+Both ports speak HTTPS unless the server runs with `--no-https`. Python's `ssl`
+module does the encryption, but the standard library can't make a
+certificate, so `tls_files()` makes one: a 2048-bit RSA key from `secrets` and
+Miller-Rabin, and a self-signed X.509 v3 certificate written out in DER by hand
+(about 150 lines) for this machine's names and addresses. It lives in the
+backup folder's `tls/`, beside a small JSON note of its expiry and addresses,
+and is made again when it nears expiry or the address changes. `--cert` and
+`--key` load a certificate of your own instead.
+
+Each connection is handled on its own thread: the listener peeks at the first
+byte, wraps the socket in TLS when it is a handshake record (`0x16`), and
+otherwise answers the plain request with a `307` to the `https://` address. The
+access-code cookie is marked `secure` on HTTPS pages.
 
 The editor port is gated by a 10-character code generated at launch from an
 alphabet without look-alike characters (no `0/O`, `1/I/l`, `5/S`), so it can be

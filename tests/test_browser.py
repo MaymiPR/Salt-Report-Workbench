@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import shutil
 import socket
+import ssl
 import struct
 import subprocess
 import sys
@@ -74,12 +75,14 @@ class BrowserTests(unittest.TestCase):
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        cls.editor = f"http://127.0.0.1:{cls.port}"
-        cls.viewer = f"http://127.0.0.1:{cls.viewer_port}"
+        # HTTPS, as the server starts by default, with its self-signed certificate.
+        cls.editor = f"https://127.0.0.1:{cls.port}"
+        cls.viewer = f"https://127.0.0.1:{cls.viewer_port}"
+        unverified = ssl._create_unverified_context()
         deadline = time.monotonic() + 15
         while True:
             try:
-                urllib.request.urlopen(cls.editor + "/", timeout=1).close()
+                urllib.request.urlopen(cls.editor + "/", timeout=1, context=unverified).close()
                 break
             except OSError:
                 if time.monotonic() > deadline:
@@ -98,7 +101,7 @@ class BrowserTests(unittest.TestCase):
 
     def setUp(self):
         # A fresh context has empty storage, so every test starts at the first-run modal.
-        self.context = self.browser.new_context()
+        self.context = self.browser.new_context(ignore_https_errors=True)
         self.errors: list[str] = []
 
     def tearDown(self):
@@ -429,7 +432,9 @@ class BrowserTests(unittest.TestCase):
         page = self.open_editor()
         self.import_overlays(page)
         # Another workspace has the same overlays, with nothing to import.
-        second = self.browser.new_context()  # another browser: storage of its own
+        second = self.browser.new_context(
+            ignore_https_errors=True
+        )  # another browser: storage of its own
         self.addCleanup(second.close)
         other = second.new_page()
         other.on("pageerror", lambda exc: self.errors.append(str(exc)))
@@ -767,7 +772,7 @@ class BrowserTests(unittest.TestCase):
         caps = self.capabilities(
             "Imagery",
             "1.3.0",
-            "http://basemap.test/wms?map=ops&amp;",
+            "https://basemap.test/wms?map=ops&amp;",
             [("imagery", "Imagery 2024", ["EPSG:4326", "EPSG:3857"])],
         )
 
@@ -784,9 +789,9 @@ class BrowserTests(unittest.TestCase):
             asked.append(route.request.url)
             route.fulfill(status=200, content_type="image/png", body=self.PNG_1PX)
 
-        self.context.route("http://basemap.test/**", serve)
+        self.context.route("https://basemap.test/**", serve)
         self.open_map(page)
-        self.add_wms(page, "http://basemap.test/wms", [])  # its one layer comes ticked
+        self.add_wms(page, "https://basemap.test/wms", [])  # its one layer comes ticked
         page.wait_for_function("() => document.querySelectorAll('#mapBase image').length === 1")
         url = asked[-1]
         for part in ("REQUEST=GetMap", "LAYERS=imagery", "CRS=EPSG:3857", "map=ops"):
@@ -797,7 +802,7 @@ class BrowserTests(unittest.TestCase):
         self.assertLess(y1 - y0, 40000)
         # A second service: added, and shown at once; the picker switches between them.
         asked.clear()
-        self.add_tiles(page, "Topo", "http://basemap.test/tiles/{z}/{x}/{y}.png")
+        self.add_tiles(page, "Topo", "https://basemap.test/tiles/{z}/{x}/{y}.png")
         page.wait_for_function(
             "() => [...document.querySelectorAll('#mapBase image')].some(i => i.dataset.url.includes('/tiles/'))"
         )
@@ -948,6 +953,10 @@ class BrowserTests(unittest.TestCase):
         )
         # The map asks in the service's terms: SRS, longitude first.
         page.wait_for_function("() => document.querySelectorAll('#mapBase image').length === 1")
+        # An http:// service on an HTTPS page: its image comes through the sync server.
+        self.assertTrue(
+            page.get_attribute("#mapBase image", "href").startswith("/api/basemap?u=http")
+        )
         # The image is on the page before the fake service has logged its request.
         for _ in range(50):
             if any("GetMap" in p for p in seen):
@@ -1320,7 +1329,7 @@ class BrowserTests(unittest.TestCase):
             "() => fetch('/api/sync').then(r => r.json()).then(s => (s.format.lines || []).some(l => l.label === 'W'))"
         )
         # Another browser, in yet another workspace, has it too.
-        second = self.browser.new_context()
+        second = self.browser.new_context(ignore_https_errors=True)
         self.addCleanup(second.close)
         other = second.new_page()
         other.on("pageerror", lambda exc: self.errors.append(str(exc)))

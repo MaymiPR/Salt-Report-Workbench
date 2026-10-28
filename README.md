@@ -32,6 +32,8 @@ registry:
   when it's back. Open the page without a server and it runs on its own.
 - **Two ways in.** Editors join with an access code that changes each launch.
   Observers use a separate read-only port that refuses every write.
+- **Encrypted.** The server speaks HTTPS with a certificate it makes itself, so
+  the code and the reports can't be read off the network.
 
 ## How it was made
 
@@ -126,27 +128,30 @@ python scripts/build.py
 python dist/salt_sync_server.py
 ```
 
-The server prints its addresses and an access code, then opens your browser:
+The server prints its addresses, an access code and its certificate's
+fingerprint, then opens your browser:
 
 ```text
- [+] Workbench   : http://10.0.0.12:8080
+ [+] Workbench   : https://10.0.0.12:8080
  [+] Access Code : K7M2X9PQR3
- [+] Read Only   : http://10.0.0.12:8081
+ [+] Read Only   : https://10.0.0.12:8081
+ [+] Certificate : B4 BE F7 C2 0A 29 8F 0F 02 64 80 CF 8D 30 03 89
+                   08 E7 DC 26 72 0A 90 D5 19 80 BC 79 84 66 3A 60
 ```
 
-The browser on the server's own machine fills in the code. Give other editors the **Workbench**
+Each browser warns once that the connection isn't private, because the server
+made its own certificate. Choose **Advanced**, then **Proceed**. The browser on
+the server's own machine fills in the code. Give other editors the **Workbench**
 address and the code. Give observers the **Read Only** address.
 
 <p align="center">
   <img src="docs/screenshots/startup.png" alt="The first-run dialog: access code, Quick Start presets, your initials, and the workspace to open" width="560">
 </p>
 
-For the one-file `.txt` download, checking checksums, upgrading, the Windows
-launcher, and where backups live, see [docs/INSTALL.md](docs/INSTALL.md).
-
-> [!IMPORTANT]
-> The server speaks plain HTTP. Run it only on a network you trust, or over a VPN.
-> See [SECURITY.md](SECURITY.md).
+For the one-file `.txt` download, checking checksums, upgrading, HTTPS and the
+browser warning, the Windows launcher, and where backups live, see
+[docs/INSTALL.md](docs/INSTALL.md). What the security model does and doesn't
+cover is in [SECURITY.md](SECURITY.md).
 
 ## Usage
 
@@ -191,6 +196,8 @@ environment variables.
 | `--backup-dir DIR` | `Auto Backups/` beside the server | Where backups are written and loaded from. |
 | `--access-code CODE` | random each launch | Use a fixed editor code. |
 | `--no-access-code` | off | Let anyone on the network edit. **Only on a fully trusted network.** |
+| `--cert FILE`, `--key FILE` | the server's own | Use your own TLS certificate and key (PEM), and browsers that trust it don't warn. |
+| `--no-https` | off | Plain HTTP. The code and reports cross the network unencrypted. |
 | `--no-browser` | off | Don't open a browser on launch. |
 | `--no-minimize` | off | Don't minimize the console window (Windows). |
 

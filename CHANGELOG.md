@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `--cert` and `--key` to use your own certificate, and `--no-https` for plain
+  HTTP.
+
 ### Changed
 
 - **The README is rewritten** to be read in two minutes: the Report Log first,
@@ -17,6 +22,16 @@ All notable changes to this project are documented here. The format follows
 ### Removed
 
 - `CODE_OF_CONDUCT.md`.
+
+### Security
+
+- **The server speaks HTTPS by default**, on both ports, so someone watching the
+  network can no longer read the reports or the access code, or copy the code
+  to edit. It makes its own certificate on first start (kept in
+  `Auto Backups/tls/`) and prints its fingerprint. Each browser warns once;
+  choose Advanced, then Proceed. Old `http://` addresses are sent on to
+  `https://`. Images from `http://` basemaps come through the server, from the
+  hosts of saved basemaps only.
 
 ## [2.15.0] - 2026-10-27
 

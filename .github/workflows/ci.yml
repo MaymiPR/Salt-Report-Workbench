@@ -82,11 +82,13 @@ jobs:
         run: |
           python dist/salt_sync_server.py --no-browser --no-minimize \
             --port 8080 --viewer-port 8081 --no-access-code &
-          for i in $(seq 1 20); do curl -fs http://127.0.0.1:8080/ >/dev/null && break; sleep 0.5; done
-          curl -fsS http://127.0.0.1:8080/ | grep -q '<style>'
-          curl -fsS http://127.0.0.1:8081/ | grep -q 'class="read-only"'
-          curl -fsS http://127.0.0.1:8080/api/sync | python -c "import json,sys; d=json.load(sys.stdin); assert d['read_only'] is False"
-          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -d '{}' http://127.0.0.1:8081/api/save_config)" = 405
+          # HTTPS by default, with a self-signed certificate (-k accepts it).
+          for i in $(seq 1 40); do curl -kfs https://127.0.0.1:8080/ >/dev/null && break; sleep 0.5; done
+          curl -kfsS https://127.0.0.1:8080/ | grep -q '<style>'
+          curl -kfsS https://127.0.0.1:8081/ | grep -q 'class="read-only"'
+          curl -kfsS https://127.0.0.1:8080/api/sync | python -c "import json,sys; d=json.load(sys.stdin); assert d['read_only'] is False"
+          test "$(curl -ks -o /dev/null -w '%{http_code}' -X POST -d '{}' https://127.0.0.1:8081/api/save_config)" = 405
+          test "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' http://127.0.0.1:8080/)" = "307 https://127.0.0.1:8080/"
           echo "smoke test passed"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

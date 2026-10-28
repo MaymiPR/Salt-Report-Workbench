@@ -368,6 +368,9 @@ const drawBasemap = (m, ext, view, w, h) => {
     const want = [Math.max(ext[0], view[0]), Math.max(ext[1], view[1]), Math.min(ext[2], view[2]), Math.min(ext[3], view[3])];
     if (want[0] >= want[2] || want[1] >= want[3]) { m.base.innerHTML = ''; return; }
     mapLastWant = want;
+    // An HTTPS page can't load images from an http:// basemap, so those come
+    // through the sync server, which fetches them from that saved host.
+    const src = (url) => (location.protocol === 'https:' && /^http:\/\//i.test(url) ? '/api/basemap?u=' + encodeURIComponent(url) : url);
     const have = new Map([...m.base.children].map(el => [el.dataset.url, el]));
     const add = (url, box) => {
         let img = have.get(url);
@@ -378,7 +381,7 @@ const drawBasemap = (m, ext, view, w, h) => {
             img.setAttribute('preserveAspectRatio', 'none');
             img.addEventListener('error', () => { if (!mapBaseFailed) { mapBaseFailed = true; redrawMap(); } });
             img.addEventListener('load', () => { if (mapBaseFailed) { mapBaseFailed = false; redrawMap(); } });
-            img.setAttribute('href', url);
+            img.setAttribute('href', src(url));
             m.base.appendChild(img);
         }
         have.delete(url);
@@ -409,7 +412,7 @@ const drawBasemap = (m, ext, view, w, h) => {
             if (mapBaseFailed) { mapBaseFailed = false; redrawMap(); }
         });
         img.addEventListener('error', () => { img.remove(); if (!mapBaseFailed) { mapBaseFailed = true; redrawMap(); } });
-        img.setAttribute('href', url);
+        img.setAttribute('href', src(url));
         place(img, want);
         m.base.appendChild(img);
     }, 300);

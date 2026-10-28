@@ -12,11 +12,16 @@ See docs/ARCHITECTURE.md for the design.
 """
 
 import argparse
+import base64
 import contextlib
 import ctypes
 import gzip
+import hashlib
+import http.client
 import http.server as server
+import ipaddress
 import json
+import math
 import os
 import re
 import secrets
@@ -28,10 +33,16 @@ import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import webbrowser
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import ClassVar
+
+try:
+    import ssl
+except ImportError:  # a Python built without OpenSSL serves plain HTTP
+    ssl = None
 
 # --- Configuration ---
 PORT: int = 8080
@@ -514,6 +525,16 @@ _NARRATIVE_RULES = frozenset(
 WMS_FETCH_MAX_URL = 4000
 WMS_FETCH_MAX_BYTES = 5 * 1024 * 1024
 WMS_FETCH_TIMEOUT = 15
+# /api/basemap: an HTTPS page can't load map images from an http:// basemap, so
+# the server fetches them, from the hosts of the saved basemaps only.
+BASEMAP_PROXY_MAX_BYTES = 16 * 1024 * 1024
+# HTTPS: the server's own certificate lives in the backup folder's tls/ and is
+# made again this many days before it runs out. A new connection gets
+# TLS_HANDSHAKE_TIMEOUT seconds to start its handshake (or its plain request).
+TLS_DIR_NAME = 'tls'
+TLS_CERT_DAYS = 825
+TLS_RENEW_DAYS = 30
+TLS_HANDSHAKE_TIMEOUT = 10
 MAX_OVERLAY_POINTS = 200_000  # coordinate pairs per workspace, all features together
 _FORMAT_LINE_TYPES = {'id', 'size', 'activity', 'location', 'time', 'analysis', 'custom'}
 # Report fields /api/edit_report may overwrite. History and BDA change through
@@ -979,6 +1000,58 @@ def wms_fetch(url: str) -> dict:
         return answer(e.code, e.headers.get('Content-Type', '') if e.headers else '', body)
     except (urllib.error.URLError, OSError, ValueError) as e:
         return {'error': str(getattr(e, 'reason', e)) or type(e).__name__}
+
+
+def basemap_proxy_allowed(url: str) -> bool:
+    """True when ``url`` is an http:// address on the host of a saved basemap.
+    Only those are fetched, so the proxy can't be pointed anywhere else."""
+    if not _is_str(url, WMS_FETCH_MAX_URL):
+        return False
+    try:
+        target = urllib.parse.urlsplit(url.strip())
+    except ValueError:
+        return False
+    if target.scheme.lower() != 'http' or not target.netloc:
+        return False
+    with data_lock:
+        saved = [str(b.get('url', '')) for b in DATA_STORE.get('basemaps') or []]
+    for u in saved:
+        try:
+            base = urllib.parse.urlsplit(u.strip())
+        except ValueError:
+            continue
+        if base.scheme.lower() == 'http' and base.netloc.lower() == target.netloc.lower():
+            return True
+    return False
+
+
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """A redirect could lead off the saved host, so none are followed."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_basemap_opener = urllib.request.build_opener(_NoRedirects)
+
+
+def basemap_fetch(url: str) -> tuple[int, str, bytes]:
+    """GET a basemap image: (status, content type, body). Never raises; a
+    failure comes back as status 502."""
+    req = urllib.request.Request(
+        url.strip(), headers={'User-Agent': 'SALT-Report-Workbench', 'Accept': 'image/*'}
+    )
+    try:
+        with _basemap_opener.open(req, timeout=WMS_FETCH_TIMEOUT) as res:
+            body = res.read(BASEMAP_PROXY_MAX_BYTES + 1)
+            if len(body) > BASEMAP_PROXY_MAX_BYTES:
+                return 502, '', b''
+            return res.status, res.headers.get('Content-Type', ''), body
+    except urllib.error.HTTPError as e:  # an error status, or a redirect not followed
+        e.close()
+        return 502, '', b''
+    except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException):
+        return 502, '', b''
 
 
 # Path -> validator. A new POST route needs an entry here and one in
@@ -1515,6 +1588,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         elif path == '/api/events':
             if self._authorized():
                 self._handle_sse()
+        elif path == '/api/basemap':
+            if self._authorized():
+                self._handle_basemap()
         elif path in (
             '/',
             '/index.html',
@@ -1524,6 +1600,24 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             self._serve_workbench()
         else:
             self.send_error(404)
+
+    def _handle_basemap(self) -> None:
+        """An http:// basemap image for an HTTPS page, from a saved basemap's host."""
+        query = urllib.parse.parse_qs(self.path.split('?', 1)[1] if '?' in self.path else '')
+        url = (query.get('u') or [''])[0]
+        if not basemap_proxy_allowed(url):
+            self._send_body(b'Not a saved basemap.', 'text/plain; charset=utf-8', 403)
+            return
+        status, ctype, body = basemap_fetch(url)
+        if status != 200 or not ctype.lower().startswith('image/'):
+            self._send_body(b'The basemap service sent no image.', 'text/plain; charset=utf-8', 502)
+            return
+        self.send_response(200)
+        self.send_header('Content-Type', ctype)
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Cache-Control', 'private, max-age=300')  # panning back reuses tiles
+        self.end_headers()
+        self.wfile.write(body)
 
     def _authorized(self, body_length: int = 0) -> bool:
         """Editor-port code check; sends 401 + False if denied. Viewer/localhost always pass."""
@@ -1996,6 +2090,242 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
 # =============================================================================
 
 
+# =============================================================================
+# HTTPS
+# =============================================================================
+# Python serves TLS but can't make a certificate, so the server makes its own:
+# an RSA key and a self-signed X.509 certificate, built from the standard
+# library. OpenSSL, through the ssl module, does all the encryption; this code
+# only writes the two files it loads.
+
+
+def _der(tag: int, body: bytes) -> bytes:
+    """One DER element: tag, length, body."""
+    n = len(body)
+    if n < 0x80:
+        return bytes((tag, n)) + body
+    size = n.to_bytes((n.bit_length() + 7) // 8, 'big')
+    return bytes((tag, 0x80 | len(size))) + size + body
+
+
+def _der_seq(*parts: bytes) -> bytes:
+    return _der(0x30, b''.join(parts))
+
+
+def _der_int(v: int) -> bytes:
+    return _der(0x02, v.to_bytes(v.bit_length() // 8 + 1, 'big'))
+
+
+def _der_oid(dotted: str) -> bytes:
+    first, second, *arcs = (int(x) for x in dotted.split('.'))
+    out = bytearray([40 * first + second])
+    for arc in arcs:
+        chunk = [arc & 0x7F]
+        arc >>= 7
+        while arc:
+            chunk.append(0x80 | (arc & 0x7F))
+            arc >>= 7
+        out += bytes(reversed(chunk))
+    return _der(0x06, bytes(out))
+
+
+def _pem(label: str, der: bytes) -> bytes:
+    b64 = base64.b64encode(der).decode('ascii')
+    lines = [b64[i : i + 64] for i in range(0, len(b64), 64)]
+    text = f'-----BEGIN {label}-----\n' + '\n'.join(lines) + f'\n-----END {label}-----\n'
+    return text.encode('ascii')
+
+
+_SMALL_PRIMES = [p for p in range(3, 2000, 2) if all(p % q for q in range(3, math.isqrt(p) + 1, 2))]
+
+
+def _is_probable_prime(n: int, rounds: int = 40) -> bool:
+    """Miller-Rabin with random bases, after trial division by small primes."""
+    if any(n % p == 0 for p in _SMALL_PRIMES):
+        return n in _SMALL_PRIMES
+    d, s = n - 1, 0
+    while d % 2 == 0:
+        d //= 2
+        s += 1
+    for _ in range(rounds):
+        x = pow(secrets.randbelow(n - 3) + 2, d, n)
+        if x in (1, n - 1):
+            continue
+        for _ in range(s - 1):
+            x = pow(x, 2, n)
+            if x == n - 1:
+                break
+        else:
+            return False
+    return True
+
+
+def _random_prime(bits: int) -> int:
+    """A random prime with its top two bits set, so two make a full-size modulus."""
+    while True:
+        n = secrets.randbits(bits) | (3 << (bits - 2)) | 1
+        if _is_probable_prime(n):
+            return n
+
+
+def make_self_signed_cert(
+    names: list, ips: list, days: int = TLS_CERT_DAYS, now: datetime | None = None
+) -> tuple[bytes, bytes]:
+    """A 2048-bit RSA key and a self-signed certificate for the host ``names``
+    and ``ips``, as PEM: (certificate, key)."""
+    e = 65537
+    while True:
+        p, q = _random_prime(1024), _random_prime(1024)
+        phi = (p - 1) * (q - 1)
+        if p != q and math.gcd(e, phi) == 1:
+            break
+    n, d = p * q, pow(e, -1, phi)
+    now = now or datetime.now(timezone.utc)
+
+    def utc_time(t: datetime) -> bytes:
+        return _der(0x17, t.strftime('%y%m%d%H%M%SZ').encode('ascii'))
+
+    def extension(oid: str, value: bytes, critical: bool = False) -> bytes:
+        return _der_seq(_der_oid(oid), b'\x01\x01\xff' if critical else b'', _der(0x04, value))
+
+    sha256_rsa = _der_seq(_der_oid('1.2.840.113549.1.1.11'), b'\x05\x00')
+    name = _der_seq(_der(0x31, _der_seq(_der_oid('2.5.4.3'), _der(0x0C, b'SALT Report Workbench'))))
+    public = _der_seq(_der_int(n), _der_int(e))
+    spki = _der_seq(
+        _der_seq(_der_oid('1.2.840.113549.1.1.1'), b'\x05\x00'), _der(0x03, b'\x00' + public)
+    )
+    alt = b''.join(_der(0x82, h.encode('ascii')) for h in names) + b''.join(
+        _der(0x87, ipaddress.ip_address(ip).packed) for ip in ips
+    )
+    extensions = _der_seq(
+        extension('2.5.29.19', _der_seq(), critical=True),  # not a CA
+        extension('2.5.29.15', _der(0x03, b'\x05\xa0'), critical=True),  # sign, encipher keys
+        extension('2.5.29.37', _der_seq(_der_oid('1.3.6.1.5.5.7.3.1'))),  # TLS server
+        extension('2.5.29.14', _der(0x04, hashlib.sha1(public, usedforsecurity=False).digest())),
+        extension('2.5.29.17', _der_seq(alt)),
+    )
+    tbs = _der_seq(
+        _der(0xA0, _der_int(2)),  # X.509 v3
+        _der_int(secrets.randbits(63) | 1),
+        sha256_rsa,
+        name,
+        _der_seq(utc_time(now - timedelta(days=1)), utc_time(now + timedelta(days=days))),
+        name,
+        spki,
+        _der(0xA3, extensions),
+    )
+    # PKCS #1 v1.5: the SHA-256 DigestInfo, padded to the key's size, signed.
+    digest = bytes.fromhex('3031300d060960864801650304020105000420') + hashlib.sha256(tbs).digest()
+    padded = b'\x00\x01' + b'\xff' * (256 - len(digest) - 3) + b'\x00' + digest
+    signature = pow(int.from_bytes(padded, 'big'), d, n).to_bytes(256, 'big')
+    cert = _der_seq(tbs, sha256_rsa, _der(0x03, b'\x00' + signature))
+    key = _der_seq(
+        *(_der_int(v) for v in (0, n, e, d, p, q, d % (p - 1), d % (q - 1), pow(q, -1, p)))
+    )
+    return _pem('CERTIFICATE', cert), _pem('RSA PRIVATE KEY', key)
+
+
+def _plain_ip(a: str) -> str | None:
+    """An address without its IPv6 zone, or None when it isn't one."""
+    try:
+        return str(ipaddress.ip_address(a.split('%', 1)[0]))
+    except ValueError:
+        return None
+
+
+def tls_files(folder: str) -> tuple[str, str]:
+    """The server's own certificate and key, in ``folder``/tls: made when
+    missing, again near expiry, and again when they don't cover this machine's
+    address (a browser then warns once more, as it would for the new address)."""
+    tls_dir = os.path.join(folder, TLS_DIR_NAME)
+    cert, key, info = (
+        os.path.join(tls_dir, n) for n in ('salt-cert.pem', 'salt-key.pem', 'salt-cert.json')
+    )
+    ip = get_local_ip()
+    now = datetime.now(timezone.utc)
+    try:
+        with open(info, encoding='utf-8') as f:
+            meta = json.load(f)
+        left = datetime.fromisoformat(meta['expires']) - now
+        if (
+            left > timedelta(days=TLS_RENEW_DAYS)
+            and ip in meta['ips']
+            and os.path.isfile(cert)
+            and os.path.isfile(key)
+        ):
+            return cert, key
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    ips = sorted({'127.0.0.1', ip, *filter(None, map(_plain_ip, _local_ips()))})
+    host = socket.gethostname()
+    names = ['localhost'] + ([host] if re.fullmatch(r'[A-Za-z0-9.-]{1,253}', host) else [])
+    cert_pem, key_pem = make_self_signed_cert(names, ips, now=now)
+    os.makedirs(tls_dir, exist_ok=True)
+    fd = os.open(key, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # owner-only where it counts
+    with os.fdopen(fd, 'wb') as f:
+        f.write(key_pem)
+    with open(cert, 'wb') as f:
+        f.write(cert_pem)
+    with open(info, 'w', encoding='utf-8') as f:  # written last: it vouches for the other two
+        json.dump({'expires': (now + timedelta(days=TLS_CERT_DAYS)).isoformat(), 'ips': ips}, f)
+    return cert, key
+
+
+def cert_fingerprint(certfile: str) -> str:
+    """The SHA-256 fingerprint of the first certificate in a PEM file, as
+    browsers show it: upper-case hex pairs."""
+    with open(certfile, encoding='ascii') as f:
+        m = re.search(r'-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----', f.read(), re.S)
+    if not m:
+        raise ValueError(f'{certfile} holds no PEM certificate')
+    digest = hashlib.sha256(ssl.PEM_cert_to_DER_cert(m.group(0))).hexdigest().upper()
+    return ' '.join(digest[i : i + 2] for i in range(0, len(digest), 2))
+
+
+def tls_context(certfile: str, keyfile: str):
+    """A server-side TLS context: TLS 1.2 or newer, with this certificate."""
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.load_cert_chain(certfile, keyfile)
+    return ctx
+
+
+_HOST_HEADER_RE = re.compile(r'[A-Za-z0-9.\-:\[\]]{1,300}')
+
+
+def _redirect_to_https(sock: socket.socket) -> None:
+    """Answer a plain-HTTP request on an HTTPS port (an old bookmark, a typed
+    address) with a redirect to the same address over https://."""
+    head = b''
+    with contextlib.suppress(OSError):
+        while b'\r\n\r\n' not in head and len(head) < 16384:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            head += chunk
+    lines = head.split(b'\r\n')
+    parts = lines[0].split(b' ')
+    path = parts[1].decode('latin-1') if len(parts) > 1 and parts[1].startswith(b'/') else '/'
+    host = next(
+        (
+            line.split(b':', 1)[1].strip().decode('latin-1')
+            for line in lines[1:]
+            if line.lower().startswith(b'host:')
+        ),
+        '',
+    )
+    if not _HOST_HEADER_RE.fullmatch(host):
+        with contextlib.suppress(OSError):
+            host = f'{get_local_ip()}:{sock.getsockname()[1]}'
+    reply = (
+        'HTTP/1.1 307 Temporary Redirect\r\n'
+        f'Location: https://{host}{path}\r\n'
+        'Content-Length: 0\r\nConnection: close\r\n\r\n'
+    )
+    with contextlib.suppress(OSError):
+        sock.sendall(reply.encode('latin-1'))
+
+
 class SaltSyncServer(socketserver.ThreadingTCPServer):
     # SO_REUSEADDR lets a restart rebind a port whose old sockets are still in
     # TIME_WAIT. On Windows it also lets a second copy of the server bind a port
@@ -2006,10 +2336,36 @@ class SaltSyncServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = os.name != 'nt'
     daemon_threads = True  # SSE threads die with main on Ctrl+C
 
-    def __init__(self, *args, view_only: bool = False, **kwargs):
+    def __init__(self, *args, view_only: bool = False, tls=None, **kwargs):
         # Per-listener mode flag; handler checks via self.server.view_only.
         self.view_only = view_only
+        # An ssl.SSLContext serves HTTPS; None serves plain HTTP.
+        self.tls = tls
         super().__init__(*args, **kwargs)
+
+    def finish_request(self, request, client_address):
+        """With HTTPS, a connection that opens with a TLS handshake is wrapped
+        and served; one that sends a plain request is redirected to https://.
+        Runs on the connection's own thread, so a slow client holds up no one."""
+        if self.tls is None:
+            super().finish_request(request, client_address)
+            return
+        try:
+            request.settimeout(TLS_HANDSHAKE_TIMEOUT)
+            first = request.recv(1, socket.MSG_PEEK)
+            if first != b'\x16':  # not a TLS handshake record
+                if first:
+                    _redirect_to_https(request)
+                return
+            conn = self.tls.wrap_socket(request, server_side=True)
+        except OSError:  # a browser turning the certificate down, or a client gone
+            return
+        try:
+            conn.settimeout(None)  # event streams stay open
+            super().finish_request(conn, client_address)
+        finally:
+            with contextlib.suppress(OSError):
+                conn.close()
 
     def server_bind(self):
         if os.name == 'nt':
@@ -2020,7 +2376,9 @@ class SaltSyncServer(socketserver.ThreadingTCPServer):
         """Stay quiet when a client just goes away (closed tabs, dropped SSE
         streams); report anything else, which is a bug worth seeing."""
         exc = sys.exc_info()[1]
-        if isinstance(exc, (ConnectionError, TimeoutError)):
+        if isinstance(exc, (ConnectionError, TimeoutError)) or (
+            ssl is not None and isinstance(exc, ssl.SSLError)
+        ):
             return
         safe_print(f' [!] Error handling a request from {client_address[0]}: {exc!r}')
 
@@ -2030,20 +2388,32 @@ class SaltSyncServer(socketserver.ThreadingTCPServer):
 # =============================================================================
 
 
-def run_boot_dashboard(viewer_port: int | None = None) -> None:
-    """Boot banner — title, network URL, access code, optional viewer URL."""
+def run_boot_dashboard(
+    viewer_port: int | None = None, fingerprint: str | None = None, own_cert: bool = False
+) -> None:
+    """Boot banner — title, network URL, access code, optional viewer URL, and
+    with HTTPS the certificate's fingerprint (``fingerprint`` None: plain HTTP)."""
     ip = get_local_ip()
+    scheme = 'http' if fingerprint is None else 'https'
     safe_print('\n' + '═' * 64)
     safe_print('                      S.A.L.T. Sync Server')
     safe_print('═' * 64)
     safe_print(' [*] Starting S.A.L.T. Sync Server...')
-    safe_print(f' [+] Workbench   : http://{ip}:{PORT}')
+    safe_print(f' [+] Workbench   : {scheme}://{ip}:{PORT}')
     if _access_code is None:
         safe_print(' [!] Access Code : UNGATED  (no code — anyone can edit)')
     else:
         safe_print(f' [+] Access Code : {_access_code}')
     if viewer_port is not None:
-        safe_print(f' [+] Read Only   : http://{ip}:{viewer_port}')
+        safe_print(f' [+] Read Only   : {scheme}://{ip}:{viewer_port}')
+    if fingerprint is None:
+        safe_print(' [!] Plain HTTP  : the code and reports cross the network unencrypted.')
+    else:
+        safe_print(f' [+] Certificate : {fingerprint[:47]}')
+        safe_print(f'                   {fingerprint[48:]}')
+        if not own_cert:
+            safe_print(' [*] Browsers warn once about this self-signed certificate:')
+            safe_print('     choose Advanced, then Proceed. Its fingerprint is shown above.')
     safe_print(' [!] Press Ctrl+C to stop.')
     safe_print('═' * 64 + '\n')
 
@@ -2099,7 +2469,23 @@ def parse_cli_args() -> argparse.Namespace:
         'Everyone on the LAN can edit. Use only on a fully '
         'trusted network.',
     )
+    p.add_argument(
+        '--no-https',
+        action='store_true',
+        help='Serve plain HTTP. The access code and every report then cross the '
+        'network unencrypted; use only on an encrypted or fully trusted network.',
+    )
+    p.add_argument(
+        '--cert',
+        metavar='FILE',
+        help='Your own TLS certificate (PEM) instead of the self-signed one. Needs --key.',
+    )
+    p.add_argument('--key', metavar='FILE', help='The private key (PEM) for --cert.')
     args = p.parse_args()
+    if bool(args.cert) != bool(args.key):
+        p.error('--cert and --key go together')
+    if args.no_https and args.cert:
+        p.error('--no-https and --cert contradict each other')
     # A blank override would match a missing cookie and silently open the
     # editor port; other characters would not survive the browser's cookie.
     if args.access_code is not None and not ACCESS_CODE_OVERRIDE_RE.fullmatch(
@@ -2143,8 +2529,25 @@ if __name__ == '__main__':
 
     load_data_from_disk()
 
+    # HTTPS unless --no-https: a certificate given with --cert, or the server's own.
+    tls = None
+    fingerprint = None
+    if not args.no_https:
+        if ssl is None:
+            safe_print('\n [!] This Python has no ssl module, so the server speaks plain HTTP.')
+        else:
+            try:
+                certfile, keyfile = (args.cert, args.key) if args.cert else tls_files(BACKUP_DIR)
+                tls = tls_context(certfile, keyfile)
+                fingerprint = cert_fingerprint(certfile)
+            except (OSError, ValueError) as exc:
+                safe_print(f'\n [!] Could not set up HTTPS: {exc}')
+                safe_print('     Fix the certificate files, or start with --no-https.')
+                sys.exit(1)
+    scheme = 'http' if tls is None else 'https'
+
     try:
-        httpd = SaltSyncServer((HOST, PORT), SaltSyncHandler)
+        httpd = SaltSyncServer((HOST, PORT), SaltSyncHandler, tls=tls)
     except OSError as exc:
         safe_print(f'\n [!] Could not listen on port {PORT}: {exc}')
         safe_print('     Is the server already running? Close it, or start this one with --port.')
@@ -2157,7 +2560,9 @@ if __name__ == '__main__':
     requested_vp = args.viewer_port
     if requested_vp and requested_vp != PORT:
         try:
-            viewer_httpd = SaltSyncServer((HOST, requested_vp), SaltSyncHandler, view_only=True)
+            viewer_httpd = SaltSyncServer(
+                (HOST, requested_vp), SaltSyncHandler, view_only=True, tls=tls
+            )
             threading.Thread(target=viewer_httpd.serve_forever, daemon=True).start()
             viewer_port_bound = requested_vp
         except OSError as exc:
@@ -2165,15 +2570,20 @@ if __name__ == '__main__':
     elif requested_vp == PORT:
         safe_print(f' [!] --viewer-port matches --port ({PORT}); ignored.')
 
-    run_boot_dashboard(viewer_port=viewer_port_bound)
-    audit('server', f'started: editor port {PORT}, viewer port {viewer_port_bound or "off"}')
+    run_boot_dashboard(
+        viewer_port=viewer_port_bound, fingerprint=fingerprint, own_cert=bool(args.cert)
+    )
+    audit(
+        'server',
+        f'started ({scheme}): editor port {PORT}, viewer port {viewer_port_bound or "off"}',
+    )
 
     _server_ip = get_local_ip()
 
     def _launch():
         time.sleep(0.3)  # let the server come up
         if not args.no_browser:
-            webbrowser.open(f'http://{_server_ip}:{PORT}')
+            webbrowser.open(f'{scheme}://{_server_ip}:{PORT}')
             time.sleep(0.1)
         # Windows-only console minimize; guarded so non-Windows doesn't AttributeError.
         if os.name == 'nt' and not args.no_minimize:
