@@ -16,6 +16,7 @@ import inspect
 import io
 import json
 import os
+import re
 import shutil
 import ssl
 import sys
@@ -32,7 +33,9 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "server"))
+sys.path.insert(0, str(ROOT / "scripts"))
 
+import build  # noqa: E402
 import salt_sync_server as srv  # noqa: E402
 
 NAI1 = {
@@ -409,14 +412,14 @@ class ValidatorTests(unittest.TestCase):
     def test_the_server_knows_every_kind_of_equipment_the_page_has(self):
         import re
 
-        core = (ROOT / "src" / "core.js").read_text(encoding="utf-8")
+        core = build.core_source()
         block = core[core.index("const EQUIPMENT_ROLES = [") : core.index("const eqp = ")]
         self.assertEqual(set(re.findall(r"\['([a-z0-9]+)', '", block)), set(srv._EQUIPMENT_ROLES))
 
     def test_the_server_knows_every_rule_the_page_has(self):
         import re
 
-        core = (ROOT / "src" / "core.js").read_text(encoding="utf-8")
+        core = build.core_source()
         block = core[core.index("const NARRATIVE_RULES = [") : core.index("const RULE_ORDER")]
         ids = set(re.findall(r"^\s*\['([a-z0-9]+)', '", block, re.M))
         self.assertEqual(len(ids), 55)
@@ -551,6 +554,7 @@ class ServerTextStyleTests(unittest.TestCase):
                 "_error",
                 "_refuse",
                 "_bad_request",
+                "Limit",  # a route's own rate limit says why it refused
             )
         )
         self.assertGreater(len(texts), 50)
@@ -564,8 +568,22 @@ class ServerTextStyleTests(unittest.TestCase):
         self.assertIn("--no-https", out.getvalue())
         self.assertNotIn("—", out.getvalue())
 
+    def test_the_table_of_contents_matches_the_banners(self):
+        source = Path(srv.__file__).read_text(encoding="utf-8")
+        banners = re.findall(r"^# =+\n# (.+)\n# =+$", source, re.M)
+        contents = source.split("\n# Contents:", 1)[1].split("\n\n", 1)[0]
+        listed = [
+            re.split(r"\s{2,}", line[1:].strip())[0]
+            for line in contents.splitlines()
+            if line.startswith("#   ")
+        ]
+        self.assertGreater(len(banners), 10)
+        self.assertEqual(listed, banners)
+
     def test_every_api_error_message_is_a_sentence(self):
-        messages = [t for name, t in _server_source_calls("_error", "_refuse", "_bad_request") if t]
+        calls = _server_source_calls("_error", "_refuse", "_bad_request", "Limit")
+        messages = [t for name, t in calls if t]
+        self.assertIn("Too many map images. Retry shortly.", messages)
         self.assertGreater(len(messages), 10)
         for t in messages:
             self.assertRegex(t, r"^[A-Z].*\.$", repr(t))
@@ -1038,6 +1056,130 @@ class RestoreTests(unittest.TestCase):
             self.assertEqual(srv.parse_cli_args().restore, "list")
 
 
+# What the server wrote and served for every_setting_saved in 2.21.0, before
+# SHARED_SECTIONS and the route table: they must not change by a byte. Shared
+# settings.json is the same values as /api/sync, indented (see the test).
+EVERY_SETTING_SAVED = {
+    "ALPHA_Patrol.txt": (
+        "========================================================================\n"
+        " S.A.L.T. REPORT WORKBENCH: AUTO BACKUP (SESSION)\n"
+        " ATO Designator : ALPHA\n"
+        " Report Title   : Patrol\n"
+        " Total Reports  : 1\n"
+        " Exported       : -\n"
+        "========================================================================\n"
+        "\n"
+        "------------------------------------------------------------------------\n"
+        " REPORT ALPHA001\n"
+        "------------------------------------------------------------------------\n"
+        " ATO      : ALPHA\n"
+        " Size     : 2x T-72\n"
+        " Activity : Stationary\n"
+        " Location : 18SUJ2337106519\n"
+        " Time     : 2026-01-15T14:30:00Z\n"
+        " Wx : Rain\n"
+        " By       : AB\n"
+        "\n"
+        "========================================================================\n"
+        " MACHINE DATA: DO NOT EDIT BELOW THIS LINE\n"
+        "========================================================================\n"
+        "##SALT_BACKUP##\n"
+        "{\"workspaces\":{\"ALPHA\":[{\"id\":\"r1\",\"displayId\":\"ALPHA001\",\"ato\":\"ALPHA\",\"title\":\"Pat"
+        "rol\",\"size\":\"2x T-72\",\"activity\":\"Stationary\",\"location\":\"18SUJ2337106519\",\"time\":\"2"
+        "026-01-15T14:30:00Z\",\"lastModified\":1,\"custom\":{\"Wx\":\"Rain\"},\"user\":{\"initials\":\"AB\""
+        ",\"color\":\"#32d74b\"}}]},\"config\":{\"ato\":\"ALPHA\",\"title\":\"Patrol\"},\"profiles\":{\"AB\":{\""
+        "initials\":\"AB\",\"color\":\"#32d74b\"}},\"formats\":{\"ALPHA\":{\"preset\":\"salt\",\"lines\":[{\"ty"
+        "pe\":\"id\"},{\"type\":\"custom\",\"label\":\"Wx\"}]}},\"overlays\":[{\"type\":\"NAI\",\"name\":\"1\",\"la"
+        "bel\":\"NAI 1 (bridge)\",\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[[44.35,33.25],[44"
+        ".46,33.25],[44.46,33.34],[44.35,33.34],[44.35,33.25]]]}},{\"type\":\"PL\",\"name\":\"BLUE\","
+        "\"geometry\":{\"type\":\"LineString\",\"coordinates\":[[44.35,33.3],[44.57,33.3]]}}],\"basema"
+        "ps\":[{\"name\":\"Topo\",\"kind\":\"wms\",\"url\":\"http://10.0.0.5/wms\",\"layers\":\"0,1\",\"version"
+        "\":\"1.3.0\",\"crs\":\"EPSG:4326\",\"format\":\"image/png\"},{\"name\":\"OSM\",\"kind\":\"tiles\",\"url\""
+        ":\"http://10.0.0.5/t\"}],\"drones\":[{\"name\":\"Raven\",\"grid\":\"11S NV 39697 06762\",\"at\":17"
+        "61600000000,\"look\":\"11S NV 40000 07000\",\"range\":5},{\"name\":\"Puma\",\"grid\":\"11S NV 1 2"
+        "\",\"at\":1}],\"narrative\":{\"enemy\":\"OPFOR\",\"units\":[{\"name\":\"1st Tank\",\"places\":[\"Hill "
+        "1\"],\"kinds\":[\"armor\"]}],\"equipment\":[{\"type\":\"T-90M\",\"role\":\"armor\",\"origin\":\"RU\"}],"
+        "\"off\":[\"axes\",\"deep\"],\"custom\":[{\"what\":\"Bridge\",\"words\":\"bridge, crossing\",\"min\":2,"
+        "\"hours\":6}]}}\n"
+        "##SALT_BACKUP_END##\n"
+    ),
+    "BRAVO_Screen.txt": (
+        "========================================================================\n"
+        " S.A.L.T. REPORT WORKBENCH: AUTO BACKUP (SESSION)\n"
+        " ATO Designator : BRAVO\n"
+        " Report Title   : Screen\n"
+        " Total Reports  : 1\n"
+        " Exported       : -\n"
+        "========================================================================\n"
+        "\n"
+        "------------------------------------------------------------------------\n"
+        " REPORT BRAVO001\n"
+        "------------------------------------------------------------------------\n"
+        " ATO      : BRAVO\n"
+        " Size     : 2x T-72\n"
+        " Activity : Stationary\n"
+        " Location : 18SUJ2337106519\n"
+        " Time     : 2026-01-15T14:30:00Z\n"
+        " By       : AB\n"
+        "\n"
+        "========================================================================\n"
+        " MACHINE DATA: DO NOT EDIT BELOW THIS LINE\n"
+        "========================================================================\n"
+        "##SALT_BACKUP##\n"
+        "{\"workspaces\":{\"BRAVO\":[{\"id\":\"b1\",\"displayId\":\"BRAVO001\",\"ato\":\"BRAVO\",\"title\":\"Scr"
+        "een\",\"size\":\"2x T-72\",\"activity\":\"Stationary\",\"location\":\"18SUJ2337106519\",\"time\":\"2"
+        "026-01-15T14:30:00Z\",\"lastModified\":1,\"user\":{\"initials\":\"AB\",\"color\":\"#32d74b\"}}]},"
+        "\"config\":{\"ato\":\"ALPHA\",\"title\":\"Patrol\"},\"profiles\":{\"AB\":{\"initials\":\"AB\",\"color\":"
+        "\"#32d74b\"}},\"formats\":{\"BRAVO\":{\"preset\":\"salt\",\"lines\":[{\"type\":\"id\"},{\"type\":\"cust"
+        "om\",\"label\":\"Wx\"}]}},\"overlays\":[{\"type\":\"NAI\",\"name\":\"1\",\"label\":\"NAI 1 (bridge)\",\""
+        "geometry\":{\"type\":\"Polygon\",\"coordinates\":[[[44.35,33.25],[44.46,33.25],[44.46,33.34"
+        "],[44.35,33.34],[44.35,33.25]]]}},{\"type\":\"PL\",\"name\":\"BLUE\",\"geometry\":{\"type\":\"Lin"
+        "eString\",\"coordinates\":[[44.35,33.3],[44.57,33.3]]}}],\"basemaps\":[{\"name\":\"Topo\",\"ki"
+        "nd\":\"wms\",\"url\":\"http://10.0.0.5/wms\",\"layers\":\"0,1\",\"version\":\"1.3.0\",\"crs\":\"EPSG:4"
+        "326\",\"format\":\"image/png\"},{\"name\":\"OSM\",\"kind\":\"tiles\",\"url\":\"http://10.0.0.5/t\"}],"
+        "\"drones\":[{\"name\":\"Raven\",\"grid\":\"11S NV 39697 06762\",\"at\":1761600000000,\"look\":\"11S"
+        " NV 40000 07000\",\"range\":5},{\"name\":\"Puma\",\"grid\":\"11S NV 1 2\",\"at\":1}],\"narrative\":"
+        "{\"enemy\":\"OPFOR\",\"units\":[{\"name\":\"1st Tank\",\"places\":[\"Hill 1\"],\"kinds\":[\"armor\"]}]"
+        ",\"equipment\":[{\"type\":\"T-90M\",\"role\":\"armor\",\"origin\":\"RU\"}],\"off\":[\"axes\",\"deep\"],\""
+        "custom\":[{\"what\":\"Bridge\",\"words\":\"bridge, crossing\",\"min\":2,\"hours\":6}]}}\n"
+        "##SALT_BACKUP_END##\n"
+    ),
+    "audit": (
+        "save_profile AB\n"
+        "save_config ALPHA / Patrol\n"
+        "save_reports ALPHA: 1 report(s)\n"
+        "save_reports BRAVO: 1 report(s)\n"
+        "save_format\n"
+        "save_overlays: 2 overlay(s)\n"
+        "save_basemaps: 2 service(s)\n"
+        "save_drones: 2 drone(s)\n"
+        "save_narrative: 1 unit(s), 1 type(s), 1 rule(s)"
+    ),
+    "sync": (
+        "{\"workspaces\":{\"ALPHA\":[{\"id\":\"r1\",\"displayId\":\"ALPHA001\",\"ato\":\"ALPHA\",\"title\":\"Pat"
+        "rol\",\"size\":\"2x T-72\",\"activity\":\"Stationary\",\"location\":\"18SUJ2337106519\",\"time\":\"2"
+        "026-01-15T14:30:00Z\",\"lastModified\":1,\"custom\":{\"Wx\":\"Rain\"},\"user\":{\"initials\":\"AB\""
+        ",\"color\":\"#32d74b\"}}],\"BRAVO\":[{\"id\":\"b1\",\"displayId\":\"BRAVO001\",\"ato\":\"BRAVO\",\"titl"
+        "e\":\"Screen\",\"size\":\"2x T-72\",\"activity\":\"Stationary\",\"location\":\"18SUJ2337106519\",\"t"
+        "ime\":\"2026-01-15T14:30:00Z\",\"lastModified\":1,\"user\":{\"initials\":\"AB\",\"color\":\"#32d74"
+        "b\"}}]},\"config\":{\"ato\":\"ALPHA\",\"title\":\"Patrol\"},\"profiles\":{\"AB\":{\"initials\":\"AB\",\""
+        "color\":\"#32d74b\"}},\"format\":{\"preset\":\"salt\",\"lines\":[{\"type\":\"id\"},{\"type\":\"custom\""
+        ",\"label\":\"Wx\"}]},\"overlays\":[{\"type\":\"NAI\",\"name\":\"1\",\"label\":\"NAI 1 (bridge)\",\"geom"
+        "etry\":{\"type\":\"Polygon\",\"coordinates\":[[[44.35,33.25],[44.46,33.25],[44.46,33.34],[4"
+        "4.35,33.34],[44.35,33.25]]]}},{\"type\":\"PL\",\"name\":\"BLUE\",\"geometry\":{\"type\":\"LineStr"
+        "ing\",\"coordinates\":[[44.35,33.3],[44.57,33.3]]}}],\"basemaps\":[{\"name\":\"Topo\",\"kind\":"
+        "\"wms\",\"url\":\"http://10.0.0.5/wms\",\"layers\":\"0,1\",\"version\":\"1.3.0\",\"crs\":\"EPSG:4326\""
+        ",\"format\":\"image/png\"},{\"name\":\"OSM\",\"kind\":\"tiles\",\"url\":\"http://10.0.0.5/t\"}],\"dro"
+        "nes\":[{\"name\":\"Raven\",\"grid\":\"11S NV 39697 06762\",\"at\":1761600000000,\"look\":\"11S NV "
+        "40000 07000\",\"range\":5},{\"name\":\"Puma\",\"grid\":\"11S NV 1 2\",\"at\":1}],\"narrative\":{\"en"
+        "emy\":\"OPFOR\",\"units\":[{\"name\":\"1st Tank\",\"places\":[\"Hill 1\"],\"kinds\":[\"armor\"]}],\"eq"
+        "uipment\":[{\"type\":\"T-90M\",\"role\":\"armor\",\"origin\":\"RU\"}],\"off\":[\"axes\",\"deep\"],\"cust"
+        "om\":[{\"what\":\"Bridge\",\"words\":\"bridge, crossing\",\"min\":2,\"hours\":6}]},\"sources\":{\"AL"
+        "PHA\":\"In-session\",\"BRAVO\":\"In-session\"},\"unloaded\":[]"
+    ),
+}
+
+
 class HttpApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -1223,16 +1365,84 @@ class HttpApiTests(unittest.TestCase):
             ("/api/delete_history", {"ato": "ALPHA", "deletions": []}),
             ("/api/delete_history", {"ato": "ALPHA"}),
             ("/api/save_profile", {"profile": {"initials": "  ", "color": "#32d74b"}}),
-            *((path, {}) for path in srv._VALIDATORS if path != "/api/save_config"),
+            *((r.path, {}) for r in self.post_routes() if r.path != "/api/save_config"),
         ):
             message = self.refused(400, path, body)
             self.assertTrue(message.startswith("Validation failed: "), message)
         self.assertEqual(self.sync()["workspaces"], {}, "nothing got through")
 
+    # -- the route table ----------------------------------------------------- #
+    @staticmethod
+    def post_routes():
+        return [r for r in srv.ROUTES if r.method == "POST"]
+
     def test_the_routes_leave_validation_to_the_validators(self):
-        for path, route in srv.SaltSyncHandler._POST_ROUTES.items():
-            self.assertIn(path, srv._VALIDATORS)
-            self.assertNotIn("_bad_request", inspect.getsource(route), path)
+        for route in self.post_routes():
+            # A shared setting's route is the one handler, given its section.
+            handler = getattr(route.handler, "func", route.handler)
+            self.assertNotIn("_bad_request", inspect.getsource(handler), route.path)
+
+    def test_every_post_route_has_a_validator(self):
+        self.assertEqual(len(self.post_routes()), 12)
+        for route in self.post_routes():
+            self.assertTrue(callable(route.validator), route.path)
+        # A shared setting's route has its section's validator.
+        for s in srv.SHARED_SECTIONS:
+            self.assertIs(srv._ROUTE_TABLE["POST", s.route].validator, s.validator, s.key)
+
+    def test_every_write_is_refused_on_the_viewer_port(self):
+        self.assertTrue(self.post_routes())
+        for route in self.post_routes():
+            self.assertFalse(route.viewer, route.path)
+            message = self.refused(405, route.path, {"config": {"ato": "A"}}, base=self.viewer_base)
+            self.assertEqual(message, "This server is read-only.")
+        self.assertEqual(self.sync()["config"], {"ato": "", "title": ""}, "nothing got through")
+
+    def test_every_route_in_the_table_is_reachable(self):
+        self.assertEqual(len(srv._ROUTE_TABLE), len(srv.ROUTES), "no path is in it twice")
+        for route in srv.ROUTES:
+            if route.path == "/api/events":
+                with contextlib.closing(self.open_events()) as resp:
+                    self.assertEqual(resp.status, 200)
+            elif route.method == "GET":
+                status, body = self.request(route.path)
+                # The map image proxy is there; it fetches only from saved basemaps.
+                expected = (403, b"Not a saved basemap.") if route.limit else (200, b"")
+                self.assertEqual(status, expected[0], route.path)
+                self.assertIn(expected[1], body, route.path)
+            else:
+                # Reached its validator (or, for an empty config, its handler).
+                status, body = self.request(route.path, {})
+                reply = json.loads(body)
+                self.assertTrue(
+                    status == 200 or reply["message"].startswith("Validation failed: "),
+                    (route.path, status, reply),
+                )
+
+    def test_each_route_asks_for_the_code_as_its_entry_says(self):
+        public = sorted(r.path for r in srv.ROUTES if not r.code)
+        self.assertEqual(
+            public, ["/", "/Salt%20Report%20Workbench.html", "/api/health", "/index.html"]
+        )
+        for route in srv.ROUTES:
+            body = {} if route.method == "POST" else None
+            status, _ = self.request(route.path, body, code="WRONGCODE2")
+            self.assertEqual(status, 401 if route.code else 200, route.path)
+            # The viewer port never asks.
+            if route.method == "GET" and route.path != "/api/events":
+                status, _ = self.request(route.path, code=None, base=self.viewer_base)
+                self.assertNotEqual(status, 401, route.path)
+
+    def test_paths_not_in_the_table_are_still_404(self):
+        self.assertEqual(self.refused(404, "/api/save_config"), "Not found.")  # a GET
+        self.assertEqual(self.refused(404, "/api/sync", {}), "Not found.")  # a POST
+        self.assertEqual(self.refused(404, "/api/nope", code=None), "Not found.")
+        status, _ = self.request("/nowhere.html", code=None, base=self.viewer_base)
+        self.assertEqual(status, 404)
+        self.assertTrue(self.last_type.startswith("text/html"), self.last_type)
+        # A POST to one is refused like any write first, as it always was.
+        self.refused(401, "/api/nope", {}, code="WRONGCODE2")
+        self.refused(405, "/api/nope", {}, base=self.viewer_base)
 
     def test_refusals_that_depend_on_what_the_server_holds_are_the_same_shape(self):
         self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report(lm=50)]})
@@ -2104,6 +2314,95 @@ class HttpApiTests(unittest.TestCase):
             lines[1], stamp + r"AB@127\.0\.0\.1\s+save_reports ALPHA: 2 report\(s\), 1 deleted$"
         )
         self.assertRegex(lines[2], stamp + r"AB@127\.0\.0\.1\s+edit_report ALPHA r1$")
+
+    def every_setting_saved(self):
+        """Save two workspaces and every shared setting through the API (with
+        fields to drop and spaces to trim), then return what came out: each
+        backup file's text (its time masked), the audit lines (without their
+        time and operator), and /api/sync up to its per-request tail."""
+        shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
+        topo = {
+            "name": " Topo ",
+            "kind": "wms",
+            "url": " http://10.0.0.5/wms ",
+            "layers": " 0,1 ",
+            "version": "1.3.0",
+            "crs": "EPSG:4326",
+            "format": "image/png",
+            "extra": 1,
+        }
+        raven = {
+            "name": " Raven ",
+            "grid": "11S NV 39697 06762",
+            "at": 1761600000000,
+            "look": "11S NV 40000 07000",
+            "range": 5,
+            "extra": 1,
+        }
+        narrative = {
+            "enemy": " OPFOR ",
+            "units": [{"name": " 1st Tank ", "places": [" Hill 1 ", ""], "kinds": ["armor"] * 2}],
+            "equipment": [{"type": " T-90M ", "role": "armor", "origin": "RU", "extra": 1}],
+            "off": ["deep", "axes", "deep"],
+            "custom": [{"what": " Bridge ", "words": " bridge, crossing ", "min": 2, "hours": 6}],
+            "extra": 1,
+        }
+        fmt = {"preset": "salt", "lines": [{"type": "id"}, {"type": "custom", "label": "Wx"}]}
+        for path, body in (
+            ("/api/save_profile", {"profile": {"initials": "AB", "color": "#32d74b", "x": 1}}),
+            ("/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol", "x": 1}}),
+            ("/api/save_reports", {"ato": "ALPHA", "reports": [report(custom={"Wx": "Rain"})]}),
+            (
+                "/api/save_reports",
+                {
+                    "ato": "BRAVO",
+                    "reports": [report("b1", "BRAVO001", ato="BRAVO", title="Screen")],
+                },
+            ),
+            ("/api/save_format", {"format": fmt}),
+            ("/api/save_overlays", {"overlays": [{**NAI1, "extra": 1}, PL_BLUE]}),
+            (
+                "/api/save_basemaps",
+                {"basemaps": [topo, {"name": "OSM", "kind": "tiles", "url": "http://10.0.0.5/t"}]},
+            ),
+            (
+                "/api/save_drones",
+                {"drones": [raven, {"name": "Puma", "grid": "11S NV 1 2", "at": 1}]},
+            ),
+            ("/api/save_narrative", {"narrative": narrative}),
+        ):
+            self.assertEqual(self.post(path, body)[0], 200, path)
+        srv.flush_pending_save()
+        folder = Path(srv.BACKUP_DIR)
+        out = {
+            f.name: re.sub(
+                r"(?m)^ Exported       : .*$", " Exported       : -", f.read_text("utf-8")
+            )
+            for f in sorted(folder.glob("*.txt"))
+        }
+        out[srv.SHARED_SETTINGS_NAME] = (folder / srv.SHARED_SETTINGS_NAME).read_text("utf-8")
+        log = (folder / srv.AUDIT_LOG_NAME).read_text("utf-8")
+        out["audit"] = "\n".join(line.split("  ", 2)[2].strip() for line in log.splitlines())
+        out["sync"] = self.request("/api/sync")[1].decode("utf-8").split(',"connected_users"')[0]
+        return out
+
+    def test_every_shared_setting_is_saved_written_and_served_as_before(self):
+        out = self.every_setting_saved()
+        shared = out.pop(srv.SHARED_SETTINGS_NAME)
+        self.assertEqual(out, EVERY_SETTING_SAVED)
+        sync = json.loads(EVERY_SETTING_SAVED["sync"] + "}")
+        keys = [s.key for s in srv.SHARED_SECTIONS]
+        self.assertEqual(
+            keys, ["config", "profiles", "format", "overlays", "basemaps", "drones", "narrative"]
+        )
+        self.assertEqual(
+            shared, json.dumps({k: sync[k] for k in keys}, indent=1, ensure_ascii=False) + "\n"
+        )
+        # And they all come back on a restart, from the files just written.
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual({k: srv.DATA_STORE[k] for k in keys}, {k: sync[k] for k in keys})
+        self.assertEqual(srv.DATA_STORE["workspaces"], sync["workspaces"])
 
     def test_dated_snapshots_are_kept_hourly_and_pruned(self):
         self.post("/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol"}})

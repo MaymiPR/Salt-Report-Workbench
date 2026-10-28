@@ -25,21 +25,25 @@ Three constraints drive almost every decision:
 ├── src/                      Frontend sources (edited by hand)
 │   ├── index.html            Markup and the built-in user manual
 │   ├── styles.css
-│   ├── core.js               Pure logic (formatting, parsing, exports); unit-tested
+│   ├── core/                 Pure logic (formatting, parsing, exports) in parts; unit-tested
 │   └── app/                  DOM, state, and sync: ordered scripts sharing one scope
 │       ├── 10-state.js       Elements, state, helpers, toasts
 │       ├── 20-render.js      The report table, BDA panel and roll-up
 │       ├── 30-form.js        Entry, editing, restore, undo
 │       ├── 40-io.js          Manage panel, builder, export, import
-│       ├── 45-overlays.js    Overlay import (KML, KMZ, GeoJSON, SHP), the Map tab's graphics, ArcGIS export
-│       ├── 46-map.js         The map: basemap, report dots, heat map, tracks
-│       ├── 47-stats.js       Statistics panel: charts, hover, tables, PNG / SVG / Excel export
-│       ├── 48-summary.js     Summary Reports panel: written reports, copy, .txt, print, edit
-│       ├── 48-narrative.js   The narrative's settings: enemy name, units, equipment, rules
-│       ├── 49-mapview.js     The map under the Report Log: what's on it, its table, the report card
-│       ├── 50-sync.js        Push, pull, SSE, offline queue
-│       ├── 60-handlers.js    Event wiring
-│       └── 70-startup.js     Restore saved state, then connect
+│       ├── 50-overlays.js    Overlay import (KML, KMZ, GeoJSON, SHP), the Map tab's graphics, ArcGIS export
+│       ├── 60-map.js         The map: its state, colours and shared helpers
+│       ├── 61-map-draw.js    Drawing it: overlays, heat map, tracks, report dots, legend
+│       ├── 62-map-basemaps.js  Basemaps: drawing them, finding, adding, checking services
+│       ├── 63-map-drones.js  Drones: where, their view and range, their menu, saving
+│       ├── 64-map-controls.js  Full screen, the panel above, menus, grab a grid, pointer
+│       ├── 70-stats.js       Statistics panel: charts, hover, tables, PNG / SVG / Excel export
+│       ├── 80-summary.js     Summary Reports panel: written reports, copy, .txt, print, edit
+│       ├── 81-narrative.js   The narrative's settings: enemy name, units, equipment, rules
+│       ├── 85-mapview.js     The map under the Report Log: what's on it, its table, the report card
+│       ├── 90-sync.js        Push, pull, SSE, offline queue
+│       ├── 95-handlers.js    Event wiring
+│       └── 99-startup.js     Restore saved state, then connect
 ├── server/
 │   ├── salt_sync_server.py   Standard-library HTTP + SSE sync server
 │   └── Start SALT Workbench.bat  Windows double-click launcher
@@ -47,7 +51,7 @@ Three constraints drive almost every decision:
 │   ├── build.py              Bundles src/ into dist/index.html, copies the server and launcher
 │   ├── pack.py               Packs a release zip into one self-unpacking text file
 │   └── release.py            Builds a release: the zip, the one-file .txt, and SHA256SUMS.txt
-├── tests/                    Python tests (server, HTTP API, build, pack, release, launcher, browser); js/ for core.js
+├── tests/                    Python tests (server, HTTP API, build, pack, release, launcher, browser); js/ for the core
 ├── assets/                   Logo, icon, banners, social preview (see BRAND.md)
 ├── docs/                     Architecture, install guide, and screenshots
 └── dist/                     Build output (git-ignored)
@@ -56,7 +60,7 @@ Three constraints drive almost every decision:
 ## Components
 
 ```text
-        src/index.html + styles.css + core.js + app/*.js
+        src/index.html + styles.css + core/*.js + app/*.js
                           │  scripts/build.py (inline CSS + JS)
                           ▼
    dist/index.html ◄──── served by ────► dist/salt_sync_server.py
@@ -70,7 +74,7 @@ Three constraints drive almost every decision:
 
 ### Client (`src/`)
 
-`core.js` holds the pure logic: date and time formatting, identifiers, copy
+The core (`src/core/`) holds the pure logic: date and time formatting, identifiers, copy
 text, MGRS clean-up, BDA pairing, backup and CSV generation, parsing, and the
 geography (MGRS to latitude/longitude, reading grids and NAI/OBJ/PL names out of
 a Location box, placing them in overlay areas, activity tags, the ArcGIS
@@ -80,13 +84,26 @@ Statistics panel (`statsData`), the Excel workbook (`statsXlsx`: the
 other zip exports), and the written summaries (`summaryReport`:
 fixed templates over those counts, plus the Narrative below). It
 touches no DOM, storage, or network, so it loads in the page as
-`window.SaltCore` and in Node for `tests/js/`. The rest of the page is
-`src/app/`, thirteen top-level scripts loaded in order (state, rendering,
-form, import/export, overlays, the map, statistics, summary reports, the
-narrative's settings, the map view, sync, handlers, startup) that share one
-global scope, so a name declared in an earlier file is visible in the later
-ones. Together they hold the whole application state in a handful of top-level
-variables, with `reportsByAto` (every workspace's reports) as the core. Every
+`window.SaltCore` and in Node for `tests/js/`. It is one function split
+into parts by subject, joined in name order (with a newline between parts)
+by the build and by `tests/js/load-core.js`, so the parts share one scope:
+`00-head.js` (opens the function), `10-dates.js` (dates, times, text safety),
+`20-reports.js` (reports, BDA, backups, CSV), `30-geography.js` (MGRS,
+overlays, Location boxes), `40-map.js` (shapefiles read, tracks, heat,
+activity), `50-arcgis.js` (the ArcGIS and shapefile exports),
+`60-statistics.js` (statistics, the Excel workbook, summary reports),
+`70-catalogue.js` (the equipment catalogue), `75-doctrine.js` (echelons,
+likelihood terms, the built-in rules, doctrine), `80-narrative.js` (the
+narrative), `85-sync.js` (sync bookkeeping) and `90-exports.js` (the
+`SaltCore` object; closes the function). The rest of the page is
+`src/app/`, seventeen top-level scripts loaded in order (state, rendering,
+form, import/export, overlays, the map in five parts, statistics, summary
+reports, the narrative's settings, the map view, sync, handlers, startup) that
+share one global scope, so a name declared in an earlier file is visible in the
+later ones. Their numbers rise in the order the page loads them, and
+`tests/test_build.py` checks that, that each is loaded once, and that no
+top-level name is declared in two of them. Together they hold the whole
+application state in a handful of top-level variables, with `reportsByAto` (every workspace's reports) as the core. Every
 change is applied locally first and mirrored to `localStorage`, so the UI never
 waits on the network. Rendering is one function per surface, such as `renderLog`
 and `renderWorkspacesList`, that rebuilds its DOM from state into a
@@ -106,7 +123,7 @@ Because merging is idempotent (below), replaying is always safe.
 When the server refuses a batch outright (validation, size), the client
 splits it until it knows exactly which reports were refused, so the rest
 still land. Refused reports go to `salt_unsaved` in localStorage, are laid
-back over the server's copy after every pull (`withUnsaved` in `core.js`),
+back over the server's copy after every pull (`withUnsaved` in `core/85-sync.js`),
 and are marked *Not saved* with the server's reason. A refused version isn't
 re-sent until someone changes it; editing it sends it again, and Discard
 drops it so the server's copy returns. Nothing a user typed is lost, and one
@@ -116,12 +133,29 @@ bad report never stalls syncing for anyone.
 
 A `ThreadingTCPServer` subclass with one `BaseHTTPRequestHandler` subclass.
 The same handler class serves both ports; each listener carries a `view_only`
-flag that the handler checks per request. Every POST route is a method in the
-handler's `_POST_ROUTES` table, paired with a schema validator in
-`_VALIDATORS`. The validator does all the checking of a request's shape (a
-blank workspace name or an empty list of changes included), so a route takes
-its fields as given; a route refuses only what depends on what the server
-holds (a report that isn't there, `404`; an edit to an older copy, `409`).
+flag that the handler checks per request. Every path the server answers is
+one entry in its `ROUTES` table: the method, the handler method, for a POST
+its schema validator, and who may use it (whether it needs the access code,
+whether the viewer port may use it, and for `/api/basemap` a rate limit of its
+own). `do_GET` and `do_POST` look a request up there and apply the entry's
+rules; a path that isn't there is a `404`, and a POST to one gets every
+refusal a write gets first. The validator does all the checking of a
+request's shape (a blank workspace name or an empty list of changes included),
+so a route takes its fields as given; a route refuses only what depends on
+what the server holds (a report that isn't there, `404`; an edit to an older
+copy, `409`).
+
+The settings every workspace shares (the config, profiles, report format,
+overlays, basemaps, drones and the narrative's settings) are each one entry in
+`SHARED_SECTIONS`: its key, its empty value, its save route, validator and
+cleaner, and how a backup file's copy is read. `DATA_STORE`, the `/api/sync`
+payload, `Shared settings.json`, the copy in every workspace backup, the boot
+load and the save routes all come from that list, in its order, so a new shared
+list is one entry. What one of them does its own way stays written out where it
+happens: the config is the workspace viewers are shown and has a route of its
+own, profiles are saved one at a time and merged from every file at boot,
+backups keep the format per workspace (`formats`), and older per-workspace
+overlays are pooled at boot.
 
 Every `/api` error reply, whatever refused it, is the same JSON:
 `{"status": "error", "message": "..."}`, the message one sentence ending in a
@@ -157,27 +191,27 @@ workspace): `{type: NAI|OBJ|PL, name, label?, geometry}`, with GeoJSON
 geometry in longitude/latitude. Every workspace's backup file carries the
 whole list, and on boot the newest file in that form wins; older files' per-
 workspace dicts are pooled (`fold_overlays` in the server, `foldOverlays` in
-`core.js`). The page converts KML, KMZ and zipped shapefiles (unzipped with
+`core/20-reports.js`). The page converts KML, KMZ and zipped shapefiles (unzipped with
 the browser's `DecompressionStream`), loose shapefile parts, and GeoJSON (Web
 Mercator converted, other projections refused) into that shape before saving,
 so the server only validates: types, name lengths, coordinate ranges, at most
 500 features and 200,000 points. Shapefiles are read by `parseShapefile` in
-`core.js` (.shp geometry, .dbf attributes, .prj to longitude/latitude for
+`core/40-map.js` (.shp geometry, .dbf attributes, .prj to longitude/latitude for
 geographic, Web Mercator and UTM).
 
 Nothing derived is stored. Each Location box is read on the fly by
-`analyzeLocation` in `core.js` (grids, typed names, the areas the grids fall
+`analyzeLocation` in `core/30-geography.js` (grids, typed names, the areas the grids fall
 in, the nearest phase line, and checks where the two disagree), cached in the
 page by text until the overlays change. MGRS uses Krüger's series for UTM and
 picks the northing that lands inside the latitude band, which also refuses
 typos; `tests/js/mgrs-vectors.json` holds reference points from the NGA's
 GeoTrans to check it against.
 
-The map (`app/46-map.js`) draws in screen pixels from Web Mercator, redrawn
+The map (`app/60-map.js`) draws in screen pixels from Web Mercator, redrawn
 on every pan and zoom. Nothing on it is synced; each browser keeps its own
 choices (`salt_map_layers`, `salt_map_grids`, `salt_map_base`,
 `salt_map_side`, `salt_map_only_in_view`). Tracks, heat and dots come from
-`reportTracks`, `heatPoints` and `reportPositions` in `core.js`: tracks are a
+`reportTracks`, `heatPoints` and `reportPositions` in `core/40-map.js`: tracks are a
 report's versions in reported order; heat and dots are each report once at its
 latest grid (*Latest grids*), or every saved version at its grids (*All
 reports*, `all = true`). The
@@ -194,7 +228,7 @@ training area).
 The map sits under the Report Log in one pager (`#homePager`): the two
 panes are stacked and the pager slides between them with a CSS transform, so
 nothing is laid out again; the pane out of sight is hidden and inert once
-the slide ends. The Map view (`app/49-mapview.js`) is built around that map.
+the slide ends. The Map view (`app/85-mapview.js`) is built around that map.
 After each drawing the map tells it (`mapDrawnHook`) what it showed: the
 view box, the reports and their tracks. Once the view settles, the view
 counts what is on the map and fills the table from that. A click that didn't
@@ -211,7 +245,7 @@ it is saved, like anything else typed there.
 
 ### The narrative
 
-The Narrative summary (`narrativeLines` in `core.js`) is rules, not a model:
+The Narrative summary (`narrativeLines` in `core/80-narrative.js`) is rules, not a model:
 the same reports always give the same words, and nothing leaves the page.
 Each report's Size is split into elements and looked up in
 `EQUIPMENT_CATALOGUE` (`lookupEquipment`: a name with a digit matches the
@@ -405,10 +439,13 @@ block the others.
 ## Build
 
 `scripts/build.py` replaces the page's single `<link rel="stylesheet">` and
-`<script src>` tags with inline copies of `styles.css`, `core.js` and the
+`<script src>` tags with inline copies of `styles.css`, the core and the
 `src/app/` scripts, in page order, writes
 `dist/index.html`, and copies the server and the Windows launcher beside it.
-The launcher is written with CRLF line endings whatever the checkout used,
+The page's `<script src="core.js">` names no file: in its place go the parts
+in `src/core/`, joined in name order with a newline between parts
+(`core_source`), and the build stops if a `src/core.js` exists beside them, so
+a stale copy can't ship. The launcher is written with CRLF line endings whatever the checkout used,
 because cmd.exe misparses batch files with bare LF endings. The build fails if
 either placeholder is missing rather than shipping a broken page. The page's
 favicon is an inline data URI for the same reason everything else is inline:

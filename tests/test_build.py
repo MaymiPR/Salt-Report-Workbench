@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -63,6 +64,159 @@ class BundleTests(unittest.TestCase):
             build.bundle('<html><link rel="stylesheet" href="s.css"></html>', "", {})
         with self.assertRaisesRegex(ValueError, "b.js"):
             build.bundle(PAGE.replace("app.js", "b.js"), "", {"app.js": ""})
+
+
+# A name declared at the top of a script: `const|let|var name`, a
+# destructured `const { a, b } = ...`, `function name`, or `class name`.
+_TOP_DECL = re.compile(
+    r"^(?:(?:const|let|var)\s*\{(?P<names>[^}]*)\}|(?:const|let|var)\s+(?P<first>.*)"
+    r"|(?:async\s+)?function\s*\*?\s*(?P<fn>[A-Za-z_$][\w$]*)|class\s+(?P<cls>[A-Za-z_$][\w$]*))",
+    re.MULTILINE,
+)
+_IDENT = re.compile(r"[A-Za-z_$][\w$]*")
+
+
+def top_level_names(code: str) -> set[str]:
+    """The names a page script declares at its top level (line start)."""
+    names: set[str] = set()
+    for m in _TOP_DECL.finditer(code):
+        if m["names"] is not None:  # { a, b: c, d = 1 }: what each binds
+            for part in m["names"].split(","):
+                bound = part.split("=")[0].split(":")[-1].strip()
+                if _IDENT.fullmatch(bound):
+                    names.add(bound)
+        elif m["first"] is not None:  # a = 1, b = f(x, y), c (the rest of its line)
+            line = m["first"]
+            if head := _IDENT.match(line):
+                names.add(head.group())
+            depth = 0
+            for i, ch in enumerate(line):
+                if ch in "([{":
+                    depth += 1
+                elif ch in ")]}":
+                    depth -= 1
+                elif ch == ";" and depth == 0:
+                    break
+                elif ch == "," and depth == 0 and (more := _IDENT.match(line[i + 1 :].strip())):
+                    names.add(more.group())
+        else:
+            names.add(m["fn"] or m["cls"])
+    return names
+
+
+class ScriptOrderTests(unittest.TestCase):
+    """The page's scripts in src/app/ share one top-level scope and run in the
+    order index.html lists them: their numbers say that order, and no two
+    declare one name (a second const breaks the page; a second function
+    silently replaces the first)."""
+
+    def setUp(self):
+        page = (ROOT / "src" / "index.html").read_text(encoding="utf-8")
+        self.listed = [s for s in build.script_sources(page) if s.startswith("app/")]
+
+    def test_numbers_rise_in_page_order_and_every_script_is_loaded_once(self):
+        numbers = [int(re.match(r"app/(\d+)-", s)[1]) for s in self.listed]
+        self.assertEqual(numbers, sorted(set(numbers)), "rising, none shared")
+        on_disk = sorted(f"app/{p.name}" for p in (ROOT / "src" / "app").glob("*.js"))
+        self.assertEqual(sorted(self.listed), on_disk)
+        self.assertEqual(len(self.listed), len(set(self.listed)))
+
+    def test_no_top_level_name_is_declared_twice(self):
+        seen: dict[str, str] = {}
+        twice = []
+        for src in self.listed:
+            code = (ROOT / "src" / src).read_text(encoding="utf-8")
+            for name in sorted(top_level_names(code)):
+                if name in seen:
+                    twice.append(f"{name}: {seen[name]} and {src}")
+                seen.setdefault(name, src)
+        self.assertEqual(twice, [])
+        # The reader finds what it should, so an empty list means something.
+        self.assertTrue({"el", "renderLog", "syncWithServer", "dateFields"} <= set(seen))
+
+    def test_the_reader_finds_every_kind_of_declaration(self):
+        code = (
+            "const a = 1, b = f(x, y), c;\nlet d;\nconst {\n    e, f: g, h = 2 } = X;\n"
+            "function i() {}\nasync function j() {}\nclass K {}\n    const inner = 1;\n"
+        )
+        self.assertEqual(top_level_names(code), {"a", "b", "c", "d", "e", "g", "h", "i", "j", "K"})
+
+
+class CoreTests(unittest.TestCase):
+    """The page's core is the parts in src/core/, joined in name order."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="salt-core-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_parts_join_in_name_order_with_newlines(self):
+        (self.tmp / "20-b.js").write_bytes(b"const b = a;\n")
+        (self.tmp / "10-a.js").write_bytes(b"const a = 1;\n")
+        (self.tmp / "notes.txt").write_bytes(b"not a part\n")
+        (self.tmp / "30-dir.js").mkdir()
+        self.assertEqual(build.core_source(self.tmp), "const a = 1;\n\nconst b = a;\n")
+
+    def test_no_parts_is_an_error(self):
+        with self.assertRaisesRegex(ValueError, "no parts"):
+            build.core_source(self.tmp)
+        with self.assertRaisesRegex(ValueError, "no parts"):
+            build.core_source(self.tmp / "gone")
+
+    def test_the_core_is_its_parts_concatenated(self):
+        parts = sorted(build.CORE_DIR.glob("*.js"), key=lambda p: p.name)
+        self.assertGreater(len(parts), 1)
+        texts = [p.read_bytes().decode("utf-8") for p in parts]
+        self.assertEqual(build.core_source(), "\n".join(texts))
+        # One function split in pieces: the first part opens it, the last
+        # closes it, and every part says so under its licence line.
+        self.assertIn("(function (root) {", texts[0])
+        self.assertTrue(
+            texts[-1].endswith("})(typeof globalThis !== 'undefined' ? globalThis : this);\n")
+        )
+        for part, text in zip(parts, texts, strict=True):
+            lines = text.split("\n")
+            self.assertEqual(lines[0], "// SPDX-License-Identifier: AGPL-3.0-only", part.name)
+            self.assertIn("in name order inside one function", lines[1], part.name)
+            self.assertRegex(part.name, r"^\d\d-[a-z]+\.js$")
+
+    def test_node_joins_the_parts_the_same_way(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        result = subprocess.run(
+            [node, str(ROOT / "tests" / "js" / "load-core.js")],
+            capture_output=True,
+            timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", "replace"))
+        self.assertEqual(result.stdout.decode("utf-8"), build.core_source())
+
+    def test_the_page_gets_the_joined_core(self):
+        with mock.patch.object(build, "DIST", self.tmp / "dist"), mock.patch("builtins.print"):
+            self.assertEqual(build.main(), 0)
+        html = (self.tmp / "dist" / "index.html").read_text(encoding="utf-8")
+        self.assertIn(f"    <script>\n{build._indent(build.core_source())}\n    </script>", html)
+
+    def test_a_stale_core_js_fails_the_build(self):
+        stale = self.tmp / "core.js"
+        stale.write_text("// old\n", encoding="utf-8")
+        with (
+            mock.patch.object(build, "STALE_CORE", stale),
+            mock.patch.object(build, "DIST", self.tmp / "dist"),
+            mock.patch("builtins.print") as out,
+        ):
+            self.assertEqual(build.main(), 1)
+        self.assertIn("stale", " ".join(str(c) for c in out.call_args_list))
+        self.assertFalse((self.tmp / "dist").exists())
+
+    def test_a_missing_core_fails_the_build(self):
+        with (
+            mock.patch.object(build, "CORE_DIR", self.tmp / "empty"),
+            mock.patch.object(build, "DIST", self.tmp / "dist"),
+            mock.patch("builtins.print"),
+        ):
+            self.assertEqual(build.main(), 1)
+        self.assertFalse((self.tmp / "dist").exists())
 
 
 class MainTests(unittest.TestCase):

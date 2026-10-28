@@ -52,7 +52,7 @@ const el = {
         version:      document.getElementById('appVersion'),
         userCountExp: document.getElementById('connected-users-count-export'),
     },
-    // Bars for what needs attention (renderStatusBars in app/50-sync.js).
+    // Bars for what needs attention (renderStatusBars in app/90-sync.js).
     bars: {
         notSaving:   document.getElementById('notSavingBar'),
         version:     document.getElementById('versionBar'),
@@ -386,7 +386,7 @@ const storeBasemaps = () => { if (!isReadOnly && !viewerAtLoad) writeStored('sal
 // Drones on the map ([{ name, grid, at }]): shared like the basemaps.
 let sharedDrones = viewerAtLoad ? [] : (Array.isArray(readStored('salt_drones', [])) ? readStored('salt_drones', []) : []);
 const storeDrones = () => { if (!isReadOnly && !viewerAtLoad) writeStored('salt_drones', JSON.stringify(sharedDrones)); };
-// The narrative's settings (app/48-narrative.js), shared the same way.
+// The narrative's settings (app/81-narrative.js), shared the same way.
 const asNarrative = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 let sharedNarrative = viewerAtLoad ? {} : asNarrative(readStored('salt_narrative', {}));
 const storeNarrative = () => { if (!isReadOnly && !viewerAtLoad) writeStored('salt_narrative', JSON.stringify(sharedNarrative)); };

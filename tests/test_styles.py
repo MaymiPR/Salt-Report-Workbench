@@ -27,7 +27,7 @@ def read(path: Path) -> str:
 
 
 CSS = IGNORED.sub("", read(SRC / "styles.css"))
-SCRIPTS = [SRC / "core.js", *sorted((SRC / "app").glob("*.js"))]
+SCRIPTS = [*sorted((SRC / "core").glob("*.js")), *sorted((SRC / "app").glob("*.js"))]
 PAGE = [read(SRC / "index.html"), *map(read, SCRIPTS)]
 USED_ANYWHERE = set(USED.findall(CSS)).union(*(USED.findall(text) for text in PAGE))
 

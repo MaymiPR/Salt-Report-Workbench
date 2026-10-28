@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The map's code is in five files** (its state, drawing, basemaps, drones,
+  and its controls) instead of one of 1,500 lines, and the page's scripts are
+  numbered in the order they load (two shared a number). Tests check the
+  order, that each script is loaded once, and that no two declare one name.
+  Nothing the page does changed: the built page holds the same code, moved.
+- **The page's logic is in parts.** The 3,800-line `src/core.js` is now twelve
+  files in `src/core/`, one per subject (dates, reports, geography, the map,
+  exports, statistics, the equipment catalogue, doctrine, the narrative,
+  sync). The build joins them in name order into the same single script, so
+  the page works exactly as before; the Node tests load them the same way.
+- **The server describes each shared setting and each route once.** The
+  settings every workspace shares are one list (`SHARED_SECTIONS`) that the
+  stored data, `/api/sync`, the backup files, the boot load and the save routes
+  all follow, so a new shared list is one entry; every path is one entry in a
+  route table that says its handler, its validator and who may use it; and the
+  file opens with a table of contents. Nothing it answers, writes or prints
+  changes.
+
 ## [2.21.0] - 2026-10-28
 
 ### Changed
