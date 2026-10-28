@@ -72,6 +72,11 @@ SNAPSHOT_INTERVAL_SECONDS: float = 3600.0
 SNAPSHOT_KEEP: int = 48
 # One line per accepted write (when, who, what), beside the backups.
 AUDIT_LOG_NAME = 'audit.log'
+# The settings every workspace shares (config, profiles, format, overlays,
+# basemaps, drones, narrative), beside the backups in a file of their own, so
+# they last with no workspace loaded. Not a .txt: the loader never takes it for
+# a workspace backup. Workspace backups still carry them too, for older versions.
+SHARED_SETTINGS_NAME = 'Shared settings.json'
 
 # The bundled page sits beside the server in a built `dist/` folder; when run
 # straight from `server/` during development, fall back to `../dist/`.
@@ -243,13 +248,18 @@ def invalidate_sync_cache() -> None:
 # Workspaces changed since the last disk write; None means every workspace
 # (at boot, so the first save writes each one its own file). Protected by data_lock.
 _dirty_atos: set | None = None
+# The shared settings changed since Shared settings.json was last written
+# (True at boot, so the first save writes it). Protected by data_lock.
+_shared_dirty: bool = True
 
 
 def mark_dirty(ato: str | None = None) -> None:
-    """Note that ``ato`` (or, with None, every workspace) needs writing. Caller holds data_lock."""
-    global _dirty_atos
+    """Note that ``ato`` (or, with None, every workspace and the shared
+    settings) needs writing. Caller holds data_lock."""
+    global _dirty_atos, _shared_dirty
     if ato is None:
         _dirty_atos = None
+        _shared_dirty = True
     elif _dirty_atos is not None:
         _dirty_atos.add(ato)
 
@@ -1265,6 +1275,28 @@ def _parse_backup(raw_text: str) -> dict:
     }
 
 
+def _parse_shared_settings(raw_text: str) -> dict:
+    """``Shared settings.json`` in the shape ``_parse_backup`` returns, with no
+    workspaces. Raises ValueError when it isn't one."""
+    try:
+        d = json.loads(raw_text)
+    except (ValueError, RecursionError) as exc:
+        raise ValueError(f'not valid JSON ({exc})') from None
+    if not isinstance(d, dict):
+        raise ValueError('not a JSON object')
+    fmt = d.get('format')
+    return {
+        'workspaces': {},
+        'config': _clean_config(d.get('config')),
+        'profiles': d.get('profiles') if isinstance(d.get('profiles'), dict) else {},
+        'formats': {'': fmt} if isinstance(fmt, dict) else {},
+        'overlays': d.get('overlays'),
+        'basemaps': d.get('basemaps'),
+        'drones': d.get('drones'),
+        'narrative': d.get('narrative'),
+    }
+
+
 def _extract_json_from_file(raw_text: str) -> dict | None:
     """DATA_STORE dict from a backup file (see ``_parse_backup``). None on failure."""
     try:
@@ -1311,18 +1343,29 @@ def _merge_reports(existing_list: list, incoming_list: list) -> list:
 # =============================================================================
 
 
-def load_data_from_disk() -> None:
-    """Read mtime-sorted .txt backups from BACKUP_DIR into DATA_STORE + workspace_sources."""
+def load_data_from_disk() -> int:
+    """Read the backups in BACKUP_DIR into DATA_STORE + workspace_sources.
+
+    Every ``.txt`` backup adds its workspaces. The shared settings (config,
+    profiles, format, overlays, basemaps, drones, narrative) come from the
+    newest file that holds them, ``Shared settings.json`` among them, so they
+    return even when no workspace does. A file that can't be read is named on
+    the console and skipped; returns how many were.
+    """
     with data_lock:
         os.makedirs(BACKUP_DIR, exist_ok=True)
 
         candidates = sorted(
-            [os.path.join(BACKUP_DIR, f) for f in os.listdir(BACKUP_DIR) if f.endswith('.txt')],
+            [
+                os.path.join(BACKUP_DIR, f)
+                for f in os.listdir(BACKUP_DIR)
+                if f.endswith('.txt') or f == SHARED_SETTINGS_NAME
+            ],
             key=os.path.getmtime,
         )
 
         if not candidates:
-            return
+            return 0
 
         all_workspaces: dict = {}
         merged_profiles: dict = {}
@@ -1339,61 +1382,64 @@ def load_data_from_disk() -> None:
         basemaps: list = []
         drones: list = []
         narrative: dict = {}
+        skipped = 0
 
         for filepath in candidates:
+            fname = os.path.basename(filepath)
             try:
                 with open(filepath, encoding='utf-8') as f:
                     raw = f.read()
-                if (result := _extract_json_from_file(raw)) is not None:
-                    fname = os.path.basename(filepath)
-                    for ato_name, reports in result.get('workspaces', {}).items():
-                        # Normalize like every handler does — lowercase keys from disk would miss uppercase requests.
-                        key = (ato_name or '').strip().upper() or 'ATO'
-                        if key in all_workspaces:
-                            all_workspaces[key] = _merge_reports(all_workspaces[key], reports)
-                        else:
-                            all_workspaces[key] = reports
-                        # Last file to touch a workspace becomes its recorded
-                        # source; mtime-sorted candidates ensure that's the
-                        # most recent backup file holding it.
-                        source_by_ato[key] = fname
-                    merged_profiles.update(result.get('profiles', {}))
-                    if (
-                        fmt := pick_format(result.get('formats'), result.get('config'))
-                    ) is not None:
-                        shared_format = fmt
-                    if isinstance(result.get('basemaps'), list):
-                        basemaps = result['basemaps']  # the newest file's
-                    if isinstance(result.get('drones'), list):
-                        drones = result['drones']  # the newest file's
-                    if isinstance(result.get('narrative'), dict):
-                        narrative = result['narrative']  # the newest file's
-                    ovs = result.get('overlays')
-                    if isinstance(ovs, list):
-                        shared_overlays = fold_overlays(ovs)
-                    elif isinstance(ovs, dict):
-                        legacy_overlays.update(
-                            {(o.get('type'), o.get('name')): o for o in fold_overlays(ovs)}
-                        )
-                    latest_config = result.get('config', latest_config)
-            except Exception:
-                # Skip unreadable / malformed files silently.
-                continue
+                if fname == SHARED_SETTINGS_NAME:
+                    result = _parse_shared_settings(raw)
+                else:
+                    result = _parse_backup(raw)
+                for ato_name, reports in result.get('workspaces', {}).items():
+                    # Normalize like every handler does — lowercase keys from disk would miss uppercase requests.
+                    key = (ato_name or '').strip().upper() or 'ATO'
+                    if key in all_workspaces:
+                        all_workspaces[key] = _merge_reports(all_workspaces[key], reports)
+                    else:
+                        all_workspaces[key] = reports
+                    # Last file to touch a workspace becomes its recorded
+                    # source; mtime-sorted candidates ensure that's the
+                    # most recent backup file holding it.
+                    source_by_ato[key] = fname
+                merged_profiles.update(result.get('profiles', {}))
+                if (fmt := pick_format(result.get('formats'), result.get('config'))) is not None:
+                    shared_format = fmt
+                if isinstance(result.get('basemaps'), list):
+                    basemaps = result['basemaps']  # the newest file's
+                if isinstance(result.get('drones'), list):
+                    drones = result['drones']  # the newest file's
+                if isinstance(result.get('narrative'), dict):
+                    narrative = result['narrative']  # the newest file's
+                ovs = result.get('overlays')
+                if isinstance(ovs, list):
+                    shared_overlays = fold_overlays(ovs)
+                elif isinstance(ovs, dict):
+                    legacy_overlays.update(
+                        {(o.get('type'), o.get('name')): o for o in fold_overlays(ovs)}
+                    )
+                latest_config = result.get('config', latest_config)
+            except Exception as exc:
+                # Not silently: a backup that doesn't load is data missing from the session.
+                skipped += 1
+                safe_print(f'[!] Skipped {fname}: {exc}')
 
-        if all_workspaces:
-            DATA_STORE['workspaces'] = all_workspaces
-            DATA_STORE['profiles'] = merged_profiles
-            DATA_STORE['config'] = latest_config
-            DATA_STORE['format'] = shared_format
-            DATA_STORE['overlays'] = (
-                shared_overlays if shared_overlays is not None else list(legacy_overlays.values())
-            )
-            DATA_STORE['basemaps'] = basemaps
-            DATA_STORE['drones'] = drones
-            DATA_STORE['narrative'] = narrative
-            workspace_sources.clear()
-            workspace_sources.update(source_by_ato)
-            invalidate_sync_cache()
+        DATA_STORE['workspaces'] = all_workspaces
+        DATA_STORE['profiles'] = merged_profiles
+        DATA_STORE['config'] = latest_config
+        DATA_STORE['format'] = shared_format
+        DATA_STORE['overlays'] = (
+            shared_overlays if shared_overlays is not None else list(legacy_overlays.values())
+        )
+        DATA_STORE['basemaps'] = basemaps
+        DATA_STORE['drones'] = drones
+        DATA_STORE['narrative'] = narrative
+        workspace_sources.clear()
+        workspace_sources.update(source_by_ato)
+        invalidate_sync_cache()
+        return skipped
 
 
 def pick_format(formats, config) -> dict | None:
@@ -1568,6 +1614,28 @@ def render_backup(
     return filename, '\n'.join(lines)
 
 
+def render_shared_settings(
+    config: dict,
+    profiles: dict,
+    fmt: dict | None,
+    overlays: list | None,
+    basemaps: list | None,
+    drones: list | None,
+    narrative: dict | None,
+) -> str:
+    """The text of ``Shared settings.json``. Pure, like ``render_backup``."""
+    shared = {
+        'config': config,
+        'profiles': profiles,
+        'format': fmt or {},
+        'overlays': overlays or [],
+        'basemaps': basemaps or [],
+        'drones': drones or [],
+        'narrative': narrative or {},
+    }
+    return json.dumps(shared, indent=1, ensure_ascii=False) + '\n'
+
+
 def workspace_title(ato: str, reports: list, config: dict) -> str:
     """The title a workspace's file is named after.
 
@@ -1701,8 +1769,9 @@ def save_data_to_disk() -> None:
     the disk I/O, which is noticeable on the USB sticks and network shares
     this often runs from. Only workspaces marked dirty since the last save
     are rewritten, except when a dated snapshot is due, which covers all.
+    ``Shared settings.json`` is rewritten when the shared settings changed.
     """
-    global _last_snapshot_at, _dirty_atos
+    global _last_snapshot_at, _dirty_atos, _shared_dirty
     with _disk_lock:
         now = time.monotonic()
         snapshot_due = (
@@ -1710,9 +1779,9 @@ def save_data_to_disk() -> None:
         )
         errors = []
         with data_lock:
-            pending = _dirty_atos
+            pending, shared_pending = _dirty_atos, _shared_dirty
             only = None if (snapshot_due or pending is None) else set(pending)
-            _dirty_atos = set()
+            _dirty_atos, _shared_dirty = set(), False
             try:
                 files = render_workspace_backups(
                     DATA_STORE.get('workspaces', {}),
@@ -1725,10 +1794,22 @@ def save_data_to_disk() -> None:
                     DATA_STORE.get('narrative', {}),
                     DATA_STORE.get('drones', []),
                 )
+                if shared_pending or snapshot_due:
+                    # None for the ATO: the shared settings, not a workspace.
+                    shared = render_shared_settings(
+                        DATA_STORE.get('config', {}),
+                        DATA_STORE.get('profiles', {}),
+                        DATA_STORE.get('format'),
+                        DATA_STORE.get('overlays', []),
+                        DATA_STORE.get('basemaps', []),
+                        DATA_STORE.get('drones', []),
+                        DATA_STORE.get('narrative', {}),
+                    )
+                    files.append((None, SHARED_SETTINGS_NAME, shared))
             except Exception as exc:
                 # Nothing was written: keep every change pending, so a report
                 # the backup can't be made from never silently stops saving.
-                _dirty_atos = pending
+                _dirty_atos, _shared_dirty = pending, shared_pending
                 files = []
                 errors.append(f'Could not prepare the backups: {exc!r}')
         if files:
@@ -1737,11 +1818,15 @@ def save_data_to_disk() -> None:
         for ato, filename, content in files:
             try:
                 _write_atomically(os.path.join(BACKUP_DIR, filename), content)
-                written.append((filename, content))
+                if ato is not None:
+                    written.append((filename, content))
             except Exception as exc:
                 errors.append(f'Error saving {filename}: {exc}')
-                with data_lock:
-                    mark_dirty(ato)  # try again on the next save
+                with data_lock:  # try again on the next save
+                    if ato is None:
+                        _shared_dirty = True
+                    else:
+                        mark_dirty(ato)
         _note_save_result(errors)
         if snapshot_due and written:
             try:
@@ -2613,10 +2698,14 @@ class SaltSyncServer(socketserver.ThreadingTCPServer):
 
 
 def run_boot_dashboard(
-    viewer_port: int | None = None, fingerprint: str | None = None, own_cert: bool = False
+    viewer_port: int | None = None,
+    fingerprint: str | None = None,
+    own_cert: bool = False,
+    skipped: int = 0,
 ) -> None:
-    """Boot banner — title, network URL, access code, optional viewer URL, and
-    with HTTPS the certificate's fingerprint (``fingerprint`` None: plain HTTP)."""
+    """Boot banner — title, network URL, access code, optional viewer URL, with
+    HTTPS the certificate's fingerprint (``fingerprint`` None: plain HTTP), and
+    how many backup files could not be loaded."""
     ip = get_local_ip()
     scheme = 'http' if fingerprint is None else 'https'
     safe_print('\n' + '═' * 64)
@@ -2638,6 +2727,10 @@ def run_boot_dashboard(
         if not own_cert:
             safe_print(' [*] Browsers warn once about this self-signed certificate:')
             safe_print('     choose Advanced, then Proceed. Its fingerprint is shown above.')
+    if skipped:
+        safe_print(
+            f' [!] Skipped     : {skipped} backup file(s) that could not be read (named above)'
+        )
     safe_print(' [!] Press Ctrl+C to stop.')
     safe_print('═' * 64 + '\n')
 
@@ -2751,7 +2844,7 @@ if __name__ == '__main__':
     else:
         _access_code = _generate_access_code()
 
-    load_data_from_disk()
+    skipped = load_data_from_disk()
 
     # HTTPS unless --no-https: a certificate given with --cert, or the server's own.
     tls = None
@@ -2795,7 +2888,10 @@ if __name__ == '__main__':
         safe_print(f' [!] --viewer-port matches --port ({PORT}); ignored.')
 
     run_boot_dashboard(
-        viewer_port=viewer_port_bound, fingerprint=fingerprint, own_cert=bool(args.cert)
+        viewer_port=viewer_port_bound,
+        fingerprint=fingerprint,
+        own_cert=bool(args.cert),
+        skipped=skipped,
     )
     audit(
         'server',

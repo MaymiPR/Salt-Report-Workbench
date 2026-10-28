@@ -70,6 +70,7 @@ def reset_state() -> None:
     srv._rate_buckets.clear()
     srv.invalidate_sync_cache()
     srv._dirty_atos = None
+    srv._shared_dirty = True
     srv._save_failures = 0
 
 
@@ -1480,7 +1481,8 @@ class HttpApiTests(unittest.TestCase):
 
         with mock.patch.object(srv.os, "replace", spying_replace):
             srv.save_data_to_disk()
-        self.assertEqual(lock_held_during_write, [False])
+        # The workspace's backup and the shared settings.
+        self.assertEqual(lock_held_during_write, [False, False])
 
     def pending_retry(self):
         """The delay of the save the server has scheduled, or None."""
@@ -1534,22 +1536,113 @@ class HttpApiTests(unittest.TestCase):
             mock.patch.object(srv.os, "fsync", fsync),
             mock.patch.object(srv, "safe_print") as printed,
         ):
-            delays = []
+            delays, said = [], []
             for _ in range(5):
                 srv.save_data_to_disk()
                 delays.append(self.pending_retry())
+                said.append(len(printed.call_args_list))
                 cancel_pending_save()
         self.assertEqual(calls[:2], ["fsync", "replace"], "flushed to disk before replacing")
         self.assertEqual(delays, [1.0, 2.0, 5.0, 30.0, 30.0])
         self.assertEqual(srv._dirty_atos, {"ALPHA"})
+        self.assertEqual(len(set(said)), 1, "said once for the whole run of failures")
         lines = [c.args[0] for c in printed.call_args_list]
-        self.assertEqual(len(lines), 2, "said once for the whole run of failures")
-        self.assertIn("ALPHA_Patrol.txt", lines[0])
+        self.assertIn("[!] Error saving ALPHA_Patrol.txt: [Errno 13]", lines[0])
+        self.assertIn("retried", lines[-1])
         with mock.patch.object(srv, "safe_print") as printed:
             srv.save_data_to_disk()
         self.assertEqual(printed.call_args_list[0].args[0], "[+] Backups are being saved again.")
         self.assertIsNone(self.pending_retry())
         self.assertEqual(srv._dirty_atos, set())
+
+    def own_backup_dir(self):
+        """An empty backup folder for this test alone."""
+        folder = Path(tempfile.mkdtemp(prefix="salt-own-"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        patcher = mock.patch.object(srv, "BACKUP_DIR", str(folder))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return folder
+
+    def test_shared_settings_survive_a_restart_with_no_workspace(self):
+        # Regression: with no workspace loaded nothing was written, and the
+        # loader read the shared settings only when some workspace came back.
+        folder = self.own_backup_dir()
+        tiles = {"name": "Topo", "kind": "tiles", "url": "http://10.0.0.5/tiles/{z}/{y}/{x}.png"}
+        drone = {"name": "GE 1", "grid": "11S NV 39697 06762", "at": 1793018940000}
+        fmt = {"preset": "custom", "lines": [{"type": "id"}, {"type": "size"}]}
+        for path, body in (
+            ("/api/save_basemaps", {"basemaps": [tiles]}),
+            ("/api/save_drones", {"drones": [drone]}),
+            ("/api/save_narrative", {"narrative": {"enemy": "OPFOR"}}),
+            ("/api/save_overlays", {"overlays": [NAI1]}),
+            ("/api/save_format", {"format": fmt}),
+            ("/api/save_profile", {"profile": {"initials": "AB", "color": "#32d74b"}}),
+            ("/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol"}}),
+        ):
+            self.assertEqual(self.post(path, body)[0], 200, path)
+        before = self.sync()
+        srv.flush_pending_save()
+        self.assertEqual([f.name for f in folder.glob("*.txt")], [], "no workspace, no backup")
+        self.assertTrue((folder / srv.SHARED_SETTINGS_NAME).is_file())
+        reset_state()
+        self.assertEqual(srv.load_data_from_disk(), 0)
+        after = self.sync()
+        for key in ("basemaps", "drones", "narrative", "overlays", "format", "profiles", "config"):
+            self.assertEqual(after[key], before[key], key)
+        self.assertEqual(after["drones"], [drone])
+        self.assertEqual(after["workspaces"], {})
+
+    def test_the_newest_file_decides_the_shared_settings(self):
+        import time
+
+        folder = self.own_backup_dir()
+        old = {"name": "Old", "kind": "tiles", "url": "http://10.0.0.5/old/{z}/{x}/{y}.png"}
+        new = {**old, "name": "New"}
+        self.post("/api/save_basemaps", {"basemaps": [old]})
+        srv.flush_pending_save()
+        settings = folder / srv.SHARED_SETTINGS_NAME
+        os.utime(settings, (time.time() - 100, time.time() - 100))
+        # A workspace backup written later (say by an older version) holds newer ones.
+        _, text = srv.render_backup({"ALPHA": [report()]}, {}, {}, {}, basemaps=[new])
+        (folder / "ALPHA_Patrol.txt").write_text(text, encoding="utf-8")
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(self.sync()["basemaps"], [new])
+        # And the other way about.
+        os.utime(settings, (time.time() + 100, time.time() + 100))
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(self.sync()["basemaps"], [old])
+        self.assertEqual(list(self.sync()["workspaces"]), ["ALPHA"])
+
+    def test_backups_that_cannot_be_read_are_named_and_counted(self):
+        # Regression: they were skipped without a word, so a session could
+        # start without a workspace and nobody would know why.
+        folder = self.own_backup_dir()
+        (folder / "notes.txt").write_text("nothing to see", encoding="utf-8")
+        (folder / "BROKEN_T.txt").write_text(
+            f"{srv.BACKUP_START}{{oops{srv.BACKUP_END}", encoding="utf-8"
+        )
+        (folder / "ALPHA_Patrol.txt").write_text(
+            srv.render_backup({"ALPHA": [report()]}, {}, {}, {})[1], encoding="utf-8"
+        )
+        (folder / srv.SHARED_SETTINGS_NAME).write_text("[1, 2]", encoding="utf-8")
+        with mock.patch.object(srv, "safe_print") as printed:
+            skipped = srv.load_data_from_disk()
+        self.assertEqual(skipped, 3)
+        lines = sorted(c.args[0] for c in printed.call_args_list)
+        self.assertEqual(len(lines), 3)
+        self.assertTrue(
+            lines[0].startswith("[!] Skipped BROKEN_T.txt: its backup data is not valid JSON")
+        )
+        self.assertEqual(lines[1], f"[!] Skipped {srv.SHARED_SETTINGS_NAME}: not a JSON object")
+        self.assertEqual(lines[2], "[!] Skipped notes.txt: no backup data block in it")
+        self.assertEqual(list(srv.DATA_STORE["workspaces"]), ["ALPHA"], "the good one still loads")
+        with mock.patch.object(srv, "safe_print") as printed:
+            srv.run_boot_dashboard(skipped=skipped)
+        banner = "\n".join(c.args[0] for c in printed.call_args_list)
+        self.assertIn("Skipped     : 3 backup file(s)", banner)
 
     def test_a_hand_edited_backup_cannot_stop_saves(self):
         folder = Path(tempfile.mkdtemp(prefix="salt-odd-"))
