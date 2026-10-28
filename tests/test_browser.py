@@ -336,7 +336,14 @@ class BrowserTests(unittest.TestCase):
         page.click("#confirmActionBtn")
         page.wait_for_selector("#toast-notification:has-text('Not unloaded: Unload refused.')")
         self.assertEqual(self.sizes(page), ["2x BTR"])
-        self.assertTrue(page.evaluate(f"!!reportsByAto['{self.ato}']"))
+        self.assertTrue(
+            page.evaluate(f"!!reportsByAto['{self.ato}']"),
+            page.evaluate(
+                """async () => JSON.stringify({ activeAto, mine: Object.keys(reportsByAto),
+                    pending: [...pendingAtos], offlinePendingPush,
+                    server: Object.keys((await (await fetch('/api/sync')).json()).workspaces) })"""
+            ),
+        )
 
     def test_toasts_are_announced_and_undo_waits_while_pointed_at(self):
         page = self.open_editor()
