@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.17.0] - 2026-10-28
+
 ### Added
 
 - **Drones on the map.** A drone button under the basemap button: add a drone
@@ -806,7 +808,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Ruff, pre-commit, EditorConfig, and a Makefile.
 - README, architecture notes, and contributing, security, and conduct guides.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.16.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.17.0...HEAD
+[2.17.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.16.0...v2.17.0
 [2.16.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.15.0...v2.16.0
 [2.15.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.14.0...v2.15.0
 [2.14.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.13.0...v2.14.0
