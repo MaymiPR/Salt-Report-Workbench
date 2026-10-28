@@ -13,6 +13,7 @@ function setConnectionStatus(isOnline) {
     el.status.dot.setAttribute('aria-label', title);
     el.status.dotExp.className = cls;
     el.status.dotExp.title     = title;
+    renderStatusBars();
 }
 
 // Wrong, missing, or rotated access code: forget it and re-prompt. The viewer
@@ -127,7 +128,10 @@ async function pushPending() {
 // Pulls can overlap, and their answers arrive in any order: one asked for
 // before another that has already been applied is older, and is dropped.
 let pullsAsked = 0, pullApplied = 0;
-async function syncWithServer() {
+// `again`: this pull follows one whose answer was older than a change this
+// page knew of. An answer older still is taken all the same (the server was
+// restarted with its clock set back, say), rather than asking for ever.
+async function syncWithServer(again = false) {
     if (pushesInFlight > 0) { pullDeferred = true; return; }
     try {
         // Never pull over local changes the server hasn't accepted yet: the
@@ -140,7 +144,12 @@ async function syncWithServer() {
         if (!res.ok) throw new Error('Server unreachable');
         const state = await res.json();
         if (pull < pullApplied) return;
+        const v = typeof state.version === 'number' ? state.version : null;
+        // Older than a change this page has made or been told of (asked for
+        // before it, answered after): it would undo that change on screen.
+        if (v !== null && v < seenVersion && !again) { setConnectionStatus(true); syncWithServer(true); return; }
         pullApplied = pull;
+        if (v !== null) { syncedVersion = v; seenVersion = Math.max(v, again ? v : seenVersion); }
         applyServerUpdate(state);
         setConnectionStatus(true);
     } catch (err) {
@@ -201,6 +210,10 @@ function applyServerUpdate(state) {
     workspaceSources  = sources       || {};
     connectedWhere    = state.connected_where && typeof state.connected_where === 'object' ? state.connected_where : {};
     renderWhoIsWhere();
+    // A page from another release than the server's: it may send what the
+    // server no longer takes, or miss what it now sends.
+    serverRelease = typeof state.server_version === 'string' ? state.server_version : null;
+    renderStatusBars();
     // Viewer mode flag — CSS hides mutation UI; JS guards also check it.
     isReadOnly = !!readOnly;
     document.body.classList.toggle('read-only', isReadOnly);
@@ -302,6 +315,24 @@ function saveLocalAndSync(newReportsByAto, source) {
     return pushToServer(source);
 }
 
+// --- Bars for what needs attention: not saving, another release ---
+// Unsent changes this long and the page says so, plainly.
+const NOT_SAVING_MS = 30000;
+let waitingSince = null;   // when changes first waited for the server, or null
+let serverRelease = null;  // the server's release, from the last sync
+const changesWaiting = () => !isReadOnly && !isLocalFile && (offlinePendingPush || pendingAtos.size > 0);
+function renderStatusBars() {
+    if (!changesWaiting()) waitingSince = null;
+    else if (waitingSince === null) waitingSince = Date.now();
+    const notSaving = waitingSince !== null && Date.now() - waitingSince > NOT_SAVING_MS;
+    el.bars.notSaving.hidden = !notSaving;
+    const other = !!serverRelease && serverRelease !== APP_VERSION;
+    if (other) el.bars.versionText.textContent = `This page is version ${APP_VERSION} and the server is ${serverRelease}. Reload to update the page.`;
+    el.bars.version.hidden = !other;
+}
+setInterval(renderStatusBars, 5000);
+el.bars.reloadBtn.addEventListener('click', () => location.reload());
+
 // SSE with explicit reconnection backoff (1s → 30s capped, reset on success).
 // EventSource's built-in retry is unreliable on hard server-side drops.
 function initSSE() {
@@ -309,7 +340,15 @@ function initSSE() {
     const MAX_BACKOFF = 30000;
     const connect = () => {
         const evtSource = new EventSource('/api/events');
-        evtSource.onmessage = () => { backoff = 1000; syncWithServer(); };
+        // A notice says the newest change's number (an older server just
+        // "update"): one this page already has needs no pull.
+        evtSource.onmessage = (e) => {
+            backoff = 1000;
+            let v = null;
+            try { v = JSON.parse(e.data).v; } catch (err) { /* an older server's "update" */ }
+            if (typeof v === 'number') { noteChange(v); if (v <= syncedVersion) return; }
+            syncWithServer();
+        };
         evtSource.onopen    = () => { backoff = 1000; setConnectionStatus(true); };
         // The server announces a Ctrl+C before it closes, so the dot turns
         // red now instead of at the next failed heartbeat.

@@ -2,7 +2,8 @@
 
 The [README](../README.md#quick-start) has the short version. This page covers
 the details: the two downloads, checking them, upgrading, the Windows launcher,
-where your data lives, and troubleshooting.
+where your data lives, and troubleshooting. [OPERATIONS.md](OPERATIONS.md) is
+for running the server day to day.
 
 ## The two downloads
 
@@ -183,8 +184,9 @@ Because that file is replaced within half a second of every change, the server
 also keeps dated copies in `Auto Backups/snapshots/`: one on every start and
 then at most one an hour, the newest 48 rounds kept (about two days; a round is
 every backup file from one save). To go back to an earlier state, stop the
-server, copy the snapshot you want over the live file, and start it again. The
-snapshots folder itself is never loaded. It also holds `Superseded_` files: an
+server and run it with `--restore list` to see the rounds, then
+`--restore <round>` (see [Getting back an earlier state](OPERATIONS.md#getting-back-an-earlier-state)).
+The snapshots folder itself is never loaded. It also holds `Superseded_` files: an
 old backup file whose reports now live in another file (after a title change,
 for example), moved aside so it can't merge back in.
 

@@ -26,6 +26,7 @@ import os
 import re
 import secrets
 import select
+import shutil
 import socket
 import socketserver
 import sys
@@ -165,9 +166,30 @@ workspace_sources: dict = {}
 # Protected by data_lock.
 unloaded_workspaces: set = set()
 
+# This release. The page carries the same (APP_VERSION in src/app/10-state.js)
+# and warns when the two differ; tests/test_docs.py checks they agree.
+APP_VERSION = '2.19.0'
+# When this server started, for /api/health.
+STARTED_AT = time.time()
+
 # --- SSE client registry ---
 sse_lock = threading.Lock()
 sse_clients: list = []
+
+# Every change anyone can see (the data, or who is connected and where) takes
+# the next number. /api/sync says the number its answer is as of, update
+# notices say the newest, and a write's reply says its own, so a page skips a
+# pull it is already up to date for and drops an answer older than what it
+# has seen. Protected by _version_lock.
+# Numbers start at the boot time in milliseconds, so a restarted server's
+# are still higher than any a page heard from the one before.
+_sync_version = int(time.time() * 1000)
+_version_lock = threading.Lock()
+# Changes this close together go out as one notice: an import or a busy
+# minute sends each page one pull, not dozens.
+BROADCAST_BATCH_SECONDS: float = 0.15
+_notice_timer: threading.Timer | None = None
+_notice_lock = threading.Lock()
 
 # Machine (see _machine) -> initials. Powers the deduped /api/sync connected list
 # and server-stamped attribution on report saves. Pruned on SSE disconnect. Protected by sse_lock.
@@ -239,10 +261,82 @@ class SSEClient:
                 return False
 
 
-def broadcast_update() -> None:
-    """Push data-update to every SSE client; prune dead. Snapshots under lock,
-    writes lock-free so a stuck peer can't block other ops."""
-    payload = b'data: update\n\n'
+def current_version() -> int:
+    """The number of the latest change."""
+    with _version_lock:
+        return _sync_version
+
+
+def update_notice() -> bytes:
+    """An SSE message saying the latest change's number."""
+    return b'data: {"v":%d}\n\n' % current_version()
+
+
+def broadcast_update() -> int:
+    """Number a change and have every SSE client told within
+    BROADCAST_BATCH_SECONDS; returns the change's number. Called after the
+    change is in place, so a page told this number finds it in a pull."""
+    global _sync_version, _notice_timer
+    with _version_lock:
+        _sync_version += 1
+        version = _sync_version
+    with _notice_lock:
+        if _notice_timer is None:
+            _notice_timer = threading.Timer(BROADCAST_BATCH_SECONDS, _send_notice)
+            _notice_timer.daemon = True
+            _notice_timer.start()
+    return version
+
+
+# The host sees who is connected: a line on the console when a machine joins
+# or leaves, or one changes name or workspace, at most once a second.
+MACHINES_SAY_SECONDS: float = 1.0
+_machines_timer: threading.Timer | None = None
+_machines_said = ''
+
+
+def note_machines() -> None:
+    """Have the console list the connected machines again, shortly."""
+    global _machines_timer
+    with _notice_lock:
+        if _machines_timer is None:
+            _machines_timer = threading.Timer(MACHINES_SAY_SECONDS, _say_machines)
+            _machines_timer.daemon = True
+            _machines_timer.start()
+
+
+def machines_line() -> str:
+    """The connected machines, one each however many tabs: initials (when the
+    server knows them), address and workspace."""
+    with sse_lock:
+        parts = []
+        for ip in dict.fromkeys(c.ip for c in sse_clients):
+            ini = client_initials.get(ip) or 'no name'
+            where = 'this computer' if ip == '127.0.0.1' else ip
+            ato = client_workspace.get(ip)
+            parts.append(f'{ini} at {where}' + (f' in {ato}' if ato else ''))
+    if not parts:
+        return '[i] Nobody is connected.'
+    return f'[i] Connected ({len(parts)}): ' + '; '.join(parts)
+
+
+def _say_machines() -> None:
+    global _machines_timer, _machines_said
+    with _notice_lock:
+        _machines_timer = None
+    line = machines_line()
+    if line != _machines_said:
+        _machines_said = line
+        safe_print(line)
+
+
+def _send_notice() -> None:
+    """Tell every SSE client the latest change's number; prune dead ones.
+    Snapshots under lock, writes lock-free so a stuck peer can't block other ops."""
+    global _notice_timer
+    with _notice_lock:
+        _notice_timer = None
+    payload = update_notice()
     with sse_lock:
         snapshot = list(sse_clients)
     dead = [c for c in snapshot if not c.send(payload)]
@@ -1934,16 +2028,19 @@ def _write_atomically(dest: str, content: str) -> None:
 
 # Saves that failed in a row. Protected by _disk_lock.
 _save_failures = 0
+# When the backups were last written without an error (time.time()), or None.
+_last_saved_at: float | None = None
 
 
 def _note_save_result(errors: list) -> None:
     """After a save: on failure, say why (once per run of failures) and try
     again with a growing wait; on the first success after that, say so."""
-    global _save_failures
+    global _save_failures, _last_saved_at
     if not errors:
         if _save_failures:
             safe_print('[+] Backups are being saved again.')
         _save_failures = 0
+        _last_saved_at = time.time()
         return
     if not _save_failures:
         for e in errors:
@@ -2060,6 +2157,24 @@ def save_data_to_disk() -> None:
 # =============================================================================
 
 
+def health() -> dict:
+    """What /api/health says: is the server up and saving, and since when."""
+    with sse_lock:
+        machines = len({c.ip for c in sse_clients})
+    saved = _last_saved_at
+    return {
+        'status': 'not saving' if _save_failures else 'ok',
+        'version': APP_VERSION,
+        'uptime_seconds': int(time.time() - STARTED_AT),
+        'last_saved': None
+        if saved is None
+        else f'{datetime.fromtimestamp(saved, timezone.utc):%Y-%m-%dT%H:%M:%SZ}',
+        'save_failures': _save_failures,
+        'connected_machines': machines,
+        'change': current_version(),
+    }
+
+
 def _same_origin(origin: str, host: str, tls: bool) -> bool:
     """True when an ``Origin`` header names the host and port the request was
     sent to (its ``Host`` header), default ports filled in."""
@@ -2115,7 +2230,11 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
     def do_GET(self):
         # Strip query string so cache-bust params don't 404.
         path = self.path.split('?', 1)[0]
-        if path == '/api/sync':
+        if path == '/api/health':
+            # No code needed: it says nothing about the reports, and a
+            # monitoring script or a browser on any machine can ask.
+            self._send_json(health())
+        elif path == '/api/sync':
             if self._authorized():
                 self._handle_sync()
         elif path == '/api/events':
@@ -2220,6 +2339,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         """Full sync payload. Cached prefix + dynamic tail (connected counts).
         Operator IPs tracked server-side for attribution; never sent to peers."""
         global _sync_cache_prefix
+        # Read before the data: the answer then holds at least this change,
+        # never less, so a page can't take itself to be newer than it is.
+        version = current_version()
         with data_lock:
             if _sync_cache_prefix is None:
                 data = {
@@ -2266,7 +2388,11 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             + where_json
             + b',"read_only":'
             + ro
-            + b'}'
+            + b',"version":'
+            + str(version).encode('ascii')
+            + b',"server_version":"'
+            + APP_VERSION.encode('ascii')
+            + b'"}'
         )
         # A month of reports is megabytes of JSON that every browser downloads
         # after every change; it compresses five to eight times.
@@ -2299,8 +2425,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             sse_clients.append(client)
         for c in oldest:
             c.close()
+        note_machines()
 
-        client.send(b'data: update\n\n')  # bootstrap the connecting client
+        client.send(update_notice())  # bootstrap the connecting client
 
         try:
             while True:
@@ -2329,6 +2456,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 if not still_here:
                     client_initials.pop(client.ip, None)
                     client_workspace.pop(client.ip, None)
+            note_machines()
 
     def _serve_workbench(self) -> None:
         content = _get_workbench_html()
@@ -2448,14 +2576,21 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         with sse_lock:
             changed = client_workspace.get(machine) != ato
             client_workspace[machine] = ato
+        if changed:
+            note_machines()
         return changed
 
     def _commit(self, what: str, **extra) -> None:
         """The end of every successful write: log it, persist, notify clients, confirm."""
         audit(self._actor(), what)
         schedule_save()
-        broadcast_update()
-        self._send_json({'status': 'success', **extra})
+        version = broadcast_update()
+        # In a header too, so a page reads it before (or without) the body.
+        self._send_body(
+            json.dumps({'status': 'success', 'version': version, **extra}).encode('utf-8'),
+            'application/json',
+            headers=(('X-Salt-Change', str(version)),),
+        )
 
     def _unchanged(self, **extra) -> None:
         """The end of a write that changed nothing: the same reply, but nothing
@@ -2771,6 +2906,8 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         with sse_lock:
             known = client_initials.get(machine) == ini
             client_initials[machine] = ini
+        if not known:
+            note_machines()
         if not changed:
             if not known:
                 broadcast_update()  # who is connected changed, if nothing else did
@@ -3130,7 +3267,7 @@ def run_boot_dashboard(
     ip = display_host()
     scheme = 'http' if fingerprint is None else 'https'
     safe_print('\n' + '═' * 64)
-    safe_print('                      S.A.L.T. Sync Server')
+    safe_print(f'                  S.A.L.T. Sync Server {APP_VERSION}')
     safe_print('═' * 64)
     safe_print('[*] Starting S.A.L.T. Sync Server...')
     safe_print(f'[+] Workbench   : {scheme}://{ip}:{PORT}')
@@ -3223,6 +3360,14 @@ def parse_cli_args() -> argparse.Namespace:
         help='Your own TLS certificate (PEM) instead of the self-signed one. Needs --key.',
     )
     p.add_argument('--key', metavar='FILE', help='The private key (PEM) for --cert.')
+    p.add_argument(
+        '--restore',
+        metavar='SNAPSHOT',
+        help='Put a snapshot round back in place of the backups, then exit: its time '
+        'as the files in snapshots/ are named (20261028_101500Z), latest, or list to see '
+        'them. The backups it replaces are kept in snapshots/before-restore-<time>/. '
+        'Run it with the server stopped.',
+    )
     args = p.parse_args()
     if bool(args.cert) != bool(args.key):
         p.error('--cert and --key go together')
@@ -3235,6 +3380,80 @@ def parse_cli_args() -> argparse.Namespace:
     ):
         p.error('--access-code must be 6-64 letters, digits, "-" or "_"')
     return args
+
+
+def snapshot_rounds() -> dict:
+    """The snapshot rounds in ``BACKUP_DIR/snapshots/``: time -> file names."""
+    snap_dir = os.path.join(BACKUP_DIR, SNAPSHOT_DIR_NAME)
+    rounds: dict = {}
+    if os.path.isdir(snap_dir):
+        for f in sorted(os.listdir(snap_dir)):
+            if (m := _SNAPSHOT_NAME_RE.match(f)) and os.path.isfile(os.path.join(snap_dir, f)):
+                rounds.setdefault(m.group(1), []).append(f)
+    return rounds
+
+
+def _server_answers(port: int) -> bool:
+    """Whether something already listens on ``port`` here (a server running)."""
+    host = '127.0.0.1' if HOST in ('', '0.0.0.0') else HOST
+    try:
+        socket.create_connection((host, port), timeout=1).close()
+        return True
+    except OSError:
+        return False
+
+
+def restore_snapshot(which: str) -> int:
+    """--restore: put one snapshot round's backups in place of the live ones.
+
+    ``which`` is a round's time as its files are named (``20261028_101500Z``),
+    ``latest``, or ``list`` to see them. The live backups are first copied to
+    ``snapshots/before-restore-<time>/`` (never pruned), then replaced, so a
+    restore can itself be undone the same way by hand. Refuses while a server
+    answers on PORT: it would write its own copy back over the restore.
+    Returns the exit status.
+    """
+    rounds = snapshot_rounds()
+    if not rounds:
+        safe_print(f'[!] No snapshots in {os.path.join(BACKUP_DIR, SNAPSHOT_DIR_NAME)}.')
+        return 1
+    newest = sorted(rounds, reverse=True)
+    if which == 'list':
+        safe_print(f'[i] Snapshot rounds in {BACKUP_DIR}, newest first:')
+        for r in newest:
+            safe_print(f'    {r}  ({len(rounds[r])} file(s))')
+        return 0
+    stamp = newest[0] if which == 'latest' else which
+    if stamp not in rounds:
+        safe_print(f'[!] No snapshot round named {which}. The newest:')
+        for r in newest[:10]:
+            safe_print(f'    {r}')
+        safe_print('    (--restore list shows them all.)')
+        return 1
+    if _server_answers(PORT):
+        safe_print(f'[!] A server is running on port {PORT}. Stop it (Ctrl+C in its window),')
+        safe_print('    then run --restore again.')
+        return 1
+    snap_dir = os.path.join(BACKUP_DIR, SNAPSHOT_DIR_NAME)
+    keep = os.path.join(snap_dir, f'before-restore-{datetime.now(timezone.utc):%Y%m%d_%H%M%S}Z')
+    live = [
+        f
+        for f in os.listdir(BACKUP_DIR)
+        if (f.endswith('.txt') or f == SHARED_SETTINGS_NAME)
+        and os.path.isfile(os.path.join(BACKUP_DIR, f))
+    ]
+    os.makedirs(keep, exist_ok=True)
+    for f in live:
+        shutil.copy2(os.path.join(BACKUP_DIR, f), os.path.join(keep, f))
+    for f in live:
+        os.unlink(os.path.join(BACKUP_DIR, f))
+    for f in rounds[stamp]:
+        shutil.copy2(os.path.join(snap_dir, f), os.path.join(BACKUP_DIR, f[len(stamp) + 1 :]))
+    audit('server', f'restored snapshot {stamp}: {len(rounds[stamp])} file(s)')
+    safe_print(f'[+] Restored snapshot {stamp}: {len(rounds[stamp])} file(s).')
+    safe_print(f'[+] The {len(live)} file(s) it replaced are in {keep}.')
+    safe_print('[*] Start the server as usual to load it.')
+    return 0
 
 
 def graceful_drain() -> None:
@@ -3268,6 +3487,9 @@ if __name__ == '__main__':
         _access_code = args.access_code.strip().upper()
     else:
         _access_code = _generate_access_code()
+
+    if args.restore:
+        sys.exit(restore_snapshot(args.restore.strip()))
 
     # Never fall back to plain HTTP unasked: the code and every report would
     # cross the network readable while the operator believed them encrypted.

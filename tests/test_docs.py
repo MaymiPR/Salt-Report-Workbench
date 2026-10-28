@@ -59,17 +59,20 @@ class DocsTests(unittest.TestCase):
         badge = re.search(r"img\.shields\.io/badge/version-([\d.]+)-", read("README.md"))
         txt = re.search(r'python "SALT-Workbench-v([\d.]+)\.txt"', read("docs/INSTALL.md"))
         newest = VERSION_HEADING.search(read("CHANGELOG.md"))
-        self.assertEqual(
-            {
-                "README badge": badge and badge[1],
-                "INSTALL.md .txt example": txt and txt[1],
-                "newest CHANGELOG version": newest and newest[1],
-            },
-            dict.fromkeys(
-                ("README badge", "INSTALL.md .txt example", "newest CHANGELOG version"), version
-            ),
-            f"pyproject.toml says {version}",
-        )
+        server = re.search(r"^APP_VERSION = '([^']+)'$", read("server/salt_sync_server.py"), re.M)
+        page = re.search(r"^const APP_VERSION = '([^']+)';$", read("src/app/10-state.js"), re.M)
+        footer = re.search(r"Version ([\d.]+) &middot;", read("src/index.html"))
+        found = {
+            "README badge": badge and badge[1],
+            "INSTALL.md .txt example": txt and txt[1],
+            "newest CHANGELOG version": newest and newest[1],
+            "the server's APP_VERSION": server and server[1],
+            "the page's APP_VERSION": page and page[1],
+            "the manual's footer (major.minor)": footer and footer[1],
+        }
+        wanted = {**dict.fromkeys(found, version)}
+        wanted["the manual's footer (major.minor)"] = ".".join(version.split(".")[:2])
+        self.assertEqual(found, wanted, f"pyproject.toml says {version}")
 
 
 if __name__ == "__main__":

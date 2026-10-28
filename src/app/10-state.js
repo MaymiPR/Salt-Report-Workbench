@@ -49,7 +49,15 @@ const el = {
         dot:          document.getElementById('status-dot'),
         dotExp:       document.getElementById('status-dot-export'),
         userCount:    document.getElementById('connected-users-count'),
+        version:      document.getElementById('appVersion'),
         userCountExp: document.getElementById('connected-users-count-export'),
+    },
+    // Bars for what needs attention (renderStatusBars in app/50-sync.js).
+    bars: {
+        notSaving:   document.getElementById('notSavingBar'),
+        version:     document.getElementById('versionBar'),
+        versionText: document.getElementById('versionBarText'),
+        reloadBtn:   document.getElementById('versionReloadBtn'),
     },
     // Identity form, plus the display-only access-code row with Copy button.
     profile: {
@@ -503,9 +511,18 @@ const copyToClipboard = async (text) => {
 };
 // POST a JSON body to the sync server. Resolves to the Response whatever its
 // status; rejects only when the server can't be reached.
+// This release. The server says its own in every sync; when they differ,
+// a bar asks for a reload (the server's tests/test_docs.py checks they agree).
+const APP_VERSION = '2.19.0';
+// The server numbers every change (see broadcast_update in the server):
+// `syncedVersion` is the change the data on screen is as of, `seenVersion`
+// the newest heard of, from update notices and this page's own saves. A
+// pull answer older than one seen is out of date before it lands.
+let syncedVersion = 0, seenVersion = 0;
+const noteChange = (v) => { if (typeof v === 'number' && v > seenVersion) seenVersion = v; };
 const postJson = (path, body) => fetch(path, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-});
+}).then(res => { noteChange(Number(res.headers.get('X-Salt-Change')) || 0); return res; });
 // POST and say how it went: { ok, status, message }, where message is the
 // server's reason when it gives one. Never throws: a server that can't be
 // reached is status 0. A rejected access code (401) re-prompts for it.

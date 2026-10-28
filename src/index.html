@@ -13,6 +13,12 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- What needs attention, above everything: changes not reaching the server,
+         a page from another release than the server's (renderStatusBars, app/50-sync.js). -->
+    <div class="status-bars">
+        <div id="notSavingBar" class="status-bar status-bar-error" role="alert" hidden>Not saving: your changes have waited over 30 seconds for the server. They are kept in this browser and sent when it can be reached.</div>
+        <div id="versionBar" class="status-bar" role="alert" hidden><span id="versionBarText"></span> <button type="button" id="versionReloadBtn">Reload</button></div>
+    </div>
     <div id="toast-notification" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
     <div id="confirmation-toast" class="toast confirm" role="dialog" aria-modal="true" aria-labelledby="confirmation-message">
         <div id="confirmation-message" style="margin-bottom: 8px;"></div>
@@ -469,6 +475,8 @@
                         <li>Changes made while locally run queue in your browser and replay automatically the moment the server comes back.</li>
                         <li>Each change sends only the reports it touched, not the whole workspace, so syncing stays quick however long the operation runs.</li>
                         <li>If the server refuses a report (for example a field longer than it accepts), a red message gives the reason and the report stays in your table marked <strong>Not saved</strong>; hover the mark for the reason. Fix it (Edit or Update) and it is sent again; or click <strong>Discard</strong> (or delete it) to drop the change and get the server's copy back. The rest of your reports keep syncing either way.</li>
+                        <li>A red <strong>Not saving</strong> bar at the top means your changes have waited more than 30 seconds for the server. They are kept in this browser and sent when it can be reached; closing the tab while they wait asks first. A bar saying <em>This page is version X and the server is Y</em> means the server was upgraded since this page was opened: press <strong>Reload</strong>. The version this page is shows small beside the connected-users count.</li>
+                        <li>Anything that goes wrong unexpectedly shows as a red message beginning <em>Something went wrong</em>. Your reports are kept; reload the page if it misbehaves.</li>
                         <li>Two reports can end up with one number when two editors log at once, or one logs while the server can&rsquo;t be reached. Both rows are marked <strong>Duplicate</strong> in orange; <strong>Renumber</strong> on either gives that report the next free number in its workspace (saved as an Edit: no update entry).</li>
                         <li>Anything else the server doesn&rsquo;t take (the workspace, your identity, the overlays, the report format, an unload) says so and why: <em>Not saved</em>, or <em>Not unloaded</em>. Changes made while it can&rsquo;t be reached say they&rsquo;re saved here; reports are sent, workspace by workspace, as soon as it&rsquo;s back.</li>
                     </ul>
@@ -698,6 +706,7 @@
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                                 <span id="connected-users-count">1</span>
                             </span>
+                            <span id="appVersion" class="app-version" title="SALT Report Workbench version"></span>
                             <span id="homeTitle" class="home-title">Report Log</span>
                             <button type="button" class="home-arrow home-only" data-home-go="map" title="Show the map" aria-label="Show the map"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg></button>
                         </h2>

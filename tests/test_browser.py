@@ -264,6 +264,13 @@ class BrowserTests(unittest.TestCase):
                 raise AssertionError(f"the server never had {predicate}; it had {had}")
             page.wait_for_timeout(100)
 
+    @staticmethod
+    def synced(page):
+        """Wait until the page shows the newest change it knows of (its own
+        saves included): a test that then fakes someone else's change in the
+        page isn't undone by the pull its own save brings, a moment later."""
+        page.wait_for_function("syncedVersion >= seenVersion && pushesInFlight === 0")
+
     def second_editor(self, initials, ato):
         """Another operator on the same server: a browser with storage of its own."""
         context = self.browser.new_context(ignore_https_errors=True)
@@ -532,6 +539,77 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(self.sizes(page), ["4x T-72, 2x BMP-2"])
         page.click("#bdaRollup [data-bda-filter='Destroyed']")
         self.assertEqual(len(self.sizes(page)), 2)
+
+    def test_a_pull_answered_before_a_save_doesnt_undo_it(self):
+        # Regression: a pull asked for before a save and answered after it
+        # put the old list back on screen, and the next change saved that.
+        page = self.open_editor()
+        before = page.evaluate("JSON.parse(JSON.stringify(sharedDrones))")
+        old = page.evaluate("async () => (await fetch('/api/sync')).text()")
+        name = f"T{int(time.time() * 1000) % 100000}"
+        page.evaluate(
+            "name => saveDrones([...sharedDrones, { name, grid: '38S MB 40000 78000', at: Date.now() }])",
+            name,
+        )
+        # The old answer arrives now.
+        page.evaluate(
+            """old => { const real = window.fetch;
+                window.fetch = (url, opts) => {
+                    if (url !== '/api/sync') return real(url, opts);
+                    window.fetch = real;
+                    return Promise.resolve(new Response(old, { status: 200, headers: { 'Content-Type': 'application/json' } }));
+                }; }""",
+            old,
+        )
+        page.evaluate("() => syncWithServer()")
+        self.assertIn(name, page.evaluate("sharedDrones.map(d => d.name)"))
+        self.wait_for_server(page, f"s => s.drones.some(d => d.name === '{name}')")
+        page.evaluate("list => saveDrones(list)", before)  # the other tests' drones as they were
+
+    def test_the_version_shows_and_another_release_asks_for_a_reload(self):
+        page = self.open_editor()
+        version = page.evaluate("APP_VERSION")
+        self.assertEqual(page.text_content("#appVersion"), f"v{version}")
+        self.assertTrue(page.locator("#versionBar").is_hidden(), "the same release")
+
+        def other_release(route):
+            state = route.fetch().json()
+            route.fulfill(json={**state, "server_version": "9.9.9"})
+
+        page.route("**/api/sync", other_release)
+        page.evaluate("() => syncWithServer()")
+        page.wait_for_selector("#versionBar:has-text('the server is 9.9.9')")
+        self.assertIn(f"This page is version {version}", page.text_content("#versionBar"))
+        self.assertTrue(page.locator("#versionReloadBtn").is_visible())
+
+    def test_changes_waiting_say_not_saving_and_closing_asks_first(self):
+        page = self.open_editor()
+        page.route("**/api/save_reports", lambda route: route.abort())
+        self.log(page, "2x BTR")
+        self.assertTrue(page.evaluate("changesWaiting()"))
+        self.assertTrue(page.locator("#notSavingBar").is_hidden(), "not after a moment")
+        page.evaluate("waitingSince = Date.now() - 31000; renderStatusBars()")
+        page.wait_for_selector("#notSavingBar:has-text('Not saving')")
+        # Closing the tab asks first.
+        asked = []
+        page.on("dialog", lambda d: (asked.append(d.type), d.dismiss()))
+        page.close(run_before_unload=True)
+        self.wait_until(lambda: asked, "closing never asked", page=page)
+        self.assertEqual(asked, ["beforeunload"])
+        self.assertFalse(page.is_closed(), "dismissed, it stays")
+        # Sent, it says nothing more.
+        page.unroute("**/api/save_reports")
+        page.evaluate("() => syncWithServer()")
+        self.wait_for_server(page, f"s => (s.workspaces['{self.ato}'] || []).length === 1")
+        page.evaluate("renderStatusBars()")
+        self.assertTrue(page.locator("#notSavingBar").is_hidden())
+
+    def test_an_unexpected_error_is_said(self):
+        page = self.open_editor()
+        page.evaluate("setTimeout(() => { throw new Error('boom'); })")
+        page.wait_for_selector("#toast-notification.toast-error:has-text('Something went wrong: ')")
+        self.assertIn("boom", page.text_content("#toast-notification"))
+        self.errors.clear()  # thrown on purpose
 
     def test_the_welcome_screen_leaves_the_field_being_typed_in(self):
         # Regression: 50 ms after opening, it moved the cursor to the first
@@ -2384,6 +2462,7 @@ class BrowserTests(unittest.TestCase):
         page.evaluate(
             "saveDrones([{ name: 'GE 1', grid: '38S MB 40000 78000', at: 1 }, { name: 'GE 2', grid: '38S MB 41000 78000', at: 2 }])"
         )
+        self.synced(page)
         page.click("#mapDroneBtn")
         page.click("[data-drone-remove='0']")
         page.wait_for_selector("#confirmation-message:has-text('Remove GE 1')")
@@ -2391,6 +2470,7 @@ class BrowserTests(unittest.TestCase):
         page.click("#confirmActionBtn")
         page.wait_for_selector("#toast-notification:has-text('GE 1 removed')")
         self.assertEqual(page.evaluate("sharedDrones.map(d => d.name)"), ["GE 2"])
+        self.synced(page)
         # Gone already: it says so, rather than that it removed it.
         page.click("[data-drone-remove='0']")
         page.wait_for_selector("#confirmation-message:has-text('Remove GE 2')")
@@ -3065,6 +3145,7 @@ class BrowserTests(unittest.TestCase):
         unit = "u => ({ name: u, places: [], kinds: [] })"
         page.evaluate(f"saveNarrative({{ units: ['A-1', 'B-2'].map({unit}) }})")
         page.wait_for_selector("[data-narr-id='b-2']")
+        self.synced(page)
         page.click("[data-narr-id='b-2']")
         # Someone else removes A-1 (a sync), under the open form.
         page.evaluate(
@@ -3074,6 +3155,7 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-narr-save]")
         page.wait_for_selector("#toast-notification:has-text('B-3 saved')")
         self.assertEqual(page.evaluate("sharedNarrative.units.map(u => u.name)"), ["B-3"])
+        self.synced(page)
         # And removes B-3 while it's open here: Remove says so and changes nothing.
         page.click("[data-narr-id='b-3']")
         page.evaluate(

@@ -214,6 +214,11 @@ environment variables.
 | `--no-https` | off | Plain HTTP. The code and reports cross the network unencrypted. |
 | `--no-browser` | off | Don't open a browser on launch. |
 | `--no-minimize` | off | Don't minimize the console window (Windows). |
+| `--restore SNAPSHOT` | | Put a snapshot round back in place of the backups and exit (`list` shows them, `latest` takes the newest). Run it with the server stopped. |
+
+[docs/OPERATIONS.md](docs/OPERATIONS.md) is the guide for whoever runs the
+server: the console's list of who is connected, `/api/health`, what the
+warnings mean, backups, and restoring.
 
 ## Development
 
