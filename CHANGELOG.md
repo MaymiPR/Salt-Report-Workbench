@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.22.0] - 2026-10-28
+
 ### Changed
 
 - **The map's code is in five files** (its state, drawing, basemaps, drones,
@@ -1085,7 +1087,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.21.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.22.0...HEAD
+[2.22.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.21.0...v2.22.0
 [2.21.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.20.0...v2.21.0
 [2.20.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.19.0...v2.20.0
 [2.19.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.18.0...v2.19.0
