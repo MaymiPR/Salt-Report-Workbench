@@ -371,7 +371,10 @@ const droneLayer = (tracks, px) => {
                 const dir = SaltCore.compass16(SaltCore.bearingBetween(p, q));
                 // Edged in orange, and the dashed sightline over a dark one, so
                 // they hold on a light basemap or a busy heat map.
-                cones.push(`<polygon points="${f(x)},${f(y)} ${f(tx + nx)},${f(ty + ny)} ${f(tx - nx)},${f(ty - ny)}" fill="url(#droneCone${i})" stroke="${DRONE_COLOR}" stroke-opacity="0.85" stroke-width="1.2" stroke-linejoin="round"/>`
+                // Its far end is rounded, bulging past the report by half the
+                // cone's half-width: the short arc of a circle a little wider than
+                // the end (with this edge order, sweep 0 bulges away from the drone).
+                cones.push(`<path class="map-drone-cone" d="M${f(x)},${f(y)} L${f(tx + nx)},${f(ty + ny)} A${f(hw * 1.25)},${f(hw * 1.25)} 0 0 0 ${f(tx - nx)},${f(ty - ny)} Z" fill="url(#droneCone${i})" stroke="${DRONE_COLOR}" stroke-opacity="0.85" stroke-width="1.2" stroke-linejoin="round"/>`
                     + `<line x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}" stroke="#000" stroke-width="4" stroke-opacity="0.7" stroke-dasharray="8 5"/>`
                     + `<line x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}" stroke="${DRONE_COLOR}" stroke-width="2.2" stroke-dasharray="8 5"/>`
                     + `<rect x="${f(tx - 9)}" y="${f(ty - 9)}" width="18" height="18" rx="2" fill="none" stroke="${DRONE_COLOR}" stroke-width="2.4"/>`

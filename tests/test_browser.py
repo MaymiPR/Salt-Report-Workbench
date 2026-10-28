@@ -1360,9 +1360,11 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#toast-notification:has-text('GE 1 added at 38S MB 40000 78000')")
         page.wait_for_selector("#mapSvg .map-drone")
         # Its view: a cone narrowing to the newest report, and the sightline.
-        cone = page.locator("#mapSvg .map-drones polygon")
+        cone = page.locator("#mapSvg .map-drone-cone")
         self.assertEqual(cone.count(), 1)
-        tip = [float(v) for v in cone.get_attribute("points").split()[0].split(",")]
+        shape = cone.get_attribute("d")
+        self.assertIn(" A", shape, "its far end is an arc, not cut straight")
+        tip = [float(v) for v in shape[1:].split()[0].split(",")]
         at = page.get_attribute("#mapSvg .map-drone", "transform")
         drone = [float(v) for v in at[at.index("(") + 1 : at.index(")")].split()]
         self.assertEqual(tip, drone, "narrow at the drone, widening to the report")
@@ -1382,7 +1384,7 @@ class BrowserTests(unittest.TestCase):
         )
         # Each browser's own switches: the view off, then the drones.
         page.uncheck("#mapDroneView")
-        page.wait_for_function("() => !document.querySelector('#mapSvg .map-drones polygon')")
+        page.wait_for_function("() => !document.querySelector('#mapSvg .map-drone-cone')")
         page.uncheck("#mapDroneShow")
         page.wait_for_function("() => !document.querySelector('#mapSvg .map-drone')")
         page.check("#mapDroneShow")
