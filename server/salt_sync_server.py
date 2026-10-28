@@ -1215,17 +1215,23 @@ _VALIDATORS = {
 }
 
 
-# --- Rate limiting (token bucket per IP): 1 token per POST and per wrong access
-# code on a GET; 429 when empty. GETs with the right code (or none needed) are free. ---
+# --- Rate limiting (token bucket per IP): 1 token/POST; GETs unlimited; 429 when empty. ---
 RATE_BUCKET_CAPACITY = 60
 RATE_REFILL_PER_SECOND = 5.0
 RATE_BUCKET_PRUNE_AFTER = 600.0  # drop buckets inactive longer than this
+# Wrong or missing access codes, on any request, drain a bucket of their own;
+# an editor's own burst of saves never touches it. Once it is empty the
+# address is refused before its code is looked at, so a right guess made while
+# throttled gets nowhere. A request with the right code never costs a token.
+AUTH_FAIL_CAPACITY = 30
+AUTH_FAIL_REFILL_PER_SECOND = 1.0
 # /api/basemap has its own, roomier bucket: a map view on a tiled basemap asks
 # for up to 400 tiles at once (core.js tilesFor), and panning asks for more.
 BASEMAP_BUCKET_CAPACITY = 600
 BASEMAP_REFILL_PER_SECOND = 10.0
 
 _rate_buckets: dict = {}  # ip -> (tokens: float, last_seen: float)
+_auth_fail_buckets: dict = {}  # the same, for wrong access codes
 _basemap_buckets: dict = {}  # the same, for /api/basemap
 _rate_lock = threading.Lock()
 
@@ -1252,9 +1258,17 @@ def _take_token(buckets: dict, ip: str, capacity: float, refill: float, take: bo
         return True
 
 
-def rate_limit_check(ip: str, take: bool = True) -> bool:
-    """The POST and access-code bucket: True allowed, False rate-limited."""
-    return _take_token(_rate_buckets, ip, RATE_BUCKET_CAPACITY, RATE_REFILL_PER_SECOND, take)
+def rate_limit_check(ip: str) -> bool:
+    """The POST bucket: True allowed, False rate-limited."""
+    return _take_token(_rate_buckets, ip, RATE_BUCKET_CAPACITY, RATE_REFILL_PER_SECOND, True)
+
+
+def auth_fail_check(ip: str, take: bool) -> bool:
+    """The wrong-access-code bucket: with ``take`` False, whether the address
+    may try a code at all; with True, charge it for a wrong one."""
+    return _take_token(
+        _auth_fail_buckets, ip, AUTH_FAIL_CAPACITY, AUTH_FAIL_REFILL_PER_SECOND, take
+    )
 
 
 def basemap_rate_check(ip: str) -> bool:
@@ -2104,22 +2118,20 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
     def _authorized(self, body_length: int = 0) -> bool:
         """Editor-port code check; sends 401 (or 429) + False if denied. Viewer/localhost always pass.
 
-        Wrong codes are throttled with the POST bucket whatever the method: a
-        POST has paid its token already, a GET pays one per wrong code, and
-        while the bucket is empty a GET is refused before its code is looked
-        at, so guessing over GET is no faster than over POST.
+        Wrong or missing codes, on GET and POST alike, drain the address's
+        own failure bucket (see AUTH_FAIL_CAPACITY). While it is empty, every
+        gated request from that address is refused before its code is looked
+        at, so guessing is slow whatever the method. The right code costs nothing.
         """
         view_only = getattr(self.server, 'view_only', False)
         ip = self.client_address[0]
-        get = self.command != 'POST'
         gated = not view_only and _access_code is not None and not _is_localhost(ip)
-        if gated and get and not rate_limit_check(ip, take=False):
-            self._refuse(429, 'Rate limit exceeded. Retry shortly.', body_length)
+        if gated and not auth_fail_check(ip, take=False):
+            self._refuse(429, 'Too many wrong access codes. Retry shortly.', body_length)
             return False
         if _check_access_code(self.headers, view_only, ip):
             return True
-        if get:
-            rate_limit_check(ip)
+        auth_fail_check(ip, take=True)
         self._refuse(
             401, 'Access denied. Enter the access code from the server console.', body_length
         )
