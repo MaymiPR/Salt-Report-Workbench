@@ -64,9 +64,10 @@ SAVE_DEBOUNCE_SECONDS: float = 0.5  # coalesce rapid mutations into one disk wri
 # OneDrive, a full disk) is tried again after these waits, then every last one.
 SAVE_RETRY_SECONDS: tuple = (1.0, 2.0, 5.0, 30.0)
 # The backup file is rewritten within half a second of every change, so a bad
-# import or a wrong delete replaces the only copy at once. A dated copy goes to
-# BACKUP_DIR/snapshots/ at most once an hour (and on every start), and the
-# oldest are pruned past SNAPSHOT_KEEP, so two days of hourly history is kept.
+# import or a wrong delete replaces the only copy at once. A dated copy of
+# every backup goes to BACKUP_DIR/snapshots/ at most once an hour (and on every
+# start), and the oldest rounds are pruned past SNAPSHOT_KEEP, so two days of
+# hourly history is kept however many workspaces there are.
 SNAPSHOT_DIR_NAME = 'snapshots'
 SNAPSHOT_INTERVAL_SECONDS: float = 3600.0
 SNAPSHOT_KEEP: int = 48
@@ -1383,6 +1384,8 @@ def load_data_from_disk() -> int:
         drones: list = []
         narrative: dict = {}
         skipped = 0
+        _file_holds.clear()
+        _merged_files.clear()
 
         for filepath in candidates:
             fname = os.path.basename(filepath)
@@ -1404,6 +1407,8 @@ def load_data_from_disk() -> int:
                     # source; mtime-sorted candidates ensure that's the
                     # most recent backup file holding it.
                     source_by_ato[key] = fname
+                    _file_holds.setdefault(fname.casefold(), (fname, set()))[1].add(key)
+                    _merged_files.setdefault(key, set()).add(fname.casefold())
                 merged_profiles.update(result.get('profiles', {}))
                 if (fmt := pick_format(result.get('formats'), result.get('config'))) is not None:
                     shared_format = fmt
@@ -1654,6 +1659,31 @@ def workspace_title(ato: str, reports: list, config: dict) -> str:
     return 'SALT'
 
 
+def workspace_filenames(workspaces: dict, config: dict, held: set | None = None) -> dict:
+    """The backup file each workspace is written to, ATO -> name. Pure.
+
+    ``{ATO}_{Title}.txt``, unless that name is taken: by another workspace in
+    this save ("A B" and "A_B" both come out ``A_B``, and Windows doesn't tell
+    case apart), or by a file on disk holding reports that aren't loaded, an
+    unloaded workspace's say, whose only copy it may be (``held``: their
+    casefolded names). Then the ATO gets a short hash of itself, so no file is
+    overwritten. An ATO already fit for a file name is served first, so a name
+    stays the same from one save to the next.
+    """
+    held = held or set()
+    names: dict = {}
+    used: set = set()
+    for ato in sorted(workspaces, key=lambda a: (_filename_part(a) != a, a)):
+        title = workspace_title(ato, workspaces[ato], config)
+        name = backup_filename(ato, title)
+        if name.casefold() in used or name.casefold() in held:
+            tag = hashlib.sha256(ato.encode('utf-8')).hexdigest()[:6]
+            name = backup_filename(f'{_filename_part(ato)}_{tag}', title)
+        names[ato] = name
+        used.add(name.casefold())
+    return names
+
+
 def render_workspace_backups(
     workspaces: dict,
     config: dict,
@@ -1664,13 +1694,17 @@ def render_workspace_backups(
     basemaps: list | None = None,
     narrative: dict | None = None,
     drones: list | None = None,
+    names: dict | None = None,
 ) -> list[tuple[str, str, str]]:
     """One ``(ato, filename, text)`` per workspace, for those in ``only`` (None: all).
 
     Each file holds a single workspace with its format and overlays, plus the shared
     config and profiles, so on boot every file contributes its workspace and
-    the newest file decides the active one. Pure, like ``render_backup``.
+    the newest file decides the active one. ``names`` is what
+    ``workspace_filenames`` gave (None: worked out here). Pure, like ``render_backup``.
     """
+    if names is None:
+        names = workspace_filenames(workspaces, config)
     out = []
     for ato in sorted(workspaces):
         if only is not None and ato not in only:
@@ -1688,7 +1722,7 @@ def render_workspace_backups(
             drones=drones or [],
         )
         if rendered is not None:
-            out.append((ato, *rendered))
+            out.append((ato, names[ato], rendered[1]))
     return out
 
 
@@ -1697,29 +1731,82 @@ def render_workspace_backups(
 _disk_lock = threading.Lock()
 # When the last dated copy was taken; None means the next save takes one.
 _last_snapshot_at: float | None = None
+# The UTC time the last round of snapshots is named with. Each round gets a
+# later one, so two rounds never share a name. Protected by _disk_lock.
+_last_snapshot_stamp: datetime | None = None
+# A snapshot's name: the UTC time of its round, then the backup's own name.
+_SNAPSHOT_NAME_RE = re.compile(r'(\d{8}_\d{6}Z)_')
+# A backup moved out of the way when its workspace's file took a new name.
+# Never pruned: it is moved, not deleted, as it may be the copy someone wants.
+SUPERSEDED_PREFIX = 'Superseded_'
+
+# Which workspaces each backup file in BACKUP_DIR holds that no newer file
+# written by this server does (casefolded name -> (name, set of ATOs)), and for
+# each loaded workspace the files its reports were read from or last written
+# to (ATO -> casefolded names). A file left holding nothing has been superseded
+# (by a new title, say) and is moved to snapshots/, or every restart would merge
+# it back in. Protected by data_lock.
+_file_holds: dict = {}
+_merged_files: dict = {}
 
 
 def write_snapshot(filename: str, content: str, now: datetime | None = None) -> str:
-    """Keep a dated copy of a backup in ``BACKUP_DIR/snapshots/`` and prune old ones.
+    """Keep a dated copy of a backup in ``BACKUP_DIR/snapshots/`` and prune old rounds.
 
     Snapshot names start with the UTC time so a directory listing is
-    chronological. Returns the path written. Caller holds ``_disk_lock``.
+    chronological. Every file of a round (one save) is named with the same
+    time, and the newest SNAPSHOT_KEEP rounds are kept however many workspaces
+    each holds. Returns the path written. Caller holds ``_disk_lock``.
     """
     snap_dir = os.path.join(BACKUP_DIR, SNAPSHOT_DIR_NAME)
     os.makedirs(snap_dir, exist_ok=True)
     stamp = f'{(now or datetime.now(timezone.utc)):%Y%m%d_%H%M%S}Z'
     base = os.path.join(snap_dir, f'{stamp}_{filename}')
+    stem, ext = os.path.splitext(base)
     path, n = base, 1
     while os.path.exists(path):  # several saves in one second
         n += 1
-        path = base[: -len('.txt')] + f'_{n}.txt'
+        path = f'{stem}_{n}{ext}'
     with open(path, 'w', encoding='utf-8') as f:
         f.write(content)
-    snaps = sorted(f for f in os.listdir(snap_dir) if f.endswith('.txt'))
-    for old in snaps[: max(0, len(snaps) - SNAPSHOT_KEEP)]:
-        with contextlib.suppress(OSError):
-            os.unlink(os.path.join(snap_dir, old))
+    rounds: dict = {}
+    for f in os.listdir(snap_dir):
+        if m := _SNAPSHOT_NAME_RE.match(f):
+            rounds.setdefault(m.group(1), []).append(f)
+    for old in sorted(rounds)[: max(0, len(rounds) - SNAPSHOT_KEEP)]:
+        for f in rounds[old]:
+            with contextlib.suppress(OSError):
+                os.unlink(os.path.join(snap_dir, f))
     return path
+
+
+def _move_superseded(name: str) -> None:
+    """Move a backup no workspace is written to any more into snapshots/, where
+    the loader doesn't read it. Caller holds ``_disk_lock``."""
+    snap_dir = os.path.join(BACKUP_DIR, SNAPSHOT_DIR_NAME)
+    os.makedirs(snap_dir, exist_ok=True)
+    stamp = f'{datetime.now(timezone.utc):%Y%m%d_%H%M%S}Z'
+    os.replace(
+        os.path.join(BACKUP_DIR, name),
+        os.path.join(snap_dir, f'{SUPERSEDED_PREFIX}{stamp}_{name}'),
+    )
+
+
+def _note_written(written: list) -> list:
+    """Record the workspace backups just written, ``[(ato, filename)]``, and
+    return the names of the files that now hold nothing. Caller holds data_lock."""
+    for ato, filename in written:
+        key = filename.casefold()
+        # A workspace unloaded since its text was made: the file may now be
+        # the only copy of what it held, so nothing else is let go for it.
+        if ato in DATA_STORE.get('workspaces', {}):
+            for other in _merged_files.get(ato, set()) - {key}:
+                if other in _file_holds:
+                    _file_holds[other][1].discard(ato)
+            _merged_files[ato] = {key}
+        _file_holds[key] = (filename, {ato})
+    empty = [k for k, (_, atos) in _file_holds.items() if not atos]
+    return [_file_holds.pop(k)[0] for k in empty]
 
 
 def _write_atomically(dest: str, content: str) -> None:
@@ -1771,7 +1858,7 @@ def save_data_to_disk() -> None:
     are rewritten, except when a dated snapshot is due, which covers all.
     ``Shared settings.json`` is rewritten when the shared settings changed.
     """
-    global _last_snapshot_at, _dirty_atos, _shared_dirty
+    global _last_snapshot_at, _last_snapshot_stamp, _dirty_atos, _shared_dirty
     with _disk_lock:
         now = time.monotonic()
         snapshot_due = (
@@ -1783,16 +1870,26 @@ def save_data_to_disk() -> None:
             only = None if (snapshot_due or pending is None) else set(pending)
             _dirty_atos, _shared_dirty = set(), False
             try:
+                workspaces = DATA_STORE.get('workspaces', {})
                 files = render_workspace_backups(
-                    DATA_STORE.get('workspaces', {}),
+                    workspaces,
                     DATA_STORE.get('config', {}),
                     DATA_STORE.get('profiles', {}),
-                    formats_for(DATA_STORE.get('workspaces', {}), DATA_STORE.get('format')),
+                    formats_for(workspaces, DATA_STORE.get('format')),
                     only,
                     DATA_STORE.get('overlays', []),
                     DATA_STORE.get('basemaps', []),
                     DATA_STORE.get('narrative', {}),
                     DATA_STORE.get('drones', []),
+                    names=workspace_filenames(
+                        workspaces,
+                        DATA_STORE.get('config', {}),
+                        {
+                            k
+                            for k, (_, atos) in _file_holds.items()
+                            if any(k not in _merged_files.get(a, ()) for a in atos)
+                        },
+                    ),
                 )
                 if shared_pending or snapshot_due:
                     # None for the ATO: the shared settings, not a workspace.
@@ -1818,8 +1915,7 @@ def save_data_to_disk() -> None:
         for ato, filename, content in files:
             try:
                 _write_atomically(os.path.join(BACKUP_DIR, filename), content)
-                if ato is not None:
-                    written.append((filename, content))
+                written.append((ato, filename, content))
             except Exception as exc:
                 errors.append(f'Error saving {filename}: {exc}')
                 with data_lock:  # try again on the next save
@@ -1827,12 +1923,27 @@ def save_data_to_disk() -> None:
                         _shared_dirty = True
                     else:
                         mark_dirty(ato)
+        if written:
+            with data_lock:
+                superseded = _note_written([(a, f) for a, f, _ in written if a is not None])
+            for name in superseded:
+                try:
+                    _move_superseded(name)
+                except FileNotFoundError:
+                    pass
+                except OSError as exc:
+                    # It stays, and a restart merges it back in, as before.
+                    safe_print(f'[!] Could not move the old {name} to {SNAPSHOT_DIR_NAME}: {exc}')
         _note_save_result(errors)
         if snapshot_due and written:
+            # One time for the whole round, later than the last round's.
+            stamp = datetime.now(timezone.utc).replace(microsecond=0)
+            if _last_snapshot_stamp is not None and stamp <= _last_snapshot_stamp:
+                stamp = _last_snapshot_stamp + timedelta(seconds=1)
             try:
-                for filename, content in written:
-                    write_snapshot(filename, content)
-                _last_snapshot_at = now
+                for _, filename, content in written:
+                    write_snapshot(filename, content, stamp)
+                _last_snapshot_at, _last_snapshot_stamp = now, stamp
             except Exception as exc:
                 # The live backups are already safe; a missed snapshot is worth a line, not a crash.
                 safe_print(f'[!] Error writing snapshot: {exc}')
@@ -2182,6 +2293,8 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         with data_lock:
             DATA_STORE['workspaces'].pop(ato, None)
             workspace_sources.pop(ato, None)
+            # Its files now hold the only copy of it: none is let go as superseded.
+            _merged_files.pop(ato, None)
             cfg = DATA_STORE.get('config') or {}
             if (cfg.get('ato') or '').strip().upper() == ato:
                 DATA_STORE['config'] = {}

@@ -72,6 +72,8 @@ def reset_state() -> None:
     srv._dirty_atos = None
     srv._shared_dirty = True
     srv._save_failures = 0
+    srv._file_holds.clear()
+    srv._merged_files.clear()
 
 
 def cancel_pending_save() -> None:
@@ -1466,6 +1468,123 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(srv.workspace_sources["ALPHA"], "ALPHA_Patrol.txt")
         for source in srv.workspace_sources.values():
             self.assertNotRegex(source, r"^\d{8}_\d{6}Z_", "a snapshot was loaded")
+
+    def test_snapshots_are_kept_by_round_not_by_file(self):
+        # Regression: pruning counted files, so with N workspaces the 48 kept
+        # covered 48/N hours instead of the two days promised.
+        folder = self.own_backup_dir()
+        snap_dir = folder / srv.SNAPSHOT_DIR_NAME
+        for ato in ("ALPHA", "BRAVO", "CHARLIE"):
+            self.post(
+                "/api/save_reports", {"ato": ato, "reports": [report(f"{ato}1", f"{ato}001")]}
+            )
+        cancel_pending_save()
+        (snap_dir).mkdir()
+        (snap_dir / "Superseded_20200101_000000Z_OLD_T.txt").write_text("x", encoding="utf-8")
+        with (
+            mock.patch.object(srv, "SNAPSHOT_KEEP", 2),
+            mock.patch.object(srv, "_last_snapshot_at", None),
+        ):
+            for n in range(3):
+                self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report(lm=n + 2)]})
+                srv.flush_pending_save()
+                srv._last_snapshot_at -= srv.SNAPSHOT_INTERVAL_SECONDS  # an hour passes
+        rounds = {}
+        for f in snap_dir.iterdir():
+            if m := srv._SNAPSHOT_NAME_RE.match(f.name):
+                rounds.setdefault(m.group(1), set()).add(f.name[len(m.group(0)) :])
+        self.assertEqual(len(rounds), 2, "the newest two rounds")
+        every = {
+            "ALPHA_Patrol.txt",
+            "BRAVO_Patrol.txt",
+            "CHARLIE_Patrol.txt",
+            srv.SHARED_SETTINGS_NAME,
+        }
+        for files in rounds.values():
+            self.assertEqual(files, every, "each round has every workspace and the shared settings")
+        self.assertTrue((snap_dir / "Superseded_20200101_000000Z_OLD_T.txt").exists())
+
+    def test_workspaces_whose_file_names_collide_both_survive(self):
+        # Regression: "A B" and "A_B" both made A_B_Patrol.txt, so one
+        # overwrote the other and was gone after a restart. Windows doesn't
+        # tell case apart, so "patrol" and "Patrol" collide too.
+        import hashlib
+
+        folder = self.own_backup_dir()
+        self.post("/api/save_reports", {"ato": "A_B", "reports": [report("x", "AB001")]})
+        self.post(
+            "/api/save_reports", {"ato": "A B", "reports": [report("y", "AB001", title="patrol")]}
+        )
+        srv.flush_pending_save()
+        tag = hashlib.sha256(b"A B").hexdigest()[:6]
+        self.assertEqual(
+            sorted(f.name for f in folder.glob("*.txt")),
+            ["A_B_Patrol.txt", f"A_B_{tag}_patrol.txt"],
+        )
+        # The same names at the next save: nothing is renamed back and forth.
+        self.post(
+            "/api/save_reports", {"ato": "A B", "reports": [report("y2", "AB002", title="patrol")]}
+        )
+        srv.flush_pending_save()
+        self.assertEqual(len(list(folder.glob("*.txt"))), 2)
+        reset_state()
+        srv.load_data_from_disk()
+        ws = srv.DATA_STORE["workspaces"]
+        self.assertEqual(sorted(ws), ["A B", "A_B"])
+        self.assertEqual(sorted(r["id"] for r in ws["A B"]), ["y", "y2"])
+        self.assertEqual([r["id"] for r in ws["A_B"]], ["x"])
+
+    def test_a_retitled_workspace_leaves_no_old_file_to_merge_back(self):
+        # Regression: the file under the old title stayed beside the new one
+        # and was merged back in at every start. It is moved, never deleted.
+        folder = self.own_backup_dir()
+        self.post("/api/save_config", {"config": {"ato": "ALPHA", "title": "Old"}})
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        srv.flush_pending_save()
+        self.assertTrue((folder / "ALPHA_Old.txt").exists())
+        self.post("/api/save_config", {"config": {"ato": "ALPHA", "title": "New"}})
+        srv.flush_pending_save()
+        self.assertEqual([f.name for f in folder.glob("*.txt")], ["ALPHA_New.txt"])
+        moved = list((folder / srv.SNAPSHOT_DIR_NAME).glob("Superseded_*_ALPHA_Old.txt"))
+        self.assertEqual(len(moved), 1, "kept in snapshots/")
+        self.assertIn('"r1"', moved[0].read_text("utf-8"))
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(srv.workspace_sources, {"ALPHA": "ALPHA_New.txt"})
+
+    def test_old_files_found_at_boot_are_moved_once_their_reports_are_rewritten(self):
+        import time
+
+        folder = self.own_backup_dir()
+        for name, title, ws, age in (
+            ("ALPHA_Day1.txt", "Day1", {"ALPHA": [report("r2", "ALPHA002")]}, 100),
+            ("ALPHA_Day2.txt", "Day2", {"ALPHA": [report()]}, 50),
+            ("BRAVO_Screen.txt", "Screen", {"BRAVO": [report("b1", "BRAVO001")]}, 0),
+        ):
+            _, text = srv.render_backup(
+                ws, {"ato": "ALPHA", "title": "Day2"}, {}, {}, label=(next(iter(ws)), title)
+            )
+            (folder / name).write_text(text, encoding="utf-8")
+            os.utime(folder / name, (time.time() - age, time.time() - age))
+        srv.load_data_from_disk()
+        self.post("/api/unload_ato", {"ato": "BRAVO"})
+        srv.flush_pending_save()
+        self.assertEqual(
+            sorted(f.name for f in folder.glob("*.txt")),
+            ["ALPHA_Day2.txt", "BRAVO_Screen.txt"],
+            "Day1's report is in Day2's file now; BRAVO's file is its only copy",
+        )
+        text = (folder / "ALPHA_Day2.txt").read_text("utf-8")
+        self.assertEqual(len(srv._extract_json_from_file(text)["workspaces"]["ALPHA"]), 2)
+        # An unloaded workspace's file isn't overwritten by one whose name collides with it.
+        self.post(
+            "/api/save_reports",
+            {"ato": "BRAVO", "reports": [report("b9", "BRAVO009", title="Screen")]},
+        )
+        srv.flush_pending_save()
+        old = srv._extract_json_from_file((folder / "BRAVO_Screen.txt").read_text("utf-8"))
+        self.assertEqual([r["id"] for r in old["workspaces"]["BRAVO"]], ["b1"])
+        self.assertEqual(len(list(folder.glob("BRAVO_*_Screen.txt"))), 1)
 
     def test_disk_write_does_not_hold_the_data_lock(self):
         # Regression: the whole save used to run under data_lock, freezing every
