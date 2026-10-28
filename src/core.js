@@ -113,7 +113,7 @@ const submittedTime = (typed, local, origIso, now = new Date()) => {
 // read. Accepts ISO 8601; "YYYY-MM-DD HH:MM[:SS]" in the active mode; "HH:MM",
 // "HHMM", with an optional Z or L suffix forcing the mode (today's date, via
 // typedTime); and a DTG such as "241430Z", "241430ZOCT26" or "24 1430Z OCT 2026",
-// whose Z or L sets the mode the same way. A date that doesn't exist (31 NOV,
+// which is Zulu unless it ends in L ("241430L"). A date that doesn't exist (31 NOV,
 // 30 FEB) or a clock past 23:59 is null, never rolled into the next month. A
 // DTG without its month (or year) is the latest such date not in the future,
 // with typedTime's hour of slack: "311430Z" read on 1 Nov is 31 Oct.
@@ -138,7 +138,8 @@ const parseCsvTime = (text, local, now = new Date()) => {
     if ((m = /^(\d{2})\s?(\d{2})(\d{2})\s*([ZL])?\s*([A-Z]{3})?\s*(\d{2}|\d{4})?$/i.exec(s))) {
         const day = +m[1], h = +m[2], mi = +m[3];
         if (day < 1 || day > 31 || h > 23 || mi > 59) return null;
-        const inLocal = m[4] ? m[4].toUpperCase() === 'L' : local;
+        // A DTG is Zulu unless it says L; it doesn't follow the active mode.
+        const inLocal = !!m[4] && m[4].toUpperCase() === 'L';
         const month = m[5] ? MONTHS.indexOf(m[5].toUpperCase()) : null;
         if (month === -1) return null;
         let year = m[6] ? +m[6] : null;

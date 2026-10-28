@@ -121,6 +121,8 @@ test('spreadsheet times that do not exist are refused, never rolled over', () =>
     assert.equal(p('2026-02-30 10:00'), null, '30 FEB');
     assert.equal(p('2026-10-24 24:00'), null);
     assert.equal(p('2028-02-29 10:00'), '2028-02-29T10:00:00.000Z', 'a leap day');
+    // A DTG without Z or L is Zulu, even when the page shows local time.
+    assert.equal(core.parseCsvTime('241430', true, now), '2026-10-24T14:30:00.000Z');
     // Month or year left out: the latest such date not in the future.
     const on = (iso, s) => core.parseCsvTime(s, false, new Date(iso));
     assert.equal(on('2026-11-01T08:00:00Z', '311430Z'), '2026-10-31T14:30:00.000Z', 'on the 1st, the 31st is last month');
