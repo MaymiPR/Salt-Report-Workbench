@@ -60,6 +60,9 @@ MAX_BODY_BYTES: int = 16 * 1024 * 1024
 # error reply (see SaltSyncHandler._discard_body); larger ones just close.
 MAX_DRAIN_BYTES: int = 2 * MAX_BODY_BYTES
 SAVE_DEBOUNCE_SECONDS: float = 0.5  # coalesce rapid mutations into one disk write
+# A save that fails (a backup held open by antivirus or a sync client such as
+# OneDrive, a full disk) is tried again after these waits, then every last one.
+SAVE_RETRY_SECONDS: tuple = (1.0, 2.0, 5.0, 30.0)
 # The backup file is rewritten within half a second of every change, so a bad
 # import or a wrong delete replaces the only copy at once. A dated copy goes to
 # BACKUP_DIR/snapshots/ at most once an hour (and on every start), and the
@@ -258,6 +261,19 @@ def schedule_save() -> None:
         if _save_timer is not None:
             _save_timer.cancel()
         _save_timer = threading.Timer(SAVE_DEBOUNCE_SECONDS, save_data_to_disk)
+        _save_timer.daemon = True
+        _save_timer.start()
+
+
+def _retry_save_in(delay: float) -> None:
+    """Try a failed save again after ``delay`` seconds, unless one is already
+    pending (a change since schedules one sooner)."""
+    global _save_timer
+    with _save_timer_lock:
+        pending = _save_timer
+        if pending is not None and pending is not threading.current_thread() and pending.is_alive():
+            return
+        _save_timer = threading.Timer(delay, save_data_to_disk)
         _save_timer.daemon = True
         _save_timer.start()
 
@@ -632,9 +648,34 @@ def _validate_report_fields(r: dict, prefix: str) -> str | None:
     return _validate_user(r.get('user'), f'{prefix}.user')
 
 
+# The fields a report is named, sorted and flagged by. A number or a list in
+# one of them stopped every later disk save (the backup file is named after the
+# title and sorted by displayId), so they are held to their real types.
+_REPORT_TEXT_FIELDS = (
+    ('displayId', MAX_ID_LEN),
+    ('fullId', MAX_FIELD_LEN),  # a CSV import may use a whole cell for it
+    ('ato', MAX_ATO_LEN),
+    ('title', MAX_TITLE_LEN),
+)
+_REPORT_FLAG_FIELDS = ('updated', 'deleted')
+
+
+def _validate_report_identity(r: dict, prefix: str) -> str | None:
+    """Name and flag fields, where present: strings and true/false (null tolerated)."""
+    for k, most in _REPORT_TEXT_FIELDS:
+        if r.get(k) is not None and not _is_str(r[k], most):
+            return f'{prefix}.{k} must be a string ≤{most} chars'
+    for k in _REPORT_FLAG_FIELDS:
+        if r.get(k) is not None and not isinstance(r[k], bool):
+            return f'{prefix}.{k} must be true or false'
+    return None
+
+
 def _validate_report(r, idx: int) -> str | None:
     if not isinstance(r, dict):
         return f'reports[{idx}] must be an object'
+    if err := _validate_report_identity(r, f'reports[{idx}]'):
+        return err
     # At least one identity field; merge path uses either.
     has_id = _is_str(r.get('id'), MAX_ID_LEN) and r.get('id')
     has_did = _is_str(r.get('displayId'), MAX_ID_LEN) and r.get('displayId')
@@ -711,6 +752,8 @@ def _v_edit_report(data: dict) -> str | None:
     if not isinstance(fields, dict):
         return 'fields must be an object'
     # Edit fields share the report shape (it's the same data model).
+    if err := _validate_report_identity(fields, 'fields'):
+        return err
     return _validate_report_fields(fields, 'fields')
 
 
@@ -1063,7 +1106,7 @@ def basemap_proxy_allowed(url: str) -> bool:
     if target.scheme.lower() != 'http' or not target.netloc:
         return False
     with data_lock:
-        saved = [str(b.get('url', '')) for b in DATA_STORE.get('basemaps') or []]
+        saved = [str(b.get('url', '')) for b in _dicts(DATA_STORE.get('basemaps'))]
     for u in saved:
         try:
             base = urllib.parse.urlsplit(u.strip())
@@ -1166,58 +1209,99 @@ def rate_limit_check(ip: str) -> bool:
 # =============================================================================
 
 
-def _extract_json_from_file(raw_text: str) -> dict | None:
-    """DATA_STORE dict from a backup file; handles legacy single-ATO format. None on failure."""
+def _clean_config(c) -> dict:
+    """The active workspace and title from a backup, as strings whatever it holds."""
+    c = c if isinstance(c, dict) else {}
+    return {k: c[k] if isinstance(c.get(k), str) else '' for k in ('ato', 'title')}
+
+
+def _parse_backup(raw_text: str) -> dict:
+    """DATA_STORE dict from a backup file; handles legacy single-ATO format.
+
+    Raises ValueError saying what is wrong with a file that isn't a backup.
+    Reports that aren't objects are dropped, and the config is kept to its two
+    strings, so a hand-edited file can't hold anything a save would trip on.
+    """
     s = raw_text.find(BACKUP_START)
     e = raw_text.find(BACKUP_END)
+    if s == -1 or e == -1:
+        raise ValueError('no backup data block in it')
+    try:
+        d = json.loads(raw_text[s + len(BACKUP_START) : e].strip())
+    except (ValueError, RecursionError) as exc:
+        raise ValueError(f'its backup data is not valid JSON ({exc})') from None
+    if not isinstance(d, dict):
+        raise ValueError('its backup data is not a JSON object')
+    config = _clean_config(d.get('config'))
+    profiles = d.get('profiles') if isinstance(d.get('profiles'), dict) else {}
+    if 'workspaces' in d:
+        if not isinstance(d['workspaces'], dict):
+            raise ValueError('its "workspaces" is not an object')
+        return {
+            'workspaces': {
+                ato: _dicts(reps) for ato, reps in d['workspaces'].items() if isinstance(reps, list)
+            },
+            'config': config,
+            'profiles': profiles,
+            'formats': d.get('formats', {}),
+            # None when the file has no overlays at all (older than 2.5).
+            'overlays': d.get('overlays'),
+            'basemaps': d.get('basemaps'),
+            'drones': d.get('drones'),
+            'narrative': d.get('narrative'),
+        }
+    # Legacy marker format: single ATO inferred from config
+    ato = config['ato']
+    reps = _dicts(d.get('reports'))
+    return {
+        'workspaces': {ato: reps} if ato and reps else {},
+        'config': config,
+        'profiles': profiles,
+        'formats': {},
+        'overlays': None,
+        'basemaps': None,
+        'drones': None,
+        'narrative': None,
+    }
 
-    if s != -1 and e != -1:
-        json_text = raw_text[s + len(BACKUP_START) : e].strip()
-        try:
-            d = json.loads(json_text)
-            if 'workspaces' in d:
-                return {
-                    'workspaces': d.get('workspaces', {}),
-                    'config': d.get('config', {'ato': '', 'title': ''}),
-                    'profiles': d.get('profiles', {}),
-                    'formats': d.get('formats', {}),
-                    # None when the file has no overlays at all (older than 2.5).
-                    'overlays': d.get('overlays'),
-                    'basemaps': d.get('basemaps'),
-                    'drones': d.get('drones'),
-                    'narrative': d.get('narrative'),
-                }
-            # Legacy marker format: single ATO inferred from config
-            ato = d.get('config', {}).get('ato', '')
-            reps = d.get('reports', [])
-            return {
-                'workspaces': {ato: reps} if ato and reps else {},
-                'config': d.get('config', {'ato': '', 'title': ''}),
-                'profiles': d.get('profiles', {}),
-                'formats': {},
-                'overlays': None,
-                'basemaps': None,
-                'drones': None,
-                'narrative': None,
-            }
-        except (ValueError, KeyError):
-            return None
 
-    # No marker block — not a recognised backup.
-    return None
+def _extract_json_from_file(raw_text: str) -> dict | None:
+    """DATA_STORE dict from a backup file (see ``_parse_backup``). None on failure."""
+    try:
+        return _parse_backup(raw_text)
+    except ValueError:
+        return None
+
+
+def _sort_num(v) -> float:
+    """A number to compare by, whatever a hand-edited backup holds (else 0)."""
+    return v if isinstance(v, (int, float)) else 0
+
+
+def _dicts(v) -> list:
+    """The objects in a list, whatever a hand-edited backup holds (else none)."""
+    return [x for x in v if isinstance(x, dict)] if isinstance(v, list) else []
+
+
+def _report_key(r: dict) -> str | None:
+    """The id a report merges by: its id, or the legacy displayId."""
+    key = r.get('id') or r.get('displayId')
+    return str(key) if key and isinstance(key, (str, int, float)) else None
 
 
 def _merge_reports(existing_list: list, incoming_list: list) -> list:
     """Merge by id (or legacy displayId); higher lastModified wins."""
     by_id: dict = {}
     for r in existing_list:
-        if key := r.get('id') or r.get('displayId'):
+        if key := _report_key(r):
             by_id[key] = r
     for r in incoming_list:
-        if not (key := r.get('id') or r.get('displayId')):
+        if not (key := _report_key(r)):
             continue
         existing = by_id.get(key)
-        if existing is None or r.get('lastModified', 0) >= existing.get('lastModified', 0):
+        if existing is None or _sort_num(r.get('lastModified')) >= _sort_num(
+            existing.get('lastModified')
+        ):
             by_id[key] = r
     return list(by_id.values())
 
@@ -1336,6 +1420,16 @@ def formats_for(workspaces: dict, fmt: dict | None) -> dict:
     return {ato: fmt for ato in workspaces} if fmt else {}
 
 
+def _filename_part(s) -> str:
+    """Letters, digits, '-' and '_' kept, anything else made '_'."""
+    return ''.join(c if c.isalnum() or c in '-_' else '_' for c in str(s)).strip('_')
+
+
+def backup_filename(ato, title) -> str:
+    """The ``{ATO}_{Title}.txt`` a workspace's backup is named."""
+    return f'{_filename_part(ato)}_{_filename_part(title)}.txt'
+
+
 def render_backup(
     workspaces: dict,
     config: dict,
@@ -1368,14 +1462,11 @@ def render_backup(
         if not ato:
             ato = sorted(workspaces)[0]
             if not title:
-                first = next((r for r in workspaces.get(ato, []) if r.get('title')), None)
+                first = next((r for r in _dicts(workspaces.get(ato)) if r.get('title')), None)
                 title = first.get('title') if first else 'SALT'
     title = title or 'SALT'
 
-    def _safe(s: str) -> str:
-        return ''.join(c if c.isalnum() or c in '-_' else '_' for c in s).strip('_')
-
-    filename = f'{_safe(ato)}_{_safe(title)}.txt'
+    filename = backup_filename(ato, title)
 
     div = '=' * 72
     sub = '-' * 72
@@ -1397,14 +1488,16 @@ def render_backup(
         ' S.A.L.T. REPORT WORKBENCH — AUTO BACKUP (SESSION)',
         f' ATO Designator : {ato}',
         f' Report Title   : {title}',
-        f' Total Reports  : {sum(len(v) for v in workspaces.values())}',
+        f' Total Reports  : {sum(len(_dicts(v)) for v in workspaces.values())}',
         f' Exported       : {ts}',
         div,
         '',
     ]
 
+    # The summary copes with any shape a hand-edited backup loaded at boot can
+    # hold: a report it can't sort or print must not stop the file being written.
     for ws_ato, reports in workspaces.items():
-        for report in sorted(reports, key=lambda r: r.get('displayId', '')):
+        for report in sorted(_dicts(reports), key=lambda r: str(r.get('displayId') or '')):
             flag = ' [UPDATED]' if report.get('updated') else ''
             lines += [
                 sub,
@@ -1418,11 +1511,13 @@ def render_backup(
             ]
             if report.get('yourAnalysis'):
                 lines.append(f' Analysis : {report["yourAnalysis"]}')
-            for ck, cv in (report.get('custom') or {}).items():
+            custom = report.get('custom')
+            for ck, cv in custom.items() if isinstance(custom, dict) else ():
                 lines.append(f' {ck} : {cv}')
-            if (report.get('user') or {}).get('initials'):
-                lines.append(f' By       : {report["user"]["initials"]}')
-            for bi, b in enumerate(report.get('bda') or []):
+            user = report.get('user')
+            if isinstance(user, dict) and user.get('initials'):
+                lines.append(f' By       : {user["initials"]}')
+            for bi, b in enumerate(_dicts(report.get('bda'))):
                 coords = f' @ {b.get("coords")}' if b.get('coords') else ''
                 note = f' - {b.get("note")}' if b.get('note') else ''
                 lines.append(
@@ -1430,7 +1525,9 @@ def render_backup(
                 )
 
             for i, h in enumerate(
-                sorted(report.get('history', []), key=lambda x: x.get('lastModified', 0))
+                sorted(
+                    _dicts(report.get('history')), key=lambda x: _sort_num(x.get('lastModified'))
+                )
             ):
                 lines += [
                     '',
@@ -1480,11 +1577,12 @@ def workspace_title(ato: str, reports: list, config: dict) -> str:
     """
     if (config.get('ato') or '').strip().upper() == ato and (config.get('title') or '').strip():
         return config['title'].strip()
+    reports = _dicts(reports)
     titled = [r for r in reports if r.get('title') and not r.get('deleted')] or [
         r for r in reports if r.get('title')
     ]
     if titled:
-        return max(titled, key=lambda r: r.get('lastModified', 0))['title']
+        return str(max(titled, key=lambda r: _sort_num(r.get('lastModified')))['title'])
     return 'SALT'
 
 
@@ -1562,11 +1660,36 @@ def _write_atomically(dest: str, content: str) -> None:
     try:
         with open(tmp_fd, 'w', encoding='utf-8') as tmp_f:
             tmp_f.write(content)
+            # On the disk itself before it takes the old file's place, so a
+            # power cut can't leave the new name on a file whose data never landed.
+            tmp_f.flush()
+            os.fsync(tmp_f.fileno())
         os.replace(tmp_path, dest)
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(tmp_path)
         raise
+
+
+# Saves that failed in a row. Protected by _disk_lock.
+_save_failures = 0
+
+
+def _note_save_result(errors: list) -> None:
+    """After a save: on failure, say why (once per run of failures) and try
+    again with a growing wait; on the first success after that, say so."""
+    global _save_failures
+    if not errors:
+        if _save_failures:
+            safe_print('[+] Backups are being saved again.')
+        _save_failures = 0
+        return
+    if not _save_failures:
+        for e in errors:
+            safe_print(f'[!] {e}')
+        safe_print('[!] Changes are kept in memory and the save is retried until it works.')
+    _save_failures += 1
+    _retry_save_in(SAVE_RETRY_SECONDS[min(_save_failures, len(SAVE_RETRY_SECONDS)) - 1])
 
 
 def save_data_to_disk() -> None:
@@ -1585,32 +1708,41 @@ def save_data_to_disk() -> None:
         snapshot_due = (
             _last_snapshot_at is None or now - _last_snapshot_at >= SNAPSHOT_INTERVAL_SECONDS
         )
+        errors = []
         with data_lock:
-            only = None if (snapshot_due or _dirty_atos is None) else set(_dirty_atos)
+            pending = _dirty_atos
+            only = None if (snapshot_due or pending is None) else set(pending)
             _dirty_atos = set()
-            files = render_workspace_backups(
-                DATA_STORE.get('workspaces', {}),
-                DATA_STORE.get('config', {}),
-                DATA_STORE.get('profiles', {}),
-                formats_for(DATA_STORE.get('workspaces', {}), DATA_STORE.get('format')),
-                only,
-                DATA_STORE.get('overlays', []),
-                DATA_STORE.get('basemaps', []),
-                DATA_STORE.get('narrative', {}),
-                DATA_STORE.get('drones', []),
-            )
-        if not files:
-            return
-        os.makedirs(BACKUP_DIR, exist_ok=True)
+            try:
+                files = render_workspace_backups(
+                    DATA_STORE.get('workspaces', {}),
+                    DATA_STORE.get('config', {}),
+                    DATA_STORE.get('profiles', {}),
+                    formats_for(DATA_STORE.get('workspaces', {}), DATA_STORE.get('format')),
+                    only,
+                    DATA_STORE.get('overlays', []),
+                    DATA_STORE.get('basemaps', []),
+                    DATA_STORE.get('narrative', {}),
+                    DATA_STORE.get('drones', []),
+                )
+            except Exception as exc:
+                # Nothing was written: keep every change pending, so a report
+                # the backup can't be made from never silently stops saving.
+                _dirty_atos = pending
+                files = []
+                errors.append(f'Could not prepare the backups: {exc!r}')
+        if files:
+            os.makedirs(BACKUP_DIR, exist_ok=True)
         written = []
         for ato, filename, content in files:
             try:
                 _write_atomically(os.path.join(BACKUP_DIR, filename), content)
                 written.append((filename, content))
             except Exception as exc:
-                safe_print(f'[!] Error saving {filename}: {exc}')
+                errors.append(f'Error saving {filename}: {exc}')
                 with data_lock:
                     mark_dirty(ato)  # try again on the next save
+        _note_save_result(errors)
         if snapshot_due and written:
             try:
                 for filename, content in written:
@@ -2033,7 +2165,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 if not (lms := drop.get(r.get('id'))):
                     continue
                 hist = r.get('history') or []
-                kept = [h for h in hist if h.get('lastModified') not in lms]
+                kept = [
+                    h for h in hist if not isinstance(h, dict) or h.get('lastModified') not in lms
+                ]
                 if len(kept) != len(hist):
                     removed += len(hist) - len(kept)
                     r['history'] = kept

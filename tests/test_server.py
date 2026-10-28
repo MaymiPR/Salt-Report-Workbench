@@ -70,6 +70,7 @@ def reset_state() -> None:
     srv._rate_buckets.clear()
     srv.invalidate_sync_cache()
     srv._dirty_atos = None
+    srv._save_failures = 0
 
 
 def cancel_pending_save() -> None:
@@ -182,6 +183,24 @@ class BackupFormatTests(unittest.TestCase):
         self.assertEqual(list(parsed["workspaces"]), ["ALPHA"])
         self.assertEqual(parsed["formats"], {})
 
+    def test_odd_values_from_a_hand_edited_backup_still_render(self):
+        # A backup edited by hand is loaded without validation; whatever it
+        # holds, the next backup can still be written from it.
+        odd = [
+            report(title=5, displayId=7, history=None, custom=["x"], user="AB", bda=[1]),
+            report("r2", "ALPHA002", lm="soon", history=[{"lastModified": "x"}, 3]),
+            "not a report",
+        ]
+        name, text = srv.render_backup({"ALPHA": odd}, {}, {}, {}, label=("ALPHA", 5))
+        self.assertEqual(name, "ALPHA_5.txt")
+        self.assertIn("REPORT ALPHA002", text)
+        self.assertEqual(srv.workspace_title("ALPHA", odd, {}), "5")
+        files = srv.render_workspace_backups({"ALPHA": odd}, {}, {}, {})
+        self.assertEqual(len(files), 1)
+        # The config such a file holds is kept to its two strings.
+        text = f'{srv.BACKUP_START}{{"workspaces":{{}},"config":{{"ato":3,"title":"T"}}}}{srv.BACKUP_END}'
+        self.assertEqual(srv._extract_json_from_file(text)["config"], {"ato": "", "title": "T"})
+
     def test_files_without_markers_or_with_corrupt_json_are_rejected(self):
         self.assertIsNone(srv._extract_json_from_file("just some notes"))
         self.assertIsNone(
@@ -222,6 +241,29 @@ class ValidatorTests(unittest.TestCase):
         self.assertRejects(v, {"ato": "A", "reports": [report(rid="a b")]}, ".id")
         # Rows that predate ids are still keyed by displayId alone.
         self.assertIsNone(v({"ato": "A", "reports": [report(rid="")]}))
+
+    def test_report_names_and_flags_are_held_to_their_types(self):
+        # Regression: a numeric title or a list displayId was accepted, and every
+        # later disk save failed on it without a word.
+        v = srv._v_save_reports
+        for field, bad in (
+            ("title", 5),
+            ("title", "T" * 101),
+            ("displayId", ["ALPHA001"]),
+            ("fullId", {"x": 1}),
+            ("ato", 7),
+            ("updated", "yes"),
+            ("deleted", 1),
+        ):
+            self.assertRejects(v, {"ato": "A", "reports": [report(**{field: bad})]}, field)
+        self.assertIsNone(v({"ato": "A", "reports": [report(updated=True, deleted=False)]}))
+        self.assertIsNone(v({"ato": "A", "reports": [report(title=None)]}), "null is tolerated")
+        e = srv._v_edit_report
+        edit = {"ato": "A", "reportId": "r1"}
+        self.assertRejects(e, {**edit, "fields": {"title": 5}}, "fields.title")
+        self.assertRejects(e, {**edit, "fields": {"displayId": 1}}, "fields.displayId")
+        self.assertRejects(e, {**edit, "fields": {"updated": "no"}}, "fields.updated")
+        self.assertIsNone(e({**edit, "fields": {"title": "Patrol", "updated": False}}))
 
     def test_booleans_are_not_accepted_as_timestamps(self):
         # isinstance(True, int) is True in Python; the validator must not be fooled.
@@ -1439,6 +1481,101 @@ class HttpApiTests(unittest.TestCase):
         with mock.patch.object(srv.os, "replace", spying_replace):
             srv.save_data_to_disk()
         self.assertEqual(lock_held_during_write, [False])
+
+    def pending_retry(self):
+        """The delay of the save the server has scheduled, or None."""
+        with srv._save_timer_lock:
+            t = srv._save_timer
+        return t.interval if t is not None and t.is_alive() else None
+
+    def test_a_backup_that_cannot_be_prepared_keeps_its_changes_and_is_retried(self):
+        # Regression: a failure while rendering happened after the pending
+        # changes were cleared, outside any try, and every later save failed silently.
+        self.addCleanup(cancel_pending_save)
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        srv.flush_pending_save()
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report("r2", "ALPHA002")]})
+        cancel_pending_save()
+        boom = RuntimeError("bad report")
+        with (
+            mock.patch.object(srv, "render_workspace_backups", side_effect=boom),
+            mock.patch.object(srv, "safe_print") as printed,
+        ):
+            srv.save_data_to_disk()
+        self.assertEqual(srv._dirty_atos, {"ALPHA"}, "the change is still pending")
+        self.assertTrue(printed.call_args_list[0].args[0].startswith("[!] Could not prepare"))
+        self.assertIn("bad report", printed.call_args_list[0].args[0])
+        self.assertEqual(self.pending_retry(), 1.0)
+        cancel_pending_save()
+        with mock.patch.object(srv, "safe_print"):
+            srv.save_data_to_disk()
+        text = (Path(srv.BACKUP_DIR) / "ALPHA_Patrol.txt").read_text("utf-8")
+        self.assertEqual(len(srv._extract_json_from_file(text)["workspaces"]["ALPHA"]), 2)
+
+    def test_a_locked_backup_is_retried_with_a_growing_wait(self):
+        # Windows antivirus or OneDrive holding the file makes os.replace fail;
+        # the save must come back by itself, not wait for the next edit.
+        self.addCleanup(cancel_pending_save)
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        cancel_pending_save()
+        calls = []
+        real_fsync = srv.os.fsync
+
+        def locked(src, dst):
+            calls.append("replace")
+            raise PermissionError(13, "The process cannot access the file")
+
+        def fsync(fd):
+            calls.append("fsync")
+            return real_fsync(fd)
+
+        with (
+            mock.patch.object(srv.os, "replace", locked),
+            mock.patch.object(srv.os, "fsync", fsync),
+            mock.patch.object(srv, "safe_print") as printed,
+        ):
+            delays = []
+            for _ in range(5):
+                srv.save_data_to_disk()
+                delays.append(self.pending_retry())
+                cancel_pending_save()
+        self.assertEqual(calls[:2], ["fsync", "replace"], "flushed to disk before replacing")
+        self.assertEqual(delays, [1.0, 2.0, 5.0, 30.0, 30.0])
+        self.assertEqual(srv._dirty_atos, {"ALPHA"})
+        lines = [c.args[0] for c in printed.call_args_list]
+        self.assertEqual(len(lines), 2, "said once for the whole run of failures")
+        self.assertIn("ALPHA_Patrol.txt", lines[0])
+        with mock.patch.object(srv, "safe_print") as printed:
+            srv.save_data_to_disk()
+        self.assertEqual(printed.call_args_list[0].args[0], "[+] Backups are being saved again.")
+        self.assertIsNone(self.pending_retry())
+        self.assertEqual(srv._dirty_atos, set())
+
+    def test_a_hand_edited_backup_cannot_stop_saves(self):
+        folder = Path(tempfile.mkdtemp(prefix="salt-odd-"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        odd = {
+            "workspaces": {
+                "ALPHA": [
+                    report(title=5, displayId=7, history=None),
+                    report("r2", "ALPHA002", lm="x"),
+                    "junk",
+                ],
+                "BRAVO": "not a list",
+            },
+            "config": {"ato": ["ALPHA"], "title": 9},
+            "profiles": [],
+        }
+        (folder / "ALPHA_x.txt").write_text(
+            f"{srv.BACKUP_START}{json.dumps(odd)}{srv.BACKUP_END}", encoding="utf-8"
+        )
+        with mock.patch.object(srv, "BACKUP_DIR", str(folder)):
+            srv.load_data_from_disk()
+            self.assertEqual(len(srv.DATA_STORE["workspaces"]["ALPHA"]), 2)
+            with mock.patch.object(srv, "safe_print") as printed:
+                srv.flush_pending_save()
+            self.assertEqual(printed.call_args_list, [])
+            self.assertTrue((folder / "ALPHA_5.txt").exists())
 
     def test_boot_merges_every_backup_file(self):
         for name, ws in (
