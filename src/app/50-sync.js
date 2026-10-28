@@ -225,9 +225,12 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
         removeStored('salt_last_active_ato');
     }
 
-    loadConfig();
+    loadConfig({ fromSync: true });
     renderLog(el.log.search.value.toLowerCase());
+    // The dropdown of other workspaces stays unlocked while Change is open.
+    const historyOpen = !el.config.history.disabled && !el.config.ato.readOnly;
     populateAtoHistory();
+    if (historyOpen && el.config.history.options.length > 1) el.config.history.disabled = false;
     // Render the workspaces list AFTER activeAto/viewerShowingAto are settled
     // so an editor's live workspace switch updates the ACTIVE / SHOWING tags
     // in real time on every viewer's sidebar.

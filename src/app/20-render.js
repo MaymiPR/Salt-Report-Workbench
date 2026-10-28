@@ -352,12 +352,18 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
     });
 };
 
-const loadConfig = () => {
-    el.config.ato.value   = localConfig.ato   || '';
-    el.config.title.value = localConfig.title || '';
-    setAtoState(!!(localConfig.ato && localConfig.title));
-    // A brand-new workspace inherits the format you were just using.
-    // Form field order follows the active workspace's format.
+// `fromSync`: a peer's change arriving. It leaves the workspace fields alone
+// while they're unlocked (Change pressed) or being typed in, so it can't
+// overwrite what's typed there or lock them again mid-change.
+const loadConfig = ({ fromSync = false } = {}) => {
+    const cfg = [el.config.ato, el.config.title, el.config.history];
+    const busy = fromSync && (!el.config.ato.readOnly || cfg.includes(document.activeElement));
+    if (!busy) {
+        el.config.ato.value   = localConfig.ato   || '';
+        el.config.title.value = localConfig.title || '';
+        setAtoState(!!(localConfig.ato && localConfig.title));
+    }
+    // Form field order follows the format, shared by every workspace.
     applyFormFieldOrder();
 };
 
