@@ -18,6 +18,13 @@ All notable changes to this project are documented here. The format follows
 
 - `CODE_OF_CONDUCT.md`.
 
+### Security
+
+- **The access code is hidden as dots** in the setup dialog and the Identity
+  tab, so nobody can read it over your shoulder. *Show* reveals it until you
+  leave that screen, and *Copy* copies it without showing it. The setup field
+  is not a password field, so the browser doesn't offer to save the code.
+
 ## [2.15.0] - 2026-10-27
 
 ### Added
