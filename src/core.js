@@ -284,14 +284,13 @@ const BDA_EFFECTS = [
     { name: 'Unknown',       key: '?',    cls: 'unknown' },
 ];
 
-// Split a report's Size into elements and Location into grids, then pair
-// them: equal counts pair positionally; a single grid is shared by every
-// element; anything else leaves the grid blank for the user to fill.
+// Split a report's Size into elements and Location into grids (each as an
+// MGRS grid, "18S UJ 11 11", however it was typed), then pair them: equal
+// counts pair positionally; a single grid is shared by every element;
+// anything else leaves the grid blank for the user to fill.
 const bdaElements = (report) => {
     const els   = String(report.size || '').split(/[,;+]/).map(s => s.trim()).filter(t => t.length >= 2);
-    const raw   = String(report.location || '');
-    const grids = (raw.includes(',') ? raw.split(/[,;]/) : raw.split(/\s+/))
-                    .map(s => s.trim()).filter(t => t.length >= 4);
+    const grids = findGrids(report.location).map(g => g.mgrs);
     return els.slice(0, 20).map((element, i) => ({
         target: element,
         coords: (grids.length === els.length) ? grids[i]
@@ -300,32 +299,30 @@ const bdaElements = (report) => {
     }));
 };
 
-// An element or an assessment as a count and a type: "40x T-72" -> 40 of
-// T-72, "4 BMP-2" -> 4, "truck" -> 1. A number run into a name ("2S19") is
-// part of the name.
+// An element or an assessment as a count and a type, read as the Statistics
+// read a Size (sizePart): "40x T-72" -> 40 of T-72, "4 BMP-2" -> 4, "T-72 x4"
+// -> 4, "truck" -> 1, "0x T-72" -> none. A number run into a name ("2S19") is
+// part of the name. The type is as written, for display.
 const bdaCount = (text) => {
-    const s = String(text || '').trim();
-    const m = /^(\d+)\s*(?:x\s*|\s+)(\S.*)$/i.exec(s);
-    return m && +m[1] > 0 ? { count: +m[1], type: m[2].trim(), counted: true } : { count: 1, type: s, counted: false };
+    const c = sizeCount(String(text || '').trim());
+    return { count: c.count, type: c.text, counted: c.counted };
 };
-// Types match whatever the case, spacing, or a plural "s" ("T-72s").
-const bdaTypeKey = (type) => {
-    let t = String(type || '').trim().replace(/\s+/g, ' ').toUpperCase();
-    if (/[^SU]S$/.test(t) && !/SS$/.test(t)) t = t.slice(0, -1);
-    return t;
-};
+// Types match whatever the case or spacing, and a plural as the Statistics
+// fold it (singularType): "T-72s", "BUSES" and "lorries" are T-72, BUS, LORRY.
+// `team` is the team's equipment (teamEquipment), whose plurals fold too.
+const bdaTypeKey = (type, team = null) => singularType(String(type || '').trim().replace(/\s+/g, ' '), team).toUpperCase();
 
 // What is still to assess: each element less what has been assessed of its
 // type (taken from the elements in order), so 3x destroyed of "40x T-72"
 // leaves "37x T-72". `remaining` of `total`, and the element as it now reads.
-const bdaPending = (report) => {
+const bdaPending = (report, team = null) => {
     const assessed = {};
     (report.bda || []).forEach(b => {
-        const c = bdaCount(b.target), k = bdaTypeKey(c.type);
+        const c = bdaCount(b.target), k = bdaTypeKey(c.type, team);
         if (k) assessed[k] = (assessed[k] || 0) + c.count;
     });
     return bdaElements(report).map(e => {
-        const c = bdaCount(e.target), k = bdaTypeKey(c.type);
+        const c = bdaCount(e.target), k = bdaTypeKey(c.type, team);
         const off = Math.min(c.count, assessed[k] || 0);
         if (k) assessed[k] = (assessed[k] || 0) - off;
         const remaining = c.count - off;
@@ -1569,36 +1566,46 @@ const arcgisTracksShapefileZip = (rows, name, now) => shapefileZip(name, shapefi
 
 // Words that say how many, not what: "total of", "approx", "about".
 const SIZE_FILLER = /\b(?:total(?:\s+of)?|approx(?:imately)?|about|around|est(?:imated)?|at\s+least|up\s+to)\b\.?|~/gi;
-// One element: "2x T-72", "4 BMP-2", "vics 10x", "vics x10", "trucks (3)",
-// "truck". `counted` says a number was given.
-const sizePart = (part) => {
+// One element's count and its type as written: "2x T-72", "4 BMP-2", "vics
+// 10x", "vics x10", "trucks (3)", "truck". `counted` says a number was given.
+// A number run into a name ("2S19") is part of the name.
+const sizeCount = (part) => {
     const text = part.replace(SIZE_FILLER, ' ').replace(/\s+/g, ' ').trim();
     let count = 1, type = text, counted = false, m;
-    if ((m = /^(\d+)\s*x?\s*(.+)$/i.exec(text))) { count = Number(m[1]); type = m[2]; counted = true; }
+    if ((m = /^(\d+)\s*(?:x\s*|\s+)(\S.*)$/i.exec(text))) { count = Number(m[1]); type = m[2]; counted = true; }
     else if ((m = /^(.+?)\s+(?:(\d+)\s*x|x\s*(\d+))$/i.exec(text) || /^(.+?)\s*\((\d+)\)$/.exec(text))) {
         count = Number(m[2] || m[3]); type = m[1]; counted = true;
     }
-    type = singularType(type.replace(/^of\s+/i, '').trim());
-    return { count, type: type.toUpperCase(), counted };
+    return { count, text: type.replace(/^of\s+/i, '').trim(), counted };
+};
+// One element as the Statistics count it: its type upper-cased and singular.
+const sizePart = (part, team = null) => {
+    const { count, text, counted } = sizeCount(part);
+    return { count, type: singularType(text, team).toUpperCase(), counted };
 };
 // A plural made singular, so "TANKS" and "tank" are one type. The last word
 // loses its "s" (or "es", or "ies" for "y": buses, lorries) when the
-// catalogue knows the singular and not the word as written (MANPADS stays),
-// or knows more of the whole singular than of the whole as written (RADIO
-// RELAYS, BRIDGE LAYERS; not TANK GLASS), in any case; otherwise only a
-// lower-case "s" goes ("T-72s", where "T-72S" is a variant).
-const singularType = (type) => {
+// catalogue (or the team's equipment, `team`) knows the singular and not the
+// word as written (MANPADS stays), or knows more of the whole singular than
+// of the whole as written (RADIO RELAYS, BRIDGE LAYERS; not TANK GLASS), in
+// any case. Otherwise only a lower-case "s" goes: from a designation ("T-72s",
+// where "T-72S" is a variant), or from a word of four letters or more that
+// doesn't end in "ss", "us", "is" or "as" ("widgets"; not "gas" or "radius").
+const singularType = (type, team = null) => {
+    const known = (t) => knownType(t, team);
     const m = /^(.*?)\b([A-Za-z]{2,})$/.exec(type);
-    if (m && knownType(m[2])) return type;
+    if (m && known(m[2])) return type;
     if (m && /s$/i.test(m[2])) {
-        const whole = knownType(type);
+        const whole = known(type);
         for (const one of [m[2].slice(0, -1), m[2].replace(/es$/i, ''), m[2].replace(/ies$/i, 'y')]) {
-            if (one.length > 1 && one !== m[2] && (knownType(one) || knownType(m[1] + one) > whole)) return m[1] + one;
+            if (one.length > 1 && one !== m[2] && (known(one) || known(m[1] + one) > whole)) return m[1] + one;
         }
     }
-    return /[^su]s$/.test(type) && !/ss$/i.test(type) ? type.slice(0, -1) : type;
+    const last = type.split(' ').pop();
+    const drop = /\d/.test(last) ? /[^su]s$/.test(last) : last.length >= 4 && /s$/.test(last) && !/(ss|us|is|as)$/i.test(last);
+    return drop ? type.slice(0, -1) : type;
 };
-const sizeList = (text) => text.split(/\s*(?:[,;+&]|\band\b|\bwith\b|\bw\/)\s*/i).filter(Boolean).map(sizePart)
+const sizeListOf = (text, team = null) => text.split(/\s*(?:[,;+&]|\band\b|\bwith\b|\bw\/)\s*/i).filter(Boolean).map(p => sizePart(p, team))
     .filter(e => e.type && e.count > 0);
 // The elements of a Size line with their counts: "2x T-72, 4 BMP-2; truck"
 // -> T-72 x2, BMP-2 x4, TRUCK x1. Types are upper-cased, and a plural is made
@@ -1609,9 +1616,12 @@ const sizeList = (text) => text.split(/\s*(?:[,;+&]|\band\b|\bwith\b|\bw\/)\s*/i
 // the breakdown and only what it leaves of the total ("12 vics (5 tanks)":
 // 5 tanks and 7 vics), so nothing is counted twice; brackets that aren't a
 // breakdown ("3x T-72 (one damaged)") are a note, and left out.
-const sizeElements = (size) => {
+// `team` (optional) is the team's equipment (teamEquipment), so its own
+// types fold their plurals too ("3X WIDGETS" and "2x widget").
+const sizeElements = (size, team = null) => {
     const text = String(size || '').trim();
     const plain = ({ count, type }) => ({ count, type });
+    const sizeList = (t) => sizeListOf(t, team);
     // The breakdown, and what it leaves of the total; null when it isn't one.
     const breakdown = (headText, tailText) => {
         const head = sizeList(headText), parts = sizeList(tailText);
@@ -1623,6 +1633,8 @@ const sizeElements = (size) => {
     if (m) {
         const got = breakdown(m[1], m[2] || m[3]);
         if (got) return got;
+        // "trucks (3)": a count in brackets after a type without one.
+        if (m[3] !== undefined && /^\d+$/.test(m[3].trim()) && !/^\d/.test(m[1])) return sizeList(text).map(plain);
         if (m[3] !== undefined) return sizeList(m[1]).map(plain);
     }
     // "Total 10 vics, 5x tanks, 5x APC": a total named as one, then its parts.
@@ -1645,7 +1657,9 @@ const HEADINGS_8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 // cut to the time window). Each report counts once per place, square, tag, or
 // type it names; history is not counted. Lists are sorted largest first.
 //   squareDigits  1 = 10 km squares, 2 = 1 km squares
-const statsData = (reps, overlays, { local, squareDigits = 1 } = {}) => {
+//   team          the team's equipment (teamEquipment), optional, so the
+//                 types it adds fold their plurals as the narrative does
+const statsData = (reps, overlays, { local, squareDigits = 1, team = null } = {}) => {
     const live = (reps || []).filter(r => !r.deleted);
     const tally = () => new Map();
     const add = (map, key, n = 1) => map.set(key, (map.get(key) || 0) + n);
@@ -1666,7 +1680,7 @@ const statsData = (reps, overlays, { local, squareDigits = 1 } = {}) => {
         const act = classifyActivity(r.activity);
         (act.tags.length ? act.tags : ['Untagged']).forEach(t => add(tags, t));
         if (act.headingDeg !== null) headings[Math.round(act.headingDeg / 45) % 8]++;
-        sizeElements(r.size).forEach(e => add(equipment, e.type, e.count));
+        sizeElements(r.size, team).forEach(e => add(equipment, e.type, e.count));
         const d = new Date(r.time);
         if (!isNaN(d.getTime())) {
             const f = dateFields(d, local);
@@ -2011,9 +2025,14 @@ const SUMMARY_KINDS = {
 // "previous" period it compares with.
 //   opts: { local, from, to, now, ato, title, by, place, squareDigits, narrative }
 //   (narrative: the team's narrative settings, for the 'narrative' kind;
-//   width: the columns it's wrapped to, 100 unless shown narrower)
+//   width: the columns it's wrapped to, 100 unless shown narrower;
+//   team: the team's equipment (teamEquipment) for counting types, by
+//   default the one in the narrative settings)
+// A kind it doesn't know is a rollup.
 const summaryReport = (kind, reps, overlays, opts) => {
     const { local, from = null, to = null, now = new Date(), ato = '', title = '', by = '', place = '', squareDigits = 2, narrative = null, width = 100 } = opts;
+    if (!Object.prototype.hasOwnProperty.call(SUMMARY_KINDS, kind)) kind = 'rollup';
+    const team = opts.team !== undefined ? opts.team : narrative ? narrativeSettings(narrative).team : null;
     const facts = (reps || []).filter(r => !r.deleted).map(r => reportFacts(r, overlays))
         .filter(f => !isNaN(f.ms)).sort((x, y) => x.ms - y.ms);
     const within = (lo, hi) => facts.filter(f => (lo === null || f.ms >= lo) && (hi === null || f.ms <= hi));
@@ -2022,7 +2041,7 @@ const summaryReport = (kind, reps, overlays, opts) => {
     const prev = span !== null ? within(from - span, from - 1) : null;
     const hrs = span !== null ? Math.round(span / 3600000) : null;
     const prevNote = prev ? `previous ${hrs} hrs: ${prev.length}` : '';
-    const d = statsData(cur.map(f => f.r), overlays, { local, squareDigits });
+    const d = statsData(cur.map(f => f.r), overlays, { local, squareDigits, team });
     const name = kind === 'place' ? `${place || 'PLACE'} ${SUMMARY_KINDS.place}` : SUMMARY_KINDS[kind];
     const period = from === null && to === null ? `ALL REPORTS TO ${dtg(now.getTime(), local)}`
         : `${from === null ? 'START' : dtg(from, local)} TO ${to === null ? dtg(now.getTime(), local) : dtg(to, local)}${hrs ? ` (${hrs} HRS)` : ''}`;
@@ -2344,29 +2363,33 @@ const findKey = (keys, w) => {
     const hit = keys.find(k => k.test(w, w.replace(/ /g, '')));
     return hit ? { role: hit.role, origin: hit.origin, name: hit.name } : null;
 };
-// How much of a type as written the catalogue knows: the length of the
-// name it matches (TANK, MANPADS, RADIO RELAY), or 0.
+// How much of a type as written the catalogue (and the team's entries,
+// `team`, when given) knows: the length of the name it matches (TANK,
+// MANPADS, RADIO RELAY), or 0.
 const typesKnown = new Map();
-const knownType = (text) => {
+const knownType = (text, team = null) => {
     const w = normType(text);
     if (!typesKnown.has(w)) {
         const hit = equipmentKeys().find(k => k.test(w, w.replace(/ /g, '')));
         typesKnown.set(w, hit ? hit.len : 0);
     }
-    return typesKnown.get(w);
+    const own = team && team.length ? team.find(k => k.test(w, w.replace(/ /g, ''))) : null;
+    return Math.max(typesKnown.get(w), own ? own.len : 0);
 };
 // { role, origin, name } for a type (T-72B3, 2S19 MSTA-S, trucks), or null.
 // `team` is the team's own entries (teamEquipment), which win over the
 // built-in ones: a type added, or a built-in one put right.
 const lookupEquipment = (type, team = null) => {
     const w = normType(type);
-    // "TANKS", "VICS": a plural in capitals that reaches here as it is (a
-    // team's type, a BDA line) is tried without the S when the whole doesn't match.
-    const bare = /[^SU]S$/.test(w) ? w.slice(0, -1) : null;
-    const find = (keys) => findKey(keys, w) || (bare ? findKey(keys, bare) : null);
-    const own = team && team.length ? find(team) : null;
+    // "TANKS", "VICS": a plural that reaches here as it is (a team's type, a
+    // BDA line) is tried as its singular (singularType, as the Statistics
+    // fold it) when the whole doesn't match.
+    const bareBy = (t) => { const one = normType(singularType(String(type || '').trim(), t)); return one && one !== w ? one : null; };
+    const find = (keys, bare) => findKey(keys, w) || (bare ? findKey(keys, bare) : null);
+    const own = team && team.length ? find(team, bareBy(team)) : null;
     if (own) return own;
-    if (!equipmentSeen.has(w)) equipmentSeen.set(w, find(equipmentKeys()));
+    // The built-in answer doesn't depend on the team, so it is remembered.
+    if (!equipmentSeen.has(w)) equipmentSeen.set(w, find(equipmentKeys(), bareBy(null)));
     return equipmentSeen.get(w);
 };
 // The team's entries ({ type, role, origin }), ready for lookupEquipment.
@@ -2702,10 +2725,13 @@ const TYPE_ACRONYMS = new Set(['PAX', 'IFV', 'APC', 'MBT', 'BMP', 'BTR', 'BRDM',
     'ATGM', 'MLRS', 'MRL', 'SPG', 'AVLB', 'POL', 'CP', 'HQ', 'C2', 'EW', 'ATV', 'UTV', 'SUV', 'ATZ']);
 const NO_PLURAL = new Set(['personnel', 'people', 'men', 'infantry', 'ammo', 'fuel', 'water', 'cargo', 'artillery', 'arty', 'recon', 'supply']);
 const PLURALS = { man: 'men', person: 'people' };
+// A bare "tracked" or "wheeled" reads as the vehicle it describes.
+const BARE_ADJECTIVE = new Set(['TRACKED', 'WHEELED']);
 const typeCount = (type, n, kit) => {
     if (!kit || kit.origin || /\d/.test(type) || TYPE_ACRONYMS.has(type)) return `${n}x ${type}`;
-    const words = type.toLowerCase().split(' '), last = words.pop();
-    const many = n === 1 || NO_PLURAL.has(last) || /s$/.test(last) ? last : PLURALS[last] || last.replace(/([^aeiou])y$/, '$1ie') + 's';
+    const words = (BARE_ADJECTIVE.has(type) ? kit.name : type).toLowerCase().split(' '), last = words.pop();
+    const many = n === 1 || NO_PLURAL.has(last) ? last
+        : PLURALS[last] || (/(s|x|z|ch|sh)$/.test(last) ? `${last}es` : last.replace(/([^aeiou])y$/, '$1ie') + 's');
     return `${n}x ${[...words, many].join(' ')}`;
 };
 
@@ -2713,7 +2739,7 @@ const typeCount = (type, n, kit) => {
 // equipment, the roles in it, its size by kind, and the areas it counts in
 // (its NAIs and OBJs, else its 10 km square, else none).
 const narrativeFacts = (f, team) => {
-    const els = sizeElements(f.r.size).map(e => ({ ...e, kit: lookupEquipment(e.type, team) }));
+    const els = sizeElements(f.r.size, team).map(e => ({ ...e, kit: lookupEquipment(e.type, team) }));
     const groups = {};
     els.forEach(e => { const k = e.kit && ECHELON_KIND[e.kit.role]; if (k) groups[k] = (groups[k] || 0) + e.count; });
     const sq = f.a.points.length ? gridSquare(f.a.points[0].mgrs, 1) : null;

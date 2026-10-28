@@ -209,12 +209,16 @@ test('locations that are not just grids are left alone', () => {
 // --- BDA ---
 
 test('BDA elements pair with grids by position, or share a single grid', () => {
+    // Grids are read as grids (findGrids), so each is written as MGRS: "18S UJ 11 11".
     const pairs = core.bdaElements({ size: '4x T-72, 2x BMP-2', location: '18SUJ1111, 18SUJ2222' });
-    assert.deepEqual(pairs, [{ target: '4x T-72', coords: '18SUJ1111' }, { target: '2x BMP-2', coords: '18SUJ2222' }]);
+    assert.deepEqual(pairs, [{ target: '4x T-72', coords: '18S UJ 11 11' }, { target: '2x BMP-2', coords: '18S UJ 22 22' }]);
     const shared = core.bdaElements({ size: '4x T-72; 2x BMP-2', location: '18SUJ1111' });
-    assert.deepEqual(shared.map(p => p.coords), ['18SUJ1111', '18SUJ1111']);
+    assert.deepEqual(shared.map(p => p.coords), ['18S UJ 11 11', '18S UJ 11 11']);
     const unclear = core.bdaElements({ size: 'a1, b2, c3', location: '18SUJ1111 18SUJ2222' });
     assert.deepEqual(unclear.map(p => p.coords), ['', '', '']);
+    // A grid typed with spaces is one grid, and a place name beside it is not a grid.
+    assert.deepEqual(core.bdaElements({ size: '2x T-72', location: '38S MB 12345 67890' }).map(p => p.coords), ['38S MB 12345 67890']);
+    assert.deepEqual(core.bdaElements({ size: '2x T-72', location: '38SMB1234567890, NAI 1' }).map(p => p.coords), ['38S MB 12345 67890']);
 });
 
 test('the BDA pill counts each vehicle and gives the worst outcome', () => {
@@ -234,6 +238,28 @@ test('assessing some of an element leaves the rest to assess', () => {
     assert.deepEqual(core.bdaSummary(r), { done: 8, total: 43, worstCls: 'destroyed' });
     // Assessments from before counts were split off cover their whole element.
     assert.deepEqual(core.bdaPending({ size: '4x T-72, truck', location: '', bda: [{ target: '4x T-72', effect: 'Destroyed' }, { target: 'truck', effect: 'Damaged' }] }), []);
+});
+
+test('BDA reads counts and plurals as the Statistics do', () => {
+    assert.deepEqual(core.bdaCount('T-72 x4'), { count: 4, type: 'T-72', counted: true }, 'a count after the type');
+    assert.deepEqual(core.bdaCount('trucks (3)'), { count: 3, type: 'trucks', counted: true });
+    assert.equal(core.bdaCount('0x T-72').count, 0, 'none is none, not one');
+    assert.deepEqual(core.bdaCount('2S19'), { count: 1, type: '2S19', counted: false }, 'a number in a name');
+    // The same element counted the same way by both.
+    ['2x BUSES', '3x lorries', 'T-72 x4', 'trucks (3)', '2x T-72s', 'approx 4x BMP-2', '2S19'].forEach(s => {
+        assert.equal(core.bdaCount(s).count, core.sizeElements(s)[0].count, s);
+    });
+    // Assessed under the singular, in any case: nothing left to assess.
+    const r = { size: '2x BUSES, 3x lorries, T-72 x4', location: '', bda: [
+        { target: '2x bus', effect: 'Destroyed' }, { target: '1x lorry', effect: 'Damaged' }, { target: '1x LORRIES', effect: 'Damaged' },
+        { target: '4x T-72s', effect: 'Destroyed' }] };
+    assert.deepEqual(core.bdaPending(r).map(e => e.target), ['1x lorries']);
+    assert.deepEqual(core.bdaSummary(r), { done: 8, total: 9, worstCls: 'destroyed' });
+    assert.equal(core.bdaSummary({ size: '0x T-72', bda: [] }).total, 0);
+    // A team's own type folds when the team's equipment is given.
+    const team = core.teamEquipment([{ type: 'widget', role: 'logistics' }]);
+    const w = { size: '3X WIDGETS', location: '', bda: [{ target: '3x widget', effect: 'Destroyed' }] };
+    assert.deepEqual(core.bdaPending(w, team), []);
 });
 
 test('the BDA roll-up totals a workspace\'s elements and outcomes', () => {
@@ -662,6 +688,26 @@ test('Size lines are counted by type, plurals folded together', () => {
         { count: 3, type: 'T-72' }, { count: 2, type: 'TRUCK' }, { count: 1, type: 'BUS' },
     ]);
     assert.deepEqual(core.sizeElements(''), []);
+});
+
+test('an unknown word keeps a final s unless it is clearly a plural', () => {
+    const els = s => core.sizeElements(s).map(e => `${e.count} ${e.type}`);
+    assert.deepEqual(els('2x Gas, 2x radius, 2x Atlas, 2x chassis, 3x widgets, 2x M1s, 2x 2S19'),
+        ['2 GAS', '2 RADIUS', '2 ATLAS', '2 CHASSIS', '3 WIDGET', '2 M1', '2 2S19']);
+});
+
+test("a team's own types fold their plurals in the Statistics too", () => {
+    const team = core.teamEquipment([{ type: 'widget', role: 'logistics' }]);
+    const els = (s, t) => core.sizeElements(s, t).map(e => `${e.count} ${e.type}`);
+    assert.deepEqual(els('3X WIDGETS, 2x widget'), ['3 WIDGETS', '2 WIDGET'], 'without the team: the catalogue alone');
+    assert.deepEqual(els('3X WIDGETS, 2x widget', team), ['3 WIDGET', '2 WIDGET']);
+    const reps = [report({ size: '3X WIDGETS' }), report({ id: 'r2', displayId: 'ALPHA002', size: '2x widget' })];
+    assert.deepEqual(core.statsData(reps, [], { team }).equipment, [{ label: 'WIDGET', value: 5 }]);
+    // The summaries take the team from the narrative settings, or as given.
+    const rollup = o => core.summaryReport('rollup', reps, [], { local: false, now: NOW, ...o });
+    assert.ok(rollup({ narrative: { equipment: [{ type: 'widget', role: 'logistics' }] } }).includes('   WIDGET 5\n'));
+    assert.ok(rollup({ team }).includes('   WIDGET 5\n'));
+    assert.ok(rollup({}).includes('   WIDGETS 3, WIDGET 2\n'));
 });
 
 test('grid squares at 10 km and 1 km, and grids too coarse for them', () => {
@@ -1441,4 +1487,17 @@ test('general words: vic, tracked, wheeled, support, fueler, engineer, and their
     const t = said([{ id: 'v1', displayId: 'ALPHA001', ato: 'ALPHA', title: 'P', size: 'Total of vics 10x: 5x tanks and 5x apc',
         activity: 'moving N', location: '38SMB4500082000', time: '2026-10-26T01:00:00.000Z', history: [], bda: [] }]);
     assert.ok(t.includes('Equipment reported: armor (5x tanks); mechanized infantry (5x APC).'), t);
+});
+
+test('plain words read as plurals in the narrative: tracked vehicles, buses', () => {
+    const t = said([{ id: 'w1', displayId: 'ALPHA001', ato: 'ALPHA', title: 'P', size: '4x tracked, 2x wheeled, 2X BUSES, 1x tracked vic',
+        activity: 'moving N', location: '38SMB4500082000', time: '2026-10-26T01:00:00.000Z', history: [], bda: [] }]);
+    assert.ok(t.includes('light vehicles (2x buses)'), t);
+    assert.ok(t.includes('other vehicles (4x tracked vehicles, 2x wheeled vehicles, 1x tracked vic)'), t);
+});
+
+test('a summary of a kind it does not know is a rollup', () => {
+    const text = core.summaryReport('weekly', [report()], [], { local: false, now: NOW, ato: 'ALPHA' });
+    assert.ok(text.startsWith('ROLLUP - ALPHA\n'), text);
+    assert.ok(!text.includes('undefined'));
 });
