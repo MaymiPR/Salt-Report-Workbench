@@ -28,6 +28,12 @@ All notable changes to this project are documented here. The format follows
   as a blank workspace name, is refused by its endpoint's validator and says
   `Validation failed: ...`. Console lines follow one rule (`[!]` a problem,
   `[+]` done, `[*]` information), and no server text uses em dashes.
+- **Colours come from one set of tokens.** Every colour in the stylesheet is
+  now named once at its top: each system colour has a soft, hover and strong
+  tint, plus a few colours with one job (shadows, text on a coloured button,
+  the error red). The many near-identical tints were merged, so some
+  backgrounds and borders are a shade lighter or darker. A test keeps new
+  colours to the tokens and checks every token is defined and used.
 
 ## [2.20.0] - 2026-10-28
 
