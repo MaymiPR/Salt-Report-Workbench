@@ -104,6 +104,7 @@ let isStatsViewActive = false;
 let statsScope = localStorage.getItem('salt_stats_scope') === 'all' ? 'all' : 'ato';
 let statsCharts = [];       // what is on screen, for hover and export
 let statsKpis = [];         // the headline numbers on screen, for the workbook
+let statsBuilt = null;      // what the panel was last drawn from, so a sync that changes nothing leaves it be
 
 const FOLD_AT = 10;  // longer lists show their top ten and an "Other" bar
 const fold = (items) => (items.length <= FOLD_AT + 1 ? items : [
@@ -214,12 +215,34 @@ const renderStats = () => {
             <div class="stats-table" hidden><table><thead><tr><th>${c.kind === 'bar' ? 'Item' : 'When'}</th><th>${escapeHtml(c.unit)}</th></tr></thead>
                 <tbody>${c.items.map(i => `<tr><td>${escapeHtml(c.tipX(i.label))}</td><td>${i.value}</td></tr>`).join('')}</tbody></table></div>
         </section>`;
+    // A sync redraws the panel only when what it shows has changed, so an
+    // open table, the focus and the readout stay; when it does, the open
+    // tables and the focus come back.
+    const key = JSON.stringify([context, local, statsKpis, statsCharts.map(c => [c.id, c.items])]);
+    if (key === statsBuilt && s.body.childElementCount) return;
+    statsBuilt = key;
+    const open = new Set([...s.body.querySelectorAll('.stats-card')].filter(c => !c.querySelector('.stats-table').hidden).map(c => c.dataset.chart));
+    const had = s.body.contains(document.activeElement) ? document.activeElement : null;
+    const focusAt = had && had.closest('.stats-card') && had.dataset.statsAct ? [had.closest('.stats-card').dataset.chart, had.dataset.statsAct] : null;
     s.body.innerHTML = !reps.length ? '<div class="stats-empty">No reports in this window.</div>' : `
         <div class="stats-tiles">
             ${tile('Reports', k.reports)}${tile('With a grid', k.withGrid)}${tile('In an NAI or OBJ', k.inPlace)}${tile('Checks to look at', k.checks)}
             ${k.bdaDone ? tile('BDA assessed', `${k.bdaDone} / ${k.bdaTotal}`) : ''}
         </div>
         <div class="stats-grid">${statsCharts.map(card).join('')}</div>`;
+    open.forEach(id => {
+        const c = s.body.querySelector(`.stats-card[data-chart="${CSS.escape(id)}"]`), btn = c && c.querySelector('[data-stats-act="table"]');
+        if (btn && !btn.disabled) setStatsTable(c, true);
+    });
+    const back = focusAt && s.body.querySelector(`.stats-card[data-chart="${CSS.escape(focusAt[0])}"] [data-stats-act="${focusAt[1]}"]`);
+    if (back) back.focus({ preventScroll: true });
+};
+// A chart's table shown or hidden, and its button saying so.
+const setStatsTable = (cardEl, on) => {
+    const tbl = cardEl.querySelector('.stats-table'), btn = cardEl.querySelector('[data-stats-act="table"]');
+    tbl.hidden = !on;
+    btn.setAttribute('aria-pressed', String(on));
+    btn.classList.toggle('active', on);
 };
 
 const openStatsView = () => {
@@ -371,10 +394,7 @@ const exportStatsXlsx = () => {
             const cardEl = act.closest('.stats-card');
             const c = statsCharts.find(x => x.id === cardEl.dataset.chart);
             if (act.dataset.statsAct === 'table') {
-                const tbl = cardEl.querySelector('.stats-table');
-                tbl.hidden = !tbl.hidden;
-                act.setAttribute('aria-pressed', String(!tbl.hidden));
-                act.classList.toggle('active', !tbl.hidden);
+                setStatsTable(cardEl, cardEl.querySelector('.stats-table').hidden);
             } else if (c) {
                 exportChart(c, act.dataset.statsAct).catch(err => showToast('Export error: ' + err.message, true));
             }
