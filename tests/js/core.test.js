@@ -405,6 +405,24 @@ test('NAI, OBJ and PL names read the way operators type them', () => {
     assert.equal(core.overlayRef('Bridge'), null);
 });
 
+test('common words after objective or phase line are not names', () => {
+    const keys = s => core.findRefs(s).map(r => r.key);
+    assert.deepEqual(keys('vic objective area'), []);
+    assert.deepEqual(keys('crossed the phase line of the advance'), []);
+    assert.deepEqual(keys('our objective is clear'), []);
+    assert.deepEqual(keys('OUR OBJECTIVE IS CLEAR, OBJ IS SECURED'), [], 'in capitals too');
+    assert.deepEqual(keys('obj is clear; pl to the north'), [], 'and after the short forms');
+    assert.deepEqual(keys('Objective 3, objective gold, OBJECTIVE IRON, Phase Line Red, OBJ A, nai 01'),
+        ['OBJ 3', 'OBJ IRON', 'PL RED', 'OBJ A', 'NAI 1'], 'a long form needs a number or a capital');
+    // editLocation reads them the same way: nothing to replace in "objective area".
+    assert.equal(core.editLocation('vic objective area, NAI 1', { replace: { 'OBJ AREA': '', 'NAI 1': 'NAI 2' } }), 'vic objective area, NAI 2');
+    assert.equal(core.editLocation('vic objective area', { add: ['OBJ GOLD'] }), 'vic objective area, OBJ GOLD');
+    // And an overlay's name.
+    assert.equal(core.overlayRef('Objective area', null), null);
+    assert.equal(core.overlayRef('The Bridge', 'OBJ').key, 'OBJ BRIDGE', 'the first word that is a name');
+    assert.equal(core.overlayRef('Objective Gold').key, 'OBJ GOLD');
+});
+
 // NAI 1 and NAI 2 side by side, OBJ BRIDGE north of NAI 1, PL BLUE across both NAIs.
 const ll = g => { const x = core.findGrids(g)[0]; return [x.lon, x.lat]; };
 const box = (...grids) => ({ type: 'Polygon', coordinates: [[...grids, grids[0]].map(ll)] });
@@ -481,6 +499,42 @@ test('an NAI or OBJ drawn as a path is still an area', () => {
     const ovs = [{ type: 'OBJ', name: 'BRIDGE', geometry: path }];
     assert.deepEqual(core.analyzeLocation('38SMB4200092000', ovs).obj, { keys: ['OBJ BRIDGE'], from: 'grid' });
     assert.deepEqual(core.analyzeLocation('38SMB4200092000', [{ ...ovs[0], type: 'PL' }]).obj.keys, [], 'a PL path is not an area');
+});
+
+test('a broken overlay is left out, and stops nothing', () => {
+    assert.doesNotThrow(() => core.asArea({ type: 'LineString', coordinates: [] }));
+    assert.deepEqual(core.asArea({ type: 'MultiLineString', coordinates: [[]] }), { type: 'MultiLineString', coordinates: [[]] });
+    const square = OVERLAYS[0].geometry;
+    const bad = [
+        { type: 'NAI', name: 'E', geometry: { type: 'Polygon', coordinates: [] } },
+        { type: 'NAI', name: 'L', geometry: { type: 'LineString', coordinates: [] } },
+        { type: 'OBJ', name: 'M', geometry: { type: 'MultiLineString', coordinates: [[]] } },
+        { type: '<img src=x onerror=alert(1)>', name: 'X', geometry: square },
+        { type: 'NAI', name: 5, geometry: square },
+        { type: 'NAI', name: 'N', geometry: { type: 'Polygon', coordinates: [[[NaN, 1], [2, 2], [3, 3]]] } },
+        { type: 'NAI', name: 'G', geometry: null },
+        null, 'junk',
+    ];
+    const twoPoint = { type: 'OBJ', name: 'T', geometry: { type: 'LineString', coordinates: square.coordinates[0].slice(0, 2) } };
+    const ovs = [...OVERLAYS, ...bad, twoPoint];
+    assert.deepEqual(core.foldOverlays(ovs), [...OVERLAYS, twoPoint], 'only what the server would take');
+    assert.deepEqual(core.foldOverlays({ ALPHA: ovs }), [...OVERLAYS, twoPoint]);
+    assert.deepEqual(core.analyzeLocation('38SMB4500082000', ovs).nai, { keys: ['NAI 1'], from: 'grid' });
+    assert.deepEqual(core.locationPlan('38SMB4500082000', ovs).add, ['NAI 1']);
+    assert.doesNotThrow(() => core.statsData([report({ location: '38SMB4500082000' })], ovs, {}));
+    assert.doesNotThrow(() => core.summaryReport('rollup', [report({ location: '38SMB4500082000' })], ovs, { local: false, now: NOW }));
+    assert.ok(!core.summaryPlaces([], ovs).some(p => /img/.test(p)));
+});
+
+test('an overlay is keyed as a typed name is', () => {
+    const sq = OVERLAYS[0].geometry;
+    const ovs = [{ type: 'OBJ', name: 'gold', geometry: sq }, { type: 'NAI', name: '01', geometry: OVERLAYS[1].geometry }];
+    assert.deepEqual(core.analyzeLocation('38SMB4500082000', ovs).obj.keys, ['OBJ GOLD']);
+    assert.deepEqual(core.analyzeLocation('38SMB5500082000, NAI 1', ovs).checks, [], 'overlay "01" is NAI 1');
+    assert.deepEqual(core.analyzeLocation('38SMB4500082000, NAI 1', ovs).checks, ['NAI 1 typed; grid is outside it']);
+    assert.deepEqual(core.summaryPlaces([report({ location: '38SMB4500082000, OBJ GOLD' })], ovs), ['NAI 1', 'OBJ GOLD'], 'one OBJ GOLD, not two');
+    // An older backup with "gold" in one workspace and "GOLD" in another: one overlay.
+    assert.equal(core.foldOverlays({ A: [ovs[0]], B: [{ ...ovs[0], name: 'GOLD' }] }).length, 1);
 });
 
 test('activity lines are tagged, with a heading when one is given', () => {

@@ -395,16 +395,42 @@ const backupReportBlocks = (reps) => [...reps].sort((a,b) => reportNum(a) - repo
 const backupMachineData = (payload) =>
     `\n${BACKUP_DIV}\n MACHINE DATA — DO NOT EDIT BELOW THIS LINE\n${BACKUP_DIV}\n${BACKUP_START}\n${JSON.stringify(payload)}\n${BACKUP_END}\n`;
 
+// The overlay types, as the server's _OVERLAY_TYPES, and how deep each
+// geometry's coordinates nest above the [lon, lat] pairs (its _GEOMETRY_DEPTH).
+const OVERLAY_TYPES = new Set(['NAI', 'OBJ', 'PL']);
+const GEOMETRY_DEPTH = { Point: 0, LineString: 1, Polygon: 2, MultiLineString: 2, MultiPolygon: 3 };
+// Whether an overlay is one the server would take: a known type, a name, and
+// coordinates that are all longitude / latitude, no list of them empty.
+// Remembered per object, since every report is read against every overlay.
+const overlayChecked = new WeakMap();
+const overlayOk = (o) => {
+    if (!o || typeof o !== 'object') return false;
+    if (overlayChecked.has(o)) return overlayChecked.get(o);
+    const coordsOk = (c, depth) => (depth === 0
+        ? Array.isArray(c) && (c.length === 2 || c.length === 3) && c.every(v => typeof v === 'number' && Number.isFinite(v))
+            && Math.abs(c[0]) <= 180 && Math.abs(c[1]) <= 90
+        : Array.isArray(c) && c.length > 0 && c.every(p => coordsOk(p, depth - 1)));
+    const g = o.geometry;
+    const depth = g && typeof g === 'object' ? GEOMETRY_DEPTH[g.type] : undefined;
+    const ok = typeof o.type === 'string' && OVERLAY_TYPES.has(o.type) && typeof o.name === 'string' && o.name !== ''
+        && (!('label' in o) || typeof o.label === 'string') && depth !== undefined && coordsOk(g.coordinates, depth);
+    overlayChecked.set(o, ok);
+    return ok;
+};
+// An overlay's place key ("NAI 1", "OBJ GOLD"), read as a typed one is
+// (refName), so overlay "gold" is OBJ GOLD and overlay "01" is NAI 1.
+const overlayKey = (o) => `${o.type} ${refName(o.name)}`;
+
 // The shared overlay list from what a backup or the server holds. A list is
 // the shared set as it is; a dict is the older per-workspace form (ato ->
 // list), folded into one, a later overlay replacing an earlier one of the
-// same type and name.
+// same type and name. Overlays the server wouldn't take are left out.
 const foldOverlays = (value) => {
-    if (Array.isArray(value)) return value.filter(o => o && typeof o === 'object');
+    if (Array.isArray(value)) return value.filter(overlayOk);
     if (!value || typeof value !== 'object') return [];
     const byKey = new Map();
     Object.values(value).forEach(list => (Array.isArray(list) ? list : []).forEach(o => {
-        if (o && typeof o === 'object') byKey.set(`${o.type} ${o.name}`, o);
+        if (overlayOk(o)) byKey.set(overlayKey(o), o);
     }));
     return [...byKey.values()];
 };
@@ -693,38 +719,60 @@ const findGrids = (text) => {
 // Named places as operators type them: "NAI 1", "nai01", "OBJ GOLD",
 // "Objective Gold", "PL BLUE", "Phase Line Blue". Numbers lose leading zeros,
 // so NAI 01 and NAI 1 are one place. A bare "PL" glued to letters ("PLATOON")
-// is not a phase line; "PL3" is.
+// is not a phase line; "PL3" is. The long forms are words of their own too
+// ("our objective", "the phase line"), so after them a name is a number or
+// starts with a capital ("Objective Silver"); and the common words below are
+// never a name, whatever comes before them ("vic objective area", "obj is
+// clear"). A single letter stays a name: OBJ A is a real objective.
 const REF_TYPES = { NAI: 'NAI', OBJ: 'OBJ', OBJECTIVE: 'OBJ', PL: 'PL', 'PHASE LINE': 'PL' };
 const REF_RE = /(^|[^A-Za-z0-9])(NAI|OBJECTIVE|OBJ|PHASE\s+LINE|PL)(?:\s*[-#:.]\s*|\s+|(?=\d))([A-Za-z0-9]+)/gi;
+const REF_STOP = new Set(['AREA', 'AREAS', 'OF', 'IS', 'WAS', 'ARE', 'THE', 'AN', 'AND', 'OR', 'TO', 'IN', 'ON', 'AT', 'BY', 'FOR',
+    'FROM', 'WITH', 'NEAR', 'INTO', 'ALONG', 'VIC', 'NOT', 'NO', 'CLEAR', 'CLEARED', 'SECURE', 'SECURED', 'TAKEN', 'SEIZED', 'REACHED']);
 const refName = (name) => { const n = String(name).toUpperCase(); return /^\d+$/.test(n) ? String(Number(n)) : n; };
-const findRefs = (text) => {
-    const out = [], seen = new Set();
-    const re = new RegExp(REF_RE.source, 'gi');
+// The place a prefix as typed and the word after it name, or null when the
+// word isn't a name.
+const refOf = (prefix, word) => {
+    const type = REF_TYPES[prefix.toUpperCase().replace(/\s+/g, ' ')];
+    if (!type || !word || REF_STOP.has(word.toUpperCase())) return null;
+    if (prefix.length > 3 && !/^[0-9A-Z]/.test(word)) return null;   // OBJECTIVE, PHASE LINE
+    const name = refName(word);
+    return { type, name, key: `${type} ${name}` };
+};
+// Every place named in some text, in order, with where its prefix starts and
+// its name ends.
+const refMatches = (text) => {
+    const s = String(text || ''), out = [];
+    const re = new RegExp(REF_RE.source, 'gid');
     let m;
-    const s = String(text || '');
     while ((m = re.exec(s))) {
-        const type = REF_TYPES[m[2].toUpperCase().replace(/\s+/g, ' ')];
+        const ref = refOf(m[2], m[3]);
+        if (!ref) continue;
         // "38S PL 12345": the 100 km square of a grid that didn't read as one
         // (a typo), not a phase line.
-        if (type === 'PL' && /\d{1,2}\s*[C-HJ-NP-X]\s*$/i.test(s.slice(0, m.index + m[1].length))) continue;
-        const name = refName(m[3]);
-        const key  = `${type} ${name}`;
-        if (!seen.has(key)) { seen.add(key); out.push({ type, name, key }); }
+        if (ref.type === 'PL' && /\d{1,2}\s*[C-HJ-NP-X]\s*$/i.test(s.slice(0, m.index + m[1].length))) continue;
+        out.push({ ...ref, start: m.indices[2][0], end: m.indices[3][1] });
     }
+    return out;
+};
+const findRefs = (text) => {
+    const out = [], seen = new Set();
+    refMatches(text).forEach(({ type, name, key }) => { if (!seen.has(key)) { seen.add(key); out.push({ type, name, key }); } });
     return out;
 };
 
 // An overlay's name ("NAI 3", "OBJ Gold (bridge)", "Gold") as a place
-// reference. The name is its first word after the prefix, as when typed.
-// Without a prefix, `fallbackType` decides; null when neither does.
+// reference. The name is its first word after the prefix, as when typed (and
+// by the same rules). Without a prefix, `fallbackType` decides, with the
+// first word that isn't a common one; null when neither does.
 const overlayRef = (rawName, fallbackType) => {
     const s = String(rawName || '').trim();
     const m = /^(NAI|OBJECTIVE|OBJ|PHASE\s+LINE|PL)(?:\s*[-#:.]\s*|\s+|(?=\d))([A-Za-z0-9]+)/i.exec(s);
-    const type = m ? REF_TYPES[m[1].toUpperCase().replace(/\s+/g, ' ')] : fallbackType;
-    const word = m ? m[2] : (/[A-Za-z0-9]+/.exec(s) || [])[0];
-    if (!type || !word) return null;
+    const own = m && refOf(m[1], m[2]);
+    if (own) return own;
+    const word = (s.match(/[A-Za-z0-9]+/g) || []).find(w => !REF_STOP.has(w.toUpperCase()));
+    if (!fallbackType || !word) return null;
     const name = refName(word);
-    return { type, name, key: `${type} ${name}` };
+    return { type: fallbackType, name, key: `${fallbackType} ${name}` };
 };
 
 // Ray casting in longitude/latitude: exact enough for areas a few tens of
@@ -767,16 +815,17 @@ const PL_NEAR_METRES = 1000;
 
 // An NAI or OBJ drawn as a path (Google Earth's Add Path, or a ring on its
 // own) is still an area: each path is closed back to its start. A path of
-// fewer than three points stays a line.
+// fewer than three points (or none) stays a line.
 const asArea = (g) => {
     const ring = (line) => {
+        if (!Array.isArray(line) || line.length < 3 || !line.every(Array.isArray)) return null;
         const r = line.slice(), a = r[0], b = r[r.length - 1];
         if (a[0] !== b[0] || a[1] !== b[1]) r.push(a);
         return r.length >= 4 ? [r] : null;
     };
     if (!g) return g;
     if (g.type === 'LineString') { const p = ring(g.coordinates); return p ? { type: 'Polygon', coordinates: p } : g; }
-    if (g.type === 'MultiLineString') {
+    if (g.type === 'MultiLineString' && Array.isArray(g.coordinates)) {
         const ps = g.coordinates.map(ring).filter(Boolean);
         return ps.length ? { type: 'MultiPolygon', coordinates: ps } : g;
     }
@@ -798,8 +847,10 @@ const analyzeLocation = (text, overlays) => {
     points.forEach(p => { rest = rest.slice(0, p.start) + ' '.repeat(p.end - p.start) + rest.slice(p.end); });
     const refs = findRefs(rest);
     const typed = t => refs.filter(r => r.type === t).map(r => r.key);
-    const ovs = (overlays || []).filter(o => o && o.geometry);
-    const keyOf = o => `${o.type} ${o.name}`;
+    // An overlay the server wouldn't take is left out, so one bad shape
+    // can't stop every report being read.
+    const ovs = (overlays || []).filter(overlayOk);
+    const keyOf = overlayKey;
     const contains = (o) => points.some(p => geometryContains(o.geometry, p.lon, p.lat));
     const checks = [];
     const place = (t) => {
@@ -844,8 +895,8 @@ const locationPlan = (text, overlays) => {
     const a = analyzeLocation(text, overlays);
     const plan = { add: [], conflicts: [] };
     if (!a.points.length) return plan;
-    const ovs = (overlays || []).filter(o => o && o.geometry);
-    const keyOf = o => `${o.type} ${o.name}`;
+    const ovs = (overlays || []).filter(overlayOk);
+    const keyOf = overlayKey;
     ['NAI', 'OBJ'].forEach(t => {
         const p = t === 'NAI' ? a.nai : a.obj;
         if (p.from === 'grid') { plan.add.push(...p.keys); return; }
@@ -885,14 +936,7 @@ const editLocation = (text, { replace = {}, add = [] } = {}) => {
         return out;
     };
     if (Object.keys(replace).length) {
-        const re = new RegExp(REF_RE.source, 'gid'), b = blank(s), spans = [];
-        let m;
-        while ((m = re.exec(b))) {
-            const type = REF_TYPES[m[2].toUpperCase().replace(/\s+/g, ' ')];
-            if (type === 'PL' && /\d{1,2}\s*[C-HJ-NP-X]\s*$/i.test(b.slice(0, m.index + m[1].length))) continue;
-            const key = `${type} ${refName(m[3])}`;
-            if (key in replace) spans.push([m.indices[2][0], m.indices[3][1], replace[key]]);
-        }
+        const spans = refMatches(blank(s)).filter(r => r.key in replace).map(r => [r.start, r.end, replace[r.key]]);
         if (spans.length) {
             spans.reverse().forEach(([x, y, to]) => { s = s.slice(0, x) + to + s.slice(y); });
             s = s.replace(/\s*,(\s*,)+\s*/g, ', ').replace(/[ \t]{2,}/g, ' ').replace(/^[\s,;]+|[\s,;]+$/g, '');
@@ -2060,7 +2104,7 @@ const summaryReport = (kind, reps, overlays, opts) => {
 // Every place the summaries can be about: overlays, and whatever is named.
 const summaryPlaces = (reps, overlays) => {
     const d = statsData(reps, overlays, {});
-    const keys = new Set([...(overlays || []).map(o => `${o.type} ${o.name}`), ...d.nai, ...d.obj, ...d.pl].map(x => x.label || x));
+    const keys = new Set([...(overlays || []).filter(overlayOk).map(overlayKey), ...d.nai, ...d.obj, ...d.pl].map(x => x.label || x));
     const order = { NAI: 0, OBJ: 1, PL: 2 };
     return [...keys].sort((a, b) => order[a.split(' ')[0]] - order[b.split(' ')[0]] || a.localeCompare(b, undefined, { numeric: true }));
 };
@@ -3661,7 +3705,7 @@ const SaltCore = {
     escapeHtml, safeColor, safeFilename,
     atoPrefix, reportNum, formatFullId, reportText, normalizeLocation, mgrsPrefix, applyMgrsPrefix,
     BDA_EFFECTS, bdaElements, bdaSummary, bdaRollup, bdaCount, bdaPending,
-    backupFilename, foldOverlays, backupText, allWorkspacesBackupText, parseBackup,
+    backupFilename, foldOverlays, overlayKey, backupText, allWorkspacesBackupText, parseBackup,
     parseCsv, reportsCsv, mtiCsvs,
     utmToLatLon, gridToLatLon, latLonToMgrs, findGrids, findRefs, overlayRef, geometryContains, metresToGeometry,
     webMercatorToLonLat, readDbf, shapefileProjection, parseShapefile,
