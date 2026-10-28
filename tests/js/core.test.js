@@ -1288,6 +1288,28 @@ test('the enemy can be called by another name, and units named from where they o
     // No unit fits: the enemy's name.
     const other = narrative(NARRATIVE_REPS, { narrative: { enemy: 'OPFOR', units: [{ name: 'X', places: ['NAI 9'], kinds: [] }] } }).join(' ');
     assert.ok(other.includes('that OPFOR are preparing a defense in NAI 1.'), other);
+    // Units whose names hold " or " are still listed with "and".
+    const two = narrative(NARRATIVE_REPS, { narrative: { units: [{ name: 'Task Force Sword or Shield', places: ['NAI 1'], kinds: [] },
+        { name: '2-7 IN', places: ['NAI 1'], kinds: [] }] } }).join(' ').replace(/\s+/g, ' ');
+    assert.ok(two.includes('NAI 1 (area of Task Force Sword or Shield and 2-7 IN):'), two);
+});
+
+test('narrative settings from a file are made the kinds the rules need', () => {
+    const reps = [...NARRATIVE_REPS,
+        report({ id: 'n6', displayId: 'ALPHA016', size: '1x PMP', activity: 'bridging the river', location: '38SMB4500082000', time: '2026-10-26T03:00:00Z' }),
+        report({ id: 'n7', displayId: 'ALPHA017', size: '2x trucks', activity: 'at the ferry site', location: '38SMB4500082000', time: '2026-10-26T04:00:00Z' })];
+    const text = narrative(reps, { narrative: {
+        units: [{ name: 7, places: [1, 'NAI 1'], kinds: 'armor' }, { name: '' }],
+        custom: [
+            { what: 'are preparing a river crossing', words: ['bridging', 'ferry'], min: '2', hours: '12' },
+            { what: 'junk', words: { a: 1 }, min: 'x', hours: 12 },
+            { what: 'nothing', words: ' , ', min: 1, hours: 12 },
+        ],
+    } }).join(' ').replace(/\s+/g, ' ');
+    // min "2" is 2, not "21": two reports are enough, and a third would be "likely".
+    assert.ok(text.includes('ROUGHLY EVEN CHANCE (45-55%) that elements of 7 are preparing a river crossing in NAI 1.'), text);
+    assert.ok(text.includes('Basis: reports of bridging, ferry within 12 hrs'), text);
+    assert.ok(!text.includes('junk') && !text.includes('nothing in'), text);
 });
 
 test("the team's own equipment, rules switched off, and rules of their own", () => {
@@ -1413,7 +1435,8 @@ test('the new rules: fires, maneuver, defense and support, each from its own sig
         [[['4x PAX', 'firing at OP', NAI1], ['10x T-72', 'moving W', NAI2]], 'are fixing friendly forces in NAI 1, with armor moving through NAI 2'],
         [[['3x PAX', 'hiding in the treeline', NAI1], ['2x PAX', 'observing', NAI1], ['3x PAX', 'stationary in a basement', NAI1]], 'are building up small infantry groups in NAI 1'],
         [[['3x motorcycles, 6x PAX', 'moving W', NAI1], ['2x buggy, 4x PAX', 'moving W', NAI1]], 'are moving fast in small groups on light vehicles through NAI 1'],
-        [[['2x Su-25', 'landed, refueling', NAI1], ['1x ATZ fuel truck', 'stationary', NAI1]], 'a forward arming and refueling point for helicopters in NAI 1'],
+        // A FARP is for helicopters: this was 2x Su-25 (fixed-wing), which no longer makes one.
+        [[['2x Mi-24', 'landed, refueling', NAI1], ['1x ATZ fuel truck', 'stationary', NAI1]], 'a forward arming and refueling point for helicopters in NAI 1'],
         [[['2x Lancet', 'struck trucks on the MSR', NAI1], ['1x FPV', 'hit vehicles on the road', NAI1]], 'are cutting the routes through NAI 1'],
         [[['1x ASN-301', 'launching', NAI1]], 'are suppressing friendly air defense'],
     ];
@@ -1424,6 +1447,13 @@ test('the new rules: fires, maneuver, defense and support, each from its own sig
     // Fire support and a firing position are not contact.
     const t = said(atPlaces([['2x T-72', 'moving to a fire support position', NAI1], ['2x T-72', 'in firing positions', NAI1]]));
     assert.ok(!t.includes('probing friendly positions'), t);
+    // Fixed-wing aircraft: attack aviation, but no FARP or air assault from them.
+    const jets = said(atPlaces([['2x Su-25', 'landed, refueling', NAI1], ['1x ATZ fuel truck', 'stationary', NAI1], ['2x Il-76', 'landed', NAI1]]));
+    assert.ok(!jets.includes('refueling point for helicopters') && !jets.includes('air assault'), jets);
+    assert.ok(jets.includes('are supporting ground forces with attack aviation'), jets);
+    // Transport helicopters with gunships escorting are an air assault.
+    const lift = said(atPlaces([['4x Mi-8', 'landing troops', NAI1], ['2x Ka-52', 'orbiting', NAI1]]));
+    assert.ok(lift.includes('air assault'), lift);
 });
 
 test('a point becomes the MGRS grid it is in, and back', () => {

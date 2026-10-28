@@ -2779,6 +2779,8 @@ const ruleWords = (words) => new RegExp(`\\b(${String(words).split(',').map(w =>
 // What some equipment can do, by catalogue name, and the words in a report
 // that say the same ("bridging", "jamming").
 const capability = (names, words) => ({ names: new Set(names), words });
+const ATTACK_HELOS = ['Mi-24', 'Mi-35', 'Mi-28', 'Ka-50', 'Ka-52', 'Z-10', 'Z-19', 'Z-21'];
+const LIFT_HELOS = ['Mi-8', 'Mi-17', 'Mi-26', 'Ka-29', 'Z-8', 'Z-18', 'Z-20', 'S-70C2'];
 const CAPABILITIES = {
     uav: capability(['Orlan-10', 'Zala', 'Eleron-3', 'Forpost', 'Granat', 'Takhion', 'Supercam', 'Merlin-VR', 'ASN-206', 'ASN-207', 'ASN-209',
         'BZK-005', 'BZK-006', 'BZK-007', 'BZK-008', 'BZK-009', 'WZ-7', 'TB-001', 'CH-3'],
@@ -2795,11 +2797,15 @@ const CAPABILITIES = {
         /\b(thermobaric|flamethrowers?|shmel)\b/i),
     loitering: capability(['Lancet', 'Geran-2', 'Kub-BLA', 'Gerbera', 'Garpiya', 'Italmas', 'Molniya', 'KVN', 'VT-40', 'Skalpel', 'FPV',
         'CH-901', 'ASN-301', 'CM-501XA', 'WS-43'], /\b(loitering|kamikaze|fpvs?|one[- ]way attack|fib(er|re)[- ]?optic)\b/i),
-    attackAir: capability(['Mi-24', 'Mi-35', 'Mi-28', 'Ka-50', 'Ka-52', 'Su-24', 'Su-25', 'Su-34', 'Yak-130', 'Z-10', 'Z-19', 'Z-21', 'JH-7',
+    // Aircraft, rotary-wing apart from fixed-wing: only helicopters fly from
+    // a FARP or carry an air assault. Attack aviation is either, and armed UAVs.
+    attackHelo: capability(ATTACK_HELOS, /\b(gunships?|attack helicopters?)\b/i),
+    liftHelo: capability(LIFT_HELOS, /\b(transport helicopters?|lift helicopters?)\b/i),
+    helo: capability([...ATTACK_HELOS, ...LIFT_HELOS, 'Mi-2', 'Ka-226', 'Ka-27', 'Ansat', 'Z-9', 'Z-11', 'H120', 'SA342'],
+        /\b(helicopters?|helos?|gunships?)\b/i),
+    attackAir: capability([...ATTACK_HELOS, 'Su-24', 'Su-25', 'Su-34', 'Yak-130', 'JH-7',
         'CH-4', 'CH-5', 'KDV002', 'Wing Loong', 'GJ-11', 'Orion', 'Forpost-R', 'Okhotnik', 'Altius'],
     /\b(gunships?|attack helicopters?|close air support|air ?strikes?)\b/i),
-    liftAir: capability(['Mi-8', 'Mi-17', 'Mi-26', 'Ka-29', 'Z-8', 'Z-18', 'Z-20', 'S-70C2', 'Y-7', 'Y-8', 'Y-9', 'Y-20', 'Il-76', 'An-12',
-        'An-22', 'An-26'], /\b(transport helicopters?|lift helicopters?)\b/i),
     vdv: capability(['BMD-1', 'BMD-2', 'BMD-3', 'BMD-4', 'BTR-D', 'BTR-MD', 'BTR-ZD', 'BTR-RD', '2S9', '2S25', '2S42', 'ZBD-03'], /\b(vdv|paratroop\w*)\b/i),
     airlanding: capability([], /\b(air ?assault|airborne landing|heliborne|landing zone|lz|parachut\w*|air ?drop\w*|landed by helicopter)\b/i),
     amphibious: capability(['ZBD-05', 'ZTD-05', 'ZSD-05', 'Type 63A', 'PT-76', 'K-61'], /\b(amphibious|beach(ed|ing)?|landing craft|naval infantry|marines?|swimming)\b/i),
@@ -3007,10 +3013,11 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             judge('amphibious', levelBy(kindsOf(signs), 2, 3), `are preparing or conducting an amphibious landing or crossing near ${area}`, signs, [area]);
         }
         // Air assault: transport helicopters or landings, with airborne vehicles or escorts.
-        const lift = at(f => can(f, 'liftAir')), landing = at(f => can(f, 'airlanding'));
+        // Transport aircraft (Il-76, Y-20) alone are not one: they fly supplies too.
+        const lift = at(f => can(f, 'liftHelo')), landing = at(f => can(f, 'airlanding'));
         if (on('airassault') && (lift.length || landing.length)) {
             const signs = [['transport helicopters', lift], ['an air assault or landing reported', landing],
-                ['airborne (VDV) vehicles or paratroopers', at(f => can(f, 'vdv'))], ['attack helicopters escorting', at(f => can(f, 'attackAir'))]];
+                ['airborne (VDV) vehicles or paratroopers', at(f => can(f, 'vdv'))], ['attack helicopters escorting', at(f => can(f, 'attackHelo'))]];
             judge('airassault', levelBy(kindsOf(signs), 2, 3), {
                 RU: `are conducting or preparing an air assault or airborne landing near ${area} (VDV or air-assault forces)`,
                 CN: `are conducting or preparing an air assault near ${area} (an air-assault brigade)`,
@@ -3186,7 +3193,8 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
                 [['armor, artillery or supplies on trains or at a railhead', trains], ['loading or unloading', unloading]], [area]);
         }
         // A helicopter refueling point: helicopters on the ground with fuel, or a FARP reported.
-        const helos = at(f => (can(f, 'attackAir') || can(f, 'liftAir')) && (has(f, 'Stationary', 'Resupplying') || /\b(landed|on the ground)\b/i.test(f.r.activity || '')));
+        // Fixed-wing aircraft refueling (Su-25s at an airfield) are not one.
+        const helos = at(f => can(f, 'helo') && (has(f, 'Stationary', 'Resupplying') || /\b(landed|on the ground)\b/i.test(f.r.activity || '')));
         const farpSaid = at(f => FARP.test(f.r.activity || ''));
         const fuel = at(f => (f.roles.has('logistics') && FUEL_AMMO.test(textOf(f))) || has(f, 'Resupplying'));
         if (on('farp') && ((helos.length && fuel.length) || farpSaid.length)) {
@@ -3538,18 +3546,27 @@ const unitsFor = (j, units) => {
     return units.filter(u => (!u.places.length || u.places.some(p => at.has(p.toUpperCase())))
         && (!u.kinds.length || u.kinds.some(k => j.list.some(f => f.roles.has(k)))));
 };
-const orList = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`);
+// "A, B or C" and "A, B and C".
+const wordList = (names, word) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} ${word} ${names[names.length - 1]}`);
+const orList = (names) => wordList(names, 'or');
+const andList = (names) => wordList(names, 'and');
 
-// The narrative's settings as the rules use them, with what's unset filled in.
+// The narrative's settings as the rules use them, with what's unset filled
+// in. Settings come from a file or the server, so each value is made the
+// kind the rules need (a count typed as "2" is 2; words given as a list are
+// one comma-separated line), and an entry that still makes no sense is left out.
 const narrativeSettings = (s) => {
     s = s && typeof s === 'object' ? s : {};
     const list = (v) => (Array.isArray(v) ? v : []);
+    const text = (v) => (Array.isArray(v) ? v.map(String).join(', ') : v == null || typeof v === 'object' ? '' : String(v)).trim();
     return {
-        enemy: String(s.enemy || '').trim() || 'enemy forces',
-        units: list(s.units).filter(u => u && u.name).map(u => ({ name: u.name, places: list(u.places), kinds: list(u.kinds) })),
-        team: teamEquipment(list(s.equipment).filter(e => e && e.type && e.role)),
+        enemy: text(s.enemy) || 'enemy forces',
+        units: list(s.units).filter(u => u && text(u.name)).map(u => ({ name: text(u.name), places: list(u.places).map(text).filter(Boolean), kinds: list(u.kinds).map(text).filter(Boolean) })),
+        team: teamEquipment(list(s.equipment).filter(e => e && text(e.type) && text(e.role)).map(e => ({ type: text(e.type), role: text(e.role), origin: text(e.origin) }))),
         off: new Set(list(s.off)),
-        custom: list(s.custom).filter(c => c && c.what && c.words && c.min > 0 && c.hours > 0),
+        custom: list(s.custom).filter(c => c && typeof c === 'object')
+            .map(c => ({ what: text(c.what), words: text(c.words), min: Number(c.min), hours: Number(c.hours) }))
+            .filter(c => c.what && c.words.split(',').some(w => w.trim()) && Number.isFinite(c.min) && c.min > 0 && Number.isFinite(c.hours) && c.hours > 0),
     };
 };
 
@@ -3632,7 +3649,7 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, width = 
             const kinds = EQUIPMENT_ROLES.map(([r]) => r).filter(r => list.some(f => f.roles.has(r))).map(r => label[r]);
             // Whose area it is, from the unit list (not from the reports).
             const whose = set.units.filter(u => u.places.some(q => q.toUpperCase() === p.label.toUpperCase())).map(u => u.name);
-            say(`${p.label}${whose.length ? ` (area of ${orList(whose).replace(/ or /, ' and ')})` : ''}: ${plural(list.length, 'report')}, ${dayTime(list[0].ms, local)} to ${dayTime(list[list.length - 1].ms, local)}`
+            say(`${p.label}${whose.length ? ` (area of ${andList(whose)})` : ''}: ${plural(list.length, 'report')}, ${dayTime(list[0].ms, local)} to ${dayTime(list[list.length - 1].ms, local)}`
                 + `${kinds.length ? `; ${kinds.join(', ')}` : ''}; ${activityLine(list)}.`, '     ', '       ');
         });
     }
