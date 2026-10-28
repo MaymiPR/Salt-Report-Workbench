@@ -584,6 +584,16 @@ body.local-mode .startup-access-divider { display: none; }
 }
 .discard-btn { background-color: rgba(255, 69, 58, 0.12); color: var(--system-red); font-size: 0.74em; font-weight: 600; padding: 4px 10px; border-radius: 100px; margin: 0; border: none; letter-spacing: 0.02em; }
 .discard-btn:hover { background-color: rgba(255, 69, 58, 0.22); opacity: 1; }
+/* Two live reports share this number: Renumber gives this one the next free. */
+.dupe-badge {
+    font-size: 0.8em;
+    color: var(--system-orange);
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: help;
+}
+.renumber-btn { background-color: rgba(255, 159, 10, 0.12); color: var(--system-orange); font-size: 0.74em; font-weight: 600; padding: 4px 10px; border-radius: 100px; margin: 0; border: none; letter-spacing: 0.02em; }
+.renumber-btn:hover { background-color: rgba(255, 159, 10, 0.22); opacity: 1; }
 
 /* ── History toggle — small rotating chevron with hover wash. */
 .history-btn {
@@ -1077,6 +1087,7 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 }
 .workspace-row-meta .workspace-source { font-style: italic; opacity: 0.9; }
 .workspace-row-meta .workspace-source.empty { font-style: normal; opacity: 0.6; }
+.workspace-row-meta .workspace-here { margin-left: 8px; color: var(--text-primary); font-weight: 600; }
 .workspace-row-counts {
     font-size: 0.8em;
     color: var(--text-secondary);

@@ -496,7 +496,7 @@ class BrowserTests(unittest.TestCase):
         page.evaluate(
             """() => { const apply = applyServerUpdate; window.bdaPulled = false;
                 applyServerUpdate = (...args) => { apply(...args);
-                    if (Object.values(args[0] || {}).flat().some(r => (r.bda || []).length === 1)) window.bdaPulled = true; }; }"""
+                    if (Object.values((args[0] || {}).workspaces || {}).flat().some(r => (r.bda || []).length === 1)) window.bdaPulled = true; }; }"""
         )
         page.click(".bda-commit-btn")
         page.wait_for_selector("#bdaRollup:has-text('BDA 4 / 7')")
@@ -619,6 +619,122 @@ class BrowserTests(unittest.TestCase):
         )
         self.wait_for_server(
             page, f"s => (s.workspaces['{old}'] || []).map(r => r.size).join() === '1x BTR'"
+        )
+
+    def test_a_switch_moves_only_the_editor_who_switched(self):
+        page = self.open_editor()
+        old = self.ato
+        self.log(page, "1x BTR")
+        other = self.second_editor("CD", old)
+        other.wait_for_selector("#reportLogBody .col-size:has-text('1x BTR')")
+        viewer = self.open_viewer()
+        new = old[:24] + "MINE"
+        page.click("#setAtoBtn")  # Change
+        page.fill("#atoDesignator", new)
+        page.click("#setAtoBtn")  # Set
+        page.wait_for_selector("#toast-notification:has-text('Configuration synced')")
+        self.log(page, "2x BMP")
+        # The other editor stays where they were, with their reports.
+        other.wait_for_function(f"Object.keys(reportsByAto).includes('{new}')")
+        self.assertEqual(other.evaluate("activeAto"), old)
+        self.assertEqual(other.input_value("#atoDesignator"), old)
+        self.assertEqual(self.sizes(other), ["1x BTR"])
+        # Viewers are shown the workspace switched to last.
+        viewer.wait_for_function(f"activeAto === '{new}'")
+        # And the chip says who is where (every page here is one machine).
+        page.wait_for_function(
+            f"document.querySelector('#connected-users').title.endsWith(' in {new}')"
+        )
+        # A sync leaves each where they are.
+        other.evaluate("() => syncWithServer()")
+        page.evaluate("() => syncWithServer()")
+        self.assertEqual((page.evaluate("activeAto"), other.evaluate("activeAto")), (new, old))
+
+    def test_a_workspace_unloaded_by_someone_else_is_left(self):
+        page = self.open_editor()
+        self.log(page, "1x BTR")
+        other = self.second_editor("CD", self.ato)
+        other.wait_for_selector("#reportLogBody .col-size:has-text('1x BTR')")
+        other.click("#dataMgmtBtn")
+        other.click("#clearAllBtn")
+        other.click("#confirmActionBtn")
+        page.wait_for_selector("#toast-notification:has-text('was unloaded by another operator')")
+        self.assertEqual(page.evaluate("activeAto"), "")
+        self.assertEqual(self.sizes(page), [])
+        self.assertFalse(page.evaluate("el.config.ato.readOnly"), "the fields are open to set one")
+        # Set again, it's back in use, and a sync doesn't move this editor out.
+        page.fill("#atoDesignator", self.ato)
+        page.fill("#reportTitlePrefix", "Patrol")
+        page.click("#setAtoBtn")
+        page.wait_for_selector("#toast-notification:has-text('Configuration synced')")
+        self.wait_for_server(page, f"s => !s.unloaded.includes('{self.ato}')")
+        self.log(page, "2x BMP")
+        page.evaluate("() => syncWithServer()")
+        self.assertEqual(page.evaluate("activeAto"), self.ato)
+
+    def test_an_edit_is_saved_once(self):
+        # Edit sent edit_report and then save_reports with the same change.
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        self.wait_for_server(page, f"s => (s.workspaces['{self.ato}'] || []).length === 1")
+        sent = []
+        page.on(
+            "request",
+            lambda r: sent.append(r.url.rsplit("/", 1)[1]) if r.method == "POST" else None,
+        )
+        page.click("#reportLogBody .id-edit-btn")
+        page.fill("#size", "3x BTR")
+        page.click("#editButton")
+        self.wait_for_server(
+            page, f"s => s.workspaces['{self.ato}'].map(r => r.size).join() === '3x BTR'"
+        )
+        page.wait_for_timeout(300)
+        self.assertEqual(sent, ["edit_report"])
+        # Not reachable, it is sent with the rest when the server is back.
+        page.route("**/api/edit_report", lambda route: route.abort())
+        page.click("#reportLogBody .id-edit-btn")
+        page.fill("#size", "4x BTR")
+        page.click("#editButton")
+        self.wait_for_server(
+            page, f"s => s.workspaces['{self.ato}'].map(r => r.size).join() === '4x BTR'"
+        )
+        self.assertEqual(sent[1:], ["edit_report", "save_reports"])
+
+    def test_reports_sharing_a_number_are_flagged_and_renumbered(self):
+        page = self.open_editor()
+        self.log(page, "1x BTR")
+        # Logged at once on another machine, with the same number.
+        twin = page.evaluate(
+            """ato => { const r = localReports[0];
+                return { ...r, id: 'twin-' + r.id, size: '2x BMP', lastModified: Date.now() }; }""",
+            self.ato,
+        )
+        page.evaluate(
+            """([ato, twin]) => fetch('/api/save_reports', { method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ato, reports: [twin] }) })""",
+            [self.ato, twin],
+        )
+        page.wait_for_function(
+            "document.querySelectorAll('#reportLogBody .dupe-badge').length === 2"
+        )
+        self.assertEqual(page.locator("#reportLogBody .renumber-btn").count(), 2)
+        viewer = self.open_viewer()
+        viewer.wait_for_function(
+            "document.querySelectorAll('#reportLogBody .dupe-badge').length === 2"
+        )
+        self.assertEqual(viewer.locator("#reportLogBody .renumber-btn").count(), 0, "editors only")
+        page.click("#reportLogBody tr:has(.col-size:has-text('2x BMP')) .renumber-btn")
+        page.wait_for_selector("#toast-notification:has-text('is now Patrol')")
+        self.wait_for_server(
+            page,
+            f"s => s.workspaces['{self.ato}'].map(r => r.displayId).sort().join() === "
+            f"'{self.ato}001,{self.ato}002'",
+        )
+        page.wait_for_function("!document.querySelector('#reportLogBody .dupe-badge')")
+        # A renumber is an edit: no update entry.
+        self.assertEqual(
+            page.evaluate("localReports.find(r => r.size === '2x BMP').history.length"), 0
         )
 
     def test_an_update_asks_when_someone_else_changed_the_report(self):

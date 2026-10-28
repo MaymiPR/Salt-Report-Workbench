@@ -67,6 +67,8 @@ def reset_state() -> None:
     )
     srv.workspace_sources.clear()
     srv.client_initials.clear()
+    srv.client_workspace.clear()
+    srv.unloaded_workspaces.clear()
     srv._rate_buckets.clear()
     srv._auth_fail_buckets.clear()
     srv._basemap_buckets.clear()
@@ -537,7 +539,7 @@ class AccessCodeTests(unittest.TestCase):
     def test_blank_or_unsendable_access_code_overrides_are_refused(self):
         # Regression: --access-code " " became an empty code that an empty
         # cookie matched, silently opening the editor port.
-        for bad in (" ", "", "with space", "x" * 65, "café"):
+        for bad in (" ", "", "with space", "x" * 65, "café", "abc12", " abc12 "):
             with (
                 mock.patch.object(sys, "argv", ["salt_sync_server", "--access-code", bad]),
                 mock.patch("sys.stderr", io.StringIO()),
@@ -546,6 +548,8 @@ class AccessCodeTests(unittest.TestCase):
                 srv.parse_cli_args()
         with mock.patch.object(sys, "argv", ["salt_sync_server", "--access-code", "Field-Day_7"]):
             self.assertEqual(srv.parse_cli_args().access_code, "Field-Day_7")
+        with mock.patch.object(sys, "argv", ["salt_sync_server", "--access-code", "abc123"]):
+            self.assertEqual(srv.parse_cli_args().access_code, "abc123", "six is enough")
 
 
 class ErrorReportingTests(unittest.TestCase):
@@ -1258,6 +1262,44 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(edited["size"], "3x T-72")
         self.assertEqual(edited["user"]["initials"], "AB")
 
+    def test_a_saved_report_is_attributed_to_whoever_changed_it(self):
+        ab = {"initials": "AB", "color": "#32d74b"}
+        cd = {"initials": "CD", "color": "#ff453a"}
+        self.post("/api/save_profile", {"profile": ab})
+        self.post("/api/save_profile", {"profile": cd})
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report(user=ab)]})
+        # CD changes one report and deletes another, from a page that put its
+        # own name on both: the one changed is CD's, the one only deleted is
+        # still AB's. The profile is the server's, not the page's copy of it.
+        changed = report(lm=2, size="3x T-72", user={**cd, "color": "#000000"})
+        gone = report(rid="r2", lm=2, user=cd, deleted=True)
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report(rid="r2", user=ab)]})
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [changed, gone]})
+        by_id = {r["id"]: r for r in self.sync()["workspaces"]["ALPHA"]}
+        self.assertEqual(by_id["r1"]["user"], cd)
+        self.assertTrue(by_id["r2"]["deleted"])
+        self.assertEqual(by_id["r2"]["user"], ab)
+        # An import keeps its reports' own authors.
+        ef = {"initials": "EF", "color": "#0a84ff"}
+        imp = {"ato": "BRAVO", "reports": [report(rid="b1", user=ef)], "source": "backup"}
+        self.post("/api/save_reports", imp)
+        self.assertEqual(self.sync()["workspaces"]["BRAVO"][0]["user"], ef)
+
+    def test_an_unloaded_workspace_is_listed_until_someone_works_in_it(self):
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        self.assertEqual(self.sync()["unloaded"], [])
+        self.post("/api/unload_ato", {"ato": "ALPHA"})
+        self.assertEqual(self.sync()["unloaded"], ["ALPHA"])
+        # Switched to again, or a report saved in it, it's in use again.
+        self.post("/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol"}})
+        self.assertEqual(self.sync()["unloaded"], [])
+        self.post("/api/unload_ato", {"ato": "ALPHA"})
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report(rid="r2")]})
+        self.assertEqual(self.sync()["unloaded"], [])
+        # One that was never loaded isn't listed.
+        self.post("/api/unload_ato", {"ato": "NEVER"})
+        self.assertEqual(self.sync()["unloaded"], [])
+
     def test_an_edit_to_an_older_copy_is_refused(self):
         # Regression: edit_report overwrote whatever the server held, so an
         # edit made to a stale copy undid a later change by someone else.
@@ -1275,7 +1317,9 @@ class HttpApiTests(unittest.TestCase):
             )
             self.assertEqual(status, 200, lm)
             self.assertEqual(self.sync()["workspaces"]["ALPHA"][0]["size"], size)
-        # What the page does: the edit, then save_reports with the same stamp.
+        # What a page from before 2.19 does: the edit, then save_reports with
+        # the same stamp (the page now sends save_reports only when the edit
+        # couldn't be sent).
         now = 70
         fields = {"size": "page edit", "lastModified": now}
         self.assertEqual(self.post("/api/edit_report", {**edit, "fields": fields})[0], 200)
@@ -2248,6 +2292,32 @@ class HttpApiTests(unittest.TestCase):
         resp.close()
         self.assertTrue(self.wait_until(lambda: not srv.sse_clients), "client pruned on close")
         self.assertNotIn("127.0.0.1", srv.client_initials, "its IP->initials entry went with it")
+        self.assertNotIn("127.0.0.1", srv.client_workspace, "and where it was")
+
+    def test_sync_says_which_workspace_each_connected_editor_is_in(self):
+        self.post("/api/save_profile", {"profile": {"initials": "AB", "color": "#32d74b"}})
+        resp = self.open_events()
+        resp.readline()
+        try:
+            self.assertTrue(self.wait_until(lambda: len(srv.sse_clients) == 1))
+            self.assertEqual(self.sync()["connected_where"], {}, "nowhere yet")
+            self.post("/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol"}})
+            self.assertEqual(self.sync()["connected_where"], {"AB": "ALPHA"})
+            # A report saved says it too, and the config (what viewers are
+            # shown) is left as it was.
+            self.post("/api/save_reports", {"ato": "BRAVO", "reports": [report(ato="BRAVO")]})
+            state = self.sync()
+            self.assertEqual(state["connected_where"], {"AB": "BRAVO"})
+            self.assertEqual(state["config"]["ato"], "ALPHA")
+            # A backup sends every workspace in it: it doesn't move anyone.
+            backup = {"ato": "CHARLIE", "reports": [report(rid="c1")], "source": "backup"}
+            self.post("/api/save_reports", backup)
+            self.assertEqual(self.sync()["connected_where"], {"AB": "BRAVO"})
+            # Unloaded, it's nobody's workspace any more.
+            self.post("/api/unload_ato", {"ato": "BRAVO"})
+            self.assertEqual(self.sync()["connected_where"], {})
+        finally:
+            resp.close()
 
     def test_the_host_counts_once_with_a_localhost_and_a_lan_tab(self):
         # Regression: the launcher opens the LAN URL, so a host with a

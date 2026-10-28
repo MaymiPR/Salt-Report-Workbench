@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Duplicate report numbers are flagged.** Two reports logged with one number
+  (at once on two machines, or one while the server couldn't be reached) are
+  both marked **Duplicate**, and **Renumber** gives either one the next free
+  number in its workspace.
+- **Who is where.** The Workspaces list shows the initials of the editors in
+  each workspace, and pointing at the connected-users count lists them.
+
+### Changed
+
+- **Each editor has their own workspace.** Setting or picking one moves only
+  you; the others keep theirs. Viewers are shown the last workspace an editor
+  switched to. An editor whose workspace someone else unloads is told, and
+  sets one to keep logging.
+- **Importing a backup or CSV switches only you**, not everyone.
+- **An Edit is saved once**, through the edit route alone, instead of twice.
+  The server stamps the editor on every report that is new or changed, by
+  either route; a report only deleted or put back keeps its author, and an
+  import keeps its reports' own.
+- **A chosen `--access-code` must be at least 6 characters** (the generated
+  one is 10).
+
 ## [2.18.0] - 2026-10-28
 
 ### Added

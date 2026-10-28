@@ -254,6 +254,31 @@ const discardUnsaved = (ids, { confirm = true } = {}) => {
         : `Discard ${reps.length} unsaved changes?`, run);
 };
 
+// Give a report the next free number in its workspace: two reports logged
+// with one number (at once, one of them offline) are told apart again. Saved
+// as an Edit is: no history entry, one save.
+async function renumberReport(id) {
+    if (isReadOnly) return;
+    const r = localReports.find(x => x.id === id && !x.deleted);
+    if (!r) return;
+    const ato = activeAto, was = formatFullId(r);
+    const did = `${r.ato}${String(SaltCore.nextNum(localReports.filter(x => x.ato === r.ato))).padStart(3, '0')}`;
+    const next = { ...r, displayId: did, fullId: `${r.title || 'Report #'}${did}`, lastModified: nextStamp(r), user: userProfile };
+    localReports = localReports.map(x => x === r ? next : x);
+    reportsByAto[ato] = localReports;
+    const res = await apiPost('/api/edit_report', { ato, reportId: id, fields: {
+        displayId: next.displayId, fullId: next.fullId, user: userProfile, lastModified: next.lastModified } });
+    if (res.status === 409) {
+        // Changed by someone since: theirs comes back, and the badge with it.
+        await syncWithServer();
+        showToast(`${was} was just changed by another operator. Renumber it again if it still shares a number.`, true);
+        return;
+    }
+    if (res.ok) markSaved(ato, [next]);
+    showToast(`${was} is now ${formatFullId(next)}.`);
+    await saveLocalAndSync(reportsByAto);
+}
+
 // --- Undo ---
 // Delete and Restore offer an Undo button for a few seconds. Undo works on
 // the workspace it came from by report id, because a sync in the meantime

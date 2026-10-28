@@ -167,6 +167,18 @@ test('report numbers ignore digits that belong to the ATO', () => {
     assert.equal(core.reportNum({ displayId: 'LEGACY7' }), 7);
     assert.equal(core.reportNum(null), 0);
 });
+test('duplicateIds names the numbers live reports share; nextNum is past the highest', () => {
+    const r = (id, displayId, extra = {}) => ({ id, displayId, ato: 'ALPHA', ...extra });
+    const reps = [r('a', 'ALPHA001'), r('b', 'ALPHA002'), r('c', 'ALPHA002'), r('d', 'ALPHA003'),
+        r('e', 'ALPHA003', { deleted: true }), r('f', 'ALPHA009', { deleted: true })];
+    assert.deepEqual([...core.duplicateIds(reps)], ['ALPHA002']);
+    assert.equal(core.duplicateIds([]).size, 0);
+    assert.equal(core.duplicateIds(null).size, 0);
+    // A deleted report's number is free again.
+    assert.equal(core.nextNum(reps), 4);
+    assert.equal(core.nextNum([]), 1);
+});
+
 
 test('identifiers follow the title separator; legacy rows keep fullId', () => {
     assert.equal(core.formatFullId(report(), 'dash'), 'Patrol - ALPHA001');
