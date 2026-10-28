@@ -280,6 +280,9 @@ const finishOverlayImport = async () => {
 // --- The Map tab: the ops graphics ---
 
 const overlayGroupsOpen = new Set();   // the groups opened, by type
+// The overlay whose × was pressed once (its key): its name asks "Remove for
+// everyone?" in place, as a basemap's does, and a second press removes it.
+let overlayRemoving = null;
 const renderOverlays = () => {
     const box = document.getElementById('overlaysBody');
     if (!box) return;
@@ -309,6 +312,7 @@ const renderOverlays = () => {
     }
 
     const list = currentOverlays();
+    if (overlayRemoving && !list.some(o => overlayKey(o) === overlayRemoving)) overlayRemoving = null;
     // The map of them is the Map view (app/49-mapview.js).
     const header = `<div class="overlays-head">
         <div class="overlays-actions editor-only">
@@ -334,7 +338,10 @@ const renderOverlays = () => {
         // The name in the file, when it says more than the overlay's own name.
         const said  = String(o.label || '').toUpperCase().replace(/\s+/g, ' ').trim();
         const extra = said && said !== key && said !== o.name ? ` <span class="overlays-muted">${escapeHtml(o.label)}</span>` : '';
-        return `<tr><td><span class="overlay-type overlay-${o.type.toLowerCase()}">${o.type}</span> ${escapeHtml(o.name)}${extra}</td>
+        const name = overlayRemoving === key
+            ? `<span class="map-base-ask overlay-ask" role="status" title="${escapeHtml(key)}">Remove for everyone?</span>`
+            : `${escapeHtml(o.name)}${extra}`;
+        return `<tr><td><span class="overlay-type overlay-${o.type.toLowerCase()}">${o.type}</span> ${name}</td>
             <td>${SHAPE_LABEL[o.geometry.type] || ''}</td><td>${uses[key] || 0}</td>
             <td><button type="button" class="overlay-remove editor-only" data-remove-overlay="${i}" title="Unload ${escapeHtml(key)}" aria-label="Unload ${escapeHtml(key)}">&times;</button></td></tr>`;
     };
@@ -365,6 +372,19 @@ const overlaysBody = document.getElementById('overlaysBody');
 const overlaysFileInput = document.getElementById('overlaysFileInput');
 if (overlaysBody && overlaysFileInput) {
     overlaysBody.addEventListener('click', e => {
+        const rm = e.target.closest('[data-remove-overlay]');
+        if (rm) {
+            const list = currentOverlays();
+            const victim = list[+rm.dataset.removeOverlay];
+            if (!victim) return;
+            // The first press asks; the second (on the same one) removes it.
+            if (overlayRemoving !== overlayKey(victim)) { overlayRemoving = overlayKey(victim); renderOverlays(); return; }
+            overlayRemoving = null;
+            saveOverlays(list.filter(o => o !== victim));
+            return;
+        }
+        // Any other button pressed: a × that asked is let go.
+        if (overlayRemoving && e.target.closest('button')) { overlayRemoving = null; renderOverlays(); }
         if (e.target.closest('#overlaysImportBtn')) { overlaysFileInput.click(); return; }
         // Every list opened, or every list closed.
         const fold = e.target.closest('[data-overlay-fold]');
@@ -387,12 +407,6 @@ if (overlaysBody && overlaysFileInput) {
             showConfirmation(`Unload all ${n} ${type} overlay${n === 1 ? '' : 's'}? Reports are not changed.`,
                 () => saveOverlays(currentOverlays().filter(o => o.type !== type)));
             return;
-        }
-        const rm = e.target.closest('[data-remove-overlay]');
-        if (rm) {
-            const list = currentOverlays();
-            const victim = list[+rm.dataset.removeOverlay];
-            if (victim) saveOverlays(list.filter(o => o !== victim));
         }
     });
     // Opened or closed: remembered, so a redraw keeps it.

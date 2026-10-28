@@ -636,6 +636,12 @@ body.local-mode .startup-access-divider { display: none; }
 .confirm-btn { background-color: var(--system-red); }
 .cancel-btn { background-color: var(--input-bg); color: var(--text-primary); }
 
+/* Review fixes: toasts, dialogs, table access */
+/* An overlay's × pressed once: its name asks in place (as a basemap's does),
+   wrapping rather than running into the next column. */
+.overlay-ask { white-space: normal; }
+/* End of review fixes */
+
 .input-group { margin-bottom: 12px; }
 
 /* --- Horizontal layout ---
