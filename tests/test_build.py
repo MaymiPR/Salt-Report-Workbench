@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -63,6 +64,82 @@ class BundleTests(unittest.TestCase):
             build.bundle('<html><link rel="stylesheet" href="s.css"></html>', "", {})
         with self.assertRaisesRegex(ValueError, "b.js"):
             build.bundle(PAGE.replace("app.js", "b.js"), "", {"app.js": ""})
+
+
+# A name declared at the top of a script: `const|let|var name`, a
+# destructured `const { a, b } = ...`, `function name`, or `class name`.
+_TOP_DECL = re.compile(
+    r"^(?:(?:const|let|var)\s*\{(?P<names>[^}]*)\}|(?:const|let|var)\s+(?P<first>.*)"
+    r"|(?:async\s+)?function\s*\*?\s*(?P<fn>[A-Za-z_$][\w$]*)|class\s+(?P<cls>[A-Za-z_$][\w$]*))",
+    re.MULTILINE,
+)
+_IDENT = re.compile(r"[A-Za-z_$][\w$]*")
+
+
+def top_level_names(code: str) -> set[str]:
+    """The names a page script declares at its top level (line start)."""
+    names: set[str] = set()
+    for m in _TOP_DECL.finditer(code):
+        if m["names"] is not None:  # { a, b: c, d = 1 }: what each binds
+            for part in m["names"].split(","):
+                bound = part.split("=")[0].split(":")[-1].strip()
+                if _IDENT.fullmatch(bound):
+                    names.add(bound)
+        elif m["first"] is not None:  # a = 1, b = f(x, y), c (the rest of its line)
+            line = m["first"]
+            if head := _IDENT.match(line):
+                names.add(head.group())
+            depth = 0
+            for i, ch in enumerate(line):
+                if ch in "([{":
+                    depth += 1
+                elif ch in ")]}":
+                    depth -= 1
+                elif ch == ";" and depth == 0:
+                    break
+                elif ch == "," and depth == 0 and (more := _IDENT.match(line[i + 1 :].strip())):
+                    names.add(more.group())
+        else:
+            names.add(m["fn"] or m["cls"])
+    return names
+
+
+class ScriptOrderTests(unittest.TestCase):
+    """The page's scripts in src/app/ share one top-level scope and run in the
+    order index.html lists them: their numbers say that order, and no two
+    declare one name (a second const breaks the page; a second function
+    silently replaces the first)."""
+
+    def setUp(self):
+        page = (ROOT / "src" / "index.html").read_text(encoding="utf-8")
+        self.listed = [s for s in build.script_sources(page) if s.startswith("app/")]
+
+    def test_numbers_rise_in_page_order_and_every_script_is_loaded_once(self):
+        numbers = [int(re.match(r"app/(\d+)-", s)[1]) for s in self.listed]
+        self.assertEqual(numbers, sorted(set(numbers)), "rising, none shared")
+        on_disk = sorted(f"app/{p.name}" for p in (ROOT / "src" / "app").glob("*.js"))
+        self.assertEqual(sorted(self.listed), on_disk)
+        self.assertEqual(len(self.listed), len(set(self.listed)))
+
+    def test_no_top_level_name_is_declared_twice(self):
+        seen: dict[str, str] = {}
+        twice = []
+        for src in self.listed:
+            code = (ROOT / "src" / src).read_text(encoding="utf-8")
+            for name in sorted(top_level_names(code)):
+                if name in seen:
+                    twice.append(f"{name}: {seen[name]} and {src}")
+                seen.setdefault(name, src)
+        self.assertEqual(twice, [])
+        # The reader finds what it should, so an empty list means something.
+        self.assertTrue({"el", "renderLog", "syncWithServer", "dateFields"} <= set(seen))
+
+    def test_the_reader_finds_every_kind_of_declaration(self):
+        code = (
+            "const a = 1, b = f(x, y), c;\nlet d;\nconst {\n    e, f: g, h = 2 } = X;\n"
+            "function i() {}\nasync function j() {}\nclass K {}\n    const inner = 1;\n"
+        )
+        self.assertEqual(top_level_names(code), {"a", "b", "c", "d", "e", "g", "h", "i", "j", "K"})
 
 
 class MainTests(unittest.TestCase):

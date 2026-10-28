@@ -31,15 +31,19 @@ Three constraints drive almost every decision:
 │       ├── 20-render.js      The report table, BDA panel and roll-up
 │       ├── 30-form.js        Entry, editing, restore, undo
 │       ├── 40-io.js          Manage panel, builder, export, import
-│       ├── 45-overlays.js    Overlay import (KML, KMZ, GeoJSON, SHP), the Map tab's graphics, ArcGIS export
-│       ├── 46-map.js         The map: basemap, report dots, heat map, tracks
-│       ├── 47-stats.js       Statistics panel: charts, hover, tables, PNG / SVG / Excel export
-│       ├── 48-summary.js     Summary Reports panel: written reports, copy, .txt, print, edit
-│       ├── 48-narrative.js   The narrative's settings: enemy name, units, equipment, rules
-│       ├── 49-mapview.js     The map under the Report Log: what's on it, its table, the report card
-│       ├── 50-sync.js        Push, pull, SSE, offline queue
-│       ├── 60-handlers.js    Event wiring
-│       └── 70-startup.js     Restore saved state, then connect
+│       ├── 50-overlays.js    Overlay import (KML, KMZ, GeoJSON, SHP), the Map tab's graphics, ArcGIS export
+│       ├── 60-map.js         The map: its state, colours and shared helpers
+│       ├── 61-map-draw.js    Drawing it: overlays, heat map, tracks, report dots, legend
+│       ├── 62-map-basemaps.js  Basemaps: drawing them, finding, adding, checking services
+│       ├── 63-map-drones.js  Drones: where, their view and range, their menu, saving
+│       ├── 64-map-controls.js  Full screen, the panel above, menus, grab a grid, pointer
+│       ├── 70-stats.js       Statistics panel: charts, hover, tables, PNG / SVG / Excel export
+│       ├── 80-summary.js     Summary Reports panel: written reports, copy, .txt, print, edit
+│       ├── 81-narrative.js   The narrative's settings: enemy name, units, equipment, rules
+│       ├── 85-mapview.js     The map under the Report Log: what's on it, its table, the report card
+│       ├── 90-sync.js        Push, pull, SSE, offline queue
+│       ├── 95-handlers.js    Event wiring
+│       └── 99-startup.js     Restore saved state, then connect
 ├── server/
 │   ├── salt_sync_server.py   Standard-library HTTP + SSE sync server
 │   └── Start SALT Workbench.bat  Windows double-click launcher
@@ -81,11 +85,13 @@ other zip exports), and the written summaries (`summaryReport`:
 fixed templates over those counts, plus the Narrative below). It
 touches no DOM, storage, or network, so it loads in the page as
 `window.SaltCore` and in Node for `tests/js/`. The rest of the page is
-`src/app/`, thirteen top-level scripts loaded in order (state, rendering,
-form, import/export, overlays, the map, statistics, summary reports, the
-narrative's settings, the map view, sync, handlers, startup) that share one
-global scope, so a name declared in an earlier file is visible in the later
-ones. Together they hold the whole application state in a handful of top-level
+`src/app/`, seventeen top-level scripts loaded in order (state, rendering,
+form, import/export, overlays, the map in five parts, statistics, summary
+reports, the narrative's settings, the map view, sync, handlers, startup) that
+share one global scope, so a name declared in an earlier file is visible in the
+later ones. Their numbers rise in the order the page loads them, and
+`tests/test_build.py` checks that, that each is loaded once, and that no
+top-level name is declared in two of them. Together they hold the whole application state in a handful of top-level
 variables, with `reportsByAto` (every workspace's reports) as the core. Every
 change is applied locally first and mirrored to `localStorage`, so the UI never
 waits on the network. Rendering is one function per surface, such as `renderLog`
@@ -173,7 +179,7 @@ picks the northing that lands inside the latitude band, which also refuses
 typos; `tests/js/mgrs-vectors.json` holds reference points from the NGA's
 GeoTrans to check it against.
 
-The map (`app/46-map.js`) draws in screen pixels from Web Mercator, redrawn
+The map (`app/60-map.js`) draws in screen pixels from Web Mercator, redrawn
 on every pan and zoom. Nothing on it is synced; each browser keeps its own
 choices (`salt_map_layers`, `salt_map_grids`, `salt_map_base`,
 `salt_map_side`, `salt_map_only_in_view`). Tracks, heat and dots come from
@@ -194,7 +200,7 @@ training area).
 The map sits under the Report Log in one pager (`#homePager`): the two
 panes are stacked and the pager slides between them with a CSS transform, so
 nothing is laid out again; the pane out of sight is hidden and inert once
-the slide ends. The Map view (`app/49-mapview.js`) is built around that map.
+the slide ends. The Map view (`app/85-mapview.js`) is built around that map.
 After each drawing the map tells it (`mapDrawnHook`) what it showed: the
 view box, the reports and their tracks. Once the view settles, the view
 counts what is on the map and fills the table from that. A click that didn't

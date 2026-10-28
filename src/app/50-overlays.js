@@ -326,7 +326,7 @@ const renderOverlays = () => {
     const asked = askingAbout('overlay|');
     if (asked && !list.some(o => `overlay|${overlayKey(o)}` === asked)) forgetAsk();
     const allAsk = isAsking('overlays|all');
-    // The map of them is the Map view (app/49-mapview.js).
+    // The map of them is the Map view (app/85-mapview.js).
     const header = `<div class="overlays-head">
         <div class="overlays-actions editor-only">
             <button type="button" id="overlaysImportBtn" class="set-btn">Import KML / KMZ / GeoJSON / SHP</button>

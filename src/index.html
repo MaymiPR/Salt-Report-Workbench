@@ -14,7 +14,7 @@
 </head>
 <body>
     <!-- What needs attention, above everything: changes not reaching the server,
-         a page from another release than the server's (renderStatusBars, app/50-sync.js). -->
+         a page from another release than the server's (renderStatusBars, app/90-sync.js). -->
     <div class="status-bars">
         <div id="notSavingBar" class="status-bar status-bar-error" role="alert" hidden>Not saving: your changes have waited over 30 seconds for the server. They are kept in this browser and sent when it can be reached.</div>
         <div id="versionBar" class="status-bar" role="alert" hidden><span id="versionBarText"></span> <button type="button" id="versionReloadBtn">Reload</button></div>
@@ -729,7 +729,7 @@
 
                     </div>
                     <!-- The Report Log: its table and, under it, its map; the button in the bar
-                         slides from one to the other (app/49-mapview.js). -->
+                         slides from one to the other (app/85-mapview.js). -->
                     <div id="homeView" class="home-view">
                     <div id="homePager" class="home-pager">
                     <div id="logView" class="home-pane">
@@ -757,7 +757,7 @@
                     </div><!-- end #logView -->
                     <!-- The map, under the Report Log: the overlays and the shown workspace's
                          reports; beside it what's in view, and under it a table of those reports,
-                         linked to the map (app/49-mapview.js). -->
+                         linked to the map (app/85-mapview.js). -->
                     <div id="mapPanel" class="home-pane" inert>
                         <div class="map-view">
                             <!-- The headline numbers; under them a sidebar of what's on the map
@@ -890,7 +890,7 @@
                             </div>
                         </div>
 
-                        <!-- Tab: Map: the ops graphics (NAIs, OBJs, phase lines; app/45-overlays.js) and the basemaps (app/46-map.js), shared by every workspace. -->
+                        <!-- Tab: Map: the ops graphics (NAIs, OBJs, phase lines; app/50-overlays.js) and the basemaps (app/62-map-basemaps.js), shared by every workspace. -->
                         <div class="ws-tab-panel" data-tab-panel="overlays" style="display:none;">
                             <div class="export-block">
                                 <div class="export-block-label">Ops graphics <span id="overlaysScopeNote"></span></div>
@@ -997,7 +997,7 @@
                         </div><!-- /ws-tab-panel data-tab-panel="export" -->
                     </div>
 
-                    <!-- Statistics: headline numbers and charts for the shown workspace (app/47-stats.js). -->
+                    <!-- Statistics: headline numbers and charts for the shown workspace (app/70-stats.js). -->
                     <div id="statsPanel">
                         <div class="export-panel-header">
                             <div class="export-panel-heading">
@@ -1045,7 +1045,7 @@
                         <div id="statsBody" class="stats-body"></div>
                     </div>
 
-                    <!-- Summary Reports: written reports from presets (app/48-summary.js). -->
+                    <!-- Summary Reports: written reports from presets (app/80-summary.js). -->
                     <div id="summaryPanel">
                         <div class="export-panel-header">
                             <div class="export-panel-heading">
@@ -1053,7 +1053,7 @@
                             </div>
                         </div>
                         <!-- The report's column and, on the Narrative, its settings beside it
-                             (app/48-narrative.js), the full height of the view. -->
+                             (app/81-narrative.js), the full height of the view. -->
                         <div id="summaryLayout" class="summary-layout">
                         <div class="summary-col">
                             <div class="summary-kinds" role="group" aria-label="Report">
@@ -1175,14 +1175,18 @@
     <script src="app/20-render.js"></script>
     <script src="app/30-form.js"></script>
     <script src="app/40-io.js"></script>
-    <script src="app/45-overlays.js"></script>
-    <script src="app/46-map.js"></script>
-    <script src="app/47-stats.js"></script>
-    <script src="app/48-summary.js"></script>
-    <script src="app/48-narrative.js"></script>
-    <script src="app/49-mapview.js"></script>
-    <script src="app/50-sync.js"></script>
-    <script src="app/60-handlers.js"></script>
-    <script src="app/70-startup.js"></script>
+    <script src="app/50-overlays.js"></script>
+    <script src="app/60-map.js"></script>
+    <script src="app/61-map-draw.js"></script>
+    <script src="app/62-map-basemaps.js"></script>
+    <script src="app/63-map-drones.js"></script>
+    <script src="app/64-map-controls.js"></script>
+    <script src="app/70-stats.js"></script>
+    <script src="app/80-summary.js"></script>
+    <script src="app/81-narrative.js"></script>
+    <script src="app/85-mapview.js"></script>
+    <script src="app/90-sync.js"></script>
+    <script src="app/95-handlers.js"></script>
+    <script src="app/99-startup.js"></script>
 </body>
 </html>

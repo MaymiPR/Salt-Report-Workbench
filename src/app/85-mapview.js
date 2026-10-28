@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // The map, under the Report Log's table (the button in its bar slides between
-// them; the bar, search included, serves both): the map (app/46-map.js), beside it what's on the map,
+// them; the bar, search included, serves both): the map (app/60-map.js), beside it what's on the map,
 // and under it a table of those reports, all linked: clicking a report on the map
 // opens its card and picks its row; clicking a row puts the map on it;
 // clicking an NAI, OBJ, or phase line narrows the table to it.

@@ -86,9 +86,11 @@ Common types: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `style`,
   The page's code is `src/core.js` (pure logic) plus the ordered scripts in
   `src/app/`, which are plain top-level scripts sharing one global scope:
   a name declared in `10-state.js` is visible in every later file, and the
-  build inlines them in the order `index.html` lists them. Put a new piece of
-  logic in `core.js` when it needs no DOM, and in the `app/` file whose name
-  matches what it does.
+  build inlines them in the order `index.html` lists them. Their numbers rise
+  in that order (a new file takes a free number between its neighbours), and
+  no top-level name may be declared in two of them; `tests/test_build.py`
+  checks both. Put a new piece of logic in `core.js` when it needs no DOM, and
+  in the `app/` file whose name matches what it does.
 
 ## Tests
 

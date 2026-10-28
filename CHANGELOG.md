@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The map's code is in five files** (its state, drawing, basemaps, drones,
+  and its controls) instead of one of 1,500 lines, and the page's scripts are
+  numbered in the order they load (two shared a number). Tests check the
+  order, that each script is loaded once, and that no two declare one name.
+  Nothing the page does changed: the built page holds the same code, moved.
+
 ## [2.21.0] - 2026-10-28
 
 ### Changed
