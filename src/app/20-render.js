@@ -118,7 +118,7 @@ const commitBdaEntries = (reportId, wrap) => {
     if (isReadOnly) { showToast('View-only mode. BDA entry is disabled here.', true); return; }
     const report = localReports.find(r => r.id === reportId);
     if (!report) return;
-    const now  = Date.now();
+    const now  = nextStamp(report);
     const iso  = new Date().toISOString();
     const adds = [];
     wrap.querySelectorAll('.bda-check-row').forEach(row => {
@@ -160,7 +160,7 @@ const updateBdaEffect = (reportId, lm, effect) => {
     entry.effect = effect;
     entry.time   = new Date().toISOString();
     entry.user   = userProfile || null;
-    report.lastModified = Date.now();
+    report.lastModified = nextStamp(report);
     reportsByAto[activeAto] = localReports;
     saveLocalAndSync(reportsByAto);
     showToast(`${entry.target || 'Assessment'}: ${prev} → ${effect}.`);
@@ -172,7 +172,7 @@ const deleteBdaEntry = (reportId, lm) => {
     if (!report || !report.bda) return;
     showConfirmation('Delete this BDA assessment?', () => {
         report.bda = report.bda.filter(b => b.lastModified !== lm);
-        report.lastModified = Date.now();
+        report.lastModified = nextStamp(report);
         reportsByAto[activeAto] = localReports;
         saveLocalAndSync(reportsByAto);
         showToast('BDA assessment deleted.');

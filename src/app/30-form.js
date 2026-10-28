@@ -149,7 +149,7 @@ const fixReportLocation = async (id) => {
     if (!r) return;
     const loc = await settleLocation(r.location);
     if (loc === null || loc === r.location) return;
-    const now = Date.now();
+    const now = nextStamp(r);
     const hist = [...(r.history || []), { size: r.size || '', activity: r.activity || '', location: r.location || '', time: r.time,
         yourAnalysis: r.yourAnalysis || '', custom: r.custom || {}, user: r.user, lastModified: r.lastModified }];
     const next = { ...r, location: loc, history: hist, updated: true, lastModified: now, user: userProfile };
@@ -251,7 +251,6 @@ const pushUndone = async (ato, list) => {
 async function undoDeletion(ato, undone) {
     const list = reportsByAto[ato];
     if (!list) { showToast('That workspace is no longer loaded.', true); return; }
-    const now = Date.now();
     let restored = 0;
     list.forEach(r => {
         let touched = false;
@@ -266,7 +265,7 @@ async function undoDeletion(ato, undone) {
                 touched = true;
             }
         }
-        if (touched) { r.lastModified = now; restored++; }
+        if (touched) { r.lastModified = nextStamp(r); restored++; }
     });
     if (!restored) { showToast('Nothing left to put back.', true); return; }
     await pushUndone(ato, list);
@@ -278,8 +277,9 @@ async function undoRestore(ato, before) {
     const list = reportsByAto[ato];
     const r = list && list.find(x => x.id === before.id);
     if (!r) { showToast('That report is no longer here.', true); return; }
+    const stamp = nextStamp(r);
     Object.keys(r).forEach(k => { if (!(k in before)) delete r[k]; });
-    Object.assign(r, before, { lastModified: Date.now() });
+    Object.assign(r, before, { lastModified: stamp });
     await pushUndone(ato, list);
     showToast(`${formatFullId(r)} is back as it was.`);
 }
@@ -300,7 +300,7 @@ const restoreHistoryVersion = (reportId, lastModified) => {
     showConfirmation(`Restore this version as current for ${formatFullId(report)}?${dropMsg}`, async () => {
         const ato = activeAto;
         const before = JSON.parse(JSON.stringify(report));
-        const now = Date.now();
+        const now = nextStamp(report);
         // Drop the chosen snapshot and everything newer; keep strictly older.
         report.history = (report.history || []).filter(h => h.lastModified < snapshot.lastModified);
         report.size         = snapshot.size;

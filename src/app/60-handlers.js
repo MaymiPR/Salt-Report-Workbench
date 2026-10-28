@@ -47,7 +47,8 @@ async function handleFormSubmit(mode) {
     const finalTime = SaltCore.submittedTime(timeValue, timeDisplayMode === 'local', editing ? editing.time : null);
     if (!finalTime) { showToast('Invalid time. Use HH:MM (24-hour).', true); return; }
 
-    const now  = Date.now();
+    // Past the version being replaced, whatever this browser's clock says.
+    const now  = nextStamp(editing);
     const data = { size:el.form.size.value, activity:el.form.activity.value, location:normalizeLocation(el.form.location.value), time:finalTime, yourAnalysis:el.form.analysis.value, custom:collectCustomValues() };
     let finalReport;
     // Track whether this iteration is an Edit so we can route to the dedicated
@@ -299,7 +300,7 @@ el.log.deleteBtn.addEventListener('click', () => {
         // ── Main report deletions (soft-delete via the deleted flag) ─────────
         if (mainIds.length) {
             const deletedSet = new Set(mainIds);
-            localReports.forEach(r => { if (deletedSet.has(r.id)) { r.deleted = true; r.lastModified = Date.now(); undone.ids.push(r.id); } });
+            localReports.forEach(r => { if (deletedSet.has(r.id)) { r.deleted = true; r.lastModified = nextStamp(r); undone.ids.push(r.id); } });
             reportsByAto[activeAto] = localReports;
             // Prune the history-open Set so deleted report IDs don't linger in
             // memory across long sessions (no functional impact, just hygiene).
@@ -315,7 +316,7 @@ el.log.deleteBtn.addEventListener('click', () => {
                     const removed = r.history.filter(h => lms.has(h.lastModified));
                     if (removed.length) undone.history[r.id] = removed;
                     r.history = r.history.filter(h => !lms.has(h.lastModified));
-                    r.lastModified = Date.now(); // bump so server merge prefers our copy
+                    r.lastModified = nextStamp(r); // bump so server merge prefers our copy
                 }
             });
             reportsByAto[activeAto] = localReports;
@@ -348,10 +349,10 @@ el.log.sendBtn.addEventListener('click', async () => {
         const idx = (reportsByAto['IMPORT']||[]).findIndex(r => r.id===id); if(idx===-1) return;
         const rep = { ...reportsByAto['IMPORT'][idx] };
         const did = `${SaltCore.atoPrefix(target)}${String(lastNum+moved+1).padStart(3,'0')}`;
-        rep.ato=SaltCore.atoPrefix(target); rep.title=(reportsByAto[target].find(r=>r.title&&!r.deleted)||{}).title||target; rep.displayId=did; rep.fullId=`${rep.title}${did}`; rep.lastModified=Date.now();
+        rep.ato=SaltCore.atoPrefix(target); rep.title=(reportsByAto[target].find(r=>r.title&&!r.deleted)||{}).title||target; rep.displayId=did; rep.fullId=`${rep.title}${did}`; rep.lastModified=nextStamp(rep);
         targetReps.push(rep);
         // Bump the IMPORT copy too, or the deletion would never be sent.
-        reportsByAto['IMPORT'][idx] = { ...reportsByAto['IMPORT'][idx], deleted: true, lastModified: Date.now() };
+        reportsByAto['IMPORT'][idx] = { ...reportsByAto['IMPORT'][idx], deleted: true, lastModified: nextStamp(reportsByAto['IMPORT'][idx]) };
         moved++;
     });
     reportsByAto[target] = targetReps;
