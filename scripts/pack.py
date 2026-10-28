@@ -136,24 +136,24 @@ def unpack(here):
 def main(argv):
     print(f' S.A.L.T. Report Workbench {VERSION}')
     if sys.version_info < (3, 10):
-        print(' [!] The workbench needs Python 3.10 or newer. Nothing was changed.')
+        print('[!] The workbench needs Python 3.10 or newer. Nothing was changed.')
         return 1
     keep = '--keep' in argv
     here = Path(__file__).resolve()
     try:
         target = unpack(here)
     except (OSError, RuntimeError) as exc:
-        print(f' [!] Could not unpack: {exc}')
-        print(f' [!] Nothing was deleted; {here.name} is still here.')
+        print(f'[!] Could not unpack: {exc}')
+        print(f'[!] Nothing was deleted; {here.name} is still here.')
         return 1
-    print(f' [+] Unpacked and checked {len(FILES)} files in "{target}".')
+    print(f'[+] Unpacked and checked {len(FILES)} files in "{target}".')
     if not keep:
         try:
             here.unlink()
-            print(f' [+] Deleted {here.name}.')
+            print(f'[+] Deleted {here.name}.')
         except OSError as exc:
-            print(f' [!] Could not delete {here.name} ({exc}); delete it by hand.')
-    print(f' [+] To start the workbench, double-click "{LAUNCHER}" in that folder.')
+            print(f'[!] Could not delete {here.name} ({exc}); delete it by hand.')
+    print(f'[+] To start the workbench, double-click "{LAUNCHER}" in that folder.')
     return 0
 
 '''

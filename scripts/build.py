@@ -103,7 +103,7 @@ def main(dist: Path | None = None) -> int:
     missing += [p for p in script_files.values() if not p.is_file()]
     if missing:
         for p in missing:
-            print(f" [!] missing: {_show(p)}")
+            print(f"[!] missing: {_show(p)}")
         return 1
 
     try:
@@ -113,7 +113,7 @@ def main(dist: Path | None = None) -> int:
             {name: path.read_text(encoding="utf-8") for name, path in script_files.items()},
         )
     except ValueError as exc:
-        print(f" [!] {exc}")
+        print(f"[!] {exc}")
         return 1
 
     dist.mkdir(parents=True, exist_ok=True)
@@ -126,9 +126,9 @@ def main(dist: Path | None = None) -> int:
     out_launcher = dist / LAUNCHER.name
     out_launcher.write_text("\n".join(launcher) + "\n", encoding="utf-8", newline="\r\n")
 
-    print(f" [*] {_show(out_html)}  ({out_html.stat().st_size / 1024:.1f} KB)")
-    print(f" [*] {_show(dist / SERVER.name)}")
-    print(f" [*] {_show(out_launcher)}")
+    print(f"[*] {_show(out_html)}  ({out_html.stat().st_size / 1024:.1f} KB)")
+    print(f"[*] {_show(dist / SERVER.name)}")
+    print(f"[*] {_show(out_launcher)}")
     print(f"\n [+] Done. Run:  python {_show(dist / SERVER.name)}")
     print(f"     On Windows, double-click {_show(dist / LAUNCHER.name)} instead.\n")
     return 0
