@@ -11,14 +11,14 @@ can be read line by line (four times larger).
 
 On the other end, Python runs it whatever its extension::
 
-    python "SALT-Workbench-v2.4.1.txt"
+    python "SALT-Workbench-v<version>.txt"
 
 It unpacks into a ``SALT Report Workbench`` folder beside itself, checks every
 file against the SHA-256 recorded at pack time, and deletes the packed file.
 It starts nothing. If anything fails, the packed file stays. See UNPACKER for
 the option and the upgrade behavior.
 
-Usage:  python scripts/pack.py SaltReportWorkbench-v2.4.1.zip [-o OUT_DIR] [--plain]
+Usage:  python scripts/pack.py SaltReportWorkbench-v<version>.zip [-o OUT_DIR] [--plain]
 """
 
 from __future__ import annotations

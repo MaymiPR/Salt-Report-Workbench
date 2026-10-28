@@ -17,11 +17,15 @@ resulting ``dist/`` folder is the deliverable: hand it to an operator and
 no install and no network access. Opening ``dist/index.html`` directly also
 works, in local (offline) mode.
 
-Usage:  python scripts/build.py
+Usage:  python scripts/build.py [--dist DIR]
+
+``--dist`` builds into another folder; the tests use a temporary one, so a
+developer's own ``dist/`` is left alone.
 """
 
 from __future__ import annotations
 
+import argparse
 import re
 import shutil
 import sys
@@ -87,7 +91,9 @@ def bundle(html: str, css: str, scripts: dict[str, str]) -> str:
     return html
 
 
-def main() -> int:
+def main(dist: Path | None = None) -> int:
+    """Build into ``dist`` (default: the repo's ``dist/``). Returns the exit code."""
+    dist = Path(dist) if dist is not None else DIST
     print("\n S.A.L.T. Report Workbench -- build")
     print(" " + "-" * 40)
 
@@ -110,23 +116,25 @@ def main() -> int:
         print(f" [!] {exc}")
         return 1
 
-    DIST.mkdir(exist_ok=True)
-    out_html = DIST / "index.html"
+    dist.mkdir(parents=True, exist_ok=True)
+    out_html = dist / "index.html"
     out_html.write_text(html, encoding="utf-8")
-    shutil.copy2(SERVER, DIST / SERVER.name)
+    shutil.copy2(SERVER, dist / SERVER.name)
     # cmd.exe misreads batch files with bare LF endings, so force CRLF however
     # the source was checked out.
     launcher = LAUNCHER.read_text(encoding="utf-8").splitlines()
-    out_launcher = DIST / LAUNCHER.name
+    out_launcher = dist / LAUNCHER.name
     out_launcher.write_text("\n".join(launcher) + "\n", encoding="utf-8", newline="\r\n")
 
     print(f" [*] {_show(out_html)}  ({out_html.stat().st_size / 1024:.1f} KB)")
-    print(f" [*] {_show(DIST / SERVER.name)}")
+    print(f" [*] {_show(dist / SERVER.name)}")
     print(f" [*] {_show(out_launcher)}")
-    print(f"\n [+] Done. Run:  python dist/{SERVER.name}")
-    print(f"     On Windows, double-click dist/{LAUNCHER.name} instead.\n")
+    print(f"\n [+] Done. Run:  python {_show(dist / SERVER.name)}")
+    print(f"     On Windows, double-click {_show(dist / LAUNCHER.name)} instead.\n")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    _p = argparse.ArgumentParser(description="Bundle src/ into a runnable folder.")
+    _p.add_argument("--dist", type=Path, default=DIST, help="output folder (default: dist/)")
+    sys.exit(main(_p.parse_args().dist))
