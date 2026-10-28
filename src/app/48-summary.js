@@ -8,7 +8,11 @@
 // share one top-level scope, so names declared earlier are visible here.
 
 let isSummaryViewActive = false;
+// The charts printed with each kind of report, by their ids in summaryCharts.
+const SUMMARY_CHARTS = { rollup: ['nai', 'obj', 'hours', 'tags'], trafficked: ['nai', 'obj', 'squares', 'hours'], place: ['hours', 'tags'], brief: [], narrative: ['nai', 'obj', 'tags'] };
 let summaryKind = readStored('salt_summary_kind', 'rollup');
+// A kind stored by another version, and not known here: the Rollup.
+if (typeof summaryKind !== 'string' || !Object.prototype.hasOwnProperty.call(SUMMARY_CHARTS, summaryKind)) summaryKind = 'rollup';
 let summaryPlace = '';
 let summaryText = '';
 // Your own wording, per workspace and kind, kept in this browser until
@@ -19,7 +23,8 @@ let summaryEditingKey = null;
 const editKey = () => `${shownAto() || ''}|${summaryKind}`;
 const shownSummary = () => summaryEdits[editKey()] ?? summaryText;
 const setEdit = (text) => {
-    if (text === null || text === summaryText) delete summaryEdits[editKey()];
+    // Back to the generated text Edit started from: no edit.
+    if (text === null || text === summaryText || (summaryEditSeed !== null && text === summaryEditSeed)) delete summaryEdits[editKey()];
     else summaryEdits[editKey()] = text;
     writeStored('salt_summary_edits', JSON.stringify(summaryEdits));
 };
@@ -48,12 +53,7 @@ const renderSummary = () => {
     // The narrative's settings: always there beside it, the full height of the view.
     showNarrSettings(summaryKind === 'narrative');
     document.querySelectorAll('[data-summary-kind]').forEach(b => b.classList.toggle('active', b.dataset.summaryKind === summaryKind));
-    const { from, to } = windowBounds(s);
-    const opts = {
-        local: timeDisplayMode === 'local', from, to, now: new Date(),
-        ato: ato || 'NO WORKSPACE', title: (live.find(r => r.title) || {}).title || localConfig.title || '',
-        by: (userProfile && userProfile.initials) || '', place: summaryPlace, narrative: sharedNarrative,
-    };
+    const opts = summaryOpts(live);
     summaryText = SaltCore.summaryReport(summaryKind, live, currentOverlays(), opts);
     // On screen the narrative is wrapped to the width it has, so no line breaks
     // twice; Copy, Save and Print keep the 100 columns.
@@ -71,6 +71,23 @@ const renderSummary = () => {
     s.panel.querySelectorAll('.range-mode').forEach(n => { n.textContent = timeDisplayMode === 'local' ? '(Local)' : '(Zulu)'; });
 };
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+// What the report is written from: the window, the place, the workspace.
+const summaryOpts = (live) => {
+    const { from, to } = windowBounds(summaryEls());
+    return {
+        local: timeDisplayMode === 'local', from, to, now: new Date(),
+        ato: shownAto() || 'NO WORKSPACE', title: (live.find(r => r.title) || {}).title || localConfig.title || '',
+        by: (userProfile && userProfile.initials) || '', place: summaryPlace, narrative: sharedNarrative,
+    };
+};
+// The text Edit starts from. The narrative's paragraphs come unwrapped: the
+// box wraps them to its width, as the screen does, so no line breaks twice.
+let summaryEditSeed = null;   // that text when it was generated (not your own), else null
+const summaryToEdit = () => {
+    if (editKey() in summaryEdits || summaryKind !== 'narrative') return shownSummary();
+    const live = localReports.filter(r => !r.deleted);
+    return SaltCore.summaryReport(summaryKind, live, currentOverlays(), { ...summaryOpts(live), width: Infinity });
+};
 
 // How many monospaced columns fit in the report's box.
 let summaryCanvas = null;
@@ -135,8 +152,8 @@ const summaryCharts = () => {
         hours:   { title: `Reports by hour of day (${local ? 'local' : 'Zulu'})`, kind: 'column', items: d.hours, labelEvery: 3, fmtX: ident },
         tags:    { title: 'Activity', kind: 'bar', items: d.tags },
     };
-    const pick = { rollup: ['nai', 'obj', 'hours', 'tags'], trafficked: ['nai', 'obj', 'squares', 'hours'], place: ['hours', 'tags'], brief: [], narrative: ['nai', 'obj', 'tags'] }[summaryKind];
-    const context = summaryText.split('\n')[1].replace(/^\S+:\s+/, '');
+    const pick = SUMMARY_CHARTS[summaryKind] || [];
+    const context = (summaryText.split('\n')[1] || '').replace(/^\S+:\s+/, '');
     return pick.map(id => ({ ...all[id], id, context, shown: all[id].kind === 'bar' ? fold(all[id].items) : all[id].items }))
         .filter(c => c.items.some(i => i.value > 0));
 };
@@ -187,7 +204,12 @@ const summaryFileName = () =>
         // Edit: the text in a box to change as you like; Done keeps it, Revert drops it.
         if (e.target.closest('#summaryEditBtn')) {
             if (summaryEditing) finishEditing();
-            else { summaryEditing = true; summaryEditingKey = editKey(); s.editor.value = shownSummary(); }
+            else {
+                const own = editKey() in summaryEdits;
+                summaryEditing = true; summaryEditingKey = editKey();
+                s.editor.value = summaryToEdit();
+                summaryEditSeed = own ? null : s.editor.value;
+            }
             renderSummary();
             if (summaryEditing) { s.editor.focus(); s.editor.setSelectionRange(0, 0); s.editor.scrollTop = 0; }
             return;

@@ -984,6 +984,17 @@ class BrowserTests(unittest.TestCase):
         )
         page.evaluate("saveBasemaps([])")
 
+    def test_a_malformed_basemap_address_is_said_to_be_invalid(self):
+        # Regression: new URL() threw on it, with nothing said.
+        page = self.open_editor()
+        self.open_basemaps(page)
+        for text in ("https://[bad/{z}/{x}/{y}.png", "https://[bad/wms"):
+            page.fill("#mapBaseInput", text)
+            page.click("#mapBaseAddBtn")
+            page.wait_for_selector("#toast-notification:has-text(\"That address isn't valid.\")")
+        page.wait_for_timeout(300)
+        self.assertEqual(page.locator(".map-find-head, .map-find-error, .map-find-msg").count(), 0)
+
     def test_switching_basemaps_leaves_no_stale_wms_image(self):
         # Regression: a WMS asked for just before No basemap (or tiles) was
         # picked still turned up, and one landing late wiped the tiles.
@@ -2189,6 +2200,38 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(
             page.evaluate("document.getElementById('homeView').classList.contains('view-in')")
         )
+
+    def test_summary_edge_cases_and_the_narrative_edited_unwrapped(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        long = "moving north along the main supply route toward the river crossing site by the old bridge"
+        self.log(page, "2x T-72", activity=long, location="38SMB4500082000")
+        self.log(page, "3x BMP-2", activity=long, location="38SMB4600082000")
+        page.click("#summaryViewToggleBtn")
+        # An unknown kind (from another version) or a one-line text: no charts, no error.
+        self.assertEqual(
+            page.evaluate("""() => {
+                const kind = summaryKind, text = summaryText;
+                summaryKind = 'bogus'; const a = summaryCharts().length;
+                summaryKind = kind; summaryText = 'ONE LINE'; const b = summaryCharts().length >= 0;
+                summaryText = text;
+                return [a, b];
+            }"""),
+            [0, True],
+        )
+        # Edit on the Narrative starts from its paragraphs unwrapped: the box
+        # wraps them to its width, so no line breaks twice.
+        page.click("[data-summary-kind='narrative']")
+        page.wait_for_selector("#summaryText:has-text('2. ASSESSMENT')")
+        shown = page.inner_text("#summaryText")
+        page.click("#summaryEditBtn")
+        edited = page.input_value("#summaryEditor")
+        self.assertEqual(" ".join(edited.split()), " ".join(shown.split()))
+        self.assertLess(len(edited.splitlines()), len(shown.splitlines()))
+        self.assertGreater(max(len(line) for line in edited.splitlines()), 100)
+        # Opened and closed without a change: not an edit.
+        page.click("#summaryEditBtn")
+        self.assertFalse(page.locator("#summaryEdited").is_visible())
 
     def test_the_narrative_names_units_takes_your_equipment_and_rules_and_can_be_edited(self):
         page = self.open_editor()

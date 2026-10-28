@@ -185,8 +185,9 @@ const pathOf = (coords, px, close) => coords.map((c, i) => { const [x, y] = px(c
 // of its longest stretch in view. Null when none of it is in view.
 const LABEL_MARGIN = 28;
 const areaLabelAt = (pts, w, h) => {
-    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-    const box = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    // A loop, not Math.min(...), which runs out of stack on a shape with very many points.
+    const box = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const [x, y] of pts) { box[0] = Math.min(box[0], x); box[1] = Math.min(box[1], y); box[2] = Math.max(box[2], x); box[3] = Math.max(box[3], y); }
     const mid = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2];
     const m = LABEL_MARGIN;
     if (mid[0] >= m && mid[0] <= w - m && mid[1] >= m && mid[1] <= h - m) return mid;
@@ -679,6 +680,10 @@ const findWmsLayers = async (link, name = '', edit = null) => {
     basemapsChanged();
 };
 
+// An address's host, or null when it isn't an address at all.
+const hostOf = (url) => { try { return new URL(url).hostname || null; } catch (e) { return null; } };
+const BAD_ADDRESS = "That address isn't valid.";
+
 // A name not used yet: the service's own, then "(2)", "(3)"...
 const freeBasemapName = (want) => {
     const base = (want || 'Basemap').trim().slice(0, 54) || 'Basemap';
@@ -758,7 +763,7 @@ const addFoundLayers = () => {
     const layers = picked.map(l => l.name).join(',');
     if (layers.length > 2000) { showToast('Too many layers for one service; tick fewer.', true); return; }
     // Named for itself: the service's title (else the one layer's, or its host); a saved one keeps its name.
-    const name = f.edit || freeBasemapName(f.title || (picked.length === 1 ? picked[0].title : new URL(f.link).hostname));
+    const name = f.edit || freeBasemapName(f.title || (picked.length === 1 ? picked[0].title : hostOf(f.link)));
     const entry = { name, kind: 'wms', url: wmsGetMapUrl(f), layers, version: f.version, crs, format: SaltCore.pickWmsFormat(f.formats) };
     if (!(f.edit ? replaceBasemap(f.edit, entry) : addBasemap(entry))) return false;
     wmsFind = null;
@@ -819,7 +824,7 @@ const wmsFindHtml = () => {
         </div>${saved ? baseEditFoot('') : ''}`;
     const n = f.picked.size;
     return `<div class="map-find-head">
-            <strong class="map-find-name">${escapeHtml(f.edit || freeBasemapName(f.title || new URL(f.link).hostname))}</strong>
+            <strong class="map-find-name">${escapeHtml(f.edit || freeBasemapName(f.title || hostOf(f.link)))}</strong>
             <span class="overlays-muted">${f.layers.length} layer${f.layers.length === 1 ? '' : 's'} &middot; WMS ${f.version} &middot; read by ${escapeHtml(f.via)}</span>
         </div>
         ${f.layers.length > 10 ? '<input type="text" id="mapWmsFilter" class="map-layer-filter" placeholder="Filter layers" spellcheck="false">' : ''}
@@ -1284,6 +1289,7 @@ if (baseHost) {
             const url = document.getElementById('mapTileUrl').value.trim();
             if (!b) return;
             if (!/^https?:\/\//i.test(url) || !/\{(z|TileMatrix)\}/i.test(url)) { showToast('A tile address starts with http:// or https:// and has {z}, {x} and {y}.', true); return; }
+            if (!hostOf(url.replace(/[{}]/g, ''))) { showToast(BAD_ADDRESS, true); return; }
             replaceBasemap(b.name, { ...b, url });
             return;
         }
@@ -1295,8 +1301,9 @@ if (baseHost) {
             if (baseOpen) { baseOpen = null; if (wmsFind && wmsFind.edit) wmsFind = null; }
             const text = document.getElementById('mapBaseInput').value.trim();
             if (!/^https?:\/\//i.test(text)) { showToast('Paste an address that starts with http:// or https://.', true); return; }
+            const host = hostOf(text.replace(/[{}]/g, ''));
+            if (!host) { showToast(BAD_ADDRESS, true); return; }
             if (/\{(z|TileMatrix)\}/i.test(text)) {
-                const host = new URL(text.replace(/[{}]/g, '')).hostname;
                 if (addBasemap({ name: freeBasemapName(host), kind: 'tiles', url: text })) clearBaseInputs();
                 else basemapsChanged();
             } else findWmsLayers(text);
@@ -1308,7 +1315,7 @@ if (baseHost) {
             const layers = document.getElementById('mapWmsManualLayers').value.trim();
             if (!layers) { showToast('Type the layer names to try.', true); return; }
             const saved = wmsFind.edit && sharedBasemaps.find(b => b.name === wmsFind.edit);
-            const name = saved ? saved.name : freeBasemapName(new URL(wmsFind.link).hostname);
+            const name = saved ? saved.name : freeBasemapName(hostOf(wmsFind.link));
             if (saved) replaceBasemap(saved.name, { ...saved, name, layers });
             else if (addBasemap({ name, kind: 'wms', url: wmsFind.link, layers })) { wmsFind = null; clearBaseInputs(); }
             return;

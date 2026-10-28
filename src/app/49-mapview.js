@@ -202,10 +202,16 @@ mapClickHook = ({ item, at, lonLat: [lon, lat], mpp }) => {
 const renderMapTime = () => {
     const range = document.getElementById('mapEndRange'), label = document.getElementById('mapEndLabel'), now = document.getElementById('mapEndNow');
     if (!range) return;
-    const times = localReports.filter(r => !r.deleted).map(r => new Date(r.time).getTime()).filter(t => !isNaN(t));
-    const first = times.length ? Math.min(...times) : Date.now();
+    // The earliest, by a loop (Math.min(...) runs out of stack on very many reports).
+    let first = Infinity;
+    localReports.forEach(r => {
+        const t = r.deleted ? NaN : new Date(r.time).getTime();
+        if (t < first) first = t;
+    });
+    const any = first !== Infinity;
+    if (!any) first = Date.now();
     range.dataset.first = String(first);
-    range.disabled = !times.length;
+    range.disabled = !any;
     const span = Math.max(1, Date.now() - first);
     range.value = String(mapEnd === null ? 1000 : Math.round((mapEnd - first) / span * 1000));
     const local = timeDisplayMode === 'local';
