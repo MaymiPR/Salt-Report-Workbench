@@ -772,6 +772,111 @@ class HttpsFlagTests(unittest.TestCase):
         self.assertEqual(self.parse("--cert", "c.pem", "--key", "k.pem").cert, "c.pem")
 
 
+class StartupTests(unittest.TestCase):
+    """The server run as a program, in a temporary folder."""
+
+    SERVER = ROOT / "server" / "salt_sync_server.py"
+
+    def run_server(self, *argv, prelude=""):
+        tmp = Path(tempfile.mkdtemp(prefix="salt-start-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        script = (
+            f"{prelude}\n"
+            "import runpy, sys\n"
+            f"sys.argv = {['salt_sync_server', '--backup-dir', str(tmp / 'backups'), *argv]!r}\n"
+            f"runpy.run_path({str(self.SERVER)!r}, run_name='__main__')\n"
+        )
+        import subprocess
+
+        return subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=tmp,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            timeout=60,
+        )
+
+    def test_an_older_python_is_told_plainly(self):
+        result = self.run_server(
+            "--help", prelude="import sys; sys.version_info = (3, 9, 18, 'final', 0)"
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("needs Python 3.10 or newer", result.stderr)
+
+    def test_the_file_parses_on_python_3_8(self):
+        # So 3.8 and 3.9 reach the version check instead of a SyntaxError.
+        import ast
+        import re
+
+        source = self.SERVER.read_text(encoding="utf-8")
+        ast.parse(source, feature_version=(3, 8))
+        self.assertNotRegex(
+            source, re.compile(r"\bwith \($", re.M), "a parenthesized with needs 3.9 or later"
+        )
+        check = source.index("if sys.version_info < (3, 10)")
+        first_annotation = re.search(r"^\w+: [\w |\[\],]+ = ", source, re.M).start()
+        self.assertLess(check, first_annotation, "checked before any 3.10 annotation runs")
+
+    def test_without_ssl_it_stops_unless_told_to_serve_plain_http(self):
+        # Regression: it fell back to plain HTTP, the code readable on the network.
+        import socket
+
+        no_ssl = "import sys; sys.modules['ssl'] = None"
+        args = ("--host", "127.0.0.1", "--viewer-port", "0", "--no-browser", "--no-minimize")
+        result = self.run_server(*args, prelude=no_ssl)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("no ssl module", result.stdout)
+        self.assertIn("--no-https", result.stdout)
+        # With --no-https it goes on, as far as the port (taken here, so it stops there).
+        with socket.socket() as taken:
+            taken.bind(("127.0.0.1", 0))
+            taken.listen()
+            port = str(taken.getsockname()[1])
+            result = self.run_server(*args, "--no-https", "--port", port, prelude=no_ssl)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(f"Could not listen on port {port}", result.stdout)
+        self.assertNotIn("no ssl module", result.stdout)
+
+    def test_the_banner_shows_the_address_listened_on(self):
+        # Regression: with --host 127.0.0.1 it showed (and opened) the LAN
+        # address, where nothing was listening.
+        def banner():
+            with mock.patch.object(srv, "safe_print") as printed:
+                srv.run_boot_dashboard(viewer_port=8081, fingerprint=None)
+            return "\n".join(c.args[0] for c in printed.call_args_list)
+
+        with mock.patch.object(srv, "get_local_ip", return_value="10.0.0.12"):
+            for host, shown in (
+                ("0.0.0.0", "10.0.0.12"),
+                ("", "10.0.0.12"),
+                ("127.0.0.1", "127.0.0.1"),
+                ("10.0.0.7", "10.0.0.7"),
+                ("::1", "[::1]"),
+            ):
+                with mock.patch.object(srv, "HOST", host):
+                    self.assertEqual(srv.display_host(), shown, host)
+                    text = banner()
+                    self.assertIn(f"http://{shown}:{srv.PORT}", text, host)
+                    self.assertIn(f"http://{shown}:8081", text, host)
+
+    def test_console_lines_share_one_prefix_style(self):
+        import re
+
+        source = self.SERVER.read_text(encoding="utf-8")
+        self.assertEqual(re.findall(r"""f?['"](?:\\n)? \[[+*!]\]""", source), [])
+        with (
+            mock.patch.object(sys, "argv", ["salt_sync_server", "--help"]),
+            mock.patch("sys.stdout", io.StringIO()) as out,
+            self.assertRaises(SystemExit),
+        ):
+            srv.parse_cli_args()
+        self.assertIn(
+            "Editor port to listen on, HTTPS unless --no-https", " ".join(out.getvalue().split())
+        )
+
+
 # --------------------------------------------------------------------------- #
 # HTTP behaviour against a live server
 # --------------------------------------------------------------------------- #

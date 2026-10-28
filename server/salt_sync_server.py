@@ -41,8 +41,18 @@ from typing import ClassVar
 
 try:
     import ssl
-except ImportError:  # a Python built without OpenSSL serves plain HTTP
+except ImportError:  # a Python built without OpenSSL can only run with --no-https
     ssl = None
+
+# As early as it can be: the imports above work on older Pythons too, and what
+# follows (annotations like ``int | None``) needs 3.10. The file is kept free of
+# syntax 3.8 and 3.9 can't parse, so they reach this line and say why plainly.
+if sys.version_info < (3, 10):  # noqa: UP036
+    sys.exit(
+        'The S.A.L.T. sync server needs Python 3.10 or newer; this is Python '
+        + sys.version.split()[0]
+        + '.'
+    )
 
 # --- Configuration ---
 PORT: int = 8080
@@ -325,10 +335,10 @@ def audit(actor: str, what: str) -> None:
     line = f'{stamp}  {actor:<20}  {" ".join(what.split())}\n'
     try:
         os.makedirs(BACKUP_DIR, exist_ok=True)
-        with (
-            _audit_lock,
-            open(os.path.join(BACKUP_DIR, AUDIT_LOG_NAME), 'a', encoding='utf-8') as f,
-        ):
+        log = os.path.join(BACKUP_DIR, AUDIT_LOG_NAME)
+        # One line, unparenthesized: Python 3.8 can't parse a parenthesized
+        # `with`, and must get as far as the version check at the top.
+        with _audit_lock, open(log, 'a', encoding='utf-8') as f:
             f.write(line)
     except OSError as exc:
         if not _audit_failed:
@@ -461,7 +471,7 @@ MAX_BDA_ENTRIES = 200  # BDA assessments per report
 MAX_BDA_TARGET = 200
 MAX_BDA_EFFECT = 30
 MAX_BDA_NOTE = 500
-MAX_OVERLAYS = 500  # NAI / OBJ / PL features per workspace
+MAX_OVERLAYS = 500  # NAI / OBJ / PL features, one set shared by every workspace
 MAX_DRONES = 10  # drones on the map
 MAX_DRONE_NAME = 40
 MAX_DRONE_RANGE_KM = 1000  # how far a drone can see, at most
@@ -589,7 +599,7 @@ _SECURITY_HEADERS = (
     ('Content-Security-Policy', "frame-ancestors 'none'"),
     ('X-Content-Type-Options', 'nosniff'),
 )
-MAX_OVERLAY_POINTS = 200_000  # coordinate pairs per workspace, all features together
+MAX_OVERLAY_POINTS = 200_000  # coordinate pairs in the shared set, all features together
 _FORMAT_LINE_TYPES = {'id', 'size', 'activity', 'location', 'time', 'analysis', 'custom'}
 # Report fields /api/edit_report may overwrite. History and BDA change through
 # save_reports, where merging applies.
@@ -2393,7 +2403,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             # Console bulk-import notification (browser shows full state).
             label = 'Backup (.txt)' if source == 'backup' else 'CSV (.csv)'
             safe_print('\n' + '─' * 64)
-            safe_print(f" [+] Loaded {label}: {len(incoming)} report(s) merged into ATO '{ato}'.")
+            safe_print(f"[+] Loaded {label}: {len(incoming)} report(s) merged into ATO '{ato}'.")
             safe_print('─' * 64)
         else:
             # Learn this connection's operator from the reports it logs, for IP
@@ -2970,12 +2980,20 @@ class SaltSyncServer(socketserver.ThreadingTCPServer):
             ssl is not None and isinstance(exc, ssl.SSLError)
         ):
             return
-        safe_print(f' [!] Error handling a request from {client_address[0]}: {exc!r}')
+        safe_print(f'[!] Error handling a request from {client_address[0]}: {exc!r}')
 
 
 # =============================================================================
 # Boot
 # =============================================================================
+
+
+def display_host() -> str:
+    """The address the banner shows and the browser opens: the LAN address when
+    listening on every interface, else the one listened on (``--host``)."""
+    if HOST in ('', '0.0.0.0', '::'):
+        return get_local_ip()
+    return f'[{HOST}]' if ':' in HOST else HOST
 
 
 def run_boot_dashboard(
@@ -2987,43 +3005,47 @@ def run_boot_dashboard(
     """Boot banner — title, network URL, access code, optional viewer URL, with
     HTTPS the certificate's fingerprint (``fingerprint`` None: plain HTTP), and
     how many backup files could not be loaded."""
-    ip = get_local_ip()
+    ip = display_host()
     scheme = 'http' if fingerprint is None else 'https'
     safe_print('\n' + '═' * 64)
     safe_print('                      S.A.L.T. Sync Server')
     safe_print('═' * 64)
-    safe_print(' [*] Starting S.A.L.T. Sync Server...')
-    safe_print(f' [+] Workbench   : {scheme}://{ip}:{PORT}')
+    safe_print('[*] Starting S.A.L.T. Sync Server...')
+    safe_print(f'[+] Workbench   : {scheme}://{ip}:{PORT}')
     if _access_code is None:
-        safe_print(' [!] Access Code : UNGATED  (no code — anyone can edit)')
+        safe_print('[!] Access Code : UNGATED  (no code — anyone can edit)')
     else:
-        safe_print(f' [+] Access Code : {_access_code}')
+        safe_print(f'[+] Access Code : {_access_code}')
     if viewer_port is not None:
-        safe_print(f' [+] Read Only   : {scheme}://{ip}:{viewer_port}')
+        safe_print(f'[+] Read Only   : {scheme}://{ip}:{viewer_port}')
     if fingerprint is None:
-        safe_print(' [!] Plain HTTP  : the code and reports cross the network unencrypted.')
+        safe_print('[!] Plain HTTP  : the code and reports cross the network unencrypted.')
     else:
-        safe_print(f' [+] Certificate : {fingerprint[:47]}')
-        safe_print(f'                   {fingerprint[48:]}')
+        safe_print(f'[+] Certificate : {fingerprint[:47]}')
+        safe_print(f'                  {fingerprint[48:]}')
         if not own_cert:
-            safe_print(' [*] Browsers warn once about this self-signed certificate:')
-            safe_print('     choose Advanced, then Proceed. Its fingerprint is shown above.')
+            safe_print('[*] Browsers warn once about this self-signed certificate:')
+            safe_print('    choose Advanced, then Proceed. Its fingerprint is shown above.')
     if skipped:
         safe_print(
-            f' [!] Skipped     : {skipped} backup file(s) that could not be read (named above)'
+            f'[!] Skipped     : {skipped} backup file(s) that could not be read (named above)'
         )
-    safe_print(' [!] Press Ctrl+C to stop.')
+    safe_print('[!] Press Ctrl+C to stop.')
     safe_print('═' * 64 + '\n')
 
 
 def parse_cli_args() -> argparse.Namespace:
-    """CLI knobs for port, bind, backup dir, auto-launch, access code."""
+    """CLI knobs for ports, bind, backup dir, auto-launch, access code, and
+    HTTPS (--no-https, or your own --cert and --key)."""
     p = argparse.ArgumentParser(
         prog='salt_sync_server',
         description='S.A.L.T. Report Workbench sync server.',
     )
     p.add_argument(
-        '--port', type=int, default=PORT, help=f'HTTP port to listen on (default: {PORT}).'
+        '--port',
+        type=int,
+        default=PORT,
+        help=f'Editor port to listen on, HTTPS unless --no-https (default: {PORT}).',
     )
     p.add_argument(
         '--host',
@@ -3105,9 +3127,9 @@ def graceful_drain() -> None:
         pass
     try:
         flush_pending_save()
-        safe_print(' [+] Pending changes flushed to disk.')
+        safe_print('[+] Pending changes flushed to disk.')
     except Exception as exc:
-        safe_print(f' [!] Error flushing on shutdown: {exc}')
+        safe_print(f'[!] Error flushing on shutdown: {exc}')
     audit('server', 'stopped')
 
 
@@ -3125,30 +3147,35 @@ if __name__ == '__main__':
     else:
         _access_code = _generate_access_code()
 
+    # Never fall back to plain HTTP unasked: the code and every report would
+    # cross the network readable while the operator believed them encrypted.
+    if ssl is None and not args.no_https:
+        safe_print('\n[!] This Python has no ssl module, so the server cannot serve HTTPS.')
+        safe_print('    Use a Python that has it (the python.org installers do), or start')
+        safe_print('    with --no-https to serve plain HTTP on a trusted network.')
+        sys.exit(1)
+
     skipped = load_data_from_disk()
 
     # HTTPS unless --no-https: a certificate given with --cert, or the server's own.
     tls = None
     fingerprint = None
     if not args.no_https:
-        if ssl is None:
-            safe_print('\n [!] This Python has no ssl module, so the server speaks plain HTTP.')
-        else:
-            try:
-                certfile, keyfile = (args.cert, args.key) if args.cert else tls_files(BACKUP_DIR)
-                tls = tls_context(certfile, keyfile)
-                fingerprint = cert_fingerprint(certfile)
-            except (OSError, ValueError) as exc:
-                safe_print(f'\n [!] Could not set up HTTPS: {exc}')
-                safe_print('     Fix the certificate files, or start with --no-https.')
-                sys.exit(1)
+        try:
+            certfile, keyfile = (args.cert, args.key) if args.cert else tls_files(BACKUP_DIR)
+            tls = tls_context(certfile, keyfile)
+            fingerprint = cert_fingerprint(certfile)
+        except (OSError, ValueError) as exc:
+            safe_print(f'\n[!] Could not set up HTTPS: {exc}')
+            safe_print('    Fix the certificate files, or start with --no-https.')
+            sys.exit(1)
     scheme = 'http' if tls is None else 'https'
 
     try:
         httpd = SaltSyncServer((HOST, PORT), SaltSyncHandler, tls=tls)
     except OSError as exc:
-        safe_print(f'\n [!] Could not listen on port {PORT}: {exc}')
-        safe_print('     Is the server already running? Close it, or start this one with --port.')
+        safe_print(f'\n[!] Could not listen on port {PORT}: {exc}')
+        safe_print('    Is the server already running? Close it, or start this one with --port.')
         sys.exit(1)
 
     # Optional viewer listener — same DATA_STORE; view_only=True returns 405 on POST. SSE spans both.
@@ -3164,9 +3191,9 @@ if __name__ == '__main__':
             threading.Thread(target=viewer_httpd.serve_forever, daemon=True).start()
             viewer_port_bound = requested_vp
         except OSError as exc:
-            safe_print(f' [!] Could not start viewer on port {requested_vp}: {exc}')
+            safe_print(f'[!] Could not start viewer on port {requested_vp}: {exc}')
     elif requested_vp == PORT:
-        safe_print(f' [!] --viewer-port matches --port ({PORT}); ignored.')
+        safe_print(f'[!] --viewer-port matches --port ({PORT}); ignored.')
 
     run_boot_dashboard(
         viewer_port=viewer_port_bound,
@@ -3179,7 +3206,7 @@ if __name__ == '__main__':
         f'started ({scheme}): editor port {PORT}, viewer port {viewer_port_bound or "off"}',
     )
 
-    _server_ip = get_local_ip()
+    _server_ip = display_host()
 
     def _launch():
         time.sleep(0.3)  # let the server come up
@@ -3202,7 +3229,7 @@ if __name__ == '__main__':
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        safe_print('\n [*] Shutting down gracefully...')
+        safe_print('\n[*] Shutting down gracefully...')
     finally:
         graceful_drain()
         httpd.server_close()
