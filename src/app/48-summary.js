@@ -52,7 +52,7 @@ const renderSummary = () => {
     s.placeRow.hidden = summaryKind !== 'place';
     // The narrative's settings: always there beside it, the full height of the view.
     showNarrSettings(summaryKind === 'narrative');
-    document.querySelectorAll('[data-summary-kind]').forEach(b => b.classList.toggle('active', b.dataset.summaryKind === summaryKind));
+    document.querySelectorAll('[data-summary-kind]').forEach(b => setOn(b, b.dataset.summaryKind === summaryKind));
     const opts = summaryOpts(live);
     summaryText = SaltCore.summaryReport(summaryKind, live, currentOverlays(), opts);
     // On screen the narrative is wrapped to the width it has, so no line breaks

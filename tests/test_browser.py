@@ -715,6 +715,50 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("boom", page.text_content("#toast-notification"))
         self.errors.clear()  # thrown on purpose
 
+    def test_controls_that_show_on_say_so_to_screen_readers(self):
+        # Regression: these showed which was on by their look alone.
+        pressed = "el => el.getAttribute('aria-pressed')"
+        # The welcome screen's presets: a chip picked says so.
+        first = self.open_editor()
+        self.log(first, "2x BTR")
+        fresh = self.browser.new_context(ignore_https_errors=True)
+        self.addCleanup(fresh.close)
+        page = fresh.new_page()
+        page.goto(self.editor + "/")
+        page.wait_for_selector("#startupModal.show")
+        chip = f"#startup-preset-atos [data-ato='{self.ato}']"
+        page.click(chip)
+        self.assertEqual(page.eval_on_selector(chip, pressed), "true")
+        page = first
+        # Manage's tabs are tabs.
+        self.import_overlays(page)  # for the map, below
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='workspaces']")
+        selected = "el => el.getAttribute('aria-selected')"
+        self.assertEqual(page.eval_on_selector(".ws-tab[data-tab='workspaces']", selected), "true")
+        self.assertEqual(page.eval_on_selector(".ws-tab[data-tab='export']", selected), "false")
+        # Statistics' scope.
+        page.click("#statsViewToggleBtn")
+        page.click("[data-stats-scope='all']")
+        self.assertEqual(page.eval_on_selector("[data-stats-scope='all']", pressed), "true")
+        self.assertEqual(page.eval_on_selector("[data-stats-scope='ato']", pressed), "false")
+        # Summary Reports' kind.
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='brief']")
+        self.assertEqual(page.eval_on_selector("[data-summary-kind='brief']", pressed), "true")
+        self.assertEqual(page.eval_on_selector("[data-summary-kind='rollup']", pressed), "false")
+        # The map's hours, and the drone menu's button opens something.
+        page.evaluate("showHomeView()")
+        self.open_map(page)
+        hours = page.locator("[data-map-hours]")
+        self.assertEqual(
+            sorted(set(hours.evaluate_all("bs => bs.map(b => b.getAttribute('aria-pressed'))"))),
+            ["false", "true"],
+        )
+        page.click("#mapDroneBtn")
+        expanded = "el => el.getAttribute('aria-expanded')"
+        self.assertEqual(page.eval_on_selector("#mapDroneBtn", expanded), "true")
+
     def test_the_welcome_screen_leaves_the_field_being_typed_in(self):
         # Regression: 50 ms after opening, it moved the cursor to the first
         # empty field. A sync that had filled in the ATO made that the Title,
@@ -2613,7 +2657,9 @@ class BrowserTests(unittest.TestCase):
         # Unreachable: put back too, since it isn't kept to send later.
         page.unroute("**/api/save_drones")
         page.route("**/api/save_drones", lambda route: route.abort())
-        self.assertFalse(page.evaluate("saveDrones([{ name: 'GE 8', grid: '38S MB 40000 78000', at: 1 }])"))
+        self.assertFalse(
+            page.evaluate("saveDrones([{ name: 'GE 8', grid: '38S MB 40000 78000', at: 1 }])")
+        )
         page.wait_for_selector("#toast-notification:has-text(\"the server can't be reached\")")
         self.assertEqual(page.evaluate("sharedDrones.length"), 0)
         # Past the server's limits: said at once, without asking it.

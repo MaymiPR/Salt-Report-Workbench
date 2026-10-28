@@ -1021,11 +1021,11 @@ const renderOverlayMap = (box) => {
             </div>`;
         wireMapBox();
     }
-    box.querySelectorAll('[data-map-layer]').forEach(b => b.setAttribute('aria-pressed', String(mapLayers[b.dataset.mapLayer])));
-    box.querySelectorAll('[data-map-grids]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.mapGrids === 'all') === mapAllGrids)));
+    box.querySelectorAll('[data-map-layer]').forEach(b => setOn(b, mapLayers[b.dataset.mapLayer], 'aria-pressed', null));
+    box.querySelectorAll('[data-map-grids]').forEach(b => setOn(b, (b.dataset.mapGrids === 'all') === mapAllGrids, 'aria-pressed', null));
     // Greyed out, not hidden, when neither layer it changes is on: the tools don't move.
     box.querySelectorAll('[data-map-grids]').forEach(b => { b.disabled = !mapLayers.heat && !mapLayers.reports; });
-    box.querySelectorAll('[data-map-hours]').forEach(b => b.classList.toggle('active', +b.dataset.mapHours === mapHours));
+    box.querySelectorAll('[data-map-hours]').forEach(b => setOn(b, +b.dataset.mapHours === mapHours));
     const pick = document.getElementById('mapBaseSelect');
     pick.innerHTML = basemapOptions();
     pick.hidden = !sharedBasemaps.length;
@@ -1339,8 +1339,7 @@ const togglePop = (popId, btnId) => (open) => {
     const pop = document.getElementById(popId), btn = document.getElementById(btnId);
     if (!pop) return;
     pop.hidden = open === undefined ? !pop.hidden : !open;
-    btn.setAttribute('aria-expanded', String(!pop.hidden));
-    btn.classList.toggle('active', !pop.hidden);
+    setOn(btn, !pop.hidden, 'aria-expanded');
 };
 const toggleBasePop = togglePop('mapBasePop', 'mapBaseBtn');
 const toggleDronePop = togglePop('mapDronePop', 'mapDroneBtn');

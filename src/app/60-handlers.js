@@ -654,7 +654,7 @@ if (el.startup.presets) el.startup.presets.addEventListener('click', e => {
     }
     // Mark the active choice in each row.
     const row = chip.closest('.startup-preset-row');
-    row.querySelectorAll('[data-preset]').forEach(b => b.classList.toggle('selected', b === chip));
+    row.querySelectorAll('[data-preset]').forEach(b => setOn(b, b === chip, 'aria-pressed', 'selected'));
 });
 
 const openStartupModal = () => {

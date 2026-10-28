@@ -384,8 +384,5 @@ const setProfileFromLocalStorage = () => {
 };
 
 // Mark the swatch of `color` as picked (for screen readers too) in `scope`.
-const markSwatch = (scope, color) => scope.querySelectorAll('.color-swatch').forEach(s => {
-    s.classList.toggle('selected', s.dataset.color === color);
-    s.setAttribute('aria-pressed', String(s.dataset.color === color));
-});
+const markSwatch = (scope, color) => scope.querySelectorAll('.color-swatch').forEach(s => setOn(s, s.dataset.color === color, 'aria-pressed', 'selected'));
 const selectSwatch = (color) => markSwatch(document, color);

@@ -23,8 +23,8 @@
     <div id="confirmation-toast" class="toast confirm" role="dialog" aria-modal="true" aria-labelledby="confirmation-message">
         <div id="confirmation-message" style="margin-bottom: 8px;"></div>
         <div id="confirmButtons">
-             <button id="cancelActionBtn" class="cancel-btn">Cancel</button>
-             <button id="confirmActionBtn" class="confirm-btn">Confirm</button>
+             <button type="button" id="cancelActionBtn" class="cancel-btn">Cancel</button>
+             <button type="button" id="confirmActionBtn" class="confirm-btn">Confirm</button>
         </div>
     </div>
     <!-- A question with several answers (askChoice in app/10-state.js), e.g. settling a Location. -->
@@ -602,7 +602,7 @@
                         </div>
                         <div class="config-button-wrapper">
                             <select id="atoHistorySelect" disabled aria-label="Other workspaces"></select>
-                            <button id="setAtoBtn" class="set-btn">Set</button>
+                            <button type="button" id="setAtoBtn" class="set-btn">Set</button>
                         </div>
                     </div>
 
@@ -723,9 +723,9 @@
                             <span id="report-total-count" title="Total reports including every saved update"></span>
                         </div>
 
-                        <button id="deleteSelectedBtn" class="home-only">Delete</button>
+                        <button type="button" id="deleteSelectedBtn" class="home-only">Delete</button>
                         <select id="sendToAtoSelect" class="home-only" style="display:none;"></select>
-                        <button id="sendToAtoBtn" class="home-only" style="display:none;">&#8594;</button>
+                        <button type="button" id="sendToAtoBtn" class="home-only" style="display:none;">&#8594;</button>
 
                     </div>
                     <!-- The Report Log: its table and, under it, its map; the button in the bar
@@ -861,7 +861,7 @@
                                         </div>
                                         <input type="hidden" id="user-color-input" value="#0a84ff">
                                     </div>
-                                    <button id="set-profile-btn" class="set-btn">Set Initials</button>
+                                    <button type="button" id="set-profile-btn" class="set-btn">Set Initials</button>
                                 </div>
                             </div>
                         </div>
@@ -1120,7 +1120,7 @@
                                 <div class="export-panel-title">Import CSV: Map Columns</div>
                                 <div id="csvImportSubtitle" class="export-panel-subtitle">No file loaded</div>
                             </div>
-                            <button id="closeCsvImportBtn" class="icon-btn" title="Cancel Import" aria-label="Cancel import">
+                            <button type="button" id="closeCsvImportBtn" class="icon-btn" title="Cancel Import" aria-label="Cancel import">
                                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                             </button>
                         </div>
@@ -1161,8 +1161,8 @@
                             <div class="export-block-label">Destination Workspace</div>
                             <div class="csv-dest-row">
                                 <select id="csvDestSelect" aria-label="Destination workspace"></select>
-                                <button id="csvConfirmBtn" class="set-btn">Import Reports</button>
-                                <button id="csvCancelBtn" class="cancel-btn">Cancel</button>
+                                <button type="button" id="csvConfirmBtn" class="set-btn">Import Reports</button>
+                                <button type="button" id="csvCancelBtn" class="cancel-btn">Cancel</button>
                             </div>
                         </div>
                     </div>

@@ -241,11 +241,7 @@ const switchWorkspacesTab = (tabName) => {
     if (!VALID_TABS.includes(tabName)) tabName = 'export';
     hideIdentityAccessCode();
     if (isReadOnly) tabName = 'export';
-    el.workspaces.tabs.forEach(btn => {
-        const isActive = btn.dataset.tab === tabName;
-        btn.classList.toggle('active', isActive);
-        btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
-    });
+    el.workspaces.tabs.forEach(btn => setOn(btn, btn.dataset.tab === tabName, 'aria-selected'));
     el.workspaces.tabPanels.forEach(panel => {
         panel.style.display = (panel.dataset.tabPanel === tabName) ? '' : 'none';
     });

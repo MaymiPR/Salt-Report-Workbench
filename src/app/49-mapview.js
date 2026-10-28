@@ -19,7 +19,7 @@ const applyMapSide = () => {
     document.querySelector('.map-main').classList.toggle('side-hidden', !mapSideShown);
     const btn = document.getElementById('mapSideBtn');
     if (!btn) return;
-    btn.setAttribute('aria-pressed', String(mapSideShown));
+    setOn(btn, mapSideShown, 'aria-pressed', null);
     btn.title = mapSideShown ? 'Hide the sidebar' : 'Show the sidebar (activities, busiest places)';
 };
 let mapListTimer = 0;

@@ -18,6 +18,10 @@ All notable changes to this project are documented here. The format follows
   Case throughout (Show in Table, Latest Grids, Edit Text, ...), and no text
   in the page, the docs or the downloads uses an em dash (an empty value shows
   "-").
+- **Screen readers hear which button is on** for Statistics' scope, the
+  Summary Reports kinds, the map's hours and the welcome screen's presets (they
+  showed it by their look alone); one helper sets a control's look and what it
+  says together. Buttons that aren't meant to submit a form say so.
 - **The server answers every refusal the same way**: JSON with a one-sentence
   message, including an unknown `/api` address and a map image it won't fetch
   (both were plain text or an HTML page). A request missing what it needs, such

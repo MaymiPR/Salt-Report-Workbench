@@ -562,6 +562,15 @@ const saveShared = async (path, body, { said = '', undo = null, putBack = () => 
 // The toast for a save: `okText` when the server took it (or there is no
 // server, opened from a file), else why not. Unreachable is not an error: the
 // change is kept here.
+// A control's "on" state, set in one place: what a screen reader is told
+// (`attr`: aria-pressed for a toggle, aria-selected for a tab, aria-expanded
+// for what opens something) and the class it is drawn with (`cls`, or none
+// when the CSS reads the attribute), so the two can't disagree.
+const setOn = (node, on, attr = 'aria-pressed', cls = 'active') => {
+    if (!node) return;
+    node.setAttribute(attr, String(!!on));
+    if (cls) node.classList.toggle(cls, !!on);
+};
 // Said when reports are kept here to send later: the same words everywhere.
 const SENT_LATER = "Saved here; it's sent once the server can be reached.";
 const saveToast = (r, okText) => {
@@ -588,7 +597,7 @@ const setupMenuToggle = (btn, menu) => btn.addEventListener('click', e => {
 // The view switcher's icons: the open view's is highlighted.
 const setViewIcon = (id, on) => {
     const b = document.getElementById(id);
-    if (b) { b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); }
+    setOn(b, on);
 };
 
 // --- 4. Notifications (toasts + confirmation dialog) ---
