@@ -25,6 +25,9 @@ a determined attacker on that network.
 
 **It does protect against:**
 
+- Reading or replaying traffic: both ports speak HTTPS (TLS 1.2 or newer), so
+  someone watching the network can't read the reports or the access code, or
+  copy the code to get in. Plain HTTP to either port is sent to `https://`.
 - Observers editing data: the viewer port refuses every write.
 - Casual access to the editor port: a per-launch access code, compared in
   constant time, from an alphabet built to be read aloud.
@@ -40,13 +43,20 @@ a determined attacker on that network.
 
 **It does not protect against:**
 
-- **Eavesdropping.** The server speaks plain HTTP. The access code and every
-  report cross the network unencrypted. Run it only on a network you trust, or
-  behind a VPN or other encrypted transport.
-- **A hostile machine on the LAN.** Anyone who can watch the traffic can read
-  the access code, and the code is the only credential.
-- **Access to the host.** Backups in `Auto Backups/` are plain text. Protect the
-  machine and the folder according to your data-handling rules.
+- **A look-alike server.** The server's own certificate is self-signed, so
+  browsers warn about it, and they would warn the same way about an impostor's.
+  Someone who can redirect traffic on the network could stand in the middle
+  unless users compare the certificate's fingerprint with the server console,
+  or the server uses a certificate from an authority the browsers trust
+  (`--cert`, `--key`).
+- **Anyone who can reach the viewer port.** It needs no code, so anyone on the
+  network who can open it can read every report. Turn it off with
+  `--viewer-port 0` if that matters.
+- **`--no-https`.** It turns encryption off; the code and every report then
+  cross the network readable, and the code can be copied from the traffic.
+- **Access to the host.** Backups in `Auto Backups/` are plain text, and
+  `Auto Backups/tls/` holds the server's private key. Protect the machine and
+  the folder according to your data-handling rules.
 - **Sensitive data in the browser.** Editors' browsers keep a copy of the
   reports in browser storage for offline use, and any summary text they edited
   (Summary Reports, Edit text). Viewers keep no reports. Clear browser data on
@@ -58,7 +68,9 @@ a determined attacker on that network.
   what the server's machine can reach that their own can't, such as addresses
   on another network the host is connected to. Each use is written to the audit
   log. Run the server on a machine whose network position you're comfortable
-  sharing with your editors.
+  sharing with your editors. `/api/basemap`, which fetches map images for an
+  HTTPS page from `http://` basemaps, only fetches from the hosts of basemaps
+  an editor has saved, follows no redirects, and returns only images.
 
 `--no-access-code` removes the editor gate entirely and is meant only for a
 fully trusted, isolated network.

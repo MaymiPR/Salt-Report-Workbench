@@ -226,7 +226,9 @@ const _ACCESS_CONFIRMED_KEY = 'salt_access_confirmed';
 let forceStartupModal = false;
 
 const setAccessCookie = (code) => {
-    document.cookie = `${_ACCESS_COOKIE}=${encodeURIComponent(code)}; path=/; samesite=strict`;
+    // Over HTTPS the cookie is marked secure, so it never goes out over plain HTTP.
+    const secure = location.protocol === 'https:' ? '; secure' : '';
+    document.cookie = `${_ACCESS_COOKIE}=${encodeURIComponent(code)}; path=/; samesite=strict${secure}`;
 };
 const clearAccessCookie = () => {
     document.cookie = `${_ACCESS_COOKIE}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;

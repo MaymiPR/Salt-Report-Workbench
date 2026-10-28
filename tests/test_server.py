@@ -15,12 +15,15 @@ import io
 import json
 import os
 import shutil
+import ssl
 import sys
 import tempfile
 import threading
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -485,7 +488,12 @@ class ErrorReportingTests(unittest.TestCase):
             httpd.server_close()
 
     def test_clients_going_away_stay_quiet(self):
-        for exc in (ConnectionResetError(), BrokenPipeError(), TimeoutError()):
+        for exc in (
+            ConnectionResetError(),
+            BrokenPipeError(),
+            TimeoutError(),
+            ssl.SSLEOFError(),  # a browser dropping an HTTPS connection
+        ):
             self.assertEqual(self.handle(exc), [], repr(exc))
 
     def test_real_errors_are_reported(self):
@@ -511,6 +519,136 @@ class ListenerTests(unittest.TestCase):
         addr = first.server_address
         first.server_close()
         srv.SaltSyncServer(addr, srv.SaltSyncHandler).server_close()
+
+
+class HttpsTests(unittest.TestCase):
+    """The server's own certificate, HTTPS serving, and plain HTTP redirected."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="salt-tls-"))
+        cert, key = srv.make_self_signed_cert(["localhost"], ["127.0.0.1"])
+        cls.cert, cls.key = cls.tmp / "cert.pem", cls.tmp / "key.pem"
+        cls.cert.write_bytes(cert)
+        cls.key.write_bytes(key)
+        cls.httpd = srv.SaltSyncServer(
+            ("127.0.0.1", 0), srv.SaltSyncHandler, tls=srv.tls_context(cls.cert, cls.key)
+        )
+        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
+        cls.port = cls.httpd.server_address[1]
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def setUp(self):
+        reset_state()
+
+    def test_the_certificate_verifies_for_its_names_and_addresses(self):
+        # A strict client (its signature, dates, and names all checked) trusts it.
+        trusting = ssl.create_default_context(cafile=str(self.cert))
+        for host in ("127.0.0.1", "localhost"):
+            with urllib.request.urlopen(
+                f"https://{host}:{self.port}/api/sync", context=trusting, timeout=5
+            ) as resp:
+                self.assertEqual(resp.status, 200, host)
+                self.assertIn("workspaces", json.loads(resp.read()))
+
+    def test_plain_http_is_sent_to_https(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            conn.request("GET", "/index.html?v=2")
+            resp = conn.getresponse()
+            self.assertEqual(resp.status, 307)
+            self.assertEqual(
+                resp.getheader("Location"), f"https://127.0.0.1:{self.port}/index.html?v=2"
+            )
+        finally:
+            conn.close()
+
+    def test_a_browser_turning_down_the_certificate_leaves_the_server_serving(self):
+        with mock.patch.object(srv, "safe_print") as printed:
+            with self.assertRaises(urllib.error.URLError):  # not signed by anyone it trusts
+                urllib.request.urlopen(
+                    f"https://127.0.0.1:{self.port}/api/sync",
+                    context=ssl.create_default_context(),
+                    timeout=5,
+                )
+            unverified = ssl._create_unverified_context()
+            with urllib.request.urlopen(
+                f"https://127.0.0.1:{self.port}/api/sync", context=unverified, timeout=5
+            ) as resp:
+                self.assertEqual(resp.status, 200)
+        self.assertEqual(printed.call_args_list, [], "nothing to report")
+
+    def test_the_fingerprint_is_the_certificates_sha256(self):
+        import hashlib
+
+        der = ssl.PEM_cert_to_DER_cert(self.cert.read_text(encoding="ascii"))
+        expected = hashlib.sha256(der).hexdigest().upper()
+        printed = srv.cert_fingerprint(str(self.cert))
+        self.assertEqual(printed.replace(" ", ""), expected)
+        self.assertEqual(len(printed), 95, "32 pairs, as browsers show it")
+
+
+class TlsFilesTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="salt-tlsfiles-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        patcher = mock.patch.object(srv, "get_local_ip", return_value="10.0.0.12")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def fingerprint(self):
+        cert, key = srv.tls_files(str(self.tmp))
+        srv.tls_context(cert, key)  # loads: the key matches the certificate
+        return srv.cert_fingerprint(cert)
+
+    def test_made_once_then_kept(self):
+        first = self.fingerprint()
+        self.assertTrue((self.tmp / "tls" / "salt-key.pem").is_file())
+        self.assertEqual(
+            self.fingerprint(), first, "a restart keeps it, so browsers needn't ask again"
+        )
+
+    def test_made_again_near_expiry_or_for_a_new_address(self):
+        first = self.fingerprint()
+        info = self.tmp / "tls" / "salt-cert.json"
+        meta = json.loads(info.read_text(encoding="utf-8"))
+        meta["expires"] = (datetime.now(timezone.utc) + timedelta(days=5)).isoformat()
+        info.write_text(json.dumps(meta), encoding="utf-8")
+        second = self.fingerprint()
+        self.assertNotEqual(second, first, "renewed before it runs out")
+        with mock.patch.object(srv, "get_local_ip", return_value="10.0.0.99"):
+            self.assertNotEqual(self.fingerprint(), second, "covers the new address")
+
+    def test_a_missing_key_means_a_new_pair(self):
+        first = self.fingerprint()
+        (self.tmp / "tls" / "salt-key.pem").unlink()
+        self.assertNotEqual(self.fingerprint(), first)
+
+
+class HttpsFlagTests(unittest.TestCase):
+    def parse(self, *argv):
+        with mock.patch.object(sys, "argv", ["salt_sync_server", *argv]):
+            return srv.parse_cli_args()
+
+    def test_https_is_the_default(self):
+        args = self.parse()
+        self.assertFalse(args.no_https)
+        self.assertIsNone(args.cert)
+
+    def test_cert_and_key_go_together_and_not_with_no_https(self):
+        for argv in (
+            ["--cert", "c.pem"],
+            ["--key", "k.pem"],
+            ["--no-https", "--cert", "c.pem", "--key", "k.pem"],
+        ):
+            with mock.patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit, msg=argv):
+                self.parse(*argv)
+        self.assertEqual(self.parse("--cert", "c.pem", "--key", "k.pem").cert, "c.pem")
 
 
 # --------------------------------------------------------------------------- #
@@ -900,6 +1038,62 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(self.post("/api/wms_fetch", {"url": "file:///c:/windows/win.ini"})[0], 400)
         status, _ = self.post("/api/wms_fetch", {"url": base}, base=self.viewer_base)
         self.assertEqual(status, 405, "not on the viewer port")
+
+    def test_basemap_images_come_through_only_from_saved_hosts(self):
+        import http.server as hs
+
+        class Fake(hs.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                if self.path.startswith("/tiles/"):
+                    body, ctype = b"\x89PNG fake", "image/png"
+                elif self.path.startswith("/moved"):
+                    self.send_response(302)
+                    self.send_header("Location", "http://127.0.0.1:1/elsewhere")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                else:
+                    body, ctype = b"<html>not a map</html>", "text/html"
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        fake = hs.HTTPServer(("127.0.0.1", 0), Fake)
+        threading.Thread(target=fake.serve_forever, daemon=True).start()
+        self.addCleanup(fake.server_close)
+        self.addCleanup(fake.shutdown)
+        host = f"http://127.0.0.1:{fake.server_port}"
+        tile = host + "/tiles/3/4/5.png"
+        proxied = "/api/basemap?u=" + urllib.parse.quote(tile, safe="")
+        self.assertEqual(self.request(proxied)[0], 403, "no basemap saved there yet")
+        status, _ = self.post(
+            "/api/save_basemaps",
+            {
+                "basemaps": [
+                    {"name": "Range", "kind": "tiles", "url": host + "/tiles/{z}/{x}/{y}.png"}
+                ]
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(self.request(proxied), (200, b"\x89PNG fake"))
+        self.assertEqual(self.request(proxied, base=self.viewer_base, code=None)[0], 200)
+        self.assertEqual(self.request(proxied, code=None)[0], 401, "the editor port wants the code")
+        for url, why in (
+            (host + "/page", "not an image"),
+            (host + "/moved", "a redirect could lead anywhere"),
+        ):
+            self.assertEqual(
+                self.request("/api/basemap?u=" + urllib.parse.quote(url, safe=""))[0], 502, why
+            )
+        for url in ("http://127.0.0.1:1/tiles/1.png", "file:///c:/windows/win.ini", ""):
+            self.assertEqual(
+                self.request("/api/basemap?u=" + urllib.parse.quote(url, safe=""))[0], 403, url
+            )
 
     def test_basemaps_sync_and_survive_a_restart(self):
         shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)

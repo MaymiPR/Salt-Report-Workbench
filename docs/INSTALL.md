@@ -66,6 +66,43 @@ folder: reports, overlays, and settings load from it as they are. A
 `PYTHON_EXE` path set in the launcher survives an upgrade by `.txt`. If you drop
 files in by hand, set it again.
 
+Coming from a version that spoke plain HTTP, old `http://` addresses and
+bookmarks are sent on to the `https://` address, and each browser warns once
+(see below).
+
+## HTTPS and the browser warning
+
+The server encrypts every connection, editor and read-only alike, so nobody
+watching the network can read the access code or the reports, or copy the code
+to get in. Python can't make a certificate on its own, so on first start the
+server makes one, valid for this machine's names and addresses, and keeps it in
+`Auto Backups/tls/`. It makes a new one when the old one is about to run out or
+the machine's address changes.
+
+**The warning.** No authority vouches for that certificate, so each browser
+says the connection isn't private the first time. Choose **Advanced**, then
+**Proceed** (Chrome and Edge) or **Accept the Risk and Continue** (Firefox).
+
+**Checking it's really your server.** Someone on the network could put up a
+look-alike server, and the browser would show the same warning. To be sure,
+click the warning's certificate details (or the padlock afterwards) and compare
+the SHA-256 fingerprint with the **Certificate** lines in the server console.
+
+**Your own certificate.** If your unit has a certificate authority, give the
+server a certificate it issued for this machine, and browsers that trust that
+authority won't warn:
+
+```bash
+python salt_sync_server.py --cert server.pem --key server-key.pem
+```
+
+**Basemaps on `http://`.** An HTTPS page can't load images from an `http://`
+address, so the server fetches those map images for the page. It only fetches
+from the hosts of basemaps an editor has added.
+
+**Plain HTTP.** `--no-https` turns encryption off. Use it only where the network
+is already encrypted (a VPN, an encrypted radio net) or fully trusted.
+
 ## Windows launcher
 
 `Start SALT Workbench.bat` starts the server with a double-click. It needs no
