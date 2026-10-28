@@ -15,6 +15,7 @@ import argparse
 import base64
 import contextlib
 import ctypes
+import functools
 import gzip
 import hashlib
 import http.client
@@ -37,8 +38,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
-from typing import ClassVar
+from typing import Any, NamedTuple
 
 try:
     import ssl
@@ -55,7 +57,29 @@ if sys.version_info < (3, 10):  # noqa: UP036
         + '.'
     )
 
-# --- Configuration ---
+# Contents: each is a banner below, in this order.
+#
+#   Configuration             ports, folders, file names, timeouts and caps
+#   State                     the locks, caches and registries request threads share
+#   SSE                       numbered changes, update notices, who is connected
+#   Utilities                 printing, saving soon, the audit log, the access code
+#   Validation                request limits, and one validator per POST body
+#   Shared settings           SHARED_SECTIONS, one per shared setting; DATA_STORE
+#   Map services              /api/wms_fetch and the /api/basemap proxy
+#   Rate limiting             token buckets per address
+#   Backup parsing & merging  a backup file's JSON, and merging reports by id
+#   Disk I/O                  loading at boot, the backup files, snapshots, saving
+#   HTTP request handler      SaltSyncHandler: replies, refusals, each route's handler
+#   Routes                    ROUTES: each path, its handler, validator, who may use it
+#   HTTPS                     the server's own certificate, the redirect from http://
+#   Server                    SaltSyncServer, the listener
+#   Boot                      the banner, the command line, --restore, shutting down
+
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
 PORT: int = 8080
 HOST: str = '0.0.0.0'
 # Viewer port — second listener, POSTs return 405. `--viewer-port 0` disables. Bind failure is non-fatal for editor.
@@ -84,10 +108,10 @@ SNAPSHOT_INTERVAL_SECONDS: float = 3600.0
 SNAPSHOT_KEEP: int = 48
 # One line per accepted write (when, who, what), beside the backups.
 AUDIT_LOG_NAME = 'audit.log'
-# The settings every workspace shares (config, profiles, format, overlays,
-# basemaps, drones, narrative), beside the backups in a file of their own, so
-# they last with no workspace loaded. Not a .txt: the loader never takes it for
-# a workspace backup. Workspace backups still carry them too, for older versions.
+# The settings every workspace shares (SHARED_SECTIONS), beside the backups in
+# a file of their own, so they last with no workspace loaded. Not a .txt: the
+# loader never takes it for a workspace backup. Workspace backups still carry
+# them too, for older versions.
 SHARED_SETTINGS_NAME = 'Shared settings.json'
 
 # The bundled page sits beside the server in a built `dist/` folder; when run
@@ -101,52 +125,41 @@ WORKBENCH_HTML = next(
 )
 BACKUP_START = '##SALT_BACKUP##'
 BACKUP_END = '##SALT_BACKUP_END##'
+# /api/wms_fetch: the server reads a WMS address for an editor's page when the
+# service won't let the page read it itself (no CORS headers).
+WMS_FETCH_MAX_URL = 4000
+WMS_FETCH_MAX_BYTES = 5 * 1024 * 1024
+WMS_FETCH_TIMEOUT = 15
+# /api/basemap: an HTTPS page can't load map images from an http:// basemap, so
+# the server fetches them, from the hosts of the saved basemaps only.
+BASEMAP_PROXY_MAX_BYTES = 16 * 1024 * 1024
+# HTTPS: the server's own certificate lives in the backup folder's tls/ and is
+# made again this many days before it runs out. A new connection gets
+# TLS_HANDSHAKE_TIMEOUT seconds to start its handshake (or its plain request).
+TLS_DIR_NAME = 'tls'
+TLS_CERT_DAYS = 825
+TLS_RENEW_DAYS = 30
+TLS_HANDSHAKE_TIMEOUT = 10
+# Seconds a connection may sit idle mid-request before it is closed. Not the
+# event stream, which stays open; see SaltSyncHandler.timeout.
+REQUEST_IDLE_TIMEOUT = 30
+# Event streams one machine may hold open at once (a tab each); a new one past
+# this closes that machine's oldest, which is most likely a tab long gone.
+MAX_SSE_PER_MACHINE = 10
+_SECURITY_HEADERS = (
+    ('X-Frame-Options', 'DENY'),
+    ('Content-Security-Policy', "frame-ancestors 'none'"),
+    ('X-Content-Type-Options', 'nosniff'),
+)
 
-# --- Thread-safe data store ---
+
+# =============================================================================
+# State
+# =============================================================================
+
+# Guards DATA_STORE (the reports and shared settings, made from SHARED_SECTIONS
+# under Shared settings below) and everything marked "Protected by data_lock".
 data_lock = threading.Lock()
-DATA_STORE: dict = {
-    'workspaces': {},
-    'config': {'ato': '', 'title': ''},
-    'profiles': {},
-    # The report format (Builder), one for every workspace; it changes only
-    # when an operator edits it. Synced to all clients. Backup files still
-    # carry it per workspace ({ato: format}), as older versions read it.
-    'format': {},
-    # NAI / OBJ / PL features, imported from KML, KMZ, GeoJSON or shapefile.
-    # One set shared by every workspace (graphics outlast a single ATO).
-    'overlays': [],
-    # The map's background services: [{name, kind: 'wms' | 'tiles', url, layers?}].
-    # Shared like the overlays; each browser picks one to show and fetches it
-    # straight from that service.
-    'basemaps': [],
-    # Drones shown on the map: [{name, grid, at}], where they were last put
-    # (an MGRS grid) and when (ms). Shared like the basemaps.
-    'drones': [],
-    # The narrative's settings (Summary Reports > Narrative): what the enemy
-    # is called, the known units and where they operate, equipment added to
-    # the catalogue, rules switched off, and the team's own rules.
-    'narrative': {},
-}
-
-
-def fold_overlays(value) -> list:
-    """The shared overlay list from what a backup or request holds.
-
-    A list is the shared set as it is. A dict is the older per-workspace form
-    (ato -> list): its lists are folded into one, a later one replacing an
-    earlier overlay of the same type and name. Anything else is empty.
-    """
-    if isinstance(value, list):
-        return [o for o in value if isinstance(o, dict)]
-    if not isinstance(value, dict):
-        return []
-    by_key: dict = {}
-    for lst in value.values():
-        for o in lst if isinstance(lst, list) else []:
-            if isinstance(o, dict):
-                by_key[(o.get('type'), o.get('name'))] = o
-    return list(by_key.values())
-
 
 # Cached /api/sync prefix — all but the closing brace and connected_users count. Invalidated on every mutation.
 _sync_cache_prefix: bytes | None = None  # protected by data_lock
@@ -556,8 +569,11 @@ def _get_workbench_html() -> bytes | None:
         return content
 
 
-# --- Schema validation: per-endpoint validators run before handlers. ---
-# Limits sized for real reports while rejecting obvious abuse.
+# =============================================================================
+# Validation
+# =============================================================================
+# Each POST route's validator (see ROUTES) checks the body's shape before the
+# route sees it. Limits sized for real reports while rejecting obvious abuse.
 MAX_ATO_LEN = 50
 MAX_TITLE_LEN = 100
 MAX_INITIALS_LEN = 3
@@ -677,32 +693,6 @@ _NARRATIVE_RULES = frozenset(
         'casevac',
         'regroup',
     }
-)
-# /api/wms_fetch: the server reads a WMS address for an editor's page when the
-# service won't let the page read it itself (no CORS headers).
-WMS_FETCH_MAX_URL = 4000
-WMS_FETCH_MAX_BYTES = 5 * 1024 * 1024
-WMS_FETCH_TIMEOUT = 15
-# /api/basemap: an HTTPS page can't load map images from an http:// basemap, so
-# the server fetches them, from the hosts of the saved basemaps only.
-BASEMAP_PROXY_MAX_BYTES = 16 * 1024 * 1024
-# HTTPS: the server's own certificate lives in the backup folder's tls/ and is
-# made again this many days before it runs out. A new connection gets
-# TLS_HANDSHAKE_TIMEOUT seconds to start its handshake (or its plain request).
-TLS_DIR_NAME = 'tls'
-TLS_CERT_DAYS = 825
-TLS_RENEW_DAYS = 30
-TLS_HANDSHAKE_TIMEOUT = 10
-# Seconds a connection may sit idle mid-request before it is closed. Not the
-# event stream, which stays open; see SaltSyncHandler.timeout.
-REQUEST_IDLE_TIMEOUT = 30
-# Event streams one machine may hold open at once (a tab each); a new one past
-# this closes that machine's oldest, which is most likely a tab long gone.
-MAX_SSE_PER_MACHINE = 10
-_SECURITY_HEADERS = (
-    ('X-Frame-Options', 'DENY'),
-    ('Content-Security-Policy', "frame-ancestors 'none'"),
-    ('X-Content-Type-Options', 'nosniff'),
 )
 MAX_OVERLAY_POINTS = 200_000  # coordinate pairs in the shared set, all features together
 _FORMAT_LINE_TYPES = {'id', 'size', 'activity', 'location', 'time', 'analysis', 'custom'}
@@ -1174,6 +1164,136 @@ def _v_save_narrative(data: dict) -> str | None:
     return None
 
 
+def _v_wms_fetch(data: dict) -> str | None:
+    url = data.get('url')
+    if not _is_str(url, WMS_FETCH_MAX_URL) or not url.strip().lower().startswith(
+        ('http://', 'https://')
+    ):
+        return f'url must be an http(s) address ≤{WMS_FETCH_MAX_URL} chars'
+    return None
+
+
+# =============================================================================
+# Shared settings
+# =============================================================================
+# The settings every workspace shares, one SharedSection each in
+# SHARED_SECTIONS. From that one list come DATA_STORE's slots, /api/sync's
+# fields, Shared settings.json, the copy every workspace backup carries,
+# reading them back at boot and each one's save route (see ROUTES), all in its
+# order. A new shared list is one entry here, with its validator and cleaner.
+#
+# Where one of them works its own way, that is spelled out where it happens:
+#   config    the workspace viewers are shown. Its route also notes where the
+#             editor now is and brings back an unloaded workspace
+#             (_post_save_config); unloading the workspace clears it.
+#   profiles  saved one operator at a time (_post_save_profile), which also
+#             names the machine; at boot every file's are merged.
+#   format    backup files keep it under each workspace's name, as 'formats',
+#             the shape older versions read (formats_for); at boot it is the
+#             newest file's active workspace's (pick_format).
+#   overlays  at boot the newest file in the shared form decides; files from
+#             before they were shared (per workspace) are pooled (fold_overlays).
+
+
+class SharedSection(NamedTuple):
+    """One setting every workspace shares (see SHARED_SECTIONS)."""
+
+    # Its name in DATA_STORE, /api/sync, Shared settings.json and the backups.
+    key: str
+    # dict or list: its empty value, and what a file's must be for the boot to take it.
+    kind: type
+    # The POST route that saves it, and that route's validator.
+    route: str
+    validator: Callable[[dict], str | None]
+    # What is stored from the validated body's value (known fields only), and
+    # the audit line for it. None: its route is a handler of its own (see
+    # _OWN_SAVE_ROUTES under Routes).
+    clean: Callable[[Any], Any] | None = None
+    logged: Callable[[Any], str] | None = None
+    # What it holds before anything is loaded; None: empty.
+    start: Callable[[], Any] | None = None
+    # Tidies what a backup file holds; None: taken as it is (None when absent).
+    read: Callable[[Any], Any] | None = None
+    # At boot, the newest file that holds one decides it. False: the boot
+    # (load_data_from_disk) has a rule of its own for it.
+    newest_file: bool = True
+
+    def initial(self):
+        """What it holds before anything is loaded."""
+        return self.start() if self.start else self.kind()
+
+
+def _clean_config(c) -> dict:
+    """The active workspace and title from a backup, as strings whatever it holds."""
+    c = c if isinstance(c, dict) else {}
+    return {k: c[k] if isinstance(c.get(k), str) else '' for k in ('ato', 'title')}
+
+
+def fold_overlays(value) -> list:
+    """The shared overlay list from what a backup or request holds.
+
+    A list is the shared set as it is. A dict is the older per-workspace form
+    (ato -> list): its lists are folded into one, a later one replacing an
+    earlier overlay of the same type and name. Anything else is empty.
+    """
+    if isinstance(value, list):
+        return [o for o in value if isinstance(o, dict)]
+    if not isinstance(value, dict):
+        return []
+    by_key: dict = {}
+    for lst in value.values():
+        for o in lst if isinstance(lst, list) else []:
+            if isinstance(o, dict):
+                by_key[(o.get('type'), o.get('name'))] = o
+    return list(by_key.values())
+
+
+def clean_overlays(ovs: list) -> list:
+    """Known fields only, from overlays ``_v_save_overlays`` accepted, like the
+    config. An empty list is kept (not dropped) so a clear reaches clients,
+    which merge what the server sends."""
+    return [
+        {
+            'type': o['type'],
+            'name': o['name'],
+            **({'label': o['label']} if o.get('label') else {}),
+            'geometry': {
+                'type': o['geometry']['type'],
+                'coordinates': o['geometry']['coordinates'],
+            },
+        }
+        for o in ovs
+    ]
+
+
+def clean_basemaps(maps: list) -> list:
+    """Known fields only, trimmed, from basemaps ``_v_save_basemaps`` accepted."""
+    return [
+        {
+            'name': b['name'].strip(),
+            'kind': b['kind'],
+            'url': b['url'].strip(),
+            **({'layers': b['layers'].strip()} if b.get('layers') else {}),
+            **{f: b[f].strip() for f in _BASEMAP_WMS_FIELDS if b.get(f)},
+        }
+        for b in maps
+    ]
+
+
+def clean_drones(drones: list) -> list:
+    """Known fields only, from drones ``_v_save_drones`` accepted."""
+    return [
+        {
+            'name': d['name'].strip(),
+            'grid': d['grid'],
+            'at': d['at'],
+            **({'look': d['look']} if d.get('look') else {}),
+            **({'range': d['range']} if d.get('range') is not None else {}),
+        }
+        for d in drones
+    ]
+
+
 def clean_narrative(n: dict) -> dict:
     """Known fields only, trimmed, from settings ``_v_save_narrative`` accepted."""
     return {
@@ -1203,13 +1323,98 @@ def clean_narrative(n: dict) -> dict:
     }
 
 
-def _v_wms_fetch(data: dict) -> str | None:
-    url = data.get('url')
-    if not _is_str(url, WMS_FETCH_MAX_URL) or not url.strip().lower().startswith(
-        ('http://', 'https://')
-    ):
-        return f'url must be an http(s) address ≤{WMS_FETCH_MAX_URL} chars'
-    return None
+SHARED_SECTIONS: tuple[SharedSection, ...] = (
+    # {ato, title}: the workspace viewers are shown (each editor keeps their own).
+    SharedSection(
+        'config',
+        dict,
+        '/api/save_config',
+        _v_save_config,
+        start=lambda: {'ato': '', 'title': ''},
+        read=_clean_config,
+    ),
+    # Initials -> {initials, color}, one per operator.
+    SharedSection(
+        'profiles',
+        dict,
+        '/api/save_profile',
+        _v_save_profile,
+        read=lambda v: v if isinstance(v, dict) else {},
+        newest_file=False,
+    ),
+    # The report format (Builder), one for every workspace; it changes only
+    # when an operator edits it. Stored as sent: its validator checked each line.
+    SharedSection(
+        'format',
+        dict,
+        '/api/save_format',
+        _v_save_format,
+        clean=lambda fmt: fmt,
+        logged=lambda _: 'save_format',
+        newest_file=False,
+    ),
+    # NAI / OBJ / PL features, imported from KML, KMZ, GeoJSON or shapefile.
+    # One set shared by every workspace (graphics outlast a single ATO).
+    SharedSection(
+        'overlays',
+        list,
+        '/api/save_overlays',
+        _v_save_overlays,
+        clean=clean_overlays,
+        logged=lambda ovs: f'save_overlays: {len(ovs)} overlay(s)',
+        newest_file=False,
+    ),
+    # The map's background services: [{name, kind: 'wms' | 'tiles', url, layers?}].
+    # Shared like the overlays; each browser picks one to show and fetches it
+    # straight from that service.
+    SharedSection(
+        'basemaps',
+        list,
+        '/api/save_basemaps',
+        _v_save_basemaps,
+        clean=clean_basemaps,
+        logged=lambda maps: f'save_basemaps: {len(maps)} service(s)',
+    ),
+    # Drones shown on the map: [{name, grid, at}], where they were last put
+    # (an MGRS grid) and when (ms). Shared like the basemaps.
+    SharedSection(
+        'drones',
+        list,
+        '/api/save_drones',
+        _v_save_drones,
+        clean=clean_drones,
+        logged=lambda drones: f'save_drones: {len(drones)} drone(s)',
+    ),
+    # The narrative's settings (Summary Reports > Narrative): what the enemy
+    # is called, the known units and where they operate, equipment added to
+    # the catalogue, rules switched off, and the team's own rules.
+    SharedSection(
+        'narrative',
+        dict,
+        '/api/save_narrative',
+        _v_save_narrative,
+        clean=clean_narrative,
+        logged=lambda n: (
+            f'save_narrative: {len(n["units"])} unit(s), {len(n["equipment"])} type(s), '
+            f'{len(n["custom"])} rule(s)'
+        ),
+    ),
+)
+
+# Every workspace's reports (ATO -> list), then the shared settings. Protected
+# by data_lock.
+DATA_STORE: dict = {'workspaces': {}, **{s.key: s.initial() for s in SHARED_SECTIONS}}
+
+
+def shared_settings() -> dict:
+    """The shared settings as DATA_STORE holds them, key -> value in
+    SHARED_SECTIONS order. Caller holds data_lock."""
+    return {s.key: DATA_STORE.get(s.key, s.kind()) for s in SHARED_SECTIONS}
+
+
+# =============================================================================
+# Map services
+# =============================================================================
 
 
 def wms_fetch(url: str) -> dict:
@@ -1304,25 +1509,10 @@ def basemap_fetch(url: str) -> tuple[int, str, bytes]:
         return 502, '', b''
 
 
-# Path -> validator. A new POST route needs an entry here and one in
-# SaltSyncHandler._POST_ROUTES.
-_VALIDATORS = {
-    '/api/save_reports': _v_save_reports,
-    '/api/unload_ato': _check_ato,
-    '/api/edit_report': _v_edit_report,
-    '/api/delete_history': _v_delete_history,
-    '/api/save_config': _v_save_config,
-    '/api/save_profile': _v_save_profile,
-    '/api/save_format': _v_save_format,
-    '/api/save_overlays': _v_save_overlays,
-    '/api/save_basemaps': _v_save_basemaps,
-    '/api/save_drones': _v_save_drones,
-    '/api/save_narrative': _v_save_narrative,
-    '/api/wms_fetch': _v_wms_fetch,
-}
-
-
-# --- Rate limiting (token bucket per IP): 1 token/POST; GETs unlimited; 429 when empty. ---
+# =============================================================================
+# Rate limiting
+# =============================================================================
+# A token bucket per IP: 1 token/POST; GETs unlimited; 429 when empty.
 RATE_BUCKET_CAPACITY = 60
 RATE_REFILL_PER_SECOND = 5.0
 RATE_BUCKET_PRUNE_AFTER = 600.0  # drop buckets inactive longer than this
@@ -1390,10 +1580,18 @@ def basemap_rate_check(ip: str) -> bool:
 # =============================================================================
 
 
-def _clean_config(c) -> dict:
-    """The active workspace and title from a backup, as strings whatever it holds."""
-    c = c if isinstance(c, dict) else {}
-    return {k: c[k] if isinstance(c.get(k), str) else '' for k in ('ato', 'title')}
+def _shared_in_file(d: dict) -> dict:
+    """The shared settings a backup's JSON holds, key -> value in
+    SHARED_SECTIONS order, each tidied by its ``read``; None for one the file
+    doesn't hold (older than it). The format is under ``formats``, one per
+    workspace (see pick_format)."""
+    out = {}
+    for s in SHARED_SECTIONS:
+        if s.key == 'format':
+            out['formats'] = d.get('formats', {})
+        else:
+            out[s.key] = s.read(d.get(s.key)) if s.read else d.get(s.key)
+    return out
 
 
 def _parse_backup(raw_text: str) -> dict:
@@ -1413,8 +1611,6 @@ def _parse_backup(raw_text: str) -> dict:
         raise ValueError(f'its backup data is not valid JSON ({exc})') from None
     if not isinstance(d, dict):
         raise ValueError('its backup data is not a JSON object')
-    config = _clean_config(d.get('config'))
-    profiles = d.get('profiles') if isinstance(d.get('profiles'), dict) else {}
     if 'workspaces' in d:
         if not isinstance(d['workspaces'], dict):
             raise ValueError('its "workspaces" is not an object')
@@ -1422,28 +1618,14 @@ def _parse_backup(raw_text: str) -> dict:
             'workspaces': {
                 ato: _dicts(reps) for ato, reps in d['workspaces'].items() if isinstance(reps, list)
             },
-            'config': config,
-            'profiles': profiles,
-            'formats': d.get('formats', {}),
-            # None when the file has no overlays at all (older than 2.5).
-            'overlays': d.get('overlays'),
-            'basemaps': d.get('basemaps'),
-            'drones': d.get('drones'),
-            'narrative': d.get('narrative'),
+            **_shared_in_file(d),
         }
-    # Legacy marker format: single ATO inferred from config
-    ato = config['ato']
+    # Legacy marker format: single ATO inferred from config. Of the shared
+    # settings it held only the config and profiles.
+    shared = _shared_in_file({'config': d.get('config'), 'profiles': d.get('profiles')})
+    ato = shared['config']['ato']
     reps = _dicts(d.get('reports'))
-    return {
-        'workspaces': {ato: reps} if ato and reps else {},
-        'config': config,
-        'profiles': profiles,
-        'formats': {},
-        'overlays': None,
-        'basemaps': None,
-        'drones': None,
-        'narrative': None,
-    }
+    return {'workspaces': {ato: reps} if ato and reps else {}, **shared}
 
 
 def _parse_shared_settings(raw_text: str) -> dict:
@@ -1455,17 +1637,11 @@ def _parse_shared_settings(raw_text: str) -> dict:
         raise ValueError(f'not valid JSON ({exc})') from None
     if not isinstance(d, dict):
         raise ValueError('not a JSON object')
+    shared = _shared_in_file(d)
+    # One format here, not one per workspace: under '', it is the one pick_format finds.
     fmt = d.get('format')
-    return {
-        'workspaces': {},
-        'config': _clean_config(d.get('config')),
-        'profiles': d.get('profiles') if isinstance(d.get('profiles'), dict) else {},
-        'formats': {'': fmt} if isinstance(fmt, dict) else {},
-        'overlays': d.get('overlays'),
-        'basemaps': d.get('basemaps'),
-        'drones': d.get('drones'),
-        'narrative': d.get('narrative'),
-    }
+    shared['formats'] = {'': fmt} if isinstance(fmt, dict) else {}
+    return {'workspaces': {}, **shared}
 
 
 def _extract_json_from_file(raw_text: str) -> dict | None:
@@ -1549,11 +1725,12 @@ def _merge_reports(existing_list: list, incoming_list: list) -> list:
 def load_data_from_disk() -> int:
     """Read the backups in BACKUP_DIR into DATA_STORE + workspace_sources.
 
-    Every ``.txt`` backup adds its workspaces. The shared settings (config,
-    profiles, format, overlays, basemaps, drones, narrative) come from the
-    newest file that holds them, ``Shared settings.json`` among them, so they
-    return even when no workspace does. A file that can't be read is named on
-    the console and skipped; returns how many were.
+    Every ``.txt`` backup adds its workspaces. The shared settings
+    (SHARED_SECTIONS) come from the newest file that holds them,
+    ``Shared settings.json`` among them, so they return even when no workspace
+    does; the profiles, format and overlays have rules of their own, below. A
+    file that can't be read is named on the console and skipped; returns how
+    many were.
     """
     with data_lock:
         os.makedirs(BACKUP_DIR, exist_ok=True)
@@ -1571,20 +1748,14 @@ def load_data_from_disk() -> int:
             return 0
 
         all_workspaces: dict = {}
-        merged_profiles: dict = {}
-        # Newest mtime wins — matches the runtime invariant that the most recent ATO/Title is active.
-        latest_config = {'ato': '', 'title': ''}
         source_by_ato: dict = {}
-        # The format: the newest file's, for its active workspace if it has one.
-        shared_format: dict = {}
+        # The shared settings, as the files read so far say, oldest first.
+        shared = {s.key: s.initial() for s in SHARED_SECTIONS}
         # The newest file in the shared form decides the overlays. Files from
         # before they were shared (per-workspace dicts) are pooled, and used
         # only when no file has the shared form yet.
         shared_overlays: list | None = None
         legacy_overlays: dict = {}
-        basemaps: list = []
-        drones: list = []
-        narrative: dict = {}
         skipped = 0
         _file_holds.clear()
         _merged_files.clear()
@@ -1611,15 +1782,17 @@ def load_data_from_disk() -> int:
                     source_by_ato[key] = fname
                     _file_holds.setdefault(fname.casefold(), (fname, set()))[1].add(key)
                     _merged_files.setdefault(key, set()).add(fname.casefold())
-                merged_profiles.update(result.get('profiles', {}))
+                for s in SHARED_SECTIONS:
+                    # The newest file's. For the config, newest mtime wins:
+                    # matches the runtime invariant that the most recent
+                    # ATO/Title is active.
+                    if s.newest_file and isinstance(result.get(s.key), s.kind):
+                        shared[s.key] = result[s.key]
+                # The profiles: every file's, merged.
+                shared['profiles'].update(result.get('profiles', {}))
+                # The format: the newest file's, for its active workspace if it has one.
                 if (fmt := pick_format(result.get('formats'), result.get('config'))) is not None:
-                    shared_format = fmt
-                if isinstance(result.get('basemaps'), list):
-                    basemaps = result['basemaps']  # the newest file's
-                if isinstance(result.get('drones'), list):
-                    drones = result['drones']  # the newest file's
-                if isinstance(result.get('narrative'), dict):
-                    narrative = result['narrative']  # the newest file's
+                    shared['format'] = fmt
                 ovs = result.get('overlays')
                 if isinstance(ovs, list):
                     shared_overlays = fold_overlays(ovs)
@@ -1627,22 +1800,16 @@ def load_data_from_disk() -> int:
                     legacy_overlays.update(
                         {(o.get('type'), o.get('name')): o for o in fold_overlays(ovs)}
                     )
-                latest_config = result.get('config', latest_config)
             except Exception as exc:
                 # Not silently: a backup that doesn't load is data missing from the session.
                 skipped += 1
                 safe_print(f'[!] Skipped {fname}: {exc}')
 
-        DATA_STORE['workspaces'] = all_workspaces
-        DATA_STORE['profiles'] = merged_profiles
-        DATA_STORE['config'] = latest_config
-        DATA_STORE['format'] = shared_format
-        DATA_STORE['overlays'] = (
+        shared['overlays'] = (
             shared_overlays if shared_overlays is not None else list(legacy_overlays.values())
         )
-        DATA_STORE['basemaps'] = basemaps
-        DATA_STORE['drones'] = drones
-        DATA_STORE['narrative'] = narrative
+        DATA_STORE['workspaces'] = all_workspaces
+        DATA_STORE.update(shared)
         workspace_sources.clear()
         workspace_sources.update(source_by_ato)
         invalidate_sync_cache()
@@ -1683,24 +1850,31 @@ def backup_filename(ato, title) -> str:
     return f'{_filename_part(ato)}_{_filename_part(title)}.txt'
 
 
+# The shared settings render_backup takes by name (overlays=[...]): all but
+# the three it takes first, as it always has.
+_BACKUP_BY_NAME = frozenset(s.key for s in SHARED_SECTIONS) - {'config', 'profiles', 'format'}
+
+
 def render_backup(
     workspaces: dict,
     config: dict,
     profiles: dict,
     formats: dict,
     label: tuple[str, str] | None = None,
-    overlays: list | None = None,
-    basemaps: list | None = None,
-    narrative: dict | None = None,
-    drones: list | None = None,
+    **shared,
 ) -> tuple[str, str] | None:
     """Return ``(filename, text)`` for a backup of the given state, or None if empty.
 
-    Pure: no I/O, no globals. The text is a human-readable report summary
+    Pure: no I/O, no global state. The text is a human-readable report summary
     followed by a machine-readable JSON block that ``_extract_json_from_file``
-    reads back on the next boot. ``label`` is the ``(ato, title)`` the file is
-    named after and headed with; without it, the config decides.
+    reads back on the next boot. ``formats`` is the format under each
+    workspace's name (formats_for). The other shared settings come by name
+    (``overlays=[...]``); one not given is written empty. ``label`` is the
+    ``(ato, title)`` the file is named after and headed with; without it, the
+    config decides.
     """
+    if unknown := set(shared) - _BACKUP_BY_NAME:
+        raise TypeError(f'render_backup: not a shared setting: {sorted(unknown)}')
     # Nothing loaded — don't emit an empty placeholder file.
     if not workspaces:
         return None
@@ -1794,20 +1968,14 @@ def render_backup(
                     lines.append(f'      Analysis : {h["yourAnalysis"]}')
             lines.append('')
 
-    machine_json = json.dumps(
-        {
-            'workspaces': workspaces,
-            'config': config,
-            'profiles': profiles,
-            'formats': formats,
-            'overlays': overlays or [],
-            'basemaps': basemaps or [],
-            'drones': drones or [],
-            'narrative': narrative or {},
-        },
-        separators=(',', ':'),
-        ensure_ascii=False,
-    )
+    machine = {'workspaces': workspaces}
+    given = {**shared, 'config': config, 'profiles': profiles}
+    for s in SHARED_SECTIONS:
+        if s.key == 'format':
+            machine['formats'] = formats  # per workspace, as older versions read it
+        else:
+            machine[s.key] = given.get(s.key) or s.kind()
+    machine_json = json.dumps(machine, separators=(',', ':'), ensure_ascii=False)
     lines += [
         div,
         ' MACHINE DATA: DO NOT EDIT BELOW THIS LINE',
@@ -1821,26 +1989,12 @@ def render_backup(
     return filename, '\n'.join(lines)
 
 
-def render_shared_settings(
-    config: dict,
-    profiles: dict,
-    fmt: dict | None,
-    overlays: list | None,
-    basemaps: list | None,
-    drones: list | None,
-    narrative: dict | None,
-) -> str:
-    """The text of ``Shared settings.json``. Pure, like ``render_backup``."""
-    shared = {
-        'config': config,
-        'profiles': profiles,
-        'format': fmt or {},
-        'overlays': overlays or [],
-        'basemaps': basemaps or [],
-        'drones': drones or [],
-        'narrative': narrative or {},
-    }
-    return json.dumps(shared, indent=1, ensure_ascii=False) + '\n'
+def render_shared_settings(shared: dict) -> str:
+    """The text of ``Shared settings.json`` from ``shared`` (key -> value, as
+    ``shared_settings`` gives), one not given written empty. Pure, like
+    ``render_backup``."""
+    out = {s.key: shared.get(s.key) or s.kind() for s in SHARED_SECTIONS}
+    return json.dumps(out, indent=1, ensure_ascii=False) + '\n'
 
 
 def workspace_title(ato: str, reports: list, config: dict) -> str:
@@ -1892,18 +2046,16 @@ def render_workspace_backups(
     profiles: dict,
     formats: dict,
     only: set | None = None,
-    overlays: list | None = None,
-    basemaps: list | None = None,
-    narrative: dict | None = None,
-    drones: list | None = None,
     names: dict | None = None,
+    **shared,
 ) -> list[tuple[str, str, str]]:
     """One ``(ato, filename, text)`` per workspace, for those in ``only`` (None: all).
 
-    Each file holds a single workspace with its format and overlays, plus the shared
-    config and profiles, so on boot every file contributes its workspace and
-    the newest file decides the active one. ``names`` is what
-    ``workspace_filenames`` gave (None: worked out here). Pure, like ``render_backup``.
+    Each file holds a single workspace with its format, plus every other shared
+    setting (by name, as ``render_backup`` takes them), so on boot every file
+    contributes its workspace and the newest file decides the active one.
+    ``names`` is what ``workspace_filenames`` gave (None: worked out here).
+    Pure, like ``render_backup``.
     """
     if names is None:
         names = workspace_filenames(workspaces, config)
@@ -1918,10 +2070,7 @@ def render_workspace_backups(
             profiles,
             {ato: formats[ato]} if ato in formats else {},
             label=(ato, workspace_title(ato, reports, config)),
-            overlays=overlays or [],
-            basemaps=basemaps or [],
-            narrative=narrative or {},
-            drones=drones or [],
+            **shared,
         )
         if rendered is not None:
             out.append((ato, names[ato], rendered[1]))
@@ -2076,38 +2225,27 @@ def save_data_to_disk() -> None:
             _dirty_atos, _shared_dirty = set(), False
             try:
                 workspaces = DATA_STORE.get('workspaces', {})
+                shared = shared_settings()
                 files = render_workspace_backups(
                     workspaces,
-                    DATA_STORE.get('config', {}),
-                    DATA_STORE.get('profiles', {}),
-                    formats_for(workspaces, DATA_STORE.get('format')),
-                    only,
-                    DATA_STORE.get('overlays', []),
-                    DATA_STORE.get('basemaps', []),
-                    DATA_STORE.get('narrative', {}),
-                    DATA_STORE.get('drones', []),
+                    # The config and profiles by name; the format under each
+                    # workspace's name, the shape backup files keep.
+                    formats=formats_for(workspaces, shared['format']),
+                    only=only,
                     names=workspace_filenames(
                         workspaces,
-                        DATA_STORE.get('config', {}),
+                        shared['config'],
                         {
                             k
                             for k, (_, atos) in _file_holds.items()
                             if any(k not in _merged_files.get(a, ()) for a in atos)
                         },
                     ),
+                    **{k: v for k, v in shared.items() if k != 'format'},
                 )
                 if shared_pending or snapshot_due:
                     # None for the ATO: the shared settings, not a workspace.
-                    shared = render_shared_settings(
-                        DATA_STORE.get('config', {}),
-                        DATA_STORE.get('profiles', {}),
-                        DATA_STORE.get('format'),
-                        DATA_STORE.get('overlays', []),
-                        DATA_STORE.get('basemaps', []),
-                        DATA_STORE.get('drones', []),
-                        DATA_STORE.get('narrative', {}),
-                    )
-                    files.append((None, SHARED_SETTINGS_NAME, shared))
+                    files.append((None, SHARED_SETTINGS_NAME, render_shared_settings(shared)))
             except Exception as exc:
                 # Nothing was written: keep every change pending, so a report
                 # the backup can't be made from never silently stops saving.
@@ -2232,34 +2370,26 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
     def do_GET(self):
         # Strip query string so cache-bust params don't 404.
         path = self.path.split('?', 1)[0]
-        if path == '/api/health':
-            # No code needed: it says nothing about the reports, and a
-            # monitoring script or a browser on any machine can ask.
-            self._send_json(health())
-        elif path == '/api/sync':
-            if self._authorized():
-                self._handle_sync()
-        elif path == '/api/events':
-            if self._authorized():
-                self._handle_sse()
-        elif path == '/api/basemap':
-            # Each one can make the server fetch and hold up to 16 MB, and the
-            # viewer port needs no code, so it is limited on both ports.
-            if not basemap_rate_check(self.client_address[0]):
-                self._error(429, 'Too many map images. Retry shortly.')
-            elif self._authorized():
-                self._handle_basemap()
-        elif path in (
-            '/',
-            '/index.html',
-            '/Salt%20Report%20Workbench.html',
-        ):  # last: legacy bookmark
-            # HTML serve is unauthenticated; startup modal gates data endpoints.
-            self._serve_workbench()
-        elif path.startswith('/api/'):
-            self._error(404, 'Not found.')
-        else:
-            self.send_error(404)
+        route = _ROUTE_TABLE.get(('GET', path))
+        if route is None:
+            if path.startswith('/api/'):
+                self._error(404, 'Not found.')
+            else:
+                self.send_error(404)
+            return
+        if getattr(self.server, 'view_only', False) and not route.viewer:
+            self._error(405, 'This server is read-only.')
+            return
+        if route.limit is not None and not route.limit.check(self.client_address[0]):
+            self._error(429, route.limit.message)
+            return
+        if route.code and not self._authorized():
+            return
+        route.handler(self)
+
+    def _handle_health(self) -> None:
+        """Is the server up and saving (see ``health``)."""
+        self._send_json(health())
 
     def _handle_basemap(self) -> None:
         """An http:// basemap image for an HTTPS page, from a saved basemap's host."""
@@ -2353,13 +2483,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             if _sync_cache_prefix is None:
                 data = {
                     'workspaces': DATA_STORE['workspaces'],
-                    'config': DATA_STORE['config'],
-                    'profiles': DATA_STORE['profiles'],
-                    'format': DATA_STORE.get('format', {}),
-                    'overlays': DATA_STORE.get('overlays', []),
-                    'basemaps': DATA_STORE.get('basemaps', []),
-                    'drones': DATA_STORE.get('drones', []),
-                    'narrative': DATA_STORE.get('narrative', {}),
+                    **shared_settings(),
                     'sources': workspace_sources,
                     'unloaded': sorted(unloaded_workspaces),
                 }
@@ -2493,6 +2617,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split('?', 1)[0]
+        # None for a path that isn't a route. It gets every check a write gets
+        # (no viewer port, a code needed), and its 404 once its body is read.
+        route = _ROUTE_TABLE.get(('POST', path))
         # Content-Length first: the refusals below need it to drop the body,
         # and a bad header should report as 400, not "Invalid JSON".
         try:
@@ -2505,7 +2632,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             self._bad_request('Invalid Content-Length header.')
             return
         # Viewer port rejects every mutation up front.
-        if getattr(self.server, 'view_only', False):
+        if getattr(self.server, 'view_only', False) and not (route and route.viewer):
             self._refuse(405, 'This server is read-only.', length)
             return
         # Another site's page can make a browser send a POST here (the host's
@@ -2524,7 +2651,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         if not rate_limit_check(self.client_address[0]):
             self._refuse(429, 'Rate limit exceeded. Retry shortly.', length)
             return
-        if not self._authorized(length):
+        if (route is None or route.code) and not self._authorized(length):
             return
         # The page always sends JSON. A form on another site can't (only a
         # script, which the browser then asks the server about first).
@@ -2543,17 +2670,15 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         if not isinstance(data, dict):
             self._bad_request('Body must be a JSON object.')
             return
-        route = self._POST_ROUTES.get(path)
         if route is None:
             self._error(404, 'Not found.')
             return
         # Schema check — bad shape never reaches DATA_STORE, and a route can
         # take every field its validator checked as given.
-        validator = _VALIDATORS.get(path)
-        if validator is not None and (err := validator(data)):
+        if route.validator is not None and (err := route.validator(data)):
             self._bad_request(f'Validation failed: {err}.')
             return
-        route(self, data)
+        route.handler(self, data)
 
     def _bad_request(self, message: str) -> None:
         self._error(400, message)
@@ -2806,74 +2931,16 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             return
         self._commit(f'save_config {clean["ato"]} / {clean["title"]}')
 
-    def _post_save_format(self, data: dict) -> None:
-        # One format for every workspace; an older page's ATO is ignored.
-        if not self._store_shared('format', data['format']):
+    def _post_save_shared(self, data: dict, section: SharedSection) -> None:
+        """The save route of every shared setting stored as its section cleans
+        it: the format, overlays, basemaps, drones and narrative (see
+        SHARED_SECTIONS). One for every workspace; an ATO an older page sends
+        is ignored."""
+        clean = section.clean(data[section.key])
+        if not self._store_shared(section.key, clean):
             self._unchanged()
             return
-        self._commit('save_format')
-
-    def _post_save_overlays(self, data: dict) -> None:
-        # Known fields only, like save_config. An empty list is kept (not
-        # popped) so a clear reaches clients, which merge what the server sends.
-        clean = [
-            {
-                'type': o['type'],
-                'name': o['name'],
-                **({'label': o['label']} if o.get('label') else {}),
-                'geometry': {
-                    'type': o['geometry']['type'],
-                    'coordinates': o['geometry']['coordinates'],
-                },
-            }
-            for o in data.get('overlays') or []
-        ]
-        if not self._store_shared('overlays', clean):
-            self._unchanged()
-            return
-        self._commit(f'save_overlays: {len(clean)} overlay(s)')
-
-    def _post_save_basemaps(self, data: dict) -> None:
-        clean = [
-            {
-                'name': b['name'].strip(),
-                'kind': b['kind'],
-                'url': b['url'].strip(),
-                **({'layers': b['layers'].strip()} if b.get('layers') else {}),
-                **{f: b[f].strip() for f in _BASEMAP_WMS_FIELDS if b.get(f)},
-            }
-            for b in data.get('basemaps') or []
-        ]
-        if not self._store_shared('basemaps', clean):
-            self._unchanged()
-            return
-        self._commit(f'save_basemaps: {len(clean)} service(s)')
-
-    def _post_save_drones(self, data: dict) -> None:
-        clean = [
-            {
-                'name': d['name'].strip(),
-                'grid': d['grid'],
-                'at': d['at'],
-                **({'look': d['look']} if d.get('look') else {}),
-                **({'range': d['range']} if d.get('range') is not None else {}),
-            }
-            for d in data.get('drones') or []
-        ]
-        if not self._store_shared('drones', clean):
-            self._unchanged()
-            return
-        self._commit(f'save_drones: {len(clean)} drone(s)')
-
-    def _post_save_narrative(self, data: dict) -> None:
-        clean = clean_narrative(data['narrative'])
-        if not self._store_shared('narrative', clean):
-            self._unchanged()
-            return
-        self._commit(
-            f'save_narrative: {len(clean["units"])} unit(s), {len(clean["equipment"])} type(s), '
-            f'{len(clean["custom"])} rule(s)'
-        )
+        self._commit(section.logged(clean))
 
     def _post_wms_fetch(self, data: dict) -> None:
         # Changes nothing here, so no save and no broadcast; logged all the
@@ -2906,25 +2973,90 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             return
         self._commit(f'save_profile {ini}')
 
-    _POST_ROUTES: ClassVar[dict] = {
-        '/api/save_reports': _post_save_reports,
-        '/api/unload_ato': _post_unload_ato,
-        '/api/edit_report': _post_edit_report,
-        '/api/delete_history': _post_delete_history,
-        '/api/save_config': _post_save_config,
-        '/api/save_format': _post_save_format,
-        '/api/save_overlays': _post_save_overlays,
-        '/api/save_basemaps': _post_save_basemaps,
-        '/api/save_drones': _post_save_drones,
-        '/api/save_narrative': _post_save_narrative,
-        '/api/wms_fetch': _post_wms_fetch,
-        '/api/save_profile': _post_save_profile,
-    }
-
 
 # =============================================================================
-# Server
+# Routes
 # =============================================================================
+# Every path the server answers, once: its method, the handler, for a POST the
+# validator that checks the body first, and who may use it. do_GET and do_POST
+# look a request up here and apply the entry's rules. A path not here is a 404
+# (JSON under /api, the standard library's HTML page elsewhere); a POST to one
+# is refused like any write before it is told so.
+
+
+class Limit(NamedTuple):
+    """A GET route's own rate limit: checked before the code, 429 when it says no."""
+
+    check: Callable[[str], bool]  # the client's address -> allowed
+    message: str
+
+
+class Route(NamedTuple):
+    """One path the server answers (see ROUTES)."""
+
+    method: str  # 'GET' or 'POST'
+    path: str  # without the query string
+    # A SaltSyncHandler method that sends the reply: handler(self) for a GET,
+    # handler(self, body) for a POST, the body parsed and validated.
+    handler: Callable
+    # POST: checks the body's shape; what it says is the 400's message.
+    validator: Callable[[dict], str | None] | None = None
+    # Needs the access code on the editor port. The viewer port never asks
+    # (the port is the gate), and the host's own browser passes.
+    code: bool = True
+    # May be used on the viewer port; a route that writes may not (405).
+    viewer: bool = True
+    # GET: a rate limit of its own (POSTs all share one, in do_POST).
+    limit: Limit | None = None
+
+
+_H = SaltSyncHandler  # keeps each route below on one line
+
+# The shared settings whose save route is a handler of its own (their
+# SharedSection has no ``clean``): it does more than store what is sent.
+_OWN_SAVE_ROUTES = {'config': _H._post_save_config, 'profiles': _H._post_save_profile}
+
+
+def _save_route(s: SharedSection) -> Route:
+    """A shared setting's save route: its own handler, or the one the others share."""
+    if s.clean is None:
+        handler = _OWN_SAVE_ROUTES[s.key]
+    else:
+        handler = functools.partial(_H._post_save_shared, section=s)
+    return Route('POST', s.route, handler, s.validator, viewer=False)
+
+
+ROUTES: tuple[Route, ...] = (
+    # The page. No code: the data endpoints are gated, and the page asks for
+    # the code before it calls them.
+    Route('GET', '/', _H._serve_workbench, code=False),
+    Route('GET', '/index.html', _H._serve_workbench, code=False),
+    # Its old single-file name, so old bookmarks still open it.
+    Route('GET', '/Salt%20Report%20Workbench.html', _H._serve_workbench, code=False),
+    # No code needed: it says nothing about the reports, and a monitoring
+    # script or a browser on any machine can ask.
+    Route('GET', '/api/health', _H._handle_health, code=False),
+    Route('GET', '/api/sync', _H._handle_sync),
+    Route('GET', '/api/events', _H._handle_sse),
+    # Each one can make the server fetch and hold up to 16 MB, and the viewer
+    # port needs no code, so it is limited on both ports.
+    Route(
+        'GET',
+        '/api/basemap',
+        _H._handle_basemap,
+        limit=Limit(basemap_rate_check, 'Too many map images. Retry shortly.'),
+    ),
+    Route('POST', '/api/save_reports', _H._post_save_reports, _v_save_reports, viewer=False),
+    Route('POST', '/api/unload_ato', _H._post_unload_ato, _check_ato, viewer=False),
+    Route('POST', '/api/edit_report', _H._post_edit_report, _v_edit_report, viewer=False),
+    Route('POST', '/api/delete_history', _H._post_delete_history, _v_delete_history, viewer=False),
+    # Changes nothing, but the server reaches out on an editor's behalf.
+    Route('POST', '/api/wms_fetch', _H._post_wms_fetch, _v_wms_fetch, viewer=False),
+    # Each shared setting's, from SHARED_SECTIONS.
+    *(_save_route(s) for s in SHARED_SECTIONS),
+)
+# (method, path) -> its Route.
+_ROUTE_TABLE = {(r.method, r.path): r for r in ROUTES}
 
 
 # =============================================================================
@@ -3174,6 +3306,11 @@ def _redirect_to_https(sock: socket.socket) -> None:
     )
     with contextlib.suppress(OSError):
         sock.sendall(reply.encode('latin-1'))
+
+
+# =============================================================================
+# Server
+# =============================================================================
 
 
 class SaltSyncServer(socketserver.ThreadingTCPServer):
