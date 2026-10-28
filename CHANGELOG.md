@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The shared lists save one way.** Overlays, basemaps, drones and the
+  narrative's settings show a change at once and put it back, saying why,
+  when the server refuses it or can't be reached (the overlays used to stay
+  changed, and every list said it was "saved in this browser" though nothing
+  sent it later). Every refusal reads "Not saved: <reason>".
+- **One wording per situation.** Reports kept to send later always say
+  "Saved here; it's sent once the server can be reached." Buttons are in Title
+  Case throughout (Show in Table, Latest Grids, Edit Text, ...), and no text
+  in the page, the docs or the downloads uses an em dash (an empty value shows
+  "-").
+
 ## [2.20.0] - 2026-10-28
 
 ### Added
@@ -727,7 +740,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- Each release carries one checksum file, `SHA256SUMS.txt` (as ChanSampler does),
+- Each release carries one checksum file, `SHA256SUMS.txt`,
   for both the zip and the one-file `.txt`, in place of one per download.
   `python scripts/release.py <version>` builds all three in one go. The README
   has a PowerShell line that checks them.

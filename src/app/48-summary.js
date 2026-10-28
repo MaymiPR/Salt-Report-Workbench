@@ -65,7 +65,7 @@ const renderSummary = () => {
     s.text.textContent = editKey() in summaryEdits ? shownSummary() : onScreen;
     s.text.hidden = summaryEditing;
     s.editor.hidden = !summaryEditing;
-    document.getElementById('summaryEditBtn').textContent = summaryEditing ? 'Done' : 'Edit text';
+    document.getElementById('summaryEditBtn').textContent = summaryEditing ? 'Done' : 'Edit Text';
     document.getElementById('summaryEdited').hidden = !(editKey() in summaryEdits);
     s.subtitle.textContent = `${ato || 'No workspace'} · ${plural(live.length, 'report')} in the workspace`;
     s.panel.querySelectorAll('.range-mode').forEach(n => { n.textContent = timeDisplayMode === 'local' ? '(Local)' : '(Zulu)'; });

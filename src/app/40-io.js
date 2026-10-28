@@ -45,7 +45,7 @@ const renderExportPreview = () => {
     const allLive = localReports.filter(r => !r.deleted);
     const total   = allLive.length;
     const modeLb  = timeDisplayMode === 'local' ? '(Local)' : '(Zulu)';
-    el.exp.subtitle.textContent = `ATO: ${activeAto||'—'} · ${total} report${total !== 1 ? 's' : ''}`;
+    el.exp.subtitle.textContent = `ATO: ${activeAto||'-'} · ${total} report${total !== 1 ? 's' : ''}`;
     el.exp.fromMode.textContent = modeLb;
     el.exp.toMode.textContent   = modeLb;
     const hasFilter = !!(el.exp.fromDate.value || el.exp.toDate.value || el.exp.fromTime.value || el.exp.toTime.value);
@@ -96,9 +96,9 @@ const renderWorkspacesList = () => {
             // SHOWING dot lands at the same horizontal coordinate on every
             // row — no shifting when a row has only S vs. both A+S.
             const activeTag  = isActive
-                ? `<span class="workspace-active-tag" title="Active — the workspace the editor is logging into">A</span>`
+                ? `<span class="workspace-active-tag" title="Active: the workspace you are logging into">A</span>`
                 : `<span class="workspace-active-tag placeholder" aria-hidden="true">A</span>`;
-            const showingTag = isShowing ? `<span class="workspace-showing-tag" title="Showing — the workspace you are currently viewing">S</span>` : '';
+            const showingTag = isShowing ? `<span class="workspace-showing-tag" title="Showing: the workspace you are viewing">S</span>` : '';
             // The blue row highlight follows where the user's attention is —
             // the editor's chosen workspace for editors, the viewer's clicked
             // row for viewers.
@@ -607,7 +607,7 @@ function processJsonImport(rawText) {
             if (unsent) {
                 // Don't sync: it would drop the workspaces the server never got.
                 // They're kept here and sent before the next pull.
-                showToast(`${unsent} workspace(s) couldn't reach the server. They're kept here and sent when it's back.`, true);
+                showToast(`${unsent} workspace(s) saved here; they're sent once the server can be reached.`, true);
                 return;
             }
             if (refusals.length) showToast(`Imported, but not all of it was saved: ${refusals[0]}`, true);

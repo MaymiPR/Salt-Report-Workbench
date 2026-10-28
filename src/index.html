@@ -150,7 +150,7 @@
                     <h3>Set Up Your Workspace</h3>
                     <ul>
                         <li>Type your <strong>ATO Designator</strong> (the workspace key, e.g. <code>ALPHA01</code>) and a <strong>Title</strong> (e.g. <code>Patrol Report</code>) in the top form.</li>
-                        <li>Press <strong>Set</strong> &mdash; or just hit <kbd>Enter</kbd> from either field. Both fields lock and that ATO becomes the active workspace.</li>
+                        <li>Press <strong>Set</strong>, or just hit <kbd>Enter</kbd> from either field. Both fields lock and that ATO becomes the active workspace.</li>
                         <li>To switch workspaces later, press <strong>Change</strong>. This unlocks the ATO/Title fields and the dropdown below.</li>
                         <li>The dropdown lists every other workspace available. Pick one to jump to it.</li>
                         <li>To create a brand-new workspace, just type a new ATO name and press <strong>Set</strong>. No separate &ldquo;new&rdquo; button needed.</li>
@@ -320,7 +320,7 @@
                         <li><strong>Add Field</strong> creates a custom line from two parts: the <strong>letter</strong> it copies as and <strong>what it represents</strong>. Example: letter <code>W</code>, name <em>Weather</em>. The form shows a box labeled <em>Weather</em>, the report table gains a <em>Weather</em> column, and the copied text prints <code>W: value</code>. Values save on each report and travel through sync, history, and backups; empty ones are skipped in the copy.</li>
                         <li>Switching presets keeps your custom fields (they re-append after the preset lines).</li>
                         <li>The <strong>Live Preview</strong> shows the copied-text shape using your latest report (or sample data), updating as you rearrange.</li>
-                        <li><strong>Each custom field also gets its own table column</strong>, appended after Analysis in format order. The column header shows the descriptive name (hover it to see which letter it copies as). Columns appear, reorder, and disappear the moment you change the format &mdash; no refresh. The built-in columns keep their fixed positions.</li>
+                        <li><strong>Each custom field also gets its own table column</strong>, appended after Analysis in format order. The column header shows the descriptive name (hover it to see which letter it copies as). Columns appear, reorder, and disappear the moment you change the format, with no refresh. The built-in columns keep their fixed positions.</li>
                         <li>Removing a custom field only removes its column: the values stay on the reports, so re-adding the field brings them straight back (and they remain in backups and CSV exports either way).</li>
                         <li><strong>Every workspace uses the same format.</strong> Add a field on one ATO, switch to another (new or old), and your columns come with you.</li>
                     </ul>
@@ -392,12 +392,12 @@
                         <li>The map button beside the <em>Report Log</em> heading slides down to the map; the same button, a list by then, slides back. The Report Log's bar stays above both, and its <strong>search</strong> narrows the map, its numbers and its table as well. Beside the map is what's on it, and under it the table of those reports. Everything covers the workspace on screen.</li>
                         <li>The overlays drawn on a map: <strong>NAIs green, OBJs blue, phase lines black</strong> (with a white edge, so they show on any background). The tags under each Location use the same colours.</li>
                         <li><strong>Layers</strong>, each turned on and off by itself, so they can be seen together: the <strong>Heat map</strong> (on to start with), where the reports are thickest, blue through green and yellow to red at the busiest; <strong>Tracks</strong>, each report's path from its first position through its updates to its latest, with an arrow for the way it went (a report at one grid is a dot, with a short arrow when its Activity gives a heading); and <strong>Reports</strong>, each report as a dot. Hover a track or a dot for its report, distance, direction and times. Your layers are kept in this browser.</li>
-                        <li><strong>Latest grids</strong> or <strong>All reports</strong>, for the heat map and the dots: each report once, at its latest grid (a report with several grids is shared between them); or every saved report, its updates included, at its grids, the earlier dots smaller.</li>
-                        <li><strong>Click a report</strong> (a dot or a track) for its card: what it says, its time, BDA and updates. <strong>Show in table</strong> finds its row; <strong>Edit</strong> (editors) puts it in the form to update. Its ring stays on the map until you pick another or click an empty spot. A picked track shows the time at each of its positions.</li>
+                        <li><strong>Latest Grids</strong> or <strong>All Reports</strong>, for the heat map and the dots: each report once, at its latest grid (a report with several grids is shared between them); or every saved report, its updates included, at its grids, the earlier dots smaller.</li>
+                        <li><strong>Click a report</strong> (a dot or a track) for its card: what it says, its time, BDA and updates. <strong>Show in Table</strong> finds its row; <strong>Edit</strong> (editors) puts it in the form to update. Its ring stays on the map until you pick another or click an empty spot. A picked track shows the time at each of its positions.</li>
                         <li><strong>Click a row</strong> in the table and the map moves to that report (keeping the zoom), rings it, and opens its card.</li>
                         <li><strong>Click an NAI, OBJ or phase line</strong> to narrow the table and the numbers to it; it's drawn bolder, and a chip above the table says which. Click it again, or the chip, to show every place. The <em>Busiest places</em> in the sidebar do the same.</li>
                         <li><strong>Only what's on the map</strong> (above the table, on to start with): the table and the numbers hold only the reports in the part of the map on screen, so zooming and panning narrow them. Untick it for every report in the window.</li>
-                        <li><strong>Above the map</strong>: how many reports are on it, how many are in an NAI or OBJ, and BDA assessed. <strong>In the sidebar left of it</strong>: every activity with how many, and the busiest places; the sidebar button at the top left of the map slides it away and back (the map keeps its size). <strong>Click an activity</strong> to show only reports with it, on the map, in the numbers and in the table; click more to add them, or <em>Show all</em>.</li>
+                        <li><strong>Above the map</strong>: how many reports are on it, how many are in an NAI or OBJ, and BDA assessed. <strong>In the sidebar left of it</strong>: every activity with how many, and the busiest places; the sidebar button at the top left of the map slides it away and back (the map keeps its size). <strong>Click an activity</strong> to show only reports with it, on the map, in the numbers and in the table; click more to add them, or <em>Show All</em>.</li>
                         <li><strong>Window</strong>: All, or the last 24, 12, or 6 hours. The key and, under it, <strong>Up to</strong> sit inside the map at its foot: the slider moves the window's end back from now to the first report, to see how things stood then; <strong>Now</strong> brings it back.</li>
                         <li><strong>Ctrl + scroll</strong> to zoom (&#8984; + scroll on a Mac, or pinch on a trackpad; in full screen a plain scroll zooms), drag to move, double-click to zoom in; <strong>+</strong>, <strong>&minus;</strong> and the arrows button (show all). The map covers your overlays and reports and can't be zoomed out past them. Names stay on screen as you zoom in: a shape's name moves to the part of it in view. A plain scroll over the map scrolls the page on, down to the table.</li>
                         <li><strong>Full screen</strong>: the corners button under the zoom buttons fills the screen with the map, its controls and key; <kbd>Esc</kbd> or the button again leaves.</li>
@@ -461,7 +461,7 @@
                                 <li>Viewers see them but can't change them. Locally (no server) they are kept in this browser. A server too old to keep them says so: restart it with this version; until then they stay in your browser only.</li>
                             </ul></li>
                         <li><strong>Window</strong>: the last 6, 12 (the default), or 24 hours, 7 days, All, or your own From / To. With both ends set, the same length of time just before it is the &ldquo;previous&rdquo; period.</li>
-                        <li><strong>Edit text</strong> turns the report into a box you can type in (any report, not just the Narrative); <strong>Done</strong> keeps your wording, which then stops following new reports until <strong>Revert</strong>. Copy, Save .txt and Print use your wording. Edits are kept in this browser, one per workspace and kind of report, through reloads. They don't change with the window or the place picked: an edited Place Activity shows for every place until you Revert it.</li>
+                        <li><strong>Edit Text</strong> turns the report into a box you can type in (any report, not just the Narrative); <strong>Done</strong> keeps your wording, which then stops following new reports until <strong>Revert</strong>. Copy, Save .txt and Print use your wording. Edits are kept in this browser, one per workspace and kind of report, through reloads. They don't change with the window or the place picked: an edited Place Activity shows for every place until you Revert it.</li>
                         <li><strong>Copy</strong> puts the text on the clipboard; <strong>Save .txt</strong> downloads it; <strong>Print</strong> prints it with its charts (Rollup: NAIs, OBJs, hours and activity; Most Trafficked: NAIs, OBJs, the busiest 1 km grid squares and hours; Place Activity: that place's hours and activity; Narrative: NAIs, OBJs and activity), or saves a PDF through the print dialog.</li>
                         <li>The text comes from fixed templates and counting rules, not AI: the same reports always give the same words, and nothing is made up. Times follow your Zulu / Local mode, as DTGs.</li>
                     </ul>
@@ -763,7 +763,7 @@
                             <!-- The headline numbers; under them a sidebar of what's on the map
                                  (activities, busiest places: click to narrow) to the left of the map. -->
                             <!-- In the page from the start (the numbers come with the first drawing), so nothing moves. -->
-                            <div id="mapTiles" class="map-tiles"><div class="map-tile"><div class="map-tile-label">On the map</div><div class="map-tile-value">&mdash;</div></div><div class="map-tile"><div class="map-tile-label">In an NAI or OBJ</div><div class="map-tile-value">&mdash;</div></div><div class="map-tile"><div class="map-tile-label">BDA assessed</div><div class="map-tile-value">&mdash;</div></div></div>
+                            <div id="mapTiles" class="map-tiles"><div class="map-tile"><div class="map-tile-label">On the map</div><div class="map-tile-value">-</div></div><div class="map-tile"><div class="map-tile-label">In an NAI or OBJ</div><div class="map-tile-value">-</div></div><div class="map-tile"><div class="map-tile-label">BDA assessed</div><div class="map-tile-value">-</div></div></div>
                             <div class="map-main">
                                 <aside id="mapSide" class="map-side" aria-label="What is on the map"></aside>
                                 <div id="mapHost" class="map-host"></div>
@@ -835,7 +835,7 @@
                                     <div class="profile-field">
                                         <label class="profile-field-label" id="identityAccessLabel">Access Code <span class="profile-field-hint">share with other editors</span></label>
                                         <div class="access-code-display" role="group" aria-labelledby="identityAccessLabel">
-                                            <code id="identityAccessCode" class="access-code-text">&mdash;</code>
+                                            <code id="identityAccessCode" class="access-code-text">-</code>
                                             <button type="button" id="identityAccessShowBtn" class="copy-btn access-show-btn" aria-pressed="false" aria-controls="identityAccessCode">Show</button>
                                             <button type="button" id="identityAccessCopyBtn" class="copy-btn" title="Copy access code to clipboard">Copy</button>
                                         </div>
@@ -1100,7 +1100,7 @@
                                 <button type="button" id="summaryCopyBtn" class="set-btn">Copy</button>
                                 <button type="button" id="summarySaveBtn" class="set-btn">Save .txt</button>
                                 <button type="button" id="summaryPrintBtn" class="set-btn">Print</button>
-                                <button type="button" id="summaryEditBtn" class="cancel-btn">Edit text</button>
+                                <button type="button" id="summaryEditBtn" class="cancel-btn">Edit Text</button>
                                 <span id="summaryEdited" class="summary-edited" hidden>Edited, not following new reports. <button type="button" id="summaryRevertBtn" class="text-btn">Revert</button></span>
                             </div>
                             <div id="summaryBody" class="summary-body">
@@ -1117,7 +1117,7 @@
                     <div id="csvImportPanel">
                         <div class="export-panel-header">
                             <div class="export-panel-heading">
-                                <div class="export-panel-title">Import CSV &mdash; Map Columns</div>
+                                <div class="export-panel-title">Import CSV: Map Columns</div>
                                 <div id="csvImportSubtitle" class="export-panel-subtitle">No file loaded</div>
                             </div>
                             <button id="closeCsvImportBtn" class="icon-btn" title="Cancel Import" aria-label="Cancel import">

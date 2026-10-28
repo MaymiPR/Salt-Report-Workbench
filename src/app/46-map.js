@@ -826,7 +826,7 @@ const wmsFindHtml = () => {
     if (f.error) return `<div class="map-find-msg map-find-error">${escapeHtml(f.error)}</div>
         <div class="map-form-row">
             <input type="text" id="mapWmsManualLayers" placeholder="Layer names, comma-separated, to try anyway" maxlength="2000" spellcheck="false" value="${escapeHtml(saved ? saved.layers || '' : '')}">
-            <button type="button" id="mapWmsManualAdd" class="${saved ? 'set-btn' : 'cancel-btn'}">${saved ? 'Save' : 'Add anyway'}</button>
+            <button type="button" id="mapWmsManualAdd" class="${saved ? 'set-btn' : 'cancel-btn'}">${saved ? 'Save' : 'Add Anyway'}</button>
         </div>${saved ? baseEditFoot('') : ''}`;
     const n = f.picked.size;
     return `<div class="map-find-head">
@@ -848,8 +848,8 @@ const wmsFindHtml = () => {
             <button type="button" id="mapWmsCancel" class="cancel-btn">Cancel</button>
         </div>`}`;
 };
-const wmsPickLabel = (n, edit) => (edit ? (n ? 'Save' : 'Tick layers to keep')
-    : n > 1 ? `Add ${n} layers as one` : n ? 'Add 1 layer' : 'Tick layers to add');
+const wmsPickLabel = (n, edit) => (edit ? (n ? 'Save' : 'Tick Layers to Keep')
+    : n > 1 ? `Add ${n} Layers as One` : n ? 'Add 1 Layer' : 'Tick Layers to Add');
 
 // Under a saved service: Save and Cancel (Remove is on its row).
 const baseEditFoot = (save) => `<div class="map-form-row map-find-foot">
@@ -980,8 +980,8 @@ const renderOverlayMap = (box) => {
                         ${hours.map(([v, t]) => `<button type="button" class="filter-preset-btn" data-map-hours="${v}">${t}</button>`).join('')}
                     </div>
                     <div class="io-modes map-grids" role="group" aria-label="Which reports the heat map and dots show">
-                        <button type="button" class="io-mode" data-map-grids="latest" title="Each report once, at its latest grid">Latest grids</button>
-                        <button type="button" class="io-mode" data-map-grids="all" title="Every saved report, its updates included, at its grids">All reports</button>
+                        <button type="button" class="io-mode" data-map-grids="latest" title="Each report once, at its latest grid">Latest Grids</button>
+                        <button type="button" class="io-mode" data-map-grids="all" title="Every saved report, its updates included, at its grids">All Reports</button>
                     </div>
                     <!-- On its own line under the controls, however many rows they wrap to. -->
                     <span class="map-tools-break" aria-hidden="true"></span>

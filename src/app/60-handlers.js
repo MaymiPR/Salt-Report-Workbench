@@ -406,7 +406,7 @@ el.log.deleteBtn.addEventListener('click', async () => {
     resetForm();
     updateSelectionUI();
     const canUndo = undone.ids.length || Object.keys(undone.history).length;
-    showToast(saved || isLocalFile ? `${total} item(s) deleted.` : `${total} item(s) deleted here; the server can't be reached.`,
+    showToast(saved || isLocalFile ? `${total} item(s) deleted.` : `${total} item(s) deleted. ${SENT_LATER}`,
         false, canUndo ? { ms: UNDO_MS, undo: () => undoDeletion(ato, undone) } : {});
 });
 
@@ -791,7 +791,7 @@ el.startup.continueBtn.addEventListener('click', async () => {
             if (probe.status === 401) {
                 clearAccessCode();
                 if (el.startup.accessError) {
-                    el.startup.accessError.textContent = 'Access denied — check the code with the host.';
+                    el.startup.accessError.textContent = 'Access denied. Check the code with the host.';
                     el.startup.accessError.classList.add('show');
                 }
                 return;

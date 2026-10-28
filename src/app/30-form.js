@@ -294,7 +294,7 @@ const pushUndone = async (ato, list) => {
     markPending(ato, queued);
     return !queued;
 };
-const undoneToast = (text, saved) => showToast(saved || isLocalFile ? text : `${text} Saved here; the server can't be reached.`);
+const undoneToast = (text, saved) => showToast(saved || isLocalFile ? text : `${text} ${SENT_LATER}`);
 
 // `undone` is what a Delete removed: soft-deleted ids, and history entries by report id.
 async function undoDeletion(ato, undone) {

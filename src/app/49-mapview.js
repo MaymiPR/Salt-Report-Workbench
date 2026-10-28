@@ -85,7 +85,7 @@ const renderMapSide = (reps) => {
     const chip = (attr, key, label, n, on) => `<button type="button" class="map-chip map-side-place${on ? ' active' : ''}" ${attr}="${escapeHtml(key)}" aria-pressed="${on}"><span>${escapeHtml(label)}</span><strong>${n}</strong></button>`;
     s.side.innerHTML = `
         <div class="map-side-block">
-            <div class="map-side-head">Activity${mapActivity.size ? ' <button type="button" class="text-btn map-side-clear" data-map-activity="">Show all</button>' : ''}</div>
+            <div class="map-side-head">Activity${mapActivity.size ? ' <button type="button" class="text-btn map-side-clear" data-map-activity="">Show All</button>' : ''}</div>
             <div class="map-chips">${tags.size ? [...tags].sort((x, y) => y[1] - x[1] || order.indexOf(x[0]) - order.indexOf(y[0])).map(([t, n]) => chip('data-map-activity', t, t, n, mapActivity.has(t))).join('') : '<div class="map-side-empty">No reports</div>'}</div>
         </div>
         <div class="map-side-block">
@@ -146,7 +146,7 @@ const renderMapCard = () => {
         ${b.total && (r.bda || []).length ? row('BDA', `${b.done} of ${b.total} assessed`) : ''}
         ${(r.history || []).length ? row('Updates', String(r.history.length)) : ''}
         <div class="map-card-actions">
-            <button type="button" class="text-btn" data-card-act="table">Show in table</button>
+            <button type="button" class="text-btn" data-card-act="table">Show in Table</button>
             <button type="button" class="text-btn editor-only" data-card-act="edit">Edit</button>
         </div>`;
     card.hidden = false;

@@ -72,7 +72,7 @@ async function pushWorkspace(ato, reports, source) {
         const res = await apiPost('/api/unload_ato', { ato });
         if (res.ok) return 'ok';
         if (res.status === 0 || res.status === 401 || res.status === 429 || res.status >= 500) return 'queued';
-        showToast(`The server did not unload ${ato}: ${res.message}`, true);
+        showToast(`Not unloaded: ${res.message}`, true);
         return 'rejected';
     }
     const batch = SaltCore.changedReports(reports, serverVersions[ato]).filter(r => {
@@ -82,7 +82,7 @@ async function pushWorkspace(ato, reports, source) {
     if (!batch.length) return 'ok';
     const { queued, refused } = await sendBatch(ato, batch, source);
     if (refused.length) {
-        showToast(`The server did not save ${refused.length === 1 ? 'a report' : refused.length + ' reports'} in ${ato}: ${refused[0]} Kept as "Not saved" until you fix or discard it.`, true);
+        showToast(`Not saved: ${refused[0]} ${refused.length === 1 ? 'That report' : `Those ${refused.length} reports`} in ${ato} ${refused.length === 1 ? 'stays' : 'stay'} marked "Not saved" until you fix or discard ${refused.length === 1 ? 'it' : 'them'}.`, true);
         if (ato === activeAto) renderLog();
     }
     return queued ? 'queued' : refused.length ? 'rejected' : 'ok';

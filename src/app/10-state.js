@@ -268,7 +268,7 @@ const setShowBtn = (btn, shown) => {
 // Sync the read-only access-code row in the Identity tab.
 const renderIdentityAccessCode = () => {
     const shown = identityCodeShown && !!accessCode;
-    el.profile.accessCode.textContent = !accessCode ? '—' : shown ? accessCode : '•'.repeat(accessCode.length);
+    el.profile.accessCode.textContent = !accessCode ? '-' : shown ? accessCode : '•'.repeat(accessCode.length);
     el.profile.accessCode.classList.toggle('masked', !!accessCode && !shown);
     el.profile.accessCopy.disabled = !accessCode;
     el.profile.accessShow.disabled = !accessCode;
@@ -562,6 +562,8 @@ const saveShared = async (path, body, { said = '', undo = null, putBack = () => 
 // The toast for a save: `okText` when the server took it (or there is no
 // server, opened from a file), else why not. Unreachable is not an error: the
 // change is kept here.
+// Said when reports are kept here to send later: the same words everywhere.
+const SENT_LATER = "Saved here; it's sent once the server can be reached.";
 const saveToast = (r, okText) => {
     if (r.ok || isLocalFile) showToast(okText);
     else if (r.status === 0) showToast('Saved here; the server can\'t be reached.');
