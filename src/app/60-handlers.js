@@ -598,8 +598,9 @@ const renderStartupPresets = () => {
     ])].sort().slice(0, CAP);
 
     fill('startup-preset-profiles', profs.map(p => {
-        const c = p.color || '#0a84ff';
-        return `<button type="button" class="startup-profile-chip" data-preset="profile" data-initials="${escapeHtml(p.initials)}" data-color="${escapeHtml(c)}"><span class="chip-dot" style="background:${escapeHtml(c)}"></span>${escapeHtml(p.initials)}</button>`;
+        // A synced color goes into a style: only a plain color, never more CSS.
+        const c = safeColor(p.color) === p.color ? p.color : '#0a84ff';
+        return `<button type="button" class="startup-profile-chip" data-preset="profile" data-initials="${escapeHtml(p.initials)}" data-color="${escapeHtml(c)}"><span class="chip-dot" style="background:${c}"></span>${escapeHtml(p.initials)}</button>`;
     }).join(''));
     fill('startup-preset-atos', atos.map(a =>
         `<button type="button" class="startup-profile-chip" data-preset="ato" data-ato="${escapeHtml(a)}">${escapeHtml(a)}</button>`).join(''));

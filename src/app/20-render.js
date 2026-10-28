@@ -205,7 +205,8 @@ const locationTags = (text, id) => {
     const a = locationInfo(text);
     const tags = [];
     [a.nai, a.obj].forEach(p => {
-        if (p.from === 'grid') p.keys.forEach(k => tags.push(`<span class="loc-tag loc-${k.split(' ')[0].toLowerCase()}" title="The grid is inside ${escapeHtml(k)}">${escapeHtml(k)}</span>`));
+        // The key comes from an overlay's name: only letters, digits and hyphens make the class.
+        if (p.from === 'grid') p.keys.forEach(k => tags.push(`<span class="loc-tag loc-${k.split(' ')[0].toLowerCase().replace(/[^a-z0-9-]/g, '')}" title="The grid is inside ${escapeHtml(k)}">${escapeHtml(k)}</span>`));
     });
     const near = a.nearestPl;
     if (near && !a.pl.includes(near.key) && a.pls.includes(near.key)) {

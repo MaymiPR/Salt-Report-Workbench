@@ -191,6 +191,7 @@ const readOverlayFile = async (file) => {
 
 // --- Review, then save ---
 
+const OVERLAY_TYPES = ['NAI', 'OBJ', 'PL'];
 const SHAPE_LABEL = { Polygon: 'Area', MultiPolygon: 'Area', LineString: 'Line', MultiLineString: 'Line', Point: 'Point', MultiPoint: 'Point' };
 let overlayReview = null;  // { rows: [{ label, geometry, type }], files: [names] }
 // The tab shows the overlays as a list or on a map (app/46-map.js). Per browser.
@@ -341,7 +342,9 @@ const renderOverlays = () => {
         const name = overlayRemoving === key
             ? `<span class="map-base-ask overlay-ask" role="status" title="${escapeHtml(key)}">Remove for everyone?</span>`
             : `${escapeHtml(o.name)}${extra}`;
-        return `<tr><td><span class="overlay-type overlay-${o.type.toLowerCase()}">${o.type}</span> ${name}</td>
+        // The type comes from the server (anyone's import): only a known one names a class.
+        const type = OVERLAY_TYPES.includes(o.type) ? o.type : '';
+        return `<tr><td><span class="overlay-type${type ? ` overlay-${type.toLowerCase()}` : ''}">${escapeHtml(o.type)}</span> ${name}</td>
             <td>${SHAPE_LABEL[o.geometry.type] || ''}</td><td>${uses[key] || 0}</td>
             <td><button type="button" class="overlay-remove editor-only" data-remove-overlay="${i}" title="Unload ${escapeHtml(key)}" aria-label="Unload ${escapeHtml(key)}">&times;</button></td></tr>`;
     };
