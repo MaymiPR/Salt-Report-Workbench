@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The server answers every refusal the same way**: JSON with a one-sentence
+  message, including an unknown `/api` address and a map image it won't fetch
+  (both were plain text or an HTML page). A request missing what it needs, such
+  as a blank workspace name, is refused by its endpoint's validator and says
+  `Validation failed: ...`. Console lines follow one rule (`[!]` a problem,
+  `[+]` done, `[*]` information), and no server text uses em dashes.
+
 ## [2.20.0] - 2026-10-28
 
 ### Added

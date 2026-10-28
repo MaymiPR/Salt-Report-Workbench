@@ -118,7 +118,16 @@ A `ThreadingTCPServer` subclass with one `BaseHTTPRequestHandler` subclass.
 The same handler class serves both ports; each listener carries a `view_only`
 flag that the handler checks per request. Every POST route is a method in the
 handler's `_POST_ROUTES` table, paired with a schema validator in
-`_VALIDATORS`.
+`_VALIDATORS`. The validator does all the checking of a request's shape (a
+blank workspace name or an empty list of changes included), so a route takes
+its fields as given; a route refuses only what depends on what the server
+holds (a report that isn't there, `404`; an edit to an older copy, `409`).
+
+Every `/api` error reply, whatever refused it, is the same JSON:
+`{"status": "error", "message": "..."}`, the message one sentence ending in a
+full stop (`Validation failed: <what>.` for a refused shape), sent through
+the handler's `_error`. Only a page that isn't there (an unknown path
+outside `/api`) gets the standard library's HTML `404`.
 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |

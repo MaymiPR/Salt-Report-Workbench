@@ -8,9 +8,11 @@ Standard library only, matching the project's zero-dependency rule. Run with
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import gzip
 import http.client
+import inspect
 import io
 import json
 import os
@@ -341,6 +343,20 @@ class ValidatorTests(unittest.TestCase):
         with mock.patch.object(srv, "MAX_OVERLAYS", 1):
             self.assertRejects(v, {"ato": "A", "overlays": [NAI1, PL_BLUE]}, "too many overlays")
 
+    def test_checks_that_were_in_the_routes_are_in_the_validators(self):
+        # A blank name, or nothing to do: once refused by the route itself.
+        self.assertRejects(srv._v_save_reports, {"ato": "  ", "reports": []}, "ato")
+        self.assertRejects(srv._check_ato, {"ato": " "}, "ato must be a non-empty string")
+        edit = {"ato": "A", "reportId": "r1", "fields": {"size": "x"}}
+        self.assertIsNone(srv._v_edit_report(edit))
+        self.assertRejects(srv._v_edit_report, {**edit, "ato": "\t"}, "ato")
+        self.assertRejects(srv._v_edit_report, {**edit, "reportId": ""}, "reportId")
+        self.assertRejects(srv._v_edit_report, {**edit, "fields": {}}, "fields must name")
+        self.assertRejects(srv._v_delete_history, {"ato": "A", "deletions": []}, "non-empty list")
+        self.assertRejects(srv._v_delete_history, {"ato": "A"}, "deletions")
+        self.assertRejects(srv._v_save_profile, {"profile": {"initials": "  "}}, "initials")
+        self.assertIsNone(srv._v_save_profile({"profile": {"initials": " AB"}}))
+
     def test_profile_validation(self):
         self.assertIsNone(srv._v_save_profile({"profile": {"initials": "AB", "color": "#32d74b"}}))
         self.assertRejects(srv._v_save_profile, {"profile": {"color": "#32d74b"}}, "initials")
@@ -487,6 +503,72 @@ class ConsoleOutputTests(unittest.TestCase):
         with mock.patch("builtins.print") as fake_print:
             srv.safe_print(" [+] Access Code : K7M2X9PQR3")
         self.assertTrue(fake_print.call_args.kwargs.get("flush"))
+
+
+def _server_source_calls(*names):
+    """(call, text) for each call in the server's source to one of ``names``
+    (a function or a method), with each literal string argument's text; an
+    f-string's fields read as ``{}``."""
+
+    def text(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.JoinedStr):
+            return "".join(text(v) if isinstance(v, ast.Constant) else "{}" for v in node.values)
+        return None
+
+    tree = ast.parse(Path(srv.__file__).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+        if name in names:
+            for arg in [*node.args, *(k.value for k in node.keywords)]:
+                if (t := text(arg)) is not None:
+                    yield name, t
+
+
+class ServerTextStyleTests(unittest.TestCase):
+    def test_console_lines_follow_the_prefix_rule(self):
+        # [!] a problem, [+] something done, [*] information; a line that
+        # goes on from the one above is indented four spaces.
+        lines = [t for _, t in _server_source_calls("safe_print")]
+        self.assertGreater(len(lines), 30)
+        for line in lines:
+            self.assertRegex(line.lstrip("\n"), r"^(\[[!+*]\] |    )", repr(line))
+        # The connected-machines line is built apart from its safe_print.
+        with mock.patch.object(srv, "sse_clients", []):
+            self.assertTrue(srv.machines_line().startswith("[*] "))
+
+    def test_no_em_dash_in_text_a_user_reads(self):
+        # Code comments and docstrings may keep theirs.
+        texts = list(
+            _server_source_calls(
+                "safe_print",
+                "add_argument",
+                "ArgumentParser",
+                "error",
+                "_error",
+                "_refuse",
+                "_bad_request",
+            )
+        )
+        self.assertGreater(len(texts), 50)
+        for name, t in texts:
+            self.assertNotIn("—", t, f"{name}: {t!r}")
+            self.assertNotIn("[i]", t, f"{name}: {t!r}")
+        with mock.patch.object(sys, "argv", ["salt_sync_server", "--help"]):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+                srv.parse_cli_args()
+        self.assertIn("--no-https", out.getvalue())
+        self.assertNotIn("—", out.getvalue())
+
+    def test_every_api_error_message_is_a_sentence(self):
+        messages = [t for name, t in _server_source_calls("_error", "_refuse", "_bad_request") if t]
+        self.assertGreater(len(messages), 10)
+        for t in messages:
+            self.assertRegex(t, r"^[A-Z].*\.$", repr(t))
 
 
 class AccessCodeTests(unittest.TestCase):
@@ -1015,10 +1097,25 @@ class HttpApiTests(unittest.TestCase):
         )
         try:
             with urllib.request.urlopen(req, timeout=5) as resp:
+                self.last_type = resp.headers.get("Content-Type")
                 return resp.status, resp.read()
         except urllib.error.HTTPError as exc:
             with exc:  # an error response is still an open connection
+                self.last_type = exc.headers.get("Content-Type")
                 return exc.code, exc.read()
+
+    def refused(self, expected, path, body=None, **kw):
+        """Ask, and check the answer is the one /api refusal: the expected
+        status, as JSON, {"status": "error", "message": <a sentence>}."""
+        status, raw = self.request(path, body, **kw)
+        why = f"{path} {body!r}"
+        self.assertEqual(status, expected, why)
+        self.assertEqual(self.last_type, "application/json", why)
+        reply = json.loads(raw)
+        self.assertEqual(set(reply), {"status", "message"}, why)
+        self.assertEqual(reply["status"], "error", why)
+        self.assertRegex(reply["message"], r"^[A-Z].*\.$", why)
+        return reply["message"]
 
     def post(self, path, body, **kw):
         status, raw = self.request(path, body, **kw)
@@ -1087,11 +1184,93 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(self.post("/api/nope", {})[0], 404)
         # A blank workspace name is a bad request, not a missing route.
         status, body = self.post("/api/save_reports", {"ato": "   ", "reports": [report()]})
-        self.assertEqual((status, body["message"]), (400, "Missing ATO."))
+        self.assertEqual(
+            (status, body["message"]),
+            (400, f"Validation failed: ato must be a non-empty string ≤{srv.MAX_ATO_LEN} chars."),
+        )
         status, body = self.post(
             "/api/edit_report", {"ato": "ALPHA", "reportId": "ghost", "fields": {"size": "x"}}
         )
         self.assertEqual((status, body["message"]), (404, "Report not found."))
+
+    # -- one refusal shape ---------------------------------------------------- #
+    def test_every_refusal_of_a_request_is_the_one_json_shape(self):
+        config = {"config": {"ato": "A", "title": "T"}}
+        self.refused(400, "/api/save_config", raw=b"{not json")
+        self.refused(400, "/api/save_config", ["a", "list"])
+        self.refused(400, "/api/save_config", raw=b"{}", headers={"Content-Length": "abc"})
+        self.refused(415, "/api/save_config", raw=b"{}", headers={"Content-Type": "text/plain"})
+        self.refused(403, "/api/save_config", config, headers={"Sec-Fetch-Site": "cross-site"})
+        self.refused(405, "/api/save_config", config, base=self.viewer_base)
+        self.assertEqual(self.refused(404, "/api/nope", {}), "Not found.")
+        self.assertEqual(self.refused(404, "/api/nope"), "Not found.")
+        with mock.patch.object(srv, "MAX_BODY_BYTES", 8):
+            self.refused(413, "/api/save_config", config)
+
+    def test_a_page_that_isnt_there_is_still_an_html_404(self):
+        status, _ = self.request("/nowhere", code=None)
+        self.assertEqual(status, 404)
+        self.assertTrue(self.last_type.startswith("text/html"), self.last_type)
+
+    def test_requests_missing_what_a_route_needs_are_refused_by_its_validator(self):
+        # Each check used to sit in its route, with its own wording.
+        for path, body in (
+            ("/api/save_reports", {"ato": "   ", "reports": [report()]}),
+            ("/api/save_reports", {"reports": [report()]}),
+            ("/api/unload_ato", {"ato": " "}),
+            ("/api/edit_report", {"ato": "ALPHA", "reportId": "r1", "fields": {}}),
+            ("/api/edit_report", {"ato": "ALPHA", "fields": {"size": "x"}}),
+            ("/api/delete_history", {"ato": "ALPHA", "deletions": []}),
+            ("/api/delete_history", {"ato": "ALPHA"}),
+            ("/api/save_profile", {"profile": {"initials": "  ", "color": "#32d74b"}}),
+            *((path, {}) for path in srv._VALIDATORS if path != "/api/save_config"),
+        ):
+            message = self.refused(400, path, body)
+            self.assertTrue(message.startswith("Validation failed: "), message)
+        self.assertEqual(self.sync()["workspaces"], {}, "nothing got through")
+
+    def test_the_routes_leave_validation_to_the_validators(self):
+        for path, route in srv.SaltSyncHandler._POST_ROUTES.items():
+            self.assertIn(path, srv._VALIDATORS)
+            self.assertNotIn("_bad_request", inspect.getsource(route), path)
+
+    def test_refusals_that_depend_on_what_the_server_holds_are_the_same_shape(self):
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report(lm=50)]})
+        edit = {"ato": "ALPHA", "reportId": "r1", "fields": {"size": "x", "lastModified": 40}}
+        self.refused(409, "/api/edit_report", edit)
+        self.refused(404, "/api/edit_report", {**edit, "reportId": "ghost"})
+
+    def test_access_and_rate_refusals_are_the_same_shape(self):
+        config = {"config": {"ato": "A", "title": "T"}}
+        with (
+            mock.patch.object(srv, "RATE_BUCKET_CAPACITY", 1),
+            mock.patch.object(srv, "RATE_REFILL_PER_SECOND", 0.0),
+        ):
+            self.assertEqual(self.post("/api/save_config", config)[0], 200)
+            self.refused(429, "/api/save_config", config)
+        with (
+            mock.patch.object(srv, "AUTH_FAIL_CAPACITY", 1),
+            mock.patch.object(srv, "AUTH_FAIL_REFILL_PER_SECOND", 0.0),
+        ):
+            self.refused(401, "/api/sync", code="WRONGCODE2")
+            self.refused(429, "/api/sync")
+
+    def test_basemap_refusals_are_the_same_shape(self):
+        # An <img> never reads them, but a person opening the address does.
+        tile = "/api/basemap?u=" + urllib.parse.quote("http://10.0.0.5/1.png", safe="")
+        self.refused(403, tile)
+        with (
+            mock.patch.object(srv, "basemap_proxy_allowed", return_value=True),
+            mock.patch.object(srv, "basemap_fetch", return_value=(502, "", b"")),
+        ):
+            self.refused(502, tile)
+        with (
+            mock.patch.object(srv, "BASEMAP_BUCKET_CAPACITY", 1),
+            mock.patch.object(srv, "BASEMAP_REFILL_PER_SECOND", 0.0),
+        ):
+            srv._basemap_buckets.clear()
+            self.refused(403, tile)
+            self.refused(429, tile)
 
     def test_bad_content_length_is_its_own_error(self):
         status, raw = self.request(
@@ -2442,10 +2621,10 @@ class HttpApiTests(unittest.TestCase):
         with mock.patch.object(srv, "sse_clients", clients):
             self.assertEqual(
                 srv.machines_line(),
-                "[i] Connected (3): AB at this computer in ALPHA; CD at 10.0.0.7; no name at 10.0.0.8",
+                "[*] Connected (3): AB at this computer in ALPHA; CD at 10.0.0.7; no name at 10.0.0.8",
             )
         with mock.patch.object(srv, "sse_clients", []):
-            self.assertEqual(srv.machines_line(), "[i] Nobody is connected.")
+            self.assertEqual(srv.machines_line(), "[*] Nobody is connected.")
 
     def test_the_host_counts_once_with_a_localhost_and_a_lan_tab(self):
         # Regression: the launcher opens the LAN URL, so a host with a
