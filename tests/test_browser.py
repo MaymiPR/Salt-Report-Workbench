@@ -2001,6 +2001,46 @@ class BrowserTests(unittest.TestCase):
         page.click("#statsViewToggleBtn")
         page.wait_for_selector(".stats-tile:has-text('Reports') .stats-tile-value:text-is('3')")
 
+    def test_statistics_keep_an_open_table_through_a_sync(self):
+        # Regression: every sync rebuilt the panel, closing the tables opened.
+        page = self.open_editor()
+        self.log(page, "2x T-72", activity="moving N", location="38SMB4500082000")
+        page.click("#statsViewToggleBtn")
+        card = ".stats-card[data-chart='equipment']"
+        table = f"{card} [data-stats-act='table']"
+        page.click(table)
+        self.assertTrue(page.locator(f"{card} .stats-table").is_visible())
+        # A sync that changes nothing leaves the panel as it is.
+        page.evaluate("document.querySelector('.stats-grid').dataset.mark = 'same'")
+        page.evaluate("renderStats()")
+        self.assertEqual(page.get_attribute(".stats-grid", "data-mark"), "same")
+        # One that does redraws it, the open table still open.
+        page.fill("#size", "1x BMP-2")
+        page.fill("#activity", "parked")
+        page.fill("#location", "38SMB4500082100")
+        page.click("#logButton")
+        page.wait_for_selector(".stats-tile:has-text('Reports') .stats-tile-value:text-is('2')")
+        self.assertIsNone(page.get_attribute(".stats-grid", "data-mark"))
+        self.assertTrue(page.locator(f"{card} .stats-table").is_visible())
+        self.assertEqual(page.get_attribute(table, "aria-pressed"), "true")
+        self.assertIn("BMP-2", page.text_content(f"{card} .stats-table"))
+        # And the focus where it was.
+        page.focus(table)
+        page.evaluate("statsBuilt = null; renderStats()")
+        self.assertEqual(
+            page.evaluate(
+                "[document.activeElement.dataset.statsAct, document.activeElement.closest('.stats-card').dataset.chart]"
+            ),
+            ["table", "equipment"],
+        )
+        # The table is the chart's accessible version: reachable, labelled, and
+        # the bars aren't tab stops of their own.
+        self.assertEqual(page.locator(".stats-hit[tabindex]").count(), 0)
+        self.assertEqual(
+            page.get_attribute(table, "aria-label"), "Table of Reported by type, from Size"
+        )
+        self.assertEqual(page.locator(".stats-tip[role]").count(), 0)
+
     def test_summary_reports_write_copy_save_and_print(self):
         page = self.open_editor()
         self.import_overlays(page)

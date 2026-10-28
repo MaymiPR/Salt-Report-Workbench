@@ -1514,9 +1514,8 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .stats-card-actions button:disabled { opacity: 0.35; cursor: not-allowed; }
 .stats-chart { position: relative; }
 .stats-chart svg { display: block; width: 100%; height: auto; }
-.stats-row:hover .stats-mark, .stats-row:focus-within .stats-mark { filter: brightness(1.25); }
-.stats-hit { cursor: default; outline: none; }
-.stats-hit:focus-visible { stroke: var(--system-blue); stroke-width: 1; }
+.stats-row:hover .stats-mark { filter: brightness(1.25); }
+.stats-hit { cursor: default; }
 .stats-tip { position: absolute; pointer-events: none; background: var(--input-bg-hover); border: 1px solid var(--glass-border); border-radius: 8px; padding: 4px 9px; font-size: 0.8em; white-space: nowrap; display: flex; gap: 8px; align-items: baseline; z-index: 2; }
 .stats-tip[hidden] { display: none; }
 .stats-tip strong { color: var(--text-primary); }

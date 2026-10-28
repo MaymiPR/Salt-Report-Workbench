@@ -981,7 +981,7 @@ const renderOverlayMap = (box) => {
                 <!-- Drones: where each is, shown or not, its view, and (editors) moving them. -->
                 <div id="mapDronePop" class="map-base-pop map-drone-pop" hidden></div>
                 <div id="mapGridReadout" class="map-grid-readout" hidden></div>
-                <div id="mapTip" class="map-tip" role="status" hidden></div>
+                <div id="mapTip" class="map-tip" hidden></div>
                 <div id="mapHint" class="map-hint" hidden>${/Mac/i.test(navigator.platform) ? '&#8984;' : 'Ctrl'} + scroll to zoom the map</div>
                 <div id="mapCard" class="map-card" hidden></div>
                 <div class="map-bottom">

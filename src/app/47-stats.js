@@ -59,7 +59,7 @@ const chartSvg = (chart, themeName, header) => {
                 + (w > 0 ? `<path class="stats-mark" d="${barPath(x0, y + (rowH - barH) / 2, w, barH)}" fill="${t.mark}"/>` : '')
                 + `<text x="${labelW}" y="${y + rowH / 2}" dy=".35em" text-anchor="end" font-size="12" fill="${t.ink2}">${escapeHtml(shorten(it.label, 26))}</text>`
                 + `<text x="${x0 + w + 6}" y="${y + rowH / 2}" dy=".35em" font-size="12" font-weight="600" fill="${t.ink}">${it.value}</text>`
-                + `<rect class="stats-hit" x="0" y="${y}" width="${CHART_W}" height="${rowH}" fill="transparent" tabindex="0" aria-label="${escapeHtml(`${it.label}: ${it.value}`)}"/></g>`;
+                + `<rect class="stats-hit" x="0" y="${y}" width="${CHART_W}" height="${rowH}" fill="transparent"/></g>`;
         }).join('')
             + `<line x1="${x0}" x2="${x0}" y1="${top}" y2="${top + items.length * rowH}" stroke="${t.base}" stroke-width="1"/>`;
         height = top + items.length * rowH + 8;
@@ -85,7 +85,7 @@ const chartSvg = (chart, themeName, header) => {
             return `<g class="stats-row" data-i="${i}">`
                 + (h > 0 ? `<path class="stats-mark" d="${columnPath(cx - colW / 2, yOf(it.value), colW, h)}" fill="${t.mark}"/>` : '')
                 + label + peakLabel
-                + `<rect class="stats-hit" x="${left + band * i}" y="${top}" width="${band}" height="${plotH}" fill="transparent" tabindex="0" aria-label="${escapeHtml(`${chart.fmtX(it.label)}: ${it.value}`)}"/></g>`;
+                + `<rect class="stats-hit" x="${left + band * i}" y="${top}" width="${band}" height="${plotH}" fill="transparent"/></g>`;
         }).join('')
             + `<line x1="${left}" x2="${CHART_W - right}" y1="${y0}" y2="${y0}" stroke="${t.base}" stroke-width="1"/>`;
         height = y0 + bottom;
@@ -204,15 +204,15 @@ const renderStats = () => {
             <div class="stats-card-head">
                 <div><h4>${escapeHtml(c.title)}</h4>${c.note ? `<div class="stats-note">${escapeHtml(c.note)}</div>` : ''}</div>
                 <div class="stats-card-actions">
-                    <button type="button" data-stats-act="table" aria-pressed="false"${c.hasData ? '' : ' disabled'}>Table</button>
-                    <button type="button" data-stats-act="png"${c.hasData ? '' : ' disabled'}>PNG</button>
-                    <button type="button" data-stats-act="svg"${c.hasData ? '' : ' disabled'}>SVG</button>
-                    <button type="button" data-stats-act="csv"${c.hasData ? '' : ' disabled'}>CSV</button>
+                    <button type="button" data-stats-act="table" aria-pressed="false" aria-controls="stats-table-${c.id}" aria-label="Table of ${escapeHtml(c.title)}"${c.hasData ? '' : ' disabled'}>Table</button>
+                    <button type="button" data-stats-act="png" aria-label="Save ${escapeHtml(c.title)} as PNG"${c.hasData ? '' : ' disabled'}>PNG</button>
+                    <button type="button" data-stats-act="svg" aria-label="Save ${escapeHtml(c.title)} as SVG"${c.hasData ? '' : ' disabled'}>SVG</button>
+                    <button type="button" data-stats-act="csv" aria-label="Save ${escapeHtml(c.title)} as CSV"${c.hasData ? '' : ' disabled'}>CSV</button>
                 </div>
             </div>
             <div class="stats-chart">${c.hasData ? chartSvg(c, 'dark', false) : `<div class="stats-empty">${escapeHtml(c.empty || 'Nothing yet.')}</div>`}
-                <div class="stats-tip" role="status" hidden></div></div>
-            <div class="stats-table" hidden><table><thead><tr><th>${c.kind === 'bar' ? 'Item' : 'When'}</th><th>${escapeHtml(c.unit)}</th></tr></thead>
+                <div class="stats-tip" hidden></div></div>
+            <div class="stats-table" id="stats-table-${c.id}" hidden><table><thead><tr><th>${c.kind === 'bar' ? 'Item' : 'When'}</th><th>${escapeHtml(c.unit)}</th></tr></thead>
                 <tbody>${c.items.map(i => `<tr><td>${escapeHtml(c.tipX(i.label))}</td><td>${i.value}</td></tr>`).join('')}</tbody></table></div>
         </section>`;
     // A sync redraws the panel only when what it shows has changed, so an
@@ -400,7 +400,8 @@ const exportStatsXlsx = () => {
             }
         }
     });
-    // Hover and keyboard focus: one readout per chart, value first.
+    // Hover: one readout per chart, value first. (The keyboard reads the
+    // values in the chart's table.)
     const showTip = (e) => {
         const row = e.target.closest && e.target.closest('.stats-row');
         const box = row && row.closest('.stats-chart');
@@ -423,7 +424,5 @@ const exportStatsXlsx = () => {
         if (box && !box.contains(e.relatedTarget)) box.querySelector('.stats-tip').hidden = true;
     };
     s.body.addEventListener('pointermove', showTip);
-    s.body.addEventListener('focusin', showTip);
     s.body.addEventListener('pointerout', hideTip);
-    s.body.addEventListener('focusout', hideTip);
 })();
