@@ -35,11 +35,26 @@ a determined attacker on that network.
   press Show, and hides it again when you leave that screen. Copy copies it
   without showing it. The server console still prints it, since the host
   reads it there.
-- Spoofed attribution: edits are stamped with the operator the server already
-  associates with the connection, not the identity a client claims.
+- Other websites using an editor's browser: a write is refused when the
+  browser says it comes from another site (`Sec-Fetch-Site`, or an `Origin`
+  that isn't the server's own address), and must be sent as JSON, which a
+  plain form on another site can't do. Pages may not be shown in another
+  site's frame.
 - Malformed or oversized input: per-endpoint schema validation, a 16 MB body
-  cap, and per-IP rate limiting.
-- Corrupted backups: atomic writes, so a crash never leaves a partial file.
+  cap, JSON nested too deeply refused, and per-IP rate limiting: of writes,
+  of wrong access codes on any request (GET as well as POST), and of map
+  images fetched through the server. A connection that goes quiet in the
+  middle of a request is closed after 30 seconds.
+- Losing backups to a crash: each backup is written to a temporary file,
+  flushed to the disk, and only then renamed over the old one, so a crash or
+  a power cut leaves the old complete file or the new one, never a partial
+  one. The rename itself isn't forced to the disk, so after a power cut the
+  previous version may be the one found. A save that fails (a file held open
+  by antivirus or a sync client, say) is kept in memory and tried again until
+  it works.
+- A bad import or a wrong delete: `snapshots/` keeps dated copies of every
+  backup, taken at most once an hour and at each start; the newest 48 rounds
+  are kept, about two days, however many workspaces there are.
 
 **It does not protect against:**
 
@@ -54,6 +69,25 @@ a determined attacker on that network.
   `--viewer-port 0` if that matters.
 - **`--no-https`.** It turns encryption off; the code and every report then
   cross the network readable, and the code can be copied from the traffic.
+- **Anything running on the host machine.** Requests from the server's own
+  machine need no code (that is how the host's browser gets in), so any
+  program or user on that machine can read and change everything on the
+  editor port.
+- **Anything running in an editor's page.** The page keeps the access code in
+  browser storage and in a cookie that scripts can read (it isn't
+  `HttpOnly`), so a browser extension, or anything else that runs script in
+  the page, can read the code.
+- **Who logged a report.** The initials on a report are what the browser
+  sent. Reports saved or imported carry whatever initials the client claims;
+  an edit is stamped with the profile the server associates with the
+  connection, but the server learned that association from initials the same
+  client sent. Anyone with the code can log reports under someone else's
+  initials. In `audit.log` only the IP address is observed by the server; the
+  initials beside it come from the client.
+- **Guessing the code from many addresses.** Wrong codes are rate limited per
+  IP address, on GETs as well as POSTs, which makes guessing from one address
+  impractically slow; it isn't a lockout, and each further address gets its
+  own allowance.
 - **Access to the host.** Backups in `Auto Backups/` are plain text, and
   `Auto Backups/tls/` holds the server's private key. Protect the machine and
   the folder according to your data-handling rules.
@@ -80,5 +114,8 @@ fully trusted, isolated network.
 `Auto Backups/` and other runtime data are git-ignored, and the pre-commit
 configuration includes a private-key detector. Never commit real reports, and
 treat exported backups and CSVs with the same care as the reports themselves.
-The folder also holds `audit.log`, which names operators by initials and LAN
-address, and `snapshots/`, dated copies of the backup; both stay with the host.
+The folder also holds `Shared settings.json` (the settings every workspace
+shares, such as basemaps and the narrative), `audit.log`, which names
+operators by initials and LAN address, and `snapshots/`, dated copies of the
+backups and older files moved aside when a workspace's backup was renamed;
+all stay with the host.
