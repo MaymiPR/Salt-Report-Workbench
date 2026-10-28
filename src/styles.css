@@ -1243,11 +1243,11 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-base-hint { font-size: 0.75em; color: var(--text-secondary); }
 #mapBaseBtn.active { color: var(--system-blue); }
 .map-base-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
-.map-base-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 10px; padding: 4px 2px; border-bottom: 1px solid var(--divider); font-size: 0.85em; }
+.map-base-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto auto; align-items: center; gap: 10px; padding: 4px 2px; border-bottom: 1px solid var(--divider); font-size: 0.85em; }
 .map-base-check { margin: 4px 6px 6px; padding: 7px 10px; border-radius: 8px; font-size: 0.82em; line-height: 1.4; background: rgba(255, 159, 10, 0.12); color: var(--text-primary); border: 1px solid rgba(255, 159, 10, 0.35); }
 .map-base-check.ok { background: rgba(48, 209, 88, 0.12); border-color: rgba(48, 209, 88, 0.35); }
 .map-base-check.fading { overflow: hidden; opacity: 0; height: 0 !important; margin-top: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0; border-width: 0; transition: opacity 0.2s ease, height 0.3s ease, margin 0.3s ease, padding 0.3s ease; }
-/* A saved service, opened: its layers (or address), Save, Cancel, Remove. */
+/* A saved service, opened: its layers (or address), Save, Cancel. */
 .map-base-row.open { border-bottom-color: transparent; }
 .map-base-detail { padding: 6px 2px 10px; border-bottom: 1px solid var(--divider); }
 .map-base-detail .map-find-foot { align-items: center; }
@@ -1269,6 +1269,9 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-layer-warn { flex: 0 0 auto; color: var(--system-orange, #ff9f0a); font-size: 0.85em; }
 .map-find-foot { margin-bottom: 4px; }
 .map-base-name { font-weight: 600; }
+/* Remove on each row; pressed once, the name asks "for everyone?" in its place. */
+.map-base-row .map-base-del { color: var(--system-red, #ff453a); }
+.map-base-ask { color: var(--system-red, #ff453a); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-base-kind { color: var(--text-secondary); }
 .map-basemap-form { background: var(--input-bg); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
 .map-form-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }

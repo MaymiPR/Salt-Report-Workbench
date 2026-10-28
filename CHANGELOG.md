@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Removing a basemap is one row away.** In Manage's Map tab each basemap's
+  row has **Remove** beside Check and Layers (or Edit), so there's no opening
+  its layers and scrolling to the bottom. The first press asks "Remove for
+  everyone?" in the basemap's name, so nothing on the row moves; a second
+  press removes it, and any other button lets it go. The Remove at the bottom
+  of an opened basemap is gone.
+
 ## [2.17.0] - 2026-10-28
 
 ### Added

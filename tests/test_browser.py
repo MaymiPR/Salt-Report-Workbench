@@ -914,17 +914,28 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(
             page.locator(".ws-tab[data-tab='overlays']").get_attribute("aria-selected") == "true"
         )
-        # No x on the rows: a service is removed from its details, and asked first.
-        self.assertEqual(page.locator("#mapBasemapForm .overlay-remove").count(), 0)
+        # Remove is on each row and asks first, in the name's place, so nothing moves.
         page.click("[data-base-open='0']")
         page.wait_for_selector(".map-base-detail .map-layer-list")
         self.assertTrue(page.is_checked(".map-layer-row:has-text('Imagery 2024') input"))
-        page.click("#mapBaseRemove")
-        self.assertEqual(page.text_content("#mapBaseRemove"), "Remove for everyone?")
+        self.assertEqual(page.locator(".map-base-detail button:has-text('Remove')").count(), 0)
+        before = page.locator("[data-base-remove='0']").bounding_box()
+        page.click("[data-base-remove='0']")
+        self.assertEqual(
+            page.text_content(".map-base-row >> nth=0 >> .map-base-ask"), "Remove for everyone?"
+        )
+        self.assertEqual(
+            page.locator("[data-base-remove='0']").bounding_box(), before, "nothing moved"
+        )
         self.assertEqual(page.locator(".map-base-row").count(), 2, "not yet")
-        page.click("#mapBaseRemove")
+        # Another button lets it go.
+        page.click("[data-base-check='1']")
+        self.assertEqual(page.locator(".map-base-ask").count(), 0)
+        page.click("[data-base-remove='0']")
+        page.click("[data-base-remove='0']")
         page.wait_for_selector("#toast-notification:has-text('Imagery removed')")
         self.assertEqual(page.locator(".map-base-detail").count(), 0)
+        self.assertEqual(page.locator(".map-base-row").count(), 1)
         self.back_to_map(page)
         self.assertEqual(
             page.locator("#mapBaseSelect option").all_text_contents(),
