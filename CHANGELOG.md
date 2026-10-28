@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.17.2] - 2026-10-28
+
 ### Changed
 
 - **"Logistics" is now "logistics and support"** wherever the kinds of
@@ -832,7 +834,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Ruff, pre-commit, EditorConfig, and a Makefile.
 - README, architecture notes, and contributing, security, and conduct guides.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.17.1...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.17.2...HEAD
+[2.17.2]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.17.1...v2.17.2
 [2.17.1]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.17.0...v2.17.1
 [2.17.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.16.0...v2.17.0
 [2.16.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.15.0...v2.16.0
