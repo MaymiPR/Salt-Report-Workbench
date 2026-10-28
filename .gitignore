@@ -2,7 +2,11 @@
 # The server writes operational report backups next to itself. These can
 # contain real field reports and must stay out of version control.
 Auto Backups/
-*_backup.txt
+# `make run` keeps its backups, snapshots and TLS key here, outside dist/,
+# so `make clean` can't delete them.
+.dev-data/
+# Local files for manual testing (field-test exports, overlays).
+test-data/
 
 # ---- Build output --------------------------------------------------------
 dist/
@@ -12,13 +16,9 @@ release/
 __pycache__/
 *.py[cod]
 *$py.class
-.Python
+# What `pip install .` leaves behind.
 build/
-develop-eggs/
-eggs/
-.eggs/
 *.egg-info/
-*.egg
 .venv/
 venv/
 env/
