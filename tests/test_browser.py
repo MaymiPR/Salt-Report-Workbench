@@ -535,6 +535,35 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.input_value("#atoDesignator"), "SOMEWHERE")
         self.assertFalse(page.evaluate("el.config.ato.readOnly"))
 
+    def test_a_sync_during_a_workspace_switch_brings_no_reports_along(self):
+        # Regression: a sync landing while save_config was on its way put the
+        # old workspace's reports back in the log, and the next report logged
+        # copied them all into the new workspace (seen first on CI).
+        page = self.open_editor()
+        old = self.ato
+        self.log(page, "1x BTR")
+        held = []
+        page.route("**/api/save_config", lambda route: held.append(route))
+        page.click("#setAtoBtn")  # Change
+        new = old[:24] + "SWITCH"
+        page.fill("#atoDesignator", new)
+        page.click("#setAtoBtn")  # Set: save_config is held
+        self.wait_until(lambda: held, "save_config was never sent", page=page)
+        # The server still says the old workspace.
+        page.evaluate("() => syncWithServer()")
+        self.assertEqual(page.evaluate("activeAto"), new)
+        self.assertEqual(self.sizes(page), [])
+        held[0].continue_()
+        page.wait_for_selector("#toast-notification:has-text('Configuration synced')")
+        self.log(page, "2x BMP")
+        self.assertEqual(self.sizes(page), ["2x BMP"])
+        self.wait_for_server(
+            page, f"s => (s.workspaces['{new}'] || []).map(r => r.size).join() === '2x BMP'"
+        )
+        self.wait_for_server(
+            page, f"s => (s.workspaces['{old}'] || []).map(r => r.size).join() === '1x BTR'"
+        )
+
     def test_an_update_asks_when_someone_else_changed_the_report(self):
         # Regression: Edit and Update wrote over a peer's newer change, silently.
         page = self.open_editor()
@@ -2128,7 +2157,8 @@ class BrowserTests(unittest.TestCase):
         page.click("#mapDroneAdd")
         page.wait_for_selector("#toast-notification:has-text('The server refused the drones')")
         self.assertEqual(page.evaluate("sharedDrones.length"), 0)
-        self.assertEqual(page.locator("#mapSvg .map-drone").count(), 0)
+        # The map redraws on the next frame.
+        page.wait_for_function("() => !document.querySelector('#mapSvg .map-drone')")
         enemy = page.evaluate("sharedNarrative.enemy || ''")
         page.evaluate("saveNarrative({ enemy: 'NOPE' })")
         page.wait_for_selector("#toast-notification:has-text('The server refused the narrative')")

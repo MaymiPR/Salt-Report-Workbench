@@ -224,6 +224,9 @@ let localConfig   = readStored('salt_offline_config', { ato: '', title: '' });
 // The active workspace as the server last said ({ ato, title }, empty when it
 // has none), or null before the first sync. The startup modal goes by it.
 let serverConfig  = null;
+// The workspace this editor is switching to while save_config is on its way
+// ({ ato, title }), so a sync in between can't switch it back. Null otherwise.
+let switchingTo   = null;
 let userProfile   = null;
 // ato → source descriptor ("alpha01.txt" | "Uploaded backup" | "In-session").
 let workspaceSources = {};

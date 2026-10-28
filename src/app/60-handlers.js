@@ -493,12 +493,23 @@ async function applyAtoConfig({ post = true } = {}) {
     writeStored('salt_last_active_ato', activeAto);
     writeStored('salt_offline_config', JSON.stringify(localConfig));
     setAtoState(true); renderLog();
-    if (post) saveToast(await apiPost('/api/save_config', { config: newConfig }), isLocalFile ? 'Configuration saved.' : 'Configuration synced.');
-    // If a sync ran during the await and clobbered anything, restore the intended state.
+    // While it's being sent, a sync carrying the server's old workspace keeps
+    // this one (applyServerUpdate reads switchingTo).
+    switchingTo = newConfig;
+    try {
+        if (post) saveToast(await apiPost('/api/save_config', { config: newConfig }), isLocalFile ? 'Configuration saved.' : 'Configuration synced.');
+    } finally {
+        if (switchingTo === newConfig) switchingTo = null;
+    }
+    // If a sync ran during the await and clobbered anything, restore the
+    // intended state, the reports with it: left as the old workspace's, the
+    // next report logged would have copied them all into this one.
     activeAto    = newAto;
     localConfig  = newConfig;
+    localReports = reportsByAto[activeAto] || [];
     writeStored('salt_last_active_ato', activeAto);
     writeStored('salt_offline_config', JSON.stringify(localConfig));
+    renderLog();
     // The fields too (an earlier sync's empty config may have landed), unless
     // the user has started changing them again.
     if (!configChanging) { el.config.ato.value = newAto; el.config.title.value = newTitle; setAtoState(true); }

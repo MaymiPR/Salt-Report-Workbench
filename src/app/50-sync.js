@@ -229,6 +229,12 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
                 || null;
         }
         localReports = viewerShowingAto ? (reportsByAto[viewerShowingAto] || []) : [];
+    } else if (switchingTo) {
+        // This editor is switching workspace and the server hasn't been told
+        // yet: its old one must not come back in the meantime.
+        activeAto = switchingTo.ato;
+        localConfig = { ...switchingTo };
+        localReports = reportsByAto[activeAto] || [];
     } else if (config && config.ato && config.title) {
         activeAto = config.ato;
         localConfig = { ato: config.ato, title: config.title };
