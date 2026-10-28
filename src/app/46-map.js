@@ -602,7 +602,6 @@ const drawBasemap = (m, ext, view, w, h) => {
 let wmsFind = null;   // { link, edit, busy, error, title, version, getMap, formats, layers: [{ name, title, crs, missing }], picked: Set, via }
 let baseCheck = null; // { name, ok, text }: what Check found for a service
 let baseOpen = null;  // the saved service whose details are open, by name
-let baseRemoving = null; // the saved service whose Remove has asked "for everyone?", by name
 
 // Read a service address as text. The page asks first; a service that sends
 // no CORS headers refuses that, and then the sync server asks for it.
@@ -726,20 +725,25 @@ const replaceBasemap = (oldName, entry) => {
         writeStored('salt_map_base', entry.name);
     }
     if (baseCheck && baseCheck.name === oldName) baseCheck = null;
-    wmsFind = null; baseOpen = null; baseRemoving = null;
+    wmsFind = null; baseOpen = null;
     saveBasemaps(sharedBasemaps.map(b => (b.name === oldName ? entry : b)), `${entry.name} saved for everyone.`);
     return true;
 };
 
-// A saved service, from its row: removed for everyone, on the second press.
+// A saved service, from its row: removed for everyone, on the second press
+// (the first asks, in its name's place). Undo puts it back where it was,
+// unless one of that name has been added since.
 const removeBasemap = (name) => {
-    const gone = sharedBasemaps.find(b => b.name === name);
-    if (!gone) return;
-    if (baseRemoving !== name) { baseRemoving = name; renderBasemapManager(); return; }
+    const at = sharedBasemaps.findIndex(b => b.name === name);
+    if (at < 0) return;
+    if (!askFirst(`base|${name}`, renderBasemapManager)) return;
+    const gone = sharedBasemaps[at];
     if (baseCheck && baseCheck.name === gone.name) baseCheck = null;
     if (baseOpen === name) { wmsFind = null; baseOpen = null; }
-    baseRemoving = null;
-    saveBasemaps(sharedBasemaps.filter(b => b !== gone), `${gone.name} removed.`);
+    saveBasemaps(sharedBasemaps.filter(b => b !== gone), `${gone.name} removed.`, () => {
+        if (sharedBasemaps.some(b => b.name.toLowerCase() === gone.name.toLowerCase())) { showToast(`There is already a service called ${gone.name}.`, true); return; }
+        saveBasemaps([...sharedBasemaps.slice(0, at), gone, ...sharedBasemaps.slice(at)], `${gone.name} put back.`);
+    });
 };
 
 // Where to ask for the map: the address the service's capabilities give, but
@@ -878,18 +882,19 @@ const basemapForm = () => {
         baseOpen = null;
         if (wmsFind && wmsFind.edit) wmsFind = null;
     }
-    if (baseRemoving && !sharedBasemaps.some(b => b.name === baseRemoving)) baseRemoving = null;
+    const asked = askingAbout('base|');
+    if (asked && !sharedBasemaps.some(b => `base|${b.name}` === asked)) forgetAsk();
     const adding = wmsFind && !wmsFind.edit ? wmsFind : null;
     return `<div class="map-basemap-form editor-only" id="mapBasemapForm" data-open="${escapeHtml(baseOpen || '')}">
         ${sharedBasemaps.length ? `<div class="map-base-list">${sharedBasemaps.map((b, i) => `
             <div class="map-base-row${baseOpen === b.name ? ' open' : ''}">
-                ${baseRemoving === b.name
-                    ? `<span class="map-base-name map-base-ask" role="status" title="${escapeHtml(b.name)}">Remove for everyone?</span>`
+                ${isAsking(`base|${b.name}`)
+                    ?`<span class="map-base-name map-base-ask" role="status" title="${escapeHtml(b.name)}">Remove for everyone?</span>`
                     : `<span class="map-base-name" title="${escapeHtml(b.url)}${b.layers ? `\n${escapeHtml(b.layers)}` : ''}">${escapeHtml(b.name)}</span>`}
                 <span class="map-base-kind">${b.kind === 'wms' ? 'WMS' : 'Tiles'}</span>
                 <button type="button" class="text-btn" data-base-check="${i}">Check</button>
                 <button type="button" class="text-btn" data-base-open="${i}" aria-expanded="${baseOpen === b.name}">${b.kind === 'wms' ? 'Layers' : 'Edit'}</button>
-                <button type="button" class="text-btn map-base-del" data-base-remove="${i}" aria-label="Remove ${escapeHtml(b.name)}">Remove</button>
+                <button type="button" class="text-btn map-base-del" data-base-remove="${i}"${isAsking(`base|${b.name}`) ? ' data-asking' : ''} aria-label="Remove ${escapeHtml(b.name)}">Remove</button>
             </div>${baseCheck && baseCheck.name === b.name ? `<div class="map-base-check${baseCheck.ok ? ' ok' : ''}" role="status">${escapeHtml(baseCheck.text)}</div>` : ''}${baseOpen === b.name ? baseDetailHtml(b) : ''}`).join('')}</div>` : ''}
         <div class="map-form-row map-base-add">
             <input type="text" id="mapBaseInput" placeholder="WMS link or tile address" maxlength="4000" spellcheck="false" value="${escapeHtml(adding ? adding.link : '')}" aria-label="WMS link or tile address">
@@ -915,14 +920,15 @@ const basemapsChanged = () => { renderBasemapManager(); renderMapView(); };
 
 // Shown here at once; refused by the server, the list goes back to what it
 // was (unless a sync has replaced it since). A server that can't be reached
-// leaves the change in this browser.
-const saveBasemaps = async (list, said) => {
+// leaves the change in this browser. `undo`, for a removal: the toast offers it.
+const saveBasemaps = async (list, said, undo = null) => {
     const before = sharedBasemaps;
     sharedBasemaps = list;
     mapBaseFailed = false;
     storeBasemaps();
     basemapsChanged();
-    if (isLocalFile) return;
+    const tell = () => { if (said) showToast(said, false, undo ? { ms: UNDO_MS, undo } : {}); };
+    if (isLocalFile) { if (undo) tell(); return; }
     try {
         const res = await postJson('/api/save_basemaps', { basemaps: list });
         if (res.status === 401) { handleUnauthorized(); return; }
@@ -930,7 +936,7 @@ const saveBasemaps = async (list, said) => {
             const body = await res.json().catch(() => ({}));
             if (sharedBasemaps === list) { sharedBasemaps = before; storeBasemaps(); basemapsChanged(); }
             showToast(`The server refused the basemaps: ${body.message || res.status}`, true, { ms: 8000 });
-        } else if (said) showToast(said);
+        } else tell();
     } catch (e) { showToast('Saved in this browser only: the server could not be reached.', true); }
 };
 
@@ -1052,13 +1058,14 @@ const renderDronePop = () => {
     pop.innerHTML = `<div class="map-base-pop-head">Drones</div>
         ${toggle('mapDroneShow', droneShow, 'Show on the map')}
         ${toggle('mapDroneView', droneView, 'Show its view')}
-        ${sharedDrones.length ? `<div class="map-drone-list">${sharedDrones.map((d, i) => `
+        ${sharedDrones.length ? `<div class="map-drone-list">${sharedDrones.map((d, i) => { const ask = isAsking(`drone|${d.name}`); return `
             <div class="map-drone-row">
                 <span class="map-drone-name">${escapeHtml(d.name)}</span>
-                ${isReadOnly ? `<span class="map-drone-grid">${escapeHtml(d.grid)}</span>`
+                ${ask ? `<span class="map-drone-ask"><input type="text" class="map-drone-grid-in" value="${escapeHtml(d.grid)}" tabindex="-1" aria-hidden="true"><span class="map-base-ask" role="status">Remove for everyone?</span></span>`
+                    : isReadOnly ? `<span class="map-drone-grid">${escapeHtml(d.grid)}</span>`
                     : `<input type="text" id="mapDroneGrid${i}" class="map-drone-grid-in" data-drone-grid="${i}" value="${escapeHtml(d.grid)}" maxlength="40" spellcheck="false" aria-label="${escapeHtml(d.name)}'s grid">`}
                 <button type="button" class="text-btn" data-drone-zoom="${i}">Zoom</button>
-                <button type="button" class="overlay-remove editor-only" data-drone-remove="${i}" title="Remove ${escapeHtml(d.name)}" aria-label="Remove ${escapeHtml(d.name)}">&times;</button>
+                <button type="button" class="overlay-remove editor-only" data-drone-remove="${i}" data-drone-name="${escapeHtml(d.name)}"${ask ? ' data-asking' : ''} title="Remove ${escapeHtml(d.name)}" aria-label="Remove ${escapeHtml(d.name)}">&times;</button>
             </div>
             <div class="map-drone-sub">
                 <span class="map-drone-sub-label">Looking at</span>
@@ -1067,7 +1074,7 @@ const renderDronePop = () => {
                 <span class="map-drone-sub-label">Range</span>
                 ${isReadOnly ? `<span class="map-drone-grid">${d.range ? `${d.range} km` : 'none'}</span>`
                     : `<input type="text" id="mapDroneRange${i}" class="map-drone-range-in" data-drone-range="${i}" value="${d.range || ''}" placeholder="km" maxlength="6" inputmode="decimal" aria-label="${escapeHtml(d.name)}'s range in km">`}
-            </div>`).join('')}</div>` : '<div class="map-base-none">No drones yet.</div>'}
+            </div>`; }).join('')}</div>` : '<div class="map-base-none">No drones yet.</div>'}
         <div class="map-form-row map-drone-add editor-only">
             <input type="text" id="mapDroneName" placeholder="Name" maxlength="40" spellcheck="false" aria-label="Drone name (e.g. GE 1)">
             <input type="text" id="mapDroneGridNew" placeholder="Grid" maxlength="40" spellcheck="false" aria-label="Drone grid">
@@ -1084,12 +1091,13 @@ const renderDronePop = () => {
 };
 
 // As the basemaps: refused, the list goes back to what it was.
-const saveDrones = async (list, said) => {
+const saveDrones = async (list, said, undo = null) => {
     const before = sharedDrones;
     sharedDrones = list;
     storeDrones();
     renderMapView();
-    if (isLocalFile) { if (said) showToast(said); return; }
+    const tell = () => { if (said) showToast(said, false, undo ? { ms: UNDO_MS, undo } : {}); };
+    if (isLocalFile) { tell(); return; }
     try {
         const res = await postJson('/api/save_drones', { drones: list });
         if (res.status === 401) { handleUnauthorized(); return; }
@@ -1097,7 +1105,7 @@ const saveDrones = async (list, said) => {
             const body = await res.json().catch(() => ({}));
             if (sharedDrones === list) { sharedDrones = before; storeDrones(); renderMapView(); }
             showToast(`The server refused the drones: ${body.message || res.status}`, true, { ms: 8000 });
-        } else if (said) showToast(said);
+        } else tell();
     } catch (e) { showToast('Saved in this browser only: the server could not be reached.', true); }
 };
 
@@ -1189,15 +1197,18 @@ if (mapBody) {
         if (zoomTo) { const d = sharedDrones[+zoomTo.dataset.droneZoom]; if (d) zoomToDrone(d); return; }
         const gone = e.target.closest('[data-drone-remove]');
         if (gone) {
-            const d = sharedDrones[+gone.dataset.droneRemove];
-            // By its name when confirmed: a sync may have changed the list meanwhile.
-            if (d) {
-                showConfirmation(`Remove ${d.name} from the map, for everyone?`, () => {
-                    const left = sharedDrones.filter(x => x.name !== d.name);
-                    if (left.length === sharedDrones.length) { showToast(`${d.name} is no longer on the map.`, true); return; }
-                    saveDrones(left, `${d.name} removed.`);
-                });
-            }
+            // The first press asks, in its row; the second removes it. By its
+            // name: a sync may have changed the list meanwhile. Undo puts it
+            // back where it was, unless one of that name has been added since.
+            const name = gone.dataset.droneName;
+            if (!askFirst(`drone|${name}`, renderDronePop)) return;
+            const at = sharedDrones.findIndex(x => x.name === name);
+            if (at < 0) { showToast(`${name} is no longer on the map.`, true); return; }
+            const was = sharedDrones[at];
+            saveDrones(sharedDrones.filter(x => x !== was), `${name} removed.`, () => {
+                if (sharedDrones.some(x => x.name.toLowerCase() === was.name.toLowerCase())) { showToast(`There is already a drone called ${was.name}.`, true); return; }
+                saveDrones([...sharedDrones.slice(0, at), was, ...sharedDrones.slice(at)], `${was.name} put back.`);
+            });
             return;
         }
         if (e.target.closest('#mapDroneAdd')) {
@@ -1272,8 +1283,6 @@ if (baseHost) {
     baseHost.addEventListener('click', e => {
         const remove = e.target.closest('[data-base-remove]');
         if (remove) { const b = sharedBasemaps[+remove.dataset.baseRemove]; if (b) removeBasemap(b.name); return; }
-        // Any other button pressed: a Remove that asked is let go.
-        if (baseRemoving && e.target.closest('button')) { baseRemoving = null; renderBasemapManager(); }
         // A saved service's details: opened (a WMS's layers looked up again), or closed.
         const open = e.target.closest('[data-base-open]');
         if (open) {
@@ -1369,8 +1378,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('click', e => {
     const path = e.composedPath();
     if (!path.some(n => n.id === 'mapBasePop' || n.id === 'mapBaseBtn')) toggleBasePop(false);
-    // A confirmation opened from the menu (Remove) doesn't close it.
-    if (!path.some(n => n.id === 'mapDronePop' || n.id === 'mapDroneBtn' || n.id === 'confirmation-toast')) toggleDronePop(false);
+    if (!path.some(n => n.id === 'mapDronePop' || n.id === 'mapDroneBtn')) toggleDronePop(false);
 });
 
 // Only the layers matching what's typed in the filter.

@@ -10,7 +10,6 @@
 
 let narrTab = 'units';
 let narrOpen = null;        // the item open in the panel: { id (null: a new one), entry (as opened), fill? }
-let narrRemoving = false;   // its Remove has asked "for everyone?"
 let narrBuilt = null;       // what the panel was last built from, so a sync doesn't rebuild it under the cursor
 
 const narrList = (k) => (Array.isArray(sharedNarrative[k]) ? sharedNarrative[k] : []);
@@ -29,14 +28,16 @@ const CHEVRON = '<svg class="narr-chevron" viewBox="0 0 8 14" width="7" height="
 // Shown here at once; refused by the server, the settings go back to what
 // they were (unless a sync has replaced them since). A server that can't be
 // reached, or is too old to share them, leaves the change in this browser.
-const saveNarrative = async (changes, said) => {
+// `undo`, for a removal: the toast offers it.
+const saveNarrative = async (changes, said, undo = null) => {
     const before = sharedNarrative;
     const mine = sharedNarrative = { enemy: '', units: [], equipment: [], off: [], custom: [], ...sharedNarrative, ...changes };
     storeNarrative();
-    narrOpen = null; narrRemoving = false;
+    narrOpen = null;
     narrBuilt = null;
     renderSummary();
-    if (isLocalFile) { if (said) showToast(said); return; }
+    const tell = () => { if (said) showToast(said, false, undo ? { ms: UNDO_MS, undo } : {}); };
+    if (isLocalFile) { tell(); return; }
     try {
         const res = await postJson('/api/save_narrative', { narrative: mine });
         if (res.status === 401) { handleUnauthorized(); return; }
@@ -46,7 +47,7 @@ const saveNarrative = async (changes, said) => {
             const body = await res.json().catch(() => ({}));
             if (sharedNarrative === mine) { sharedNarrative = before; storeNarrative(); narrBuilt = null; renderSummary(); }
             showToast(`The server refused the narrative settings: ${body.message || res.status}`, true, { ms: 8000 });
-        } else if (said) showToast(said);
+        } else tell();
     } catch (e) { showToast('Saved in this browser only: the server could not be reached.', true); }
 };
 
@@ -74,11 +75,26 @@ const row = (i, name, meta, id) => (isReadOnly
     ? `<div class="narr-row"><span class="narr-name">${escapeHtml(name)}</span><span class="narr-meta">${escapeHtml(meta)}</span></div>`
     : `<button type="button" class="narr-row" data-narr-edit="${i}" data-narr-id="${escapeHtml(id)}"><span class="narr-name">${escapeHtml(name)}</span><span class="narr-meta">${escapeHtml(meta)}</span>${CHEVRON}</button>`);
 const addRow = (label) => `<button type="button" class="narr-add editor-only" data-narr-add>+ ${label}</button>`;
-// The form's foot: Save and, for one already saved, Remove (which asks first).
-const formFoot = (saved) => `<div class="narr-foot">
+// The form's foot: Save and, for one already saved, Remove, which asks
+// first on its own face. The question is drawn in place, so what is being
+// filled in above it stays as it is.
+const narrAskKey = () => `narr|${narrTab}|${narrOpen && narrOpen.id}`;
+const removeLabel = (ask) => (ask ? 'Remove for everyone?' : 'Remove');
+const formFoot = (saved) => {
+    const ask = saved && isAsking(narrAskKey());
+    return `<div class="narr-foot">
         <button type="button" class="set-btn" data-narr-save>Save</button>
-        ${saved ? `<button type="button" class="text-btn map-base-remove${narrRemoving ? ' sure' : ''}" data-narr-remove>${narrRemoving ? 'Remove for everyone?' : 'Remove'}</button>` : ''}
+        ${saved ? `<button type="button" class="text-btn map-base-remove${ask ? ' sure' : ''}" data-narr-remove${ask ? ' data-asking' : ''}>${removeLabel(ask)}</button>` : ''}
     </div>`;
+};
+const drawNarrRemove = () => {
+    const b = document.querySelector('#narrSettings [data-narr-remove]');
+    if (!b) return;
+    const ask = isAsking(narrAskKey());
+    b.textContent = removeLabel(ask);
+    b.classList.toggle('sure', ask);
+    b.toggleAttribute('data-asking', ask);
+};
 // An open item: back to its list, its title, then its form.
 const drill = (back, title, body) => `<button type="button" class="narr-back" data-narr-back>
         <svg viewBox="0 0 8 14" width="7" height="12" aria-hidden="true"><path d="M7 1L1 7l6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>${back}</button>
@@ -236,7 +252,7 @@ const renderNarrSettings = () => {
     const box = document.getElementById('narrSettings');
     if (!box || box.hidden) return;
     const typing = box.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
-    const key = JSON.stringify([sharedNarrative, narrTab, narrOpen, narrRemoving, isReadOnly, narrPlaces(), narrUnknown()]);
+    const key = JSON.stringify([sharedNarrative, narrTab, narrOpen, isReadOnly, narrPlaces(), narrUnknown()]);
     if (key === narrBuilt || ((typing || narrOpen) && narrBuilt)) return;
     narrBuilt = key;
     const counts = narrCounts(), unknown = narrUnknown().length;
@@ -299,7 +315,7 @@ const narrIndex = () => {
 const narrGone = () => {
     const e = narrOpen.entry || {};
     showToast(`Someone else removed ${e.name || e.type || e.what || 'it'} in the meantime.`, true);
-    narrOpen = null; narrRemoving = false; narrBuilt = null;
+    narrOpen = null; narrBuilt = null;
     renderNarrSettings();
 };
 const saveNarrForm = () => {
@@ -320,7 +336,7 @@ const saveNarrForm = () => {
     const box = document.getElementById('narrSettings');
     if (!box) return;
     const rerender = () => { narrBuilt = null; renderNarrSettings(); };
-    const go = (open) => { narrOpen = open; narrRemoving = false; rerender(); };
+    const go = (open) => { narrOpen = open; rerender(); };
     box.addEventListener('click', e => {
         const tab = e.target.closest('[data-narr-tab]');
         if (tab) { narrTab = tab.dataset.narrTab; go(null); return; }
@@ -365,11 +381,16 @@ const saveNarrForm = () => {
         if (c) { pickRadio(c); return; }
         if (e.target.closest('[data-narr-save]')) { saveNarrForm(); return; }
         if (e.target.closest('[data-narr-remove]')) {
-            if (!narrRemoving) { narrRemoving = true; rerender(); return; }
+            if (!askFirst(narrAskKey(), drawNarrRemove)) return;
             const key = LIST_OF[narrTab], index = narrIndex();
             if (index < 0) { narrGone(); return; }
-            const gone = narrList(key)[index];
-            saveNarrative({ [key]: narrList(key).filter((_, i) => i !== index) }, `${gone.name || gone.type || gone.what || 'It'} removed.`);
+            const gone = narrList(key)[index], name = gone.name || gone.type || gone.what || 'It';
+            // Undo: back where it was, unless one like it has been saved since.
+            saveNarrative({ [key]: narrList(key).filter((_, i) => i !== index) }, `${name} removed.`, () => {
+                const list = narrList(key);
+                if (list.some(x => narrId(key, x) === narrId(key, gone))) { showToast('Nothing left to put back.', true); return; }
+                saveNarrative({ [key]: [...list.slice(0, index), gone, ...list.slice(index)] }, `${name} put back.`);
+            });
         }
     });
     box.addEventListener('change', e => {
