@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.19.0] - 2026-10-28
+
 ### Added
 
 - **Duplicate report numbers are flagged.** Two reports logged with one number
@@ -980,7 +982,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.18.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.19.0...HEAD
+[2.19.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.18.0...v2.19.0
 [2.18.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.17.2...v2.18.0
 [2.17.2]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.17.1...v2.17.2
 [2.17.1]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.17.0...v2.17.1
