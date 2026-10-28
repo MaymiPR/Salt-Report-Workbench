@@ -415,7 +415,11 @@ body.local-mode .startup-access-divider { display: none; }
 /* A view coming in: a quick fade and rise, nothing that jumps. */
 .view-in { animation: view-in 0.28s cubic-bezier(0.32, 0.72, 0, 1); }
 @keyframes view-in { from { opacity: 0; transform: translateY(8px); } }
-@media (prefers-reduced-motion: reduce) { .view-in, .home-title.swap { animation: none; } }
+/* Reduced motion, everywhere: every animation and transition all but
+   instant, with no delays, so what waits on one still happens, at once. */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; transition-delay: 0s !important; scroll-behavior: auto !important; }
+}
 .home-title.swap { animation: home-title-in 0.35s ease-out; }
 @keyframes home-title-in { from { opacity: 0; transform: translateY(4px); } }
 .home-pager { position: relative; flex: 1; min-height: 0; overflow: hidden; }
@@ -424,7 +428,6 @@ body.local-mode .startup-access-divider { display: none; }
 .home-pager.on-map #logView { transform: translateY(-100%); visibility: hidden; transition: transform 0.55s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s linear 0.55s; }
 .home-pager.on-map #mapPanel { transform: translateY(0); visibility: visible; transition: transform 0.55s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s linear 0s; }
 .home-pager.instant .home-pane { transition: none !important; }
-@media (prefers-reduced-motion: reduce) { .home-pane { transition: none !important; } }
 /* The button by a heading: to the map, or back to the Report Log. */
 .home-arrow { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; margin: 0 0 0 6px; padding: 0; border: none; border-radius: 8px; background: var(--input-bg); color: var(--text-secondary); cursor: pointer; vertical-align: middle; transition: color 0.15s, background-color 0.15s; }
 .home-arrow svg { width: 17px; height: 17px; display: block; }
@@ -1252,7 +1255,6 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-base-detail { padding: 6px 2px 10px; border-bottom: 1px solid var(--divider); }
 .map-base-detail .map-find-foot { align-items: center; }
 .map-base-remove.sure { font-weight: 600; }
-@media (prefers-reduced-motion: reduce) { .map-base-check.fading { transition: none; } }
 .map-find-msg { margin: 0 0 8px; font-size: 0.85em; }
 .map-find-error { padding: 7px 10px; border-radius: 8px; background: rgba(255, 69, 58, 0.12); border: 1px solid rgba(255, 69, 58, 0.35); color: var(--text-primary); line-height: 1.4; }
 .map-find-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; font-size: 0.85em; }
@@ -1333,7 +1335,6 @@ circle.map-hit { pointer-events: all; }
 .overlay-group:not([open]) > summary { margin-bottom: 0; }
 .overlay-group-chevron { flex: none; width: 7px; height: 7px; margin: 0 3px 0 2px; border-right: 2px solid var(--text-secondary); border-bottom: 2px solid var(--text-secondary); transform: rotate(-45deg); transition: transform 0.2s ease; }
 .overlay-group[open] .overlay-group-chevron { transform: rotate(45deg); }
-@media (prefers-reduced-motion: reduce) { .overlay-group-chevron { transition: none; } }
 .overlay-group-title { font-weight: 600; font-size: 0.92em; }
 .overlay-group-count { font-size: 0.78em; font-weight: 600; color: var(--text-secondary); background: rgba(255, 255, 255, 0.08); border-radius: 100px; padding: 1px 8px; }
 .overlay-group-unload { margin: 0 0 0 auto; width: auto; padding: 5px 12px; font-size: 0.8em; font-weight: 600; border: none; border-radius: 8px; background: rgba(255, 255, 255, 0.08); color: var(--text-primary); cursor: pointer; }
@@ -1432,7 +1433,6 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .map-side-btn:hover { color: var(--text-primary); }
 .map-side-btn:active { transform: none; }
 .map-side-btn[aria-pressed="true"] { color: var(--system-blue); }
-@media (prefers-reduced-motion: reduce) { .map-main *, .map-main .map-side { transition: none !important; } }
 /* Its box reaches up round the sidebar button (which stays put); the contents keep their place. */
 .map-side { position: absolute; left: 4px; top: 4px; bottom: 50px; z-index: 3; width: 196px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; box-sizing: border-box; padding: 56px 10px 12px 16px; border-radius: 15px; background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); transform: translateX(0); opacity: 1; visibility: visible; transition: transform var(--slide), opacity 0.3s ease, visibility 0s linear 0s; will-change: transform; }
 /* Two halves, as tall as each other; each scrolls its own list when it's long. */
@@ -1625,7 +1625,6 @@ input[type="checkbox"].narr-switch:checked { background: var(--system-green); ba
 .narr-builtin strong { color: var(--text-primary); font-weight: 600; }
 .narr-cat { margin-top: 8px; }
 .narr-cat em { font-style: normal; color: var(--text-primary); }
-@media (prefers-reduced-motion: reduce) { .narr-switch, .narr-switch::after { transition: none; } }
 .summary-actions button { margin: 0; width: auto; padding: 8px 16px; font-size: 0.85em; }
 #summaryPlaceRow[hidden] { display: none; }
 #summaryPlace { width: auto; margin: 0; padding: 6px 30px 6px 10px; font-size: 0.85em; background-position: right 10px center; }
