@@ -44,6 +44,9 @@ All notable changes to this project are documented here. The format follows
   state back (a drone just added disappeared, say), and the next change saved
   from that. The page now drops an answer older than a change it has seen and
   asks again.
+- **A click on the Workspaces list is no longer lost to a sync.** Every sync
+  drew the list anew, so a button could be replaced between pressing and
+  releasing it; an unchanged list is now left as it is.
 
 ## [2.19.0] - 2026-10-28
 

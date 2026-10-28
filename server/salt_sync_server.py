@@ -2592,10 +2592,20 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             headers=(('X-Salt-Change', str(version)),),
         )
 
-    def _unchanged(self, **extra) -> None:
+    def _unchanged(self, seen: bool = False, **extra) -> None:
         """The end of a write that changed nothing: the same reply, but nothing
-        is saved, broadcast to every client, or written to the audit log."""
-        self._send_json({'status': 'success', **extra})
+        is saved, broadcast to every client, or written to the audit log.
+        ``seen``: it changed only what others see of this machine (who is
+        connected, and where), which is numbered and broadcast, but not saved."""
+        if not seen:
+            self._send_json({'status': 'success', **extra})
+            return
+        version = broadcast_update()
+        self._send_body(
+            json.dumps({'status': 'success', 'version': version, **extra}).encode('utf-8'),
+            'application/json',
+            headers=(('X-Salt-Change', str(version)),),
+        )
 
     def _store_shared(self, key: str, value) -> bool:
         """Put a shared setting in place, for every workspace. False, with
@@ -2804,9 +2814,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             if revived:
                 invalidate_sync_cache()
         if not self._store_shared('config', clean):  # the config rides in every file
-            if moved or revived:
-                broadcast_update()
-            self._unchanged()
+            self._unchanged(seen=moved or revived)
             return
         self._commit(f'save_config {clean["ato"]} / {clean["title"]}')
 
@@ -2909,9 +2917,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         if not known:
             note_machines()
         if not changed:
-            if not known:
-                broadcast_update()  # who is connected changed, if nothing else did
-            self._unchanged()
+            self._unchanged(seen=not known)  # who is connected changed, if nothing else did
             return
         self._commit(f'save_profile {ini}')
 

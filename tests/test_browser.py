@@ -395,6 +395,7 @@ class BrowserTests(unittest.TestCase):
         other.click(".ws-tab[data-tab='workspaces']")
         unload = f"#workspacesList [data-unload-ato='{self.ato}']"
         row = f"#workspacesList .workspace-row:has([data-unload-ato='{self.ato}'])"
+        self.synced(other)  # the list redraws with each sync
         other.locator(unload).scroll_into_view_if_needed()
         box = other.locator(unload).bounding_box()
         other.click(unload)

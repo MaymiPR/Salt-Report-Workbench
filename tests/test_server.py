@@ -55,17 +55,6 @@ PL_BLUE = {
 NOTICE = rb'^data: \{"v":\d+\}\n$'
 
 
-@contextlib.contextmanager
-def sse_clients_as(clients):
-    """The server's event streams are ``clients`` for a while."""
-    srv.sse_clients.extend(clients)
-    try:
-        yield
-    finally:
-        for c in clients:
-            srv.sse_clients.remove(c)
-
-
 def reset_state() -> None:
     """Return every piece of module-level server state to a fresh boot."""
     srv.DATA_STORE.clear()
@@ -89,6 +78,11 @@ def reset_state() -> None:
     srv._auth_fail_buckets.clear()
     srv._basemap_buckets.clear()
     srv.invalidate_sync_cache()
+    # A notice or console line still to come from the last test goes with it.
+    for timer in ("_notice_timer", "_machines_timer"):
+        if pending := getattr(srv, timer):
+            pending.cancel()
+            setattr(srv, timer, None)
     srv._dirty_atos = None
     srv._shared_dirty = True
     srv._save_failures = 0
@@ -2445,12 +2439,13 @@ class HttpApiTests(unittest.TestCase):
         ]
         srv.client_initials.update({"127.0.0.1": "AB", "10.0.0.7": "CD"})
         srv.client_workspace.update({"127.0.0.1": "ALPHA"})
-        with sse_clients_as(clients):
+        with mock.patch.object(srv, "sse_clients", clients):
             self.assertEqual(
                 srv.machines_line(),
                 "[i] Connected (3): AB at this computer in ALPHA; CD at 10.0.0.7; no name at 10.0.0.8",
             )
-        self.assertEqual(srv.machines_line(), "[i] Nobody is connected.")
+        with mock.patch.object(srv, "sse_clients", []):
+            self.assertEqual(srv.machines_line(), "[i] Nobody is connected.")
 
     def test_the_host_counts_once_with_a_localhost_and_a_lan_tab(self):
         # Regression: the launcher opens the LAN URL, so a host with a

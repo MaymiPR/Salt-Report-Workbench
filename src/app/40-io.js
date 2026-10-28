@@ -64,6 +64,8 @@ const renderExportPreview = () => {
 
 // Loaded Workspaces list — rendered into both the panel tab and the
 // viewer-mode sidebar. Active workspace highlighted blue.
+// What each workspaces list was last drawn with.
+const workspacesDrawn = new WeakMap();
 const renderWorkspacesList = () => {
     if (!el.workspaces.list && !el.workspaces.sidebarList) return;
     const atos = Object.keys(reportsByAto).filter(a => (reportsByAto[a]||[]).some(r => !r.deleted));
@@ -134,9 +136,12 @@ const renderWorkspacesList = () => {
             </div>`;
         }).join('');
     }
-    // Mirror into both containers (panel tab + viewer sidebar).
-    if (el.workspaces.list)        el.workspaces.list.innerHTML        = html;
-    if (el.workspaces.sidebarList) el.workspaces.sidebarList.innerHTML = html;
+    // Mirror into both containers (panel tab + viewer sidebar). Unchanged,
+    // it's left as it is: every sync draws it, and a row replaced under the
+    // pointer loses the click being made on it.
+    [el.workspaces.list, el.workspaces.sidebarList].forEach(box => {
+        if (box && workspacesDrawn.get(box) !== html) { box.innerHTML = html; workspacesDrawn.set(box, html); }
+    });
 };
 
 // This editor is in no workspace now (theirs was unloaded): they set one
