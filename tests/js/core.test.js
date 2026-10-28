@@ -502,6 +502,36 @@ test('activity lines are tagged, with a heading when one is given', () => {
     }
 });
 
+test('a heading needs a heading word or a unit, and a whole compass point', () => {
+    const cases = {
+        'moving 120 trucks':                     [['Moving'], null, null],
+        'travelling with 300 pax':               [['Moving'], null, null],
+        'heading 360':                           [['Moving'], 'N', 0],
+        'heading 400':                           [['Moving'], null, null],
+        'moving to new position, northbound':    [['Moving'], 'N', 0],
+        'moving 120°':                           [['Moving'], 'ESE', 120],
+        'moving at 090 degrees':                 [['Moving'], 'E', 90],
+        'brg 045':                               [['Moving'], 'NE', 45],
+        'on a heading of 300':                   [['Moving'], 'WNW', 300],
+        'convoy moving nne on the MSR':          [['Moving'], 'NNE', 22.5],
+        'moving as needed':                      [['Moving'], null, null],
+        'withdrawing to the north-east':         [['Moving'], 'NE', 45],
+    };
+    for (const [text, [tags, heading, deg]] of Object.entries(cases)) {
+        assert.deepEqual(core.classifyActivity(text), { tags, heading, headingDeg: deg }, text);
+    }
+});
+
+test('fire support and launch sites are not firing, anywhere', () => {
+    assert.deepEqual(core.classifyActivity('moving to a fire support position').tags, ['Moving']);
+    assert.deepEqual(core.classifyActivity('launch site, stationary').tags, ['Stationary']);
+    assert.deepEqual(core.classifyActivity('ceasefire holding').tags, ['Stationary']);
+    assert.deepEqual(core.classifyActivity('engaging from firing positions').tags, ['Firing'], 'engaging still is');
+    const d = core.statsData([report({ activity: 'occupying a fire support position' })], [], {});
+    assert.deepEqual(d.tags, [{ label: 'Stationary', value: 1 }]);
+    assert.equal(core.activityMatches('launch site', new Set(['Firing'])), false);
+});
+
 test('the ArcGIS export has one point per grid, and leaves out reports without one', () => {
     const reps = [
         report({ id: 'a', location: '38SMB4500082000 38SMB5500082000, OBJ GOLD', activity: 'moving N', custom: { 'Unit ID': '1-1' } }),

@@ -1235,22 +1235,44 @@ const DIR_WORDS = {
     NORTH: 'N', SOUTH: 'S', EAST: 'E', WEST: 'W',
     NORTHEAST: 'NE', NORTHWEST: 'NW', SOUTHEAST: 'SE', SOUTHWEST: 'SW',
 };
-const MOVE_BEFORE_DIR = /\b(?:mov(?:e|es|ed|ing)|mvg|head(?:s|ed|ing)?|travel{1,2}(?:s|ed|ing)?|driv(?:e|es|ing)|advanc(?:e|es|ed|ing)|withdraw(?:s|n|ing)?|retreat(?:s|ed|ing)?|toward(?:s)?|to the|en ?route|transit(?:s|ing)?|proceed(?:s|ing)?|fly(?:ing)?|bearing|brg|az)\s+(?:[a-z]+\s+){0,2}?(north[- ]?(?:east|west)?|south[- ]?(?:east|west)?|east|west|[NSEW]{1,3}|\d{3})(?:°|\s*deg(?:rees)?)?\b/i;
+// Firing words that aren't contact: fire support, a firing position, a
+// cease-fire, a launch site. They don't make a line Firing.
+const NOT_CONTACT = /\b(fire support|fir(e|ing) positions?|cease[- ]?fire|fire teams?|launch (sites?|points?|positions?))\b/gi;
+// Where a line says it is headed. A bearing counts only with a heading word
+// or a unit ("heading 270", "brg 045", "moving 090°"), so "moving 120 trucks"
+// has none; 000 to 360, 360 being north. A direction after a movement word
+// is a whole compass point or word ("moving NE", "to the southeast"), so
+// "moving to new position" has none.
+const HEADING_BEARING = /\b(?:head(?:s|ed|ing)?|hdg|bearing|brg|az(?:imuth)?)(?:\s+of)?\s*:?\s*(\d{3})(?![\d.])(?:\s*(?:°|deg(?:rees)?\b))?/i;
+const MOVE_WORDS_BEFORE = '(?:mov(?:e|es|ed|ing)|mvg|head(?:s|ed|ing)?|travel{1,2}(?:s|ed|ing)?|driv(?:e|es|ing)|advanc(?:e|es|ed|ing)|withdraw(?:s|n|ing)?|retreat(?:s|ed|ing)?|toward(?:s)?|to the|en ?route|transit(?:s|ing)?|proceed(?:s|ing)?|fly(?:ing)?|bearing|brg|az)\\s+(?:[a-z]+\\s+){0,2}?';
+const MOVE_BEARING = new RegExp(`\\b${MOVE_WORDS_BEFORE}(\\d{3})\\s*(?:°|deg(?:rees)?\\b)`, 'i');
+const MOVE_DIR = new RegExp(`\\b${MOVE_WORDS_BEFORE}(north[- ]?(?:east|west)?|south[- ]?(?:east|west)?|east|west|${COMPASS.join('|')})\\b`, 'i');
+const BOUND = /\b(?:([NSEW])B|(north|south|east|west)bound)\b/i;
+// The heading a match gives: { at, heading, headingDeg }, or null.
+const headingFrom = (m, re) => {
+    if (!m) return null;
+    if (re === BOUND) {
+        const heading = m[1] ? m[1].toUpperCase() : DIR_WORDS[m[2].toUpperCase()];
+        return { at: m.index, heading, headingDeg: COMPASS.indexOf(heading) * 22.5 };
+    }
+    const d = m[1].toUpperCase().replace(/[- ]/g, '');
+    if (/^\d{3}$/.test(d)) {
+        if (+d > 360) return null;
+        const deg = +d % 360;
+        return { at: m.index, heading: COMPASS[Math.round(deg / 22.5) % 16], headingDeg: deg };
+    }
+    const heading = DIR_WORDS[d] || (COMPASS.includes(d) ? d : null);
+    return heading ? { at: m.index, heading, headingDeg: COMPASS.indexOf(heading) * 22.5 } : null;
+};
 const classifyActivity = (text) => {
     const s = String(text || '');
-    const tags = ACTIVITY_TAGS.filter(([, re]) => re.test(s)).map(([t]) => t);
-    let heading = null, headingDeg = null, m;
-    if ((m = MOVE_BEFORE_DIR.exec(s))) {
-        const d = m[1].toUpperCase().replace(/[- ]/g, '');
-        if (/^\d{3}$/.test(d)) {
-            if (+d < 360) { headingDeg = +d; heading = COMPASS[Math.round(headingDeg / 22.5) % 16]; }
-        } else if (DIR_WORDS[d] || COMPASS.includes(d)) {
-            heading = DIR_WORDS[d] || d; headingDeg = COMPASS.indexOf(heading) * 22.5;
-        }
-    } else if ((m = /\b(?:([NSEW])B|(north|south|east|west)bound)\b/i.exec(s))) {
-        heading = m[1] ? m[1].toUpperCase() : DIR_WORDS[m[2].toUpperCase()];
-        headingDeg = COMPASS.indexOf(heading) * 22.5;
-    }
+    const notContact = s.replace(NOT_CONTACT, ' ');
+    const tags = ACTIVITY_TAGS.filter(([t, re]) => re.test(t === 'Firing' ? notContact : s)).map(([t]) => t);
+    // The first heading said after a movement or heading word; failing
+    // that, a "-bound" ("NB", "westbound").
+    const said = [HEADING_BEARING, MOVE_BEARING, MOVE_DIR].map(re => headingFrom(re.exec(s), re)).filter(Boolean)
+        .sort((x, y) => x.at - y.at)[0] || headingFrom(BOUND.exec(s), BOUND);
+    const heading = said ? said.heading : null, headingDeg = said ? said.headingDeg : null;
     if (heading && !tags.includes('Moving')) tags.unshift('Moving');
     return { tags, heading, headingDeg };
 };
@@ -2735,8 +2757,7 @@ const CAPABILITIES = {
 };
 const textOf = (f) => `${f.r.size || ''} ${f.r.activity || ''}`;
 const can = (f, cap) => f.els.some(e => e.kit && CAPABILITIES[cap].names.has(e.kit.name)) || CAPABILITIES[cap].words.test(textOf(f));
-// Firing words that aren't contact: fire support, a firing position, a cease-fire.
-const NOT_CONTACT = /\b(fire support|fir(e|ing) positions?|cease[- ]?fire|fire teams?|launch (sites?|points?|positions?))\b/gi;
+// Firing words that aren't contact are NOT_CONTACT, with the activity tags.
 const FIRING_WORDS = ACTIVITY_TAGS.find(([t]) => t === 'Firing')[1];
 // Words some rules look for in a report.
 const LIGHT_WORDS = /\b(motorcycles?|motorbikes?|dirt ?bikes?|buggies|buggy|atvs?|quads?|quad bikes?|utvs?|scooters?|civilian (cars?|vans?|vehicles?))\b/i;
