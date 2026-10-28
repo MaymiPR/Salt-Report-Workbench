@@ -725,7 +725,7 @@ const confirmCsvImport = async () => {
 
     const dest     = el.csv.destSelect.value || 'IMPORT';
     const existing = reportsByAto[dest] || [];
-    const lastNum  = existing.reduce((m, r) => Math.max(m, reportNum(r)), 0);
+    const firstNum = SaltCore.nextNum(existing, { withDeleted: true });
     const prefix   = dest === 'IMPORT' ? 'IMP' : SaltCore.atoPrefix(dest);
     const destTitle = dest === 'IMPORT' ? 'IMPORT' : ((existing.find(r => r.title) || {}).title || dest);
 
@@ -741,7 +741,7 @@ const confirmCsvImport = async () => {
         // Skip rows where every mapped column is blank — otherwise the imported
         // table fills up with empty entries from trailing CSV newlines.
         if (!activity && !size && !loc && !t && !csvTitle) { skipped++; return; }
-        const did  = `${prefix}${String(lastNum + newReps.length + 1).padStart(3,'0')}`;
+        const did  = SaltCore.displayId(prefix, firstNum + newReps.length);
         const full = csvTitle || (dest === 'IMPORT' ? did : `${destTitle}${did}`);
         // The server only takes ISO 8601; a time it can't read would refuse the
         // whole row, so unreadable ones get the import time and are counted.

@@ -611,12 +611,11 @@ const fetchServiceText = async (url) => {
         return { http: res.status, type: res.headers.get('Content-Type') || '', text: await res.text(), via: 'this browser' };
     } catch (e) { /* refused (no CORS headers) or unreachable from here; the server tries */ }
     if (isLocalFile) throw new Error("The service won't let this page read it, and a page opened as a file has no server to ask.");
-    const res = await postJson('/api/wms_fetch', { url });
-    if (res.status === 401) { handleUnauthorized(); throw new Error('The access code is needed again.'); }
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.message || `The server answered ${res.status}.`);
-    if (body.error) throw new Error(`Neither this browser nor the server could reach it (${body.error}).`);
-    return { ...body, via: 'the server' };
+    const res = await apiPost('/api/wms_fetch', { url });
+    if (res.status === 401) throw new Error('The access code is needed again.');
+    if (!res.ok) throw new Error(res.message);
+    if (res.body.error) throw new Error(`Neither this browser nor the server could reach it (${res.body.error}).`);
+    return { ...res.body, via: 'the server' };
 };
 
 // What a service's error page or exception says, as one short line.
@@ -921,23 +920,15 @@ const basemapsChanged = () => { renderBasemapManager(); renderMapView(); };
 // Shown here at once; refused by the server, the list goes back to what it
 // was (unless a sync has replaced it since). A server that can't be reached
 // leaves the change in this browser. `undo`, for a removal: the toast offers it.
-const saveBasemaps = async (list, said, undo = null) => {
+const saveBasemaps = (list, said, undo = null) => {
     const before = sharedBasemaps;
     sharedBasemaps = list;
     mapBaseFailed = false;
     storeBasemaps();
     basemapsChanged();
-    const tell = () => { if (said) showToast(said, false, undo ? { ms: UNDO_MS, undo } : {}); };
-    if (isLocalFile) { if (undo) tell(); return; }
-    try {
-        const res = await postJson('/api/save_basemaps', { basemaps: list });
-        if (res.status === 401) { handleUnauthorized(); return; }
-        if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            if (sharedBasemaps === list) { sharedBasemaps = before; storeBasemaps(); basemapsChanged(); }
-            showToast(`The server refused the basemaps: ${body.message || res.status}`, true, { ms: 8000 });
-        } else tell();
-    } catch (e) { showToast('Saved in this browser only: the server could not be reached.', true); }
+    return saveShared('/api/save_basemaps', { basemaps: list }, { said, undo, putBack: () => {
+        if (sharedBasemaps === list) { sharedBasemaps = before; storeBasemaps(); basemapsChanged(); }
+    } });
 };
 
 // The picker above the map: none, or one of the services.
@@ -1091,22 +1082,14 @@ const renderDronePop = () => {
 };
 
 // As the basemaps: refused, the list goes back to what it was.
-const saveDrones = async (list, said, undo = null) => {
+const saveDrones = (list, said, undo = null) => {
     const before = sharedDrones;
     sharedDrones = list;
     storeDrones();
     renderMapView();
-    const tell = () => { if (said) showToast(said, false, undo ? { ms: UNDO_MS, undo } : {}); };
-    if (isLocalFile) { tell(); return; }
-    try {
-        const res = await postJson('/api/save_drones', { drones: list });
-        if (res.status === 401) { handleUnauthorized(); return; }
-        if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            if (sharedDrones === list) { sharedDrones = before; storeDrones(); renderMapView(); }
-            showToast(`The server refused the drones: ${body.message || res.status}`, true, { ms: 8000 });
-        } else tell();
-    } catch (e) { showToast('Saved in this browser only: the server could not be reached.', true); }
+    return saveShared('/api/save_drones', { drones: list }, { said, undo, putBack: () => {
+        if (sharedDrones === list) { sharedDrones = before; storeDrones(); renderMapView(); }
+    } });
 };
 
 // Zoom in on a drone (its view turned on, if the drones were hidden).

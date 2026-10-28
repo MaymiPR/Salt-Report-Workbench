@@ -176,7 +176,11 @@ test('duplicateIds names the numbers live reports share; nextNum is past the hig
     assert.equal(core.duplicateIds(null).size, 0);
     // A deleted report's number is free again.
     assert.equal(core.nextNum(reps), 4);
+    assert.equal(core.nextNum(reps, { withDeleted: true }), 10);
     assert.equal(core.nextNum([]), 1);
+    assert.equal(core.displayId('ALPHA', 4), 'ALPHA004');
+    assert.equal(core.displayId('ALPHA', '12'), 'ALPHA012');
+    assert.equal(core.displayId('ALPHA', 1234), 'ALPHA1234');
 });
 
 

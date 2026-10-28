@@ -2572,7 +2572,8 @@ class BrowserTests(unittest.TestCase):
 
     def test_a_refused_save_puts_the_shared_lists_back(self):
         # Regression: the basemaps, drones and narrative settings were changed
-        # here first, and stayed changed when the server refused them.
+        # here first, and stayed changed when the server refused them (the
+        # overlays too, until they shared one way of saving with the rest).
         page = self.open_editor()
         self.import_overlays(page)
         self.open_map(page)
@@ -2582,13 +2583,13 @@ class BrowserTests(unittest.TestCase):
             asked.append(route.request.url)
             route.fulfill(status=400, content_type="application/json", body='{"message": "no"}')
 
-        for api in ("save_basemaps", "save_drones", "save_narrative"):
+        for api in ("save_basemaps", "save_drones", "save_narrative", "save_overlays"):
             page.route(f"**/api/{api}", refuse)
         basemaps = page.evaluate("JSON.stringify(sharedBasemaps)")
         page.evaluate(
             "saveBasemaps([...sharedBasemaps, { name: 'Refused', kind: 'tiles', url: 'https://refused.test/{z}/{x}/{y}.png' }])"
         )
-        page.wait_for_selector("#toast-notification:has-text('The server refused the basemaps')")
+        page.wait_for_selector("#toast-notification:has-text('Not saved: no.')")
         self.assertEqual(page.evaluate("JSON.stringify(sharedBasemaps)"), basemaps)
         self.assertEqual(page.evaluate("localStorage.getItem('salt_basemaps')"), basemaps)
         self.assertNotIn("Refused", page.text_content("#mapBaseSelect"))
@@ -2596,14 +2597,25 @@ class BrowserTests(unittest.TestCase):
         page.fill("#mapDroneName", "GE 9")
         page.fill("#mapDroneGridNew", "38SMB4000078000")
         page.click("#mapDroneAdd")
-        page.wait_for_selector("#toast-notification:has-text('The server refused the drones')")
-        self.assertEqual(page.evaluate("sharedDrones.length"), 0)
+        # Shown at once, then put back (the toast still says the last refusal).
+        page.wait_for_function("sharedDrones.length === 0")
+        self.assertIn("Not saved: no.", page.text_content("#toast-notification"))
         # The map redraws on the next frame.
         page.wait_for_function("() => !document.querySelector('#mapSvg .map-drone')")
         enemy = page.evaluate("sharedNarrative.enemy || ''")
         page.evaluate("saveNarrative({ enemy: 'NOPE' })")
-        page.wait_for_selector("#toast-notification:has-text('The server refused the narrative')")
+        page.wait_for_selector("#toast-notification:has-text('Not saved: no.')")
         self.assertEqual(page.evaluate("sharedNarrative.enemy || ''"), enemy)
+        overlays = page.evaluate("JSON.stringify(sharedOverlays)")
+        self.assertFalse(page.evaluate("saveOverlays([])"))
+        page.wait_for_selector("#toast-notification:has-text('Not saved: no.')")
+        self.assertEqual(page.evaluate("JSON.stringify(sharedOverlays)"), overlays)
+        # Unreachable: put back too, since it isn't kept to send later.
+        page.unroute("**/api/save_drones")
+        page.route("**/api/save_drones", lambda route: route.abort())
+        self.assertFalse(page.evaluate("saveDrones([{ name: 'GE 8', grid: '38S MB 40000 78000', at: 1 }])"))
+        page.wait_for_selector("#toast-notification:has-text(\"the server can't be reached\")")
+        self.assertEqual(page.evaluate("sharedDrones.length"), 0)
         # Past the server's limits: said at once, without asking it.
         asked.clear()
         page.evaluate("""() => {

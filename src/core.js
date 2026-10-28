@@ -209,8 +209,14 @@ const duplicateIds = (reports) => {
     return twice;
 };
 
-// The number after the highest a workspace's live reports use.
-const nextNum = (reports) => (reports || []).filter(r => r && !r.deleted).reduce((m, r) => Math.max(m, reportNum(r)), 0) + 1;
+// The number after the highest a workspace's live reports use (its deleted
+// ones too, with `withDeleted`: copies brought in never take a number a
+// deleted report could come back with).
+const nextNum = (reports, { withDeleted = false } = {}) =>
+    (reports || []).filter(r => r && (withDeleted || !r.deleted)).reduce((m, r) => Math.max(m, reportNum(r)), 0) + 1;
+
+// A report's number as it is shown and stored: the ATO, then three digits at least.
+const displayId = (ato, n) => `${ato}${String(n).padStart(3, '0')}`;
 
 // Display form of a report's identifier: Title <separator> ATO###, where the
 // separator is 'dash' (" - ") or 'space'. Legacy reports without title or
@@ -3813,7 +3819,7 @@ const withUnsaved = (serverReps, unsavedReps) => {
 const SaltCore = {
     pad2, dateFields, clockValue, fileStamp, toTimeString, autoColon, parseFilterTime, typedTime, submittedTime, parseCsvTime,
     escapeHtml, safeColor, safeFilename,
-    atoPrefix, reportNum, duplicateIds, nextNum, formatFullId, reportText, normalizeLocation, mgrsPrefix, applyMgrsPrefix,
+    atoPrefix, reportNum, duplicateIds, nextNum, displayId, formatFullId, reportText, normalizeLocation, mgrsPrefix, applyMgrsPrefix,
     BDA_EFFECTS, bdaElements, bdaSummary, bdaRollup, bdaCount, bdaPending,
     backupFilename, foldOverlays, overlayKey, backupText, allWorkspacesBackupText, parseBackup,
     parseCsv, reportsCsv, mtiCsvs,

@@ -262,7 +262,7 @@ async function renumberReport(id) {
     const r = localReports.find(x => x.id === id && !x.deleted);
     if (!r) return;
     const ato = activeAto, was = formatFullId(r);
-    const did = `${r.ato}${String(SaltCore.nextNum(localReports.filter(x => x.ato === r.ato))).padStart(3, '0')}`;
+    const did = SaltCore.displayId(r.ato, SaltCore.nextNum(localReports.filter(x => x.ato === r.ato)));
     const next = { ...r, displayId: did, fullId: `${r.title || 'Report #'}${did}`, lastModified: nextStamp(r), user: userProfile };
     localReports = localReports.map(x => x === r ? next : x);
     reportsByAto[ato] = localReports;

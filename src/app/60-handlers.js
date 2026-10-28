@@ -100,8 +100,7 @@ async function handleFormSubmit(mode) {
         }
         const orig = reports[idx];
         const tAto = SaltCore.atoPrefix(el.config.ato.value);
-        const tNum = String(el.form.startNum.value).padStart(3,'0');
-        const tDid = `${tAto}${tNum}`;
+        const tDid = SaltCore.displayId(tAto, el.form.startNum.value);
         if (tDid !== orig.displayId) {
             // Renumber/rename branch — applies to both Edit and Update. The
             // identity of the report changed, so prior history doesn't carry
@@ -129,11 +128,9 @@ async function handleFormSubmit(mode) {
         // NEW REPORT path
         const atoPrefix   = SaltCore.atoPrefix(el.config.ato.value);
         const titlePrefix = el.config.title.value.trim() || 'Report #';
-        const relevant    = reports.filter(r => !r.deleted && r.ato === atoPrefix);
-        const lastNum     = relevant.reduce((m,r) => Math.max(m, reportNum(r)), 0);
         const reqNum      = parseInt(el.form.startNum.value, 10);
-        const newNum      = !isNaN(reqNum)&&reqNum>0 ? reqNum : lastNum+1;
-        const newDid      = `${atoPrefix}${String(newNum).padStart(3,'0')}`;
+        const newNum      = !isNaN(reqNum)&&reqNum>0 ? reqNum : SaltCore.nextNum(reports.filter(r => r.ato === atoPrefix));
+        const newDid      = SaltCore.displayId(atoPrefix, newNum);
         if (reports.some(r => !r.deleted && r.displayId === newDid)) { showToast(`${newDid} already exists.`, true); return; }
         finalReport = { ...data, id:generateUUID(), displayId:newDid, ato:atoPrefix, title:titlePrefix, fullId:`${titlePrefix}${newDid}`, history:[], updated:false, lastModified:now, user:userProfile };
         reports.push(finalReport);
@@ -422,14 +419,14 @@ el.log.sendBtn.addEventListener('click', async () => {
     const ids = [...document.querySelectorAll('.row-selector:checked')].map(cb => cb.dataset.id);
     if (!ids.length) return;
     const existing = reportsByAto[target] || [];
-    const lastNum = existing.reduce((m,r) => Math.max(m, reportNum(r)), 0);
+    const firstNum = SaltCore.nextNum(existing, { withDeleted: true });
     const title = (existing.find(r => r.title && !r.deleted) || {}).title || target;
     // The copies for the destination, numbered on from its last report.
     const moving = [];
     ids.forEach(id => {
         const src = (reportsByAto['IMPORT'] || []).find(r => r.id === id && !r.deleted);
         if (!src) return;
-        const did = `${SaltCore.atoPrefix(target)}${String(lastNum + moving.length + 1).padStart(3,'0')}`;
+        const did = SaltCore.displayId(SaltCore.atoPrefix(target), firstNum + moving.length);
         moving.push({ ...src, ato: SaltCore.atoPrefix(target), title, displayId: did, fullId: `${title}${did}`, lastModified: nextStamp(src) });
     });
     if (!moving.length) return;
