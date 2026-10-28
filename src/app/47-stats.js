@@ -167,7 +167,7 @@ const renderStats = () => {
     const context = `${scope} · ${phrase} · ${reps.length} report${reps.length === 1 ? '' : 's'}`;
     s.subtitle.textContent = context;
     s.panel.querySelectorAll('.range-mode').forEach(n => { n.textContent = local ? '(Local)' : '(Zulu)'; });
-    document.querySelectorAll('[data-stats-scope]').forEach(b => b.classList.toggle('active', b.dataset.statsScope === statsScope));
+    document.querySelectorAll('[data-stats-scope]').forEach(b => setOn(b, b.dataset.statsScope === statsScope));
     // Reports per ATO, largest first: only across every workspace.
     const perAto = new Map();
     reps.forEach(r => perAto.set(atoOf.get(r), (perAto.get(atoOf.get(r)) || 0) + 1));
@@ -241,8 +241,7 @@ const renderStats = () => {
 const setStatsTable = (cardEl, on) => {
     const tbl = cardEl.querySelector('.stats-table'), btn = cardEl.querySelector('[data-stats-act="table"]');
     tbl.hidden = !on;
-    btn.setAttribute('aria-pressed', String(on));
-    btn.classList.toggle('active', on);
+    setOn(btn, on);
 };
 
 const openStatsView = () => {

@@ -247,19 +247,15 @@ const mergeOverlays = (list, incoming) => {
     return [...list.filter(o => !keys.has(overlayKey(o))), ...incoming];
 };
 
-const saveOverlays = async (list) => {
+// Resolves true when the server took them; refused, they're put back.
+const saveOverlays = (list, said = '', undo = null) => {
+    const before = sharedOverlays;
+    const shown = () => { storeOverlays(); renderOverlays(); renderLog(); renderLocationHints(); };
     sharedOverlays = list;
-    storeOverlays();
-    renderOverlays();
-    renderLog();
-    renderLocationHints();
-    if (isLocalFile) return true;
-    const res = await apiPost('/api/save_overlays', { overlays: list });
-    if (res.ok || res.status === 401) return res.ok;   // 401: asked for the code again
-    showToast(res.status === 0
-        ? 'Saved in this browser only: the server could not be reached. Import again once it is back.'
-        : `The server refused the overlays: ${res.message}`, true, { ms: 8000 });
-    return false;
+    shown();
+    return saveShared('/api/save_overlays', { overlays: list }, { said, undo, putBack: () => {
+        if (sharedOverlays === list) { sharedOverlays = before; shown(); }
+    } });
 };
 
 const finishOverlayImport = async () => {

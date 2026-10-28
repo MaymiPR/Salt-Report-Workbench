@@ -52,7 +52,7 @@ const renderSummary = () => {
     s.placeRow.hidden = summaryKind !== 'place';
     // The narrative's settings: always there beside it, the full height of the view.
     showNarrSettings(summaryKind === 'narrative');
-    document.querySelectorAll('[data-summary-kind]').forEach(b => b.classList.toggle('active', b.dataset.summaryKind === summaryKind));
+    document.querySelectorAll('[data-summary-kind]').forEach(b => setOn(b, b.dataset.summaryKind === summaryKind));
     const opts = summaryOpts(live);
     summaryText = SaltCore.summaryReport(summaryKind, live, currentOverlays(), opts);
     // On screen the narrative is wrapped to the width it has, so no line breaks
@@ -65,7 +65,7 @@ const renderSummary = () => {
     s.text.textContent = editKey() in summaryEdits ? shownSummary() : onScreen;
     s.text.hidden = summaryEditing;
     s.editor.hidden = !summaryEditing;
-    document.getElementById('summaryEditBtn').textContent = summaryEditing ? 'Done' : 'Edit text';
+    document.getElementById('summaryEditBtn').textContent = summaryEditing ? 'Done' : 'Edit Text';
     document.getElementById('summaryEdited').hidden = !(editKey() in summaryEdits);
     s.subtitle.textContent = `${ato || 'No workspace'} · ${plural(live.length, 'report')} in the workspace`;
     s.panel.querySelectorAll('.range-mode').forEach(n => { n.textContent = timeDisplayMode === 'local' ? '(Local)' : '(Zulu)'; });

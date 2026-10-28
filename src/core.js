@@ -24,7 +24,7 @@ const fileStamp = (d, local) => { const f = dateFields(d, local); return `${f.y}
 
 // What the formatters print for a time that is missing or not a time, as
 // the app shows any empty value.
-const NO_TIME = '—';
+const NO_TIME = '-';
 // A time as a Date, or null when there is none (null, '', 0) or it is invalid.
 const timeOf = (v) => {
     if (v === null || v === undefined || v === '' || v === 0 || v === false) return null;
@@ -209,8 +209,14 @@ const duplicateIds = (reports) => {
     return twice;
 };
 
-// The number after the highest a workspace's live reports use.
-const nextNum = (reports) => (reports || []).filter(r => r && !r.deleted).reduce((m, r) => Math.max(m, reportNum(r)), 0) + 1;
+// The number after the highest a workspace's live reports use (its deleted
+// ones too, with `withDeleted`: copies brought in never take a number a
+// deleted report could come back with).
+const nextNum = (reports, { withDeleted = false } = {}) =>
+    (reports || []).filter(r => r && (withDeleted || !r.deleted)).reduce((m, r) => Math.max(m, reportNum(r)), 0) + 1;
+
+// A report's number as it is shown and stored: the ATO, then three digits at least.
+const displayId = (ato, n) => `${ato}${String(n).padStart(3, '0')}`;
 
 // Display form of a report's identifier: Title <separator> ATO###, where the
 // separator is 'dash' (" - ") or 'space'. Legacy reports without title or
@@ -389,14 +395,14 @@ const backupStamp = (now) => { const f = dateFields(now, false); return `${f.y}-
 // Readable entries for the given live reports, in report-number order.
 const backupReportBlocks = (reps) => [...reps].sort((a,b) => reportNum(a) - reportNum(b)).map(r => {
     let out = `${BACKUP_SUB}\n REPORT ${r.displayId}${r.updated ? '  [UPDATED]' : ''}\n${BACKUP_SUB}\n`;
-    out += ` Size     : ${r.size||'—'}\n Activity : ${r.activity||'—'}\n Location : ${r.location||'—'}\n Time     : ${backupTime(r.time)}\n`;
+    out += ` Size     : ${r.size||'-'}\n Activity : ${r.activity||'-'}\n Location : ${r.location||'-'}\n Time     : ${backupTime(r.time)}\n`;
     if (r.yourAnalysis) out += ` Analysis : ${r.yourAnalysis}\n`;
     Object.entries(r.custom || {}).forEach(([ck, cv]) => { out += ` ${ck} : ${cv}\n`; });
     if (r.user?.initials) out += ` By       : ${r.user.initials}\n`;
     (r.bda || []).forEach((b, bi) => { out += `   BDA ${bi+1}  : ${b.effect || 'Unknown'} - ${b.target || ''}${b.coords ? ' @ ' + b.coords : ''}${b.note ? ' - ' + b.note : ''}\n`; });
     if (r.history?.length) {
         [...r.history].sort((a,b) => a.lastModified - b.lastModified).forEach((h, i) => {
-            out += `\n   ↳ Previous Entry ${i+1}\n      Size     : ${h.size||'—'}\n      Activity : ${h.activity||'—'}\n      Location : ${h.location||'—'}\n      Time     : ${backupTime(h.time)}\n`;
+            out += `\n   ↳ Previous Entry ${i+1}\n      Size     : ${h.size||'-'}\n      Activity : ${h.activity||'-'}\n      Location : ${h.location||'-'}\n      Time     : ${backupTime(h.time)}\n`;
             if (h.yourAnalysis) out += `      Analysis : ${h.yourAnalysis}\n`;
         });
     }
@@ -405,7 +411,7 @@ const backupReportBlocks = (reps) => [...reps].sort((a,b) => reportNum(a) - repo
 
 // The block the server and the importer read back.
 const backupMachineData = (payload) =>
-    `\n${BACKUP_DIV}\n MACHINE DATA — DO NOT EDIT BELOW THIS LINE\n${BACKUP_DIV}\n${BACKUP_START}\n${JSON.stringify(payload)}\n${BACKUP_END}\n`;
+    `\n${BACKUP_DIV}\n MACHINE DATA: DO NOT EDIT BELOW THIS LINE\n${BACKUP_DIV}\n${BACKUP_START}\n${JSON.stringify(payload)}\n${BACKUP_END}\n`;
 
 // The overlay types, as the server's _OVERLAY_TYPES, and how deep each
 // geometry's coordinates nest above the [lon, lat] pairs (its _GEOMETRY_DEPTH).
@@ -455,7 +461,7 @@ const narrativeData = (n) => (n && typeof n === 'object' && !Array.isArray(n) &&
 // shared overlays (and the narrative's settings) go in every file.
 const backupText = (ato, reps, title, profiles, formats, now = new Date(), overlays = [], narrative = null) => {
     const active = reps.filter(r => !r.deleted);
-    return `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH — ATO BACKUP\n ATO Designator : ${ato}\n Report Title   : ${title}\n Total Reports  : ${active.length}\n Exported       : ${backupStamp(now)}\n${BACKUP_DIV}\n\n`
+    return `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH: ATO BACKUP\n ATO Designator : ${ato}\n Report Title   : ${title}\n Total Reports  : ${active.length}\n Exported       : ${backupStamp(now)}\n${BACKUP_DIV}\n\n`
         + backupReportBlocks(active)
         + backupMachineData({ workspaces: { [ato]: reps }, config: { ato, title }, profiles: profiles||{},
             formats: formats[ato] ? { [ato]: formats[ato] } : {}, overlays: foldOverlays(overlays), ...narrativeData(narrative) });
@@ -465,11 +471,11 @@ const backupText = (ato, reps, title, profiles, formats, now = new Date(), overl
 const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats, now = new Date(), overlays = [], narrative = null) => {
     const atoKeys   = Object.keys(workspaces);
     const totalReps = atoKeys.reduce((n, k) => n + (workspaces[k]||[]).filter(r => !r.deleted).length, 0);
-    let out = `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH — FULL BACKUP (ALL ATOs)\n ATOs Included  : ${atoKeys.join(', ')}\n Total Reports  : ${totalReps}\n Exported       : ${backupStamp(now)}\n${BACKUP_DIV}\n\n`;
+    let out = `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH: FULL BACKUP (ALL ATOs)\n ATOs Included  : ${atoKeys.join(', ')}\n Total Reports  : ${totalReps}\n Exported       : ${backupStamp(now)}\n${BACKUP_DIV}\n\n`;
     atoKeys.forEach(ato => {
         const active   = (workspaces[ato]||[]).filter(r => !r.deleted);
         const atoTitle = (active.find(r => r.title)||{}).title || ato;
-        out += `${BACKUP_DIV}\n ATO: ${ato}  —  ${atoTitle}  (${active.length} report${active.length !== 1 ? 's' : ''})\n${BACKUP_DIV}\n\n`;
+        out += `${BACKUP_DIV}\n ATO: ${ato}  -  ${atoTitle}  (${active.length} report${active.length !== 1 ? 's' : ''})\n${BACKUP_DIV}\n\n`;
         out += backupReportBlocks(active);
     });
     return out + backupMachineData({ workspaces, config: { ato: activeAto, title }, profiles: profiles||{}, formats, overlays: foldOverlays(overlays), ...narrativeData(narrative) });
@@ -3813,7 +3819,7 @@ const withUnsaved = (serverReps, unsavedReps) => {
 const SaltCore = {
     pad2, dateFields, clockValue, fileStamp, toTimeString, autoColon, parseFilterTime, typedTime, submittedTime, parseCsvTime,
     escapeHtml, safeColor, safeFilename,
-    atoPrefix, reportNum, duplicateIds, nextNum, formatFullId, reportText, normalizeLocation, mgrsPrefix, applyMgrsPrefix,
+    atoPrefix, reportNum, duplicateIds, nextNum, displayId, formatFullId, reportText, normalizeLocation, mgrsPrefix, applyMgrsPrefix,
     BDA_EFFECTS, bdaElements, bdaSummary, bdaRollup, bdaCount, bdaPending,
     backupFilename, foldOverlays, overlayKey, backupText, allWorkspacesBackupText, parseBackup,
     parseCsv, reportsCsv, mtiCsvs,

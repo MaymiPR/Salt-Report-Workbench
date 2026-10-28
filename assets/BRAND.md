@@ -2,7 +2,7 @@
 
 ## Name and tagline
 
-**S.A.L.T. Report Workbench** — *Field-ready SALT reporting with real-time LAN sync.*
+**S.A.L.T. Report Workbench**: *Field-ready SALT reporting with real-time LAN sync.*
 
 The name stays literal on purpose: SALT (Size, Activity, Location, Time) is the
 doctrinal report format operators already know, and "workbench" says it's a tool
@@ -45,10 +45,10 @@ the app's pure black so the mark doesn't vanish against dark pages.
 
 ## Typography
 
-- **Interface and headings:** the platform system UI stack — SF Pro, Segoe UI,
-  Roboto — so the app looks native and needs no font files offline.
-- **Grids, codes, and report text:** a monospace stack — SF Mono, Consolas,
-  Cascadia Mono — so MGRS coordinates line up and read unambiguously.
+- **Interface and headings:** the platform system UI stack (SF Pro, Segoe UI,
+  Roboto), so the app looks native and needs no font files offline.
+- **Grids, codes, and report text:** a monospace stack (SF Mono, Consolas,
+  Cascadia Mono), so MGRS coordinates line up and read unambiguously.
 
 ## Voice
 

@@ -611,12 +611,11 @@ const fetchServiceText = async (url) => {
         return { http: res.status, type: res.headers.get('Content-Type') || '', text: await res.text(), via: 'this browser' };
     } catch (e) { /* refused (no CORS headers) or unreachable from here; the server tries */ }
     if (isLocalFile) throw new Error("The service won't let this page read it, and a page opened as a file has no server to ask.");
-    const res = await postJson('/api/wms_fetch', { url });
-    if (res.status === 401) { handleUnauthorized(); throw new Error('The access code is needed again.'); }
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.message || `The server answered ${res.status}.`);
-    if (body.error) throw new Error(`Neither this browser nor the server could reach it (${body.error}).`);
-    return { ...body, via: 'the server' };
+    const res = await apiPost('/api/wms_fetch', { url });
+    if (res.status === 401) throw new Error('The access code is needed again.');
+    if (!res.ok) throw new Error(res.message);
+    if (res.body.error) throw new Error(`Neither this browser nor the server could reach it (${res.body.error}).`);
+    return { ...res.body, via: 'the server' };
 };
 
 // What a service's error page or exception says, as one short line.
@@ -827,7 +826,7 @@ const wmsFindHtml = () => {
     if (f.error) return `<div class="map-find-msg map-find-error">${escapeHtml(f.error)}</div>
         <div class="map-form-row">
             <input type="text" id="mapWmsManualLayers" placeholder="Layer names, comma-separated, to try anyway" maxlength="2000" spellcheck="false" value="${escapeHtml(saved ? saved.layers || '' : '')}">
-            <button type="button" id="mapWmsManualAdd" class="${saved ? 'set-btn' : 'cancel-btn'}">${saved ? 'Save' : 'Add anyway'}</button>
+            <button type="button" id="mapWmsManualAdd" class="${saved ? 'set-btn' : 'cancel-btn'}">${saved ? 'Save' : 'Add Anyway'}</button>
         </div>${saved ? baseEditFoot('') : ''}`;
     const n = f.picked.size;
     return `<div class="map-find-head">
@@ -849,8 +848,8 @@ const wmsFindHtml = () => {
             <button type="button" id="mapWmsCancel" class="cancel-btn">Cancel</button>
         </div>`}`;
 };
-const wmsPickLabel = (n, edit) => (edit ? (n ? 'Save' : 'Tick layers to keep')
-    : n > 1 ? `Add ${n} layers as one` : n ? 'Add 1 layer' : 'Tick layers to add');
+const wmsPickLabel = (n, edit) => (edit ? (n ? 'Save' : 'Tick Layers to Keep')
+    : n > 1 ? `Add ${n} Layers as One` : n ? 'Add 1 Layer' : 'Tick Layers to Add');
 
 // Under a saved service: Save and Cancel (Remove is on its row).
 const baseEditFoot = (save) => `<div class="map-form-row map-find-foot">
@@ -921,23 +920,15 @@ const basemapsChanged = () => { renderBasemapManager(); renderMapView(); };
 // Shown here at once; refused by the server, the list goes back to what it
 // was (unless a sync has replaced it since). A server that can't be reached
 // leaves the change in this browser. `undo`, for a removal: the toast offers it.
-const saveBasemaps = async (list, said, undo = null) => {
+const saveBasemaps = (list, said, undo = null) => {
     const before = sharedBasemaps;
     sharedBasemaps = list;
     mapBaseFailed = false;
     storeBasemaps();
     basemapsChanged();
-    const tell = () => { if (said) showToast(said, false, undo ? { ms: UNDO_MS, undo } : {}); };
-    if (isLocalFile) { if (undo) tell(); return; }
-    try {
-        const res = await postJson('/api/save_basemaps', { basemaps: list });
-        if (res.status === 401) { handleUnauthorized(); return; }
-        if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            if (sharedBasemaps === list) { sharedBasemaps = before; storeBasemaps(); basemapsChanged(); }
-            showToast(`The server refused the basemaps: ${body.message || res.status}`, true, { ms: 8000 });
-        } else tell();
-    } catch (e) { showToast('Saved in this browser only: the server could not be reached.', true); }
+    return saveShared('/api/save_basemaps', { basemaps: list }, { said, undo, putBack: () => {
+        if (sharedBasemaps === list) { sharedBasemaps = before; storeBasemaps(); basemapsChanged(); }
+    } });
 };
 
 // The picker above the map: none, or one of the services.
@@ -989,8 +980,8 @@ const renderOverlayMap = (box) => {
                         ${hours.map(([v, t]) => `<button type="button" class="filter-preset-btn" data-map-hours="${v}">${t}</button>`).join('')}
                     </div>
                     <div class="io-modes map-grids" role="group" aria-label="Which reports the heat map and dots show">
-                        <button type="button" class="io-mode" data-map-grids="latest" title="Each report once, at its latest grid">Latest grids</button>
-                        <button type="button" class="io-mode" data-map-grids="all" title="Every saved report, its updates included, at its grids">All reports</button>
+                        <button type="button" class="io-mode" data-map-grids="latest" title="Each report once, at its latest grid">Latest Grids</button>
+                        <button type="button" class="io-mode" data-map-grids="all" title="Every saved report, its updates included, at its grids">All Reports</button>
                     </div>
                     <!-- On its own line under the controls, however many rows they wrap to. -->
                     <span class="map-tools-break" aria-hidden="true"></span>
@@ -1030,11 +1021,11 @@ const renderOverlayMap = (box) => {
             </div>`;
         wireMapBox();
     }
-    box.querySelectorAll('[data-map-layer]').forEach(b => b.setAttribute('aria-pressed', String(mapLayers[b.dataset.mapLayer])));
-    box.querySelectorAll('[data-map-grids]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.mapGrids === 'all') === mapAllGrids)));
+    box.querySelectorAll('[data-map-layer]').forEach(b => setOn(b, mapLayers[b.dataset.mapLayer], 'aria-pressed', null));
+    box.querySelectorAll('[data-map-grids]').forEach(b => setOn(b, (b.dataset.mapGrids === 'all') === mapAllGrids, 'aria-pressed', null));
     // Greyed out, not hidden, when neither layer it changes is on: the tools don't move.
     box.querySelectorAll('[data-map-grids]').forEach(b => { b.disabled = !mapLayers.heat && !mapLayers.reports; });
-    box.querySelectorAll('[data-map-hours]').forEach(b => b.classList.toggle('active', +b.dataset.mapHours === mapHours));
+    box.querySelectorAll('[data-map-hours]').forEach(b => setOn(b, +b.dataset.mapHours === mapHours));
     const pick = document.getElementById('mapBaseSelect');
     pick.innerHTML = basemapOptions();
     pick.hidden = !sharedBasemaps.length;
@@ -1091,22 +1082,14 @@ const renderDronePop = () => {
 };
 
 // As the basemaps: refused, the list goes back to what it was.
-const saveDrones = async (list, said, undo = null) => {
+const saveDrones = (list, said, undo = null) => {
     const before = sharedDrones;
     sharedDrones = list;
     storeDrones();
     renderMapView();
-    const tell = () => { if (said) showToast(said, false, undo ? { ms: UNDO_MS, undo } : {}); };
-    if (isLocalFile) { tell(); return; }
-    try {
-        const res = await postJson('/api/save_drones', { drones: list });
-        if (res.status === 401) { handleUnauthorized(); return; }
-        if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            if (sharedDrones === list) { sharedDrones = before; storeDrones(); renderMapView(); }
-            showToast(`The server refused the drones: ${body.message || res.status}`, true, { ms: 8000 });
-        } else tell();
-    } catch (e) { showToast('Saved in this browser only: the server could not be reached.', true); }
+    return saveShared('/api/save_drones', { drones: list }, { said, undo, putBack: () => {
+        if (sharedDrones === list) { sharedDrones = before; storeDrones(); renderMapView(); }
+    } });
 };
 
 // Zoom in on a drone (its view turned on, if the drones were hidden).
@@ -1356,8 +1339,7 @@ const togglePop = (popId, btnId) => (open) => {
     const pop = document.getElementById(popId), btn = document.getElementById(btnId);
     if (!pop) return;
     pop.hidden = open === undefined ? !pop.hidden : !open;
-    btn.setAttribute('aria-expanded', String(!pop.hidden));
-    btn.classList.toggle('active', !pop.hidden);
+    setOn(btn, !pop.hidden, 'aria-expanded');
 };
 const toggleBasePop = togglePop('mapBasePop', 'mapBaseBtn');
 const toggleDronePop = togglePop('mapDronePop', 'mapDroneBtn');

@@ -25,7 +25,7 @@ The console lists the connected machines whenever one joins, leaves, changes
 initials or changes workspace:
 
 ```text
-[i] Connected (3): AB at this computer in ALPHA; CD at 10.0.0.12 in BRAVO; no name at 10.0.0.20
+[*] Connected (3): AB at this computer in ALPHA; CD at 10.0.0.12 in BRAVO; no name at 10.0.0.20
 ```
 
 "no name" is a viewer, or an editor who hasn't finished the welcome screen.

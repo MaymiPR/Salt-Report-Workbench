@@ -21,7 +21,7 @@ const syncCustomColumns = () => {
         th.dataset.custom = l.label;
         // Header reads the descriptive name; the copy text uses the letter.
         th.textContent = l.name || l.label;
-        th.title = `${l.name || l.label} — copies as ${l.label}:`;
+        th.title = `${l.name || l.label}: copies as ${l.label}:`;
         headRow.appendChild(th);
     });
 };

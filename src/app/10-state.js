@@ -268,7 +268,7 @@ const setShowBtn = (btn, shown) => {
 // Sync the read-only access-code row in the Identity tab.
 const renderIdentityAccessCode = () => {
     const shown = identityCodeShown && !!accessCode;
-    el.profile.accessCode.textContent = !accessCode ? '—' : shown ? accessCode : '•'.repeat(accessCode.length);
+    el.profile.accessCode.textContent = !accessCode ? '-' : shown ? accessCode : '•'.repeat(accessCode.length);
     el.profile.accessCode.classList.toggle('masked', !!accessCode && !shown);
     el.profile.accessCopy.disabled = !accessCode;
     el.profile.accessShow.disabled = !accessCode;
@@ -523,9 +523,10 @@ const noteChange = (v) => { if (typeof v === 'number' && v > seenVersion) seenVe
 const postJson = (path, body) => fetch(path, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 }).then(res => { noteChange(Number(res.headers.get('X-Salt-Change')) || 0); return res; });
-// POST and say how it went: { ok, status, message }, where message is the
-// server's reason when it gives one. Never throws: a server that can't be
-// reached is status 0. A rejected access code (401) re-prompts for it.
+// POST and say how it went: { ok, status, message, body }, where message is
+// the server's reason when it gives one and body its whole answer ({} when it
+// sent none). Never throws: a server that can't be reached is status 0. A
+// rejected access code (401) re-prompts for it.
 const apiPost = async (path, body) => {
     let res;
     try {
@@ -538,11 +539,40 @@ const apiPost = async (path, body) => {
     let message = said || (res.ok ? '' : `The server answered ${res.status}`);
     if (message && !/[.!?]$/.test(message)) message += '.';
     if (res.status === 401) handleUnauthorized();
-    return { ok: res.ok, status: res.status, message };
+    return { ok: res.ok, status: res.status, message, body: json && typeof json === 'object' ? json : {} };
+};
+// Save one of the shared lists (overlays, basemaps, drones, the narrative's
+// settings) that the caller has already put on screen. Taken: `said` is shown,
+// with Undo when `undo` is given. Not taken (refused, or the server can't be
+// reached), `putBack` puts the list back as it was, and the reason is said:
+// these aren't kept to send later, as reports are, so the screen shows what
+// everyone has. `older`: what to say when the server is too old to know the
+// list (it answers 404). Resolves true when the server took it.
+const saveShared = async (path, body, { said = '', undo = null, putBack = () => {}, older = '' } = {}) => {
+    const tell = () => { if (said) showToast(said, false, undo ? { ms: UNDO_MS, undo } : {}); };
+    if (isLocalFile) { tell(); return true; }
+    const res = await apiPost(path, body);
+    if (res.ok) { tell(); return true; }
+    putBack();
+    if (res.status === 401) return false;   // apiPost asked for the code again
+    if (res.status === 404 && older) showToast(older, true, { ms: 10000 });
+    else showToast(res.status === 0 ? "Not saved: the server can't be reached. Try again once it's back." : `Not saved: ${res.message}`, true, { ms: 8000 });
+    return false;
 };
 // The toast for a save: `okText` when the server took it (or there is no
 // server, opened from a file), else why not. Unreachable is not an error: the
 // change is kept here.
+// A control's "on" state, set in one place: what a screen reader is told
+// (`attr`: aria-pressed for a toggle, aria-selected for a tab, aria-expanded
+// for what opens something) and the class it is drawn with (`cls`, or none
+// when the CSS reads the attribute), so the two can't disagree.
+const setOn = (node, on, attr = 'aria-pressed', cls = 'active') => {
+    if (!node) return;
+    node.setAttribute(attr, String(!!on));
+    if (cls) node.classList.toggle(cls, !!on);
+};
+// Said when reports are kept here to send later: the same words everywhere.
+const SENT_LATER = "Saved here; it's sent once the server can be reached.";
 const saveToast = (r, okText) => {
     if (r.ok || isLocalFile) showToast(okText);
     else if (r.status === 0) showToast('Saved here; the server can\'t be reached.');
@@ -567,7 +597,7 @@ const setupMenuToggle = (btn, menu) => btn.addEventListener('click', e => {
 // The view switcher's icons: the open view's is highlighted.
 const setViewIcon = (id, on) => {
     const b = document.getElementById(id);
-    if (b) { b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); }
+    setOn(b, on);
 };
 
 // --- 4. Notifications (toasts + confirmation dialog) ---

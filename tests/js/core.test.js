@@ -34,11 +34,11 @@ test('unparseable times pass through instead of rendering NaN', () => {
 });
 
 test('no time, or an invalid one, prints as a dash in every format', () => {
-    [null, undefined, '', 0, new Date(NaN), NaN].forEach(v => assert.equal(core.toTimeString(v, false), '—', String(v)));
-    [null, undefined, NaN, 'nonsense'].forEach(v => assert.equal(core.dtg(v, false), '—', String(v)));
+    [null, undefined, '', 0, new Date(NaN), NaN].forEach(v => assert.equal(core.toTimeString(v, false), '-', String(v)));
+    [null, undefined, NaN, 'nonsense'].forEach(v => assert.equal(core.dtg(v, false), '-', String(v)));
     assert.equal(core.dtg(Date.parse('2026-10-25T18:00:00Z'), false), '251800Z OCT 26');
     const text = core.backupText('ALPHA', [report({ time: null }), report({ id: 'r2', displayId: 'ALPHA002', time: 'garbage' })], 'Patrol', {}, {}, NOW);
-    assert.equal((text.match(/ Time {5}: —\n/g) || []).length, 2, text);
+    assert.equal((text.match(/ Time {5}: -\n/g) || []).length, 2, text);
     assert.ok(!/NaN/.test(text));
 });
 
@@ -176,7 +176,11 @@ test('duplicateIds names the numbers live reports share; nextNum is past the hig
     assert.equal(core.duplicateIds(null).size, 0);
     // A deleted report's number is free again.
     assert.equal(core.nextNum(reps), 4);
+    assert.equal(core.nextNum(reps, { withDeleted: true }), 10);
     assert.equal(core.nextNum([]), 1);
+    assert.equal(core.displayId('ALPHA', 4), 'ALPHA004');
+    assert.equal(core.displayId('ALPHA', '12'), 'ALPHA012');
+    assert.equal(core.displayId('ALPHA', 1234), 'ALPHA1234');
 });
 
 
@@ -314,7 +318,7 @@ test('an all-workspace backup carries every workspace', () => {
     const ws = { ALPHA: [report()], BRAVO: [report({ id: 'b1', displayId: 'BRAVO001', ato: 'BRAVO', title: 'Screen' })] };
     const text = core.allWorkspacesBackupText(ws, 'ALPHA', 'Patrol', {}, { ALPHA: SALT }, NOW);
     assert.ok(text.includes(' ATOs Included  : ALPHA, BRAVO\n'));
-    assert.ok(text.includes(' ATO: BRAVO  —  Screen  (1 report)\n'));
+    assert.ok(text.includes(' ATO: BRAVO  -  Screen  (1 report)\n'));
     assert.deepEqual(Object.keys(core.parseBackup(text).data.workspaces), ['ALPHA', 'BRAVO']);
 });
 

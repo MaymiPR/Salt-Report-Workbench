@@ -45,7 +45,7 @@ const renderExportPreview = () => {
     const allLive = localReports.filter(r => !r.deleted);
     const total   = allLive.length;
     const modeLb  = timeDisplayMode === 'local' ? '(Local)' : '(Zulu)';
-    el.exp.subtitle.textContent = `ATO: ${activeAto||'—'} · ${total} report${total !== 1 ? 's' : ''}`;
+    el.exp.subtitle.textContent = `ATO: ${activeAto||'-'} · ${total} report${total !== 1 ? 's' : ''}`;
     el.exp.fromMode.textContent = modeLb;
     el.exp.toMode.textContent   = modeLb;
     const hasFilter = !!(el.exp.fromDate.value || el.exp.toDate.value || el.exp.fromTime.value || el.exp.toTime.value);
@@ -96,9 +96,9 @@ const renderWorkspacesList = () => {
             // SHOWING dot lands at the same horizontal coordinate on every
             // row — no shifting when a row has only S vs. both A+S.
             const activeTag  = isActive
-                ? `<span class="workspace-active-tag" title="Active — the workspace the editor is logging into">A</span>`
+                ? `<span class="workspace-active-tag" title="Active: the workspace you are logging into">A</span>`
                 : `<span class="workspace-active-tag placeholder" aria-hidden="true">A</span>`;
-            const showingTag = isShowing ? `<span class="workspace-showing-tag" title="Showing — the workspace you are currently viewing">S</span>` : '';
+            const showingTag = isShowing ? `<span class="workspace-showing-tag" title="Showing: the workspace you are viewing">S</span>` : '';
             // The blue row highlight follows where the user's attention is —
             // the editor's chosen workspace for editors, the viewer's clicked
             // row for viewers.
@@ -241,11 +241,7 @@ const switchWorkspacesTab = (tabName) => {
     if (!VALID_TABS.includes(tabName)) tabName = 'export';
     hideIdentityAccessCode();
     if (isReadOnly) tabName = 'export';
-    el.workspaces.tabs.forEach(btn => {
-        const isActive = btn.dataset.tab === tabName;
-        btn.classList.toggle('active', isActive);
-        btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
-    });
+    el.workspaces.tabs.forEach(btn => setOn(btn, btn.dataset.tab === tabName, 'aria-selected'));
     el.workspaces.tabPanels.forEach(panel => {
         panel.style.display = (panel.dataset.tabPanel === tabName) ? '' : 'none';
     });
@@ -607,7 +603,7 @@ function processJsonImport(rawText) {
             if (unsent) {
                 // Don't sync: it would drop the workspaces the server never got.
                 // They're kept here and sent before the next pull.
-                showToast(`${unsent} workspace(s) couldn't reach the server. They're kept here and sent when it's back.`, true);
+                showToast(`${unsent} workspace(s) saved here; they're sent once the server can be reached.`, true);
                 return;
             }
             if (refusals.length) showToast(`Imported, but not all of it was saved: ${refusals[0]}`, true);
@@ -725,7 +721,7 @@ const confirmCsvImport = async () => {
 
     const dest     = el.csv.destSelect.value || 'IMPORT';
     const existing = reportsByAto[dest] || [];
-    const lastNum  = existing.reduce((m, r) => Math.max(m, reportNum(r)), 0);
+    const firstNum = SaltCore.nextNum(existing, { withDeleted: true });
     const prefix   = dest === 'IMPORT' ? 'IMP' : SaltCore.atoPrefix(dest);
     const destTitle = dest === 'IMPORT' ? 'IMPORT' : ((existing.find(r => r.title) || {}).title || dest);
 
@@ -741,7 +737,7 @@ const confirmCsvImport = async () => {
         // Skip rows where every mapped column is blank — otherwise the imported
         // table fills up with empty entries from trailing CSV newlines.
         if (!activity && !size && !loc && !t && !csvTitle) { skipped++; return; }
-        const did  = `${prefix}${String(lastNum + newReps.length + 1).padStart(3,'0')}`;
+        const did  = SaltCore.displayId(prefix, firstNum + newReps.length);
         const full = csvTitle || (dest === 'IMPORT' ? did : `${destTitle}${did}`);
         // The server only takes ISO 8601; a time it can't read would refuse the
         // whole row, so unreadable ones get the import time and are counted.

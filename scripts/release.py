@@ -231,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
     sums = "".join(
         f"{hashlib.sha256(f.read_bytes()).hexdigest()}  {f.name}\n" for f in (zip_path, txt_path)
     )
-    # The conventional name (as in ChanSampler); .txt so Windows opens it in Notepad.
+    # The conventional name; .txt so Windows opens it in Notepad.
     sums_path = out / "SHA256SUMS.txt"
     sums_path.write_text(sums, encoding="utf-8", newline="\n")
     if args.notes:

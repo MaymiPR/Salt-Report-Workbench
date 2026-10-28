@@ -29,26 +29,19 @@ const CHEVRON = '<svg class="narr-chevron" viewBox="0 0 8 14" width="7" height="
 // they were (unless a sync has replaced them since). A server that can't be
 // reached, or is too old to share them, leaves the change in this browser.
 // `undo`, for a removal: the toast offers it.
-const saveNarrative = async (changes, said, undo = null) => {
+const saveNarrative = (changes, said, undo = null) => {
     const before = sharedNarrative;
     const mine = sharedNarrative = { enemy: '', units: [], equipment: [], off: [], custom: [], ...sharedNarrative, ...changes };
     storeNarrative();
     narrOpen = null;
     narrBuilt = null;
     renderSummary();
-    const tell = () => { if (said) showToast(said, false, undo ? { ms: UNDO_MS, undo } : {}); };
-    if (isLocalFile) { tell(); return; }
-    try {
-        const res = await postJson('/api/save_narrative', { narrative: mine });
-        if (res.status === 401) { handleUnauthorized(); return; }
+    return saveShared('/api/save_narrative', { narrative: mine }, { said, undo,
         // A server from before these settings: says so, rather than "Not Found".
-        if (res.status === 404) showToast("This server is an older version and can't share these settings: restart it with this version. Kept in this browser for now.", true, { ms: 10000 });
-        else if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
+        older: "This server is an older version and can't share these settings: restart it with this version.",
+        putBack: () => {
             if (sharedNarrative === mine) { sharedNarrative = before; storeNarrative(); narrBuilt = null; renderSummary(); }
-            showToast(`The server refused the narrative settings: ${body.message || res.status}`, true, { ms: 8000 });
-        } else tell();
-    } catch (e) { showToast('Saved in this browser only: the server could not be reached.', true); }
+        } });
 };
 
 // The NAIs and OBJs a unit can be placed in: every overlay, and whatever reports name.

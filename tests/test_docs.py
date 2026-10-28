@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 """Checks on the docs that are easy to get wrong by hand: the changelog's
-shape, and the version number everywhere it is written down."""
+shape, the version number everywhere it is written down, and no em dashes in
+anything a user reads."""
 
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -73,6 +75,53 @@ class DocsTests(unittest.TestCase):
         wanted = {**dict.fromkeys(found, version)}
         wanted["the manual's footer (major.minor)"] = ".".join(version.split(".")[:2])
         self.assertEqual(found, wanted, f"pyproject.toml says {version}")
+
+
+EM_DASH = re.compile("\u2014|&mdash;")
+
+
+def page_text_lines():
+    """(where, line) for the page's text a user can read: the HTML outside
+    comments, scripts and styles, and the string literals in its scripts
+    (code before any // comment that quotes an em dash)."""
+    html = read("src/index.html")
+    shown = re.sub(r"<!--.*?-->|<script.*?</script>|<style.*?</style>", "", html, flags=re.S)
+    for n, line in enumerate(shown.splitlines(), 1):
+        yield f"src/index.html (text line {n})", line
+    for path in sorted((ROOT / "src").rglob("*.js")):
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            code = line.split("//", 1)[0]
+            if re.search(r"""['"`][^'"`]*\u2014""", code):
+                yield f"{path.relative_to(ROOT).as_posix()}:{n}", code
+
+
+class NoEmDashTests(unittest.TestCase):
+    # The owner's rule (2026-10-28): no em dashes in user-visible text; code
+    # comments may keep theirs. The server's own text is checked in test_server.
+    DOCS = ("README.md", "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "assets/BRAND.md")
+
+    def test_none_in_the_docs(self):
+        docs = [*self.DOCS, *(p.relative_to(ROOT).as_posix() for p in (ROOT / "docs").glob("*.md"))]
+        for name in docs:
+            with self.subTest(name):
+                hits = [
+                    n for n, line in enumerate(read(name).splitlines(), 1) if EM_DASH.search(line)
+                ]
+                self.assertEqual(hits, [], f"em dashes on lines {hits}")
+
+    def test_none_in_the_page(self):
+        hits = [
+            f"{where}: {line.strip()[:80]}"
+            for where, line in page_text_lines()
+            if EM_DASH.search(line)
+        ]
+        self.assertEqual(hits, [])
+
+    def test_none_in_the_readme_txt(self):
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import release  # scripts/release.py: the README.txt in every download
+
+        self.assertIsNone(EM_DASH.search(release.QUICKSTART))
 
 
 if __name__ == "__main__":

@@ -262,7 +262,7 @@ async function renumberReport(id) {
     const r = localReports.find(x => x.id === id && !x.deleted);
     if (!r) return;
     const ato = activeAto, was = formatFullId(r);
-    const did = `${r.ato}${String(SaltCore.nextNum(localReports.filter(x => x.ato === r.ato))).padStart(3, '0')}`;
+    const did = SaltCore.displayId(r.ato, SaltCore.nextNum(localReports.filter(x => x.ato === r.ato)));
     const next = { ...r, displayId: did, fullId: `${r.title || 'Report #'}${did}`, lastModified: nextStamp(r), user: userProfile };
     localReports = localReports.map(x => x === r ? next : x);
     reportsByAto[ato] = localReports;
@@ -294,7 +294,7 @@ const pushUndone = async (ato, list) => {
     markPending(ato, queued);
     return !queued;
 };
-const undoneToast = (text, saved) => showToast(saved || isLocalFile ? text : `${text} Saved here; the server can't be reached.`);
+const undoneToast = (text, saved) => showToast(saved || isLocalFile ? text : `${text} ${SENT_LATER}`);
 
 // `undone` is what a Delete removed: soft-deleted ids, and history entries by report id.
 async function undoDeletion(ato, undone) {
@@ -384,8 +384,5 @@ const setProfileFromLocalStorage = () => {
 };
 
 // Mark the swatch of `color` as picked (for screen readers too) in `scope`.
-const markSwatch = (scope, color) => scope.querySelectorAll('.color-swatch').forEach(s => {
-    s.classList.toggle('selected', s.dataset.color === color);
-    s.setAttribute('aria-pressed', String(s.dataset.color === color));
-});
+const markSwatch = (scope, color) => scope.querySelectorAll('.color-swatch').forEach(s => setOn(s, s.dataset.color === color, 'aria-pressed', 'selected'));
 const selectSwatch = (color) => markSwatch(document, color);
