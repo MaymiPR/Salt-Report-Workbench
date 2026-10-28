@@ -8,8 +8,6 @@ All notable changes to this project are documented here. The format follows
 
 ## [2.18.0] - 2026-10-28
 
-Fixes from a full review of the project.
-
 ### Added
 
 - **Troubleshooting** in INSTALL.md and README.txt: the Windows Firewall
