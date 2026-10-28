@@ -222,7 +222,7 @@ const locationTags = (text, id) => {
 // on its own (N, SW...) matches the Activity's word; anything else, the
 // report's text, time, custom fields and BDA. The table and the map both use it.
 const matchesSearch = (r, filterText) => {
-    const q = String(filterText || '').trim();
+    const q = String(filterText || '').trim().toLowerCase();
     if (!q) return true;
     if (/^(n|ne|nw|s|se|sw|e|w)$/i.test(q)) return new RegExp(`\\b${q}\\b`, 'i').test(r.activity);
     const ts  = (timeDisplayMode === 'local' ? toLocalTimeString : toZuluTimeString)(r.time);
@@ -230,7 +230,7 @@ const matchesSearch = (r, filterText) => {
     // so "destroyed" or a weather note finds its report.
     const cus = Object.values(r.custom || {}).join(' ');
     const bda = (r.bda || []).map(b => `${b.effect||''} ${b.target||''} ${b.coords||''} ${b.note||''}`).join(' ');
-    return `${r.fullId} ${r.displayId} ${r.size} ${r.activity} ${r.location} ${r.yourAnalysis||''} ${r.user?.initials||''} ${ts} ${cus} ${bda}`.toLowerCase().includes(filterText);
+    return `${r.fullId} ${r.displayId} ${r.size} ${r.activity} ${r.location} ${r.yourAnalysis||''} ${r.user?.initials||''} ${ts} ${cus} ${bda}`.toLowerCase().includes(q);
 };
 
 // Forget checked rows and expanded cells whose report (or history entry) is

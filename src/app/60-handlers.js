@@ -461,6 +461,7 @@ el.log.search.addEventListener('keydown', e => {
         if (el.log.search.value !== '') {
             el.log.search.value = '';
             renderLog('');
+            renderMapView();   // the search narrows the map too
         }
         el.log.search.blur();
     }
@@ -1038,6 +1039,8 @@ el.manual.modal.addEventListener('click', e => { if (e.target === el.manual.moda
 document.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); el.log.search.focus(); el.log.search.select(); return; }
     if (e.key==='Escape' && pendingChoice) { e.preventDefault(); pendingChoice(null); return; }
+    if (e.key==='Escape' && el.toast.confirm.classList.contains('show')) { e.preventDefault(); hideConfirmation(); return; }
+    if (e.key==='Escape' && el.menu.panel.style.display === 'block') { e.preventDefault(); el.menu.panel.style.display = 'none'; el.menu.btn.focus(); return; }
     if (e.key==='Escape' && el.manual.modal.classList.contains('show')) { e.preventDefault(); closeManual(); return; }
     if (e.key==='Escape' && el.form.cancelBtn.style.visibility==='visible') { e.preventDefault(); resetForm(); showToast('Editing cancelled.'); return; }
     // Escape clears any selected table rows (before the form-clear fallback).
