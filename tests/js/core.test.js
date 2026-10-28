@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Tests for src/core.js, the page's pure logic. Node's built-in runner, no
+// Tests for src/core/, the page's pure logic. Node's built-in runner, no
 // packages:  node --test tests/js/
 
 'use strict';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const core = require('../../src/core.js');
+const core = require('./load-core.js');
 
 const SALT = { lines: [{ type: 'id' }, { type: 'size' }, { type: 'activity' }, { type: 'location' }, { type: 'time' }] };
 const SALT_U = { lines: [{ type: 'size' }, { type: 'activity' }, { type: 'location' }, { type: 'time' }, { type: 'id' }] };

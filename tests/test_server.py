@@ -32,7 +32,9 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "server"))
+sys.path.insert(0, str(ROOT / "scripts"))
 
+import build  # noqa: E402
 import salt_sync_server as srv  # noqa: E402
 
 NAI1 = {
@@ -409,14 +411,14 @@ class ValidatorTests(unittest.TestCase):
     def test_the_server_knows_every_kind_of_equipment_the_page_has(self):
         import re
 
-        core = (ROOT / "src" / "core.js").read_text(encoding="utf-8")
+        core = build.core_source()
         block = core[core.index("const EQUIPMENT_ROLES = [") : core.index("const eqp = ")]
         self.assertEqual(set(re.findall(r"\['([a-z0-9]+)', '", block)), set(srv._EQUIPMENT_ROLES))
 
     def test_the_server_knows_every_rule_the_page_has(self):
         import re
 
-        core = (ROOT / "src" / "core.js").read_text(encoding="utf-8")
+        core = build.core_source()
         block = core[core.index("const NARRATIVE_RULES = [") : core.index("const RULE_ORDER")]
         ids = set(re.findall(r"^\s*\['([a-z0-9]+)', '", block, re.M))
         self.assertEqual(len(ids), 55)

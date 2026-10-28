@@ -65,6 +65,83 @@ class BundleTests(unittest.TestCase):
             build.bundle(PAGE.replace("app.js", "b.js"), "", {"app.js": ""})
 
 
+class CoreTests(unittest.TestCase):
+    """The page's core is the parts in src/core/, joined in name order."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="salt-core-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_parts_join_in_name_order_with_newlines(self):
+        (self.tmp / "20-b.js").write_bytes(b"const b = a;\n")
+        (self.tmp / "10-a.js").write_bytes(b"const a = 1;\n")
+        (self.tmp / "notes.txt").write_bytes(b"not a part\n")
+        (self.tmp / "30-dir.js").mkdir()
+        self.assertEqual(build.core_source(self.tmp), "const a = 1;\n\nconst b = a;\n")
+
+    def test_no_parts_is_an_error(self):
+        with self.assertRaisesRegex(ValueError, "no parts"):
+            build.core_source(self.tmp)
+        with self.assertRaisesRegex(ValueError, "no parts"):
+            build.core_source(self.tmp / "gone")
+
+    def test_the_core_is_its_parts_concatenated(self):
+        parts = sorted(build.CORE_DIR.glob("*.js"), key=lambda p: p.name)
+        self.assertGreater(len(parts), 1)
+        texts = [p.read_bytes().decode("utf-8") for p in parts]
+        self.assertEqual(build.core_source(), "\n".join(texts))
+        # One function split in pieces: the first part opens it, the last
+        # closes it, and every part says so under its licence line.
+        self.assertIn("(function (root) {", texts[0])
+        self.assertTrue(
+            texts[-1].endswith("})(typeof globalThis !== 'undefined' ? globalThis : this);\n")
+        )
+        for part, text in zip(parts, texts, strict=True):
+            lines = text.split("\n")
+            self.assertEqual(lines[0], "// SPDX-License-Identifier: AGPL-3.0-only", part.name)
+            self.assertIn("in name order inside one function", lines[1], part.name)
+            self.assertRegex(part.name, r"^\d\d-[a-z]+\.js$")
+
+    def test_node_joins_the_parts_the_same_way(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        result = subprocess.run(
+            [node, str(ROOT / "tests" / "js" / "load-core.js")],
+            capture_output=True,
+            timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", "replace"))
+        self.assertEqual(result.stdout.decode("utf-8"), build.core_source())
+
+    def test_the_page_gets_the_joined_core(self):
+        with mock.patch.object(build, "DIST", self.tmp / "dist"), mock.patch("builtins.print"):
+            self.assertEqual(build.main(), 0)
+        html = (self.tmp / "dist" / "index.html").read_text(encoding="utf-8")
+        self.assertIn(f"    <script>\n{build._indent(build.core_source())}\n    </script>", html)
+
+    def test_a_stale_core_js_fails_the_build(self):
+        stale = self.tmp / "core.js"
+        stale.write_text("// old\n", encoding="utf-8")
+        with (
+            mock.patch.object(build, "STALE_CORE", stale),
+            mock.patch.object(build, "DIST", self.tmp / "dist"),
+            mock.patch("builtins.print") as out,
+        ):
+            self.assertEqual(build.main(), 1)
+        self.assertIn("stale", " ".join(str(c) for c in out.call_args_list))
+        self.assertFalse((self.tmp / "dist").exists())
+
+    def test_a_missing_core_fails_the_build(self):
+        with (
+            mock.patch.object(build, "CORE_DIR", self.tmp / "empty"),
+            mock.patch.object(build, "DIST", self.tmp / "dist"),
+            mock.patch("builtins.print"),
+        ):
+            self.assertEqual(build.main(), 1)
+        self.assertFalse((self.tmp / "dist").exists())
+
+
 class MainTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="salt-build-"))

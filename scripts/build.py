@@ -5,13 +5,14 @@ r"""Build a self-contained, ready-to-run distribution of the workbench.
 Reads the frontend sources in ``src/`` and inlines the stylesheet and scripts
 into a single ``index.html``, then copies the sync server next to it::
 
-    src/index.html  styles.css  core.js  app/*.js  server/salt_sync_server.py
-                \         |        |       /                  |
-                  inline CSS + JS into one HTML               copy
-                               \                              /
+    src/index.html  styles.css  core/*.js  app/*.js  server/salt_sync_server.py
+                \         |        |        /                  |
+                  inline CSS + JS into one HTML                copy
+                               \                               /
                                 dist/index.html   dist/salt_sync_server.py
 
-The Windows launcher, ``server/Start SALT Workbench.bat``, is copied too. The
+The page's ``<script src="core.js">`` has no file of that name: its code is
+the parts in ``src/core/``, joined by ``core_source``. The Windows launcher, ``server/Start SALT Workbench.bat``, is copied too. The
 resulting ``dist/`` folder is the deliverable: hand it to an operator and
 ``python salt_sync_server.py`` (or a double-click on the launcher) runs it with
 no install and no network access. Opening ``dist/index.html`` directly also
@@ -40,6 +41,13 @@ DIST = ROOT / "dist"
 SRC_HTML = SRC / "index.html"
 SRC_CSS = SRC / "styles.css"
 
+# The page's pure logic (SaltCore) is split into parts in src/core/; the
+# page's <script src="core.js"> gets them joined. A src/core.js beside them
+# would be a stale copy, so the build refuses to run while one exists.
+CORE_SCRIPT = "core.js"
+CORE_DIR = SRC / "core"
+STALE_CORE = SRC / "core.js"
+
 # <link rel="stylesheet" ...>  and  <script src="..."></script>
 _LINK_RE = re.compile(r'[ \t]*<link[^>]+rel=["\']stylesheet["\'][^>]*/?>', re.IGNORECASE)
 _SCRIPT_RE = re.compile(
@@ -58,6 +66,32 @@ def _show(path: Path) -> str:
         return str(path.relative_to(ROOT))
     except ValueError:
         return str(path)
+
+
+def core_parts(core_dir: Path | None = None) -> list[Path]:
+    """The core's parts: every ``*.js`` file in ``core_dir``, in name order."""
+    core_dir = Path(core_dir) if core_dir is not None else CORE_DIR
+    if not core_dir.is_dir():
+        return []
+    return sorted(
+        (p for p in core_dir.iterdir() if p.name.endswith(".js") and p.is_file()),
+        key=lambda p: p.name,
+    )
+
+
+def core_source(core_dir: Path | None = None) -> str:
+    """The page's core: its parts' text, in name order, joined with newlines.
+
+    Parts end in a newline (``.editorconfig``), so the joining newline leaves
+    one blank line between them. The parts are one function's body split in pieces (the
+    first opens the function, the last closes it), so they share one scope.
+    tests/js/load-core.js joins them by the same rule for the Node tests;
+    change one and change the other. Raises ``ValueError`` if there are none.
+    """
+    parts = core_parts(core_dir)
+    if not parts:
+        raise ValueError(f"no parts in {_show(Path(core_dir) if core_dir else CORE_DIR)}")
+    return "\n".join(p.read_bytes().decode("utf-8") for p in parts)
 
 
 def script_sources(html: str) -> list[str]:
@@ -97,21 +131,29 @@ def main(dist: Path | None = None) -> int:
     print("\n S.A.L.T. Report Workbench -- build")
     print(" " + "-" * 40)
 
+    if STALE_CORE.exists():
+        print(
+            f"[!] {_show(STALE_CORE)} is a stale copy: the core is the parts in {_show(CORE_DIR)}"
+        )
+        return 1
+
     missing = [p for p in (SRC_HTML, SRC_CSS, SERVER, LAUNCHER) if not p.is_file()]
     page = SRC_HTML.read_text(encoding="utf-8") if SRC_HTML.is_file() else ""
-    script_files = {name: SRC_HTML.parent / name for name in script_sources(page)}
+    names = script_sources(page)
+    script_files = {name: SRC_HTML.parent / name for name in names if name != CORE_SCRIPT}
     missing += [p for p in script_files.values() if not p.is_file()]
+    if CORE_SCRIPT in names and not core_parts():
+        missing.append(CORE_DIR / "*.js")
     if missing:
         for p in missing:
             print(f"[!] missing: {_show(p)}")
         return 1
 
+    scripts = {name: path.read_text(encoding="utf-8") for name, path in script_files.items()}
     try:
-        html = bundle(
-            page,
-            SRC_CSS.read_text(encoding="utf-8"),
-            {name: path.read_text(encoding="utf-8") for name, path in script_files.items()},
-        )
+        if CORE_SCRIPT in names:
+            scripts[CORE_SCRIPT] = core_source()
+        html = bundle(page, SRC_CSS.read_text(encoding="utf-8"), scripts)
     except ValueError as exc:
         print(f"[!] {exc}")
         return 1

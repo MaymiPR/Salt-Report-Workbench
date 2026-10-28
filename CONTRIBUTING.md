@@ -83,12 +83,19 @@ Common types: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `style`,
   not restate what the code does.
 - **JavaScript and CSS:** match the surrounding code. Four-space indentation,
   `const` by default, and no frameworks. `.editorconfig` covers whitespace.
-  The page's code is `src/core.js` (pure logic) plus the ordered scripts in
-  `src/app/`, which are plain top-level scripts sharing one global scope:
-  a name declared in `10-state.js` is visible in every later file, and the
-  build inlines them in the order `index.html` lists them. Put a new piece of
-  logic in `core.js` when it needs no DOM, and in the `app/` file whose name
-  matches what it does.
+  The page's code is the core in `src/core/` (pure logic) plus the ordered
+  scripts in `src/app/`, which are plain top-level scripts sharing one global
+  scope: a name declared in `10-state.js` is visible in every later file, and
+  the build inlines them in the order `index.html` lists them. The core's
+  parts are one function in pieces (`00-head.js` opens it, `90-exports.js`
+  lists what `SaltCore` exports and closes it): the build joins them in name
+  order, with a newline between parts, where `index.html` has
+  `<script src="core.js">`, and `tests/js/load-core.js` joins them the same
+  way for the Node tests. A name declared in one part is visible in every
+  other, and there is no `src/core.js` (the build stops if one appears). Put
+  a new piece of logic in the core part whose name matches it when it needs no
+  DOM (and add it to `SaltCore` if the page or tests use it), and in the
+  `app/` file whose name matches what it does otherwise.
 
 ## Tests
 
@@ -96,7 +103,7 @@ Common types: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `style`,
 launcher, docs and browser tests. They use the standard library's `unittest`,
 so all but the browser tests run anywhere Python does. The build, release and
 browser tests build into temporary folders, so they leave your `dist/` alone.
-The page's pure logic lives in `src/core.js` (no DOM, storage, or network)
+The page's pure logic lives in `src/core/` (no DOM, storage, or network)
 and is tested with Node's built-in runner in `tests/js/`; put new logic there
 when it can be, and test it. The DOM layer
 in `src/app/` is covered by `tests/test_browser.py`, which drives the built
