@@ -316,8 +316,8 @@ def machines_line() -> str:
             ato = client_workspace.get(ip)
             parts.append(f'{ini} at {where}' + (f' in {ato}' if ato else ''))
     if not parts:
-        return '[i] Nobody is connected.'
-    return f'[i] Connected ({len(parts)}): ' + '; '.join(parts)
+        return '[*] Nobody is connected.'
+    return f'[*] Connected ({len(parts)}): ' + '; '.join(parts)
 
 
 def _say_machines() -> None:
@@ -746,7 +746,7 @@ def _is_int(v) -> bool:
 def _check_ato(data: dict) -> str | None:
     """Every request addressed to one workspace names it the same way."""
     ato = data.get('ato')
-    if not _is_str(ato, MAX_ATO_LEN) or not ato:
+    if not _is_str(ato, MAX_ATO_LEN) or not ato.strip():
         return f'ato must be a non-empty string ≤{MAX_ATO_LEN} chars'
     return None
 
@@ -897,6 +897,8 @@ def _v_edit_report(data: dict) -> str | None:
     fields = data.get('fields')
     if not isinstance(fields, dict):
         return 'fields must be an object'
+    if not fields:
+        return 'fields must name at least one field'
     # Edit fields share the report shape (it's the same data model).
     if err := _validate_report_identity(fields, 'fields'):
         return err
@@ -907,8 +909,8 @@ def _v_delete_history(data: dict) -> str | None:
     if err := _check_ato(data):
         return err
     deletions = data.get('deletions')
-    if not isinstance(deletions, list):
-        return 'deletions must be a list'
+    if not isinstance(deletions, list) or not deletions:
+        return 'deletions must be a non-empty list'
     if len(deletions) > MAX_DELETIONS_BATCH:
         return f'deletions list has too many entries (max {MAX_DELETIONS_BATCH})'
     for i, d in enumerate(deletions):
@@ -938,7 +940,7 @@ def _v_save_profile(data: dict) -> str | None:
     p = data.get('profile')
     if not isinstance(p, dict):
         return 'profile must be an object'
-    if not _is_str(p.get('initials'), MAX_INITIALS_LEN) or not p.get('initials'):
+    if not _is_str(p.get('initials'), MAX_INITIALS_LEN) or not p['initials'].strip():
         return f'profile.initials must be a non-empty string ≤{MAX_INITIALS_LEN} chars'
     if 'color' in p:
         return _check_color(p['color'], 'profile.color')
@@ -1726,7 +1728,7 @@ def render_backup(
 
     def fmt_time(iso) -> str:
         if not iso:
-            return '—'
+            return '-'
         try:
             # Strip fractional seconds; ISO stored with literal Z suffix.
             dt = datetime.strptime(iso.split('.')[0], '%Y-%m-%dT%H:%M:%S')
@@ -1736,7 +1738,7 @@ def render_backup(
 
     lines = [
         div,
-        ' S.A.L.T. REPORT WORKBENCH — AUTO BACKUP (SESSION)',
+        ' S.A.L.T. REPORT WORKBENCH: AUTO BACKUP (SESSION)',
         f' ATO Designator : {ato}',
         f' Report Title   : {title}',
         f' Total Reports  : {sum(len(_dicts(v)) for v in workspaces.values())}',
@@ -1755,9 +1757,9 @@ def render_backup(
                 f' REPORT {report.get("displayId", "")}{flag}',
                 sub,
                 f' ATO      : {ws_ato}',
-                f' Size     : {report.get("size", "—")}',
-                f' Activity : {report.get("activity", "—")}',
-                f' Location : {report.get("location", "—")}',
+                f' Size     : {report.get("size", "-")}',
+                f' Activity : {report.get("activity", "-")}',
+                f' Location : {report.get("location", "-")}',
                 f' Time     : {fmt_time(report.get("time"))}',
             ]
             if report.get('yourAnalysis'):
@@ -1783,9 +1785,9 @@ def render_backup(
                 lines += [
                     '',
                     f'   ↳ Previous Entry {i + 1}',
-                    f'      Size     : {h.get("size", "—")}',
-                    f'      Activity : {h.get("activity", "—")}',
-                    f'      Location : {h.get("location", "—")}',
+                    f'      Size     : {h.get("size", "-")}',
+                    f'      Activity : {h.get("activity", "-")}',
+                    f'      Location : {h.get("location", "-")}',
                     f'      Time     : {fmt_time(h.get("time"))}',
                 ]
                 if h.get('yourAnalysis'):
@@ -1808,7 +1810,7 @@ def render_backup(
     )
     lines += [
         div,
-        ' MACHINE DATA — DO NOT EDIT BELOW THIS LINE',
+        ' MACHINE DATA: DO NOT EDIT BELOW THIS LINE',
         div,
         BACKUP_START,
         machine_json,
@@ -2045,7 +2047,7 @@ def _note_save_result(errors: list) -> None:
     if not _save_failures:
         for e in errors:
             safe_print(f'[!] {e}')
-        safe_print('[!] Changes are kept in memory and the save is retried until it works.')
+        safe_print('    Changes are kept in memory and the save is retried until it works.')
     _save_failures += 1
     _retry_save_in(SAVE_RETRY_SECONDS[min(_save_failures, len(SAVE_RETRY_SECONDS)) - 1])
 
@@ -2244,9 +2246,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             # Each one can make the server fetch and hold up to 16 MB, and the
             # viewer port needs no code, so it is limited on both ports.
             if not basemap_rate_check(self.client_address[0]):
-                self._send_body(
-                    b'Too many map images. Retry shortly.', 'text/plain; charset=utf-8', 429
-                )
+                self._error(429, 'Too many map images. Retry shortly.')
             elif self._authorized():
                 self._handle_basemap()
         elif path in (
@@ -2256,6 +2256,8 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         ):  # last: legacy bookmark
             # HTML serve is unauthenticated; startup modal gates data endpoints.
             self._serve_workbench()
+        elif path.startswith('/api/'):
+            self._error(404, 'Not found.')
         else:
             self.send_error(404)
 
@@ -2264,11 +2266,11 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         query = urllib.parse.parse_qs(self.path.split('?', 1)[1] if '?' in self.path else '')
         url = (query.get('u') or [''])[0]
         if not basemap_proxy_allowed(url):
-            self._send_body(b'Not a saved basemap.', 'text/plain; charset=utf-8', 403)
+            self._error(403, 'Not a saved basemap.')
             return
         status, ctype, body = basemap_fetch(url)
         if status != 200 or not ctype.lower().startswith('image/'):
-            self._send_body(b'The basemap service sent no image.', 'text/plain; charset=utf-8', 502)
+            self._error(502, 'The basemap service sent no image.')
             return
         self.send_response(200)
         self.send_header('Content-Type', ctype)
@@ -2330,10 +2332,15 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 read += len(chunk)
         self.connection.settimeout(5)
 
+    def _error(self, status: int, message: str) -> None:
+        """Every /api error reply: ``{"status": "error", "message": ...}``, the
+        message a sentence the page can show as it is."""
+        self._send_json({'status': 'error', 'message': message}, status)
+
     def _refuse(self, status: int, message: str, body_length: int) -> None:
         """Send an error reply to a POST without processing its body."""
         self._discard_body(body_length)
-        self._send_json({'status': 'error', 'message': message}, status)
+        self._error(status, message)
 
     def _handle_sync(self) -> None:
         """Full sync payload. Cached prefix + dynamic tail (connected counts).
@@ -2495,7 +2502,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         if length < 0:
             # Unknowable body: drop what has already arrived, answer, and close.
             self._drain_available()
-            self._send_json({'status': 'error', 'message': 'Invalid Content-Length header.'}, 400)
+            self._bad_request('Invalid Content-Length header.')
             return
         # Viewer port rejects every mutation up front.
         if getattr(self.server, 'view_only', False):
@@ -2531,24 +2538,25 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         try:
             data = json.loads(self.rfile.read(length))
         except (ValueError, RecursionError):  # RecursionError: nesting too deep
-            self._send_json({'status': 'error', 'message': 'Invalid JSON.'}, 400)
+            self._bad_request('Invalid JSON.')
             return
         if not isinstance(data, dict):
-            self._send_json({'status': 'error', 'message': 'Body must be a JSON object.'}, 400)
+            self._bad_request('Body must be a JSON object.')
             return
         route = self._POST_ROUTES.get(path)
         if route is None:
-            self._send_json({'status': 'error', 'message': 'Not Found'}, 404)
+            self._error(404, 'Not found.')
             return
-        # Schema check — bad shape never reaches DATA_STORE.
+        # Schema check — bad shape never reaches DATA_STORE, and a route can
+        # take every field its validator checked as given.
         validator = _VALIDATORS.get(path)
         if validator is not None and (err := validator(data)):
-            self._send_json({'status': 'error', 'message': f'Validation failed: {err}'}, 400)
+            self._bad_request(f'Validation failed: {err}.')
             return
         route(self, data)
 
     def _bad_request(self, message: str) -> None:
-        self._send_json({'status': 'error', 'message': message}, 400)
+        self._error(400, message)
 
     def _actor(self) -> str:
         """Who is behind this connection, for the audit log: ``AB@10.0.0.12`` or the address."""
@@ -2623,11 +2631,8 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
     # -------------------------------------------------------------------------
 
     def _post_save_reports(self, data: dict) -> None:
-        ato = (data.get('ato') or '').strip().upper()
-        if not ato:
-            self._bad_request('Missing ATO.')
-            return
-        incoming = data.get('reports', [])
+        ato = data['ato'].strip().upper()
+        incoming = data['reports']
         source = (data.get('source') or '').strip().lower()
         imported = source in ('backup', 'csv')
         if not imported:
@@ -2682,10 +2687,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         self._commit(what)
 
     def _post_unload_ato(self, data: dict) -> None:
-        ato = (data.get('ato') or '').strip().upper()
-        if not ato:
-            self._bad_request('Missing ATO.')
-            return
+        ato = data['ato'].strip().upper()
         with sse_lock:
             for machine in [m for m, a in client_workspace.items() if a == ato]:
                 del client_workspace[machine]
@@ -2713,12 +2715,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         self._commit(f'unload_ato {ato}', message='ATO unloaded.')
 
     def _post_edit_report(self, data: dict) -> None:
-        ato = (data.get('ato') or '').strip().upper()
-        report_id = data.get('reportId')
-        fields = data.get('fields') or {}
-        if not ato or not report_id or not fields:
-            self._bad_request('Missing ato, reportId, or fields.')
-            return
+        ato = data['ato'].strip().upper()
+        report_id = data['reportId']
+        fields = data['fields']
         # Server-stamped attribution: override client `user` with our IP->initials->profile lookup.
         # Falls back to client claim for brand-new IPs.
         if operator := self._operator():
@@ -2747,33 +2746,22 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 invalidate_sync_cache()
                 mark_dirty(ato)
         if not found:
-            self._send_json({'status': 'error', 'message': 'Report not found.'}, 404)
+            self._error(404, 'Report not found.')
             return
         if stale:
-            self._send_json(
-                {
-                    'status': 'error',
-                    'message': 'This report was changed after the copy being edited. '
-                    'It was not edited; open it again.',
-                },
+            self._error(
                 409,
+                'This report was changed after the copy being edited. '
+                'It was not edited; open it again.',
             )
             return
         self._commit(f'edit_report {ato} {report_id}')
 
     def _post_delete_history(self, data: dict) -> None:
-        ato = (data.get('ato') or '').strip().upper()
-        deletions = data.get('deletions', [])
-        if not ato or not deletions:
-            self._bad_request('Missing ato or deletions.')
-            return
+        ato = data['ato'].strip().upper()
         drop: dict = {}
-        for d in deletions:
-            rid = d.get('reportId')
-            lm = d.get('lastModified')
-            if rid is None or lm is None:
-                continue
-            drop.setdefault(rid, set()).add(lm)
+        for d in data['deletions']:
+            drop.setdefault(d['reportId'], set()).add(d['lastModified'])
         removed = 0
         now_ms = int(time.time() * 1000)
         with data_lock:
@@ -2895,11 +2883,8 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         self._send_json({'status': 'success', **wms_fetch(url)})
 
     def _post_save_profile(self, data: dict) -> None:
-        profile = data.get('profile')
-        ini = ((profile or {}).get('initials') or '').strip()
-        if not ini:
-            self._bad_request('Invalid profile data.')
-            return
+        profile = data['profile']
+        ini = profile['initials'].strip()
         # Known fields only (see save_config), keyed by the same stripped
         # initials the IP map uses, so server-stamped attribution matches.
         clean = {'initials': ini, 'color': profile.get('color', '#0a84ff')}
@@ -3278,7 +3263,7 @@ def run_boot_dashboard(
     safe_print('[*] Starting S.A.L.T. Sync Server...')
     safe_print(f'[+] Workbench   : {scheme}://{ip}:{PORT}')
     if _access_code is None:
-        safe_print('[!] Access Code : UNGATED  (no code — anyone can edit)')
+        safe_print('[!] Access Code : UNGATED  (no code, so anyone can edit)')
     else:
         safe_print(f'[+] Access Code : {_access_code}')
     if viewer_port is not None:
@@ -3295,7 +3280,7 @@ def run_boot_dashboard(
         safe_print(
             f'[!] Skipped     : {skipped} backup file(s) that could not be read (named above)'
         )
-    safe_print('[!] Press Ctrl+C to stop.')
+    safe_print('[*] Press Ctrl+C to stop.')
     safe_print('═' * 64 + '\n')
 
 
@@ -3425,7 +3410,7 @@ def restore_snapshot(which: str) -> int:
         return 1
     newest = sorted(rounds, reverse=True)
     if which == 'list':
-        safe_print(f'[i] Snapshot rounds in {BACKUP_DIR}, newest first:')
+        safe_print(f'[*] Snapshot rounds in {BACKUP_DIR}, newest first:')
         for r in newest:
             safe_print(f'    {r}  ({len(rounds[r])} file(s))')
         return 0
