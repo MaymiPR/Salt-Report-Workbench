@@ -347,8 +347,11 @@ refilling at 5 per second), validated against a hand-written schema for its
 endpoint, and capped at 16 MB. A POST must be `application/json` (else `415`),
 and one another site sends (`Sec-Fetch-Site: cross-site`, or an `Origin` that
 isn't this server) is refused with `403`, so a web page open on the host can't
-write through the host's free pass. Wrong access codes are throttled on GET as
-well as POST, and map images through `/api/basemap` have their own per-IP limit
+write through the host's free pass. Wrong or missing access codes drain a
+bucket of their own per IP (30, refilling at 1 per second), on GET as well as
+POST; while it's empty every request from that address is refused before its
+code is checked, and a request with the right code never touches it, so a
+burst of saves can't block reading. Map images through `/api/basemap` have their own per-IP limit
 on both ports. A connection that goes quiet for 30 seconds is closed (event
 streams excepted), and every reply forbids framing and content sniffing. A
 refused request's body is read and dropped before the reply, so the client
