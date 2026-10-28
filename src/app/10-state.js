@@ -417,6 +417,15 @@ const expandedCells = new Set();
 let isExportViewActive = false;
 let pendingCsv         = null; // { headers, rows, filename }
 let offlinePendingPush = readRaw('salt_offline_push') === 'true';
+// Every workspace with changes the server hasn't taken yet (the active one,
+// or another changed by Undo, Send or a backup import while it couldn't be
+// reached), so each is sent again when it is back, not only the active one.
+const pendingAtos = new Set((v => (Array.isArray(v) ? v : []))(readStored('salt_offline_push_atos', [])));
+const markPending = (ato, pending) => {
+    if (!ato || pendingAtos.has(ato) === pending) return;
+    if (pending) pendingAtos.add(ato); else pendingAtos.delete(ato);
+    writeStored('salt_offline_push_atos', JSON.stringify([...pendingAtos]));
+};
 // What the server holds, per workspace (report key -> lastModified), so a
 // push sends only what changed. Refreshed on every pull; a workspace with no
 // record yet (say, right after a reload) is pushed in full.

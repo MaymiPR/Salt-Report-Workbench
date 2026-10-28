@@ -7,7 +7,7 @@
 // --- 9. Sync (push, pull, SSE, offline flag) ---
 function setConnectionStatus(isOnline) {
     const cls   = 'status-dot ' + (isOnline ? 'online' : 'offline');
-    const title = isOnline ? (offlinePendingPush ? 'Syncing...' : 'Online & Synced') : 'Offline (Saving Locally)';
+    const title = isOnline ? (offlinePendingPush || pendingAtos.size ? 'Syncing...' : 'Online & Synced') : 'Offline (Saving Locally)';
     el.status.dot.className    = cls;
     el.status.dot.title        = title;
     el.status.dotExp.className = cls;
@@ -98,14 +98,29 @@ async function pushToServer(source) {
     if (!activeAto) return true;
     pushesInFlight++;
     try {
-        const result = await pushWorkspace(activeAto, localReports || [], source);
+        const ato = activeAto;
+        const result = await pushWorkspace(ato, localReports || [], source);
         offlinePendingPush = result === 'queued';
         writeStored('salt_offline_push', String(offlinePendingPush));
+        markPending(ato, offlinePendingPush);
         setConnectionStatus(!offlinePendingPush);
         return !offlinePendingPush;
     } finally {
         if (--pushesInFlight === 0 && pullDeferred) { pullDeferred = false; syncWithServer(); }
     }
+}
+
+// Send again every workspace the server hasn't taken. False while any is
+// still waiting.
+async function pushPending() {
+    for (const ato of [...pendingAtos]) {
+        const reps = ato === activeAto ? localReports : reportsByAto[ato];
+        // Unloaded since (an empty list would unload it on the server): nothing to send.
+        if (!reps || !reps.length) { markPending(ato, false); continue; }
+        if (await pushWorkspace(ato, reps) === 'queued') return false;
+        markPending(ato, false);
+    }
+    return true;
 }
 
 async function syncWithServer() {
@@ -114,6 +129,7 @@ async function syncWithServer() {
         // Never pull over local changes the server hasn't accepted yet: the
         // pull replaces local state, so they would be lost.
         if (offlinePendingPush && activeAto && !(await pushToServer())) return;
+        if (!(await pushPending())) { setConnectionStatus(false); return; }
         const res = await fetch('/api/sync');
         if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) throw new Error('Server unreachable');

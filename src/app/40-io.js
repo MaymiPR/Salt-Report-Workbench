@@ -147,6 +147,7 @@ async function unloadWorkspace(ato) {
         // Whether it is the active one now, not when the prompt opened: a
         // sync while it was open may have switched workspaces.
         const wasActive = (ato === activeAto);
+        markPending(ato, false);
         delete reportsByAto[ato];
         delete workspaceSources[ato];
         saveReportsByAtoToLocal();
@@ -526,7 +527,9 @@ function processJsonImport(rawText) {
             let unsent = 0;
             for (const ato of isLocalFile ? [] : Object.keys(imp.workspaces || {})) {
                 if (ato === activeAto || !(all[ato] || []).length) continue;
-                if (await pushWorkspace(ato, all[ato], 'backup') === 'queued') unsent++;
+                const queued = await pushWorkspace(ato, all[ato], 'backup') === 'queued';
+                markPending(ato, queued);
+                if (queued) unsent++;
             }
             closeExportView();
             loadConfig();
@@ -546,7 +549,8 @@ function processJsonImport(rawText) {
             if (switchTo) await send('/api/save_config', { config: switchTo });
             if (unsent) {
                 // Don't sync: it would drop the workspaces the server never got.
-                showToast(`${unsent} workspace(s) couldn't reach the server. Import the file again once it's back.`, true);
+                // They're kept here and sent before the next pull.
+                showToast(`${unsent} workspace(s) couldn't reach the server. They're kept here and sent when it's back.`, true);
                 return;
             }
             if (refusals.length) showToast(`Imported, but not all of it was saved: ${refusals[0]}`, true);

@@ -256,10 +256,16 @@ const discardUnsaved = (ids, { confirm = true } = {}) => {
 // may have replaced the report objects (the server keeps soft-deleted
 // reports, so they are still there to find), and pushes with a new
 // lastModified so the server takes the restored copy.
+// Resolves false when the server couldn't take it yet (kept here and sent
+// again before the next pull).
 const pushUndone = async (ato, list) => {
-    if (ato === activeAto) { localReports = list; await saveLocalAndSync(reportsByAto); }
-    else { saveReportsByAtoToLocal(); renderLog(); await pushWorkspace(ato, list); }
+    if (ato === activeAto) { localReports = list; return saveLocalAndSync(reportsByAto); }
+    saveReportsByAtoToLocal(); renderLog();
+    const queued = await pushWorkspace(ato, list) === 'queued';
+    markPending(ato, queued);
+    return !queued;
 };
+const undoneToast = (text, saved) => showToast(saved || isLocalFile ? text : `${text} Saved here; the server can't be reached.`);
 
 // `undone` is what a Delete removed: soft-deleted ids, and history entries by report id.
 async function undoDeletion(ato, undone) {
@@ -282,8 +288,7 @@ async function undoDeletion(ato, undone) {
         if (touched) { r.lastModified = nextStamp(r); restored++; }
     });
     if (!restored) { showToast('Nothing left to put back.', true); return; }
-    await pushUndone(ato, list);
-    showToast(`${restored} item(s) put back.`);
+    undoneToast(`${restored} item(s) put back.`, await pushUndone(ato, list));
 }
 
 // `before` is the report as it was before a Restore.
@@ -294,8 +299,7 @@ async function undoRestore(ato, before) {
     const stamp = nextStamp(r);
     Object.keys(r).forEach(k => { if (!(k in before)) delete r[k]; });
     Object.assign(r, before, { lastModified: stamp });
-    await pushUndone(ato, list);
-    showToast(`${formatFullId(r)} is back as it was.`);
+    undoneToast(`${formatFullId(r)} is back as it was.`, await pushUndone(ato, list));
 }
 
 // DESTRUCTIVE rollback: chosen history version becomes current; current

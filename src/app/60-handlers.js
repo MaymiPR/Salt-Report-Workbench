@@ -404,26 +404,42 @@ el.log.sendBtn.addEventListener('click', async () => {
     if (!target) { showToast('Select a destination ATO first.', true); return; }
     const ids = [...document.querySelectorAll('.row-selector:checked')].map(cb => cb.dataset.id);
     if (!ids.length) return;
-    const targetReps = reportsByAto[target]||[];
-    const lastNum = targetReps.reduce((m,r) => Math.max(m, reportNum(r)), 0);
-    let moved = 0;
-    ids.forEach((id, i) => {
-        const idx = (reportsByAto['IMPORT']||[]).findIndex(r => r.id===id); if(idx===-1) return;
-        const rep = { ...reportsByAto['IMPORT'][idx] };
-        const did = `${SaltCore.atoPrefix(target)}${String(lastNum+moved+1).padStart(3,'0')}`;
-        rep.ato=SaltCore.atoPrefix(target); rep.title=(reportsByAto[target].find(r=>r.title&&!r.deleted)||{}).title||target; rep.displayId=did; rep.fullId=`${rep.title}${did}`; rep.lastModified=nextStamp(rep);
-        targetReps.push(rep);
-        // Bump the IMPORT copy too, or the deletion would never be sent.
-        reportsByAto['IMPORT'][idx] = { ...reportsByAto['IMPORT'][idx], deleted: true, lastModified: nextStamp(reportsByAto['IMPORT'][idx]) };
-        moved++;
+    const existing = reportsByAto[target] || [];
+    const lastNum = existing.reduce((m,r) => Math.max(m, reportNum(r)), 0);
+    const title = (existing.find(r => r.title && !r.deleted) || {}).title || target;
+    // The copies for the destination, numbered on from its last report.
+    const moving = [];
+    ids.forEach(id => {
+        const src = (reportsByAto['IMPORT'] || []).find(r => r.id === id && !r.deleted);
+        if (!src) return;
+        const did = `${SaltCore.atoPrefix(target)}${String(lastNum + moving.length + 1).padStart(3,'0')}`;
+        moving.push({ ...src, ato: SaltCore.atoPrefix(target), title, displayId: did, fullId: `${title}${did}`, lastModified: nextStamp(src) });
     });
-    reportsByAto[target] = targetReps;
-    showToast(`Moved ${moved} report(s) to ${target}.`);
-    updateSelectionUI(); populateAtoHistory();
-    // The destination isn't the active workspace, so push it explicitly;
-    // otherwise the next sync would drop the moved reports.
+    if (!moving.length) return;
+    // The destination first, and only what it took leaves IMPORT: a send
+    // that didn't arrive keeps every report where it was.
+    const result = isLocalFile ? 'ok' : await pushWorkspace(target, [...existing, ...moving]);
+    if (result === 'queued') { showToast(`Not moved: the server can't be reached. The reports are still in IMPORT.`, true); return; }
+    const refusedNote = {};
+    const taken = moving.filter(r => {
+        const u = unsavedEntry(target, r);
+        if (!u) return true;
+        // Refused: it stays in IMPORT instead of showing in the destination as "Not saved".
+        refusedNote.reason = refusedNote.reason || u.reason;
+        delete unsaved[target][SaltCore.reportKey(r)];
+        return false;
+    });
+    if (refusedNote.reason) saveUnsaved();
+    const left = moving.length - taken.length;
+    if (!taken.length) { showToast(`Not moved: ${refusedNote.reason}`, true); return; }
+    // A sync during the send may already have brought them in.
+    const takenIds = new Set(taken.map(r => r.id));
+    reportsByAto[target] = [...(reportsByAto[target] || existing).filter(r => !takenIds.has(r.id)), ...taken];
+    // Bump the IMPORT copies too, or the deletion would never be sent.
+    reportsByAto['IMPORT'] = (reportsByAto['IMPORT'] || []).map(r => (takenIds.has(r.id) ? { ...r, deleted: true, lastModified: nextStamp(r) } : r));
+    populateAtoHistory();
     await saveLocalAndSync(reportsByAto);
-    await pushWorkspace(target, reportsByAto[target]);
+    showToast(left ? `Moved ${taken.length} report(s) to ${target}. ${left} stayed in IMPORT: ${refusedNote.reason}` : `Moved ${taken.length} report(s) to ${target}.`, !!left);
 });
 
 el.log.search.addEventListener('input', debounce(e => { renderLog(e.target.value.toLowerCase()); renderMapView(); }, 100));
