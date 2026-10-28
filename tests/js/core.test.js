@@ -143,6 +143,12 @@ test('HTML, colors, and filenames are made safe', () => {
     assert.equal(core.safeColor('red;background:url(x)'), 'var(--system-gray)');
     assert.equal(core.safeFilename('A/B 1'), 'A_B_1');
     assert.equal(core.safeFilename('///'), 'X');
+    // Zero is a value, not nothing.
+    assert.equal(core.escapeHtml(0), '0');
+    assert.equal(core.escapeHtml(null), '');
+    assert.equal(core.escapeHtml(undefined), '');
+    const csv = core.reportsCsv([report({ size: 0 })], { local: false, customLabels: [], idOf: r => r.id }).split('\r\n')[1];
+    assert.ok(csv.startsWith('"r1","Original","0",'), csv);
 });
 
 // --- Reports ---
@@ -999,6 +1005,10 @@ test('the Statistics workbook: its parts, the tables its charts are drawn from, 
     const empty = unzipStored(core.statsXlsx({ charts: [], reports: { header: ['A'], rows: [] } }, NOW));
     assert.ok(!empty['xl/tables/table1.xml'] && !empty['xl/drawings/drawing1.xml']);
     assert.ok(!empty['[Content_Types].xml'].includes('table1'));
+    // Text XML can't hold is left out: control characters and a lone half
+    // of a surrogate pair; an emoji (a whole pair) stays.
+    const odd = unzipStored(core.statsXlsx({ title: 'a\u0001b\uD800c\uDC00d\u{1F600}e￾f', charts: [], reports: { header: [], rows: [] } }, NOW));
+    assert.match(odd['xl/sharedStrings.xml'], /<t xml:space="preserve">abcd\u{1F600}ef<\/t>/u);
 });
 
 test('report positions: the latest grids, or every saved version at its grids', () => {

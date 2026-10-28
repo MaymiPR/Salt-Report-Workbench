@@ -480,7 +480,7 @@ const parseCsv = (csvText) => {
     return arr;
 };
 
-const csvField  = v => `"${String(v||'').replace(/"/g,'""')}"`;
+const csvField  = v => `"${(v == null ? '' : String(v)).replace(/"/g,'""')}"`;
 const csvHeader = (local, extra = []) =>
     `Identifier,UpdateStatus,Size,Activity,MGRS,Time (${local ? 'Local' : 'Z'}),Analysis${extra.map(c => ',' + c).join('')}\r\n`;
 // History entries newest first, labeled "Update #N (Old)" with N counting up from the oldest.
@@ -1677,7 +1677,9 @@ const workbookReportRows = (reps, overlays, { local, idOf, customLabels = [] }) 
 const XLSX_BLUE = '007AFF', XLSX_INK = '1D1D1F', XLSX_INK2 = '6E6E73', XLSX_GRID = 'E5E5EA', XLSX_AXIS = 'D2D2D7';
 const XLSX_FONT = 'Segoe UI';
 const XLSX_BAR_MAX = 10;  // a bar chart shows the top ten; its table has them all
-const xmlText = (s) => String(s).replace(/[^\x09\x0A\x0D\x20-퟿-�\uD800-􏰀-\uDFFF]/g, '')
+// Text as XML holds it: characters XML 1.0 can't (control characters, and a
+// lone half of a surrogate pair) are left out; others, emoji included, stay.
+const xmlText = (s) => String(s).replace(/[^\t\n\r\x20-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu, '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const colName = (i) => { let s = ''; for (i++; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + (i - 1) % 26) + s; return s; };
 const XML_HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
