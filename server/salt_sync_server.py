@@ -2349,6 +2349,22 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         broadcast_update()
         self._send_json({'status': 'success', **extra})
 
+    def _unchanged(self, **extra) -> None:
+        """The end of a write that changed nothing: the same reply, but nothing
+        is saved, broadcast to every client, or written to the audit log."""
+        self._send_json({'status': 'success', **extra})
+
+    def _store_shared(self, key: str, value) -> bool:
+        """Put a shared setting in place, for every workspace. False, with
+        nothing stored, when it already holds exactly that."""
+        with data_lock:
+            if DATA_STORE.get(key) == value:
+                return False
+            DATA_STORE[key] = value
+            invalidate_sync_cache()
+            mark_dirty()  # every workspace's backup carries it, and the shared file
+        return True
+
     # -------------------------------------------------------------------------
     # POST routes. Each gets the parsed, validated body and sends the reply.
     # -------------------------------------------------------------------------
@@ -2404,19 +2420,24 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             self._bad_request('Missing ATO.')
             return
         with data_lock:
-            DATA_STORE['workspaces'].pop(ato, None)
+            changed = DATA_STORE['workspaces'].pop(ato, None) is not None
             workspace_sources.pop(ato, None)
             # Its files now hold the only copy of it: none is let go as superseded.
             _merged_files.pop(ato, None)
             cfg = DATA_STORE.get('config') or {}
             if (cfg.get('ato') or '').strip().upper() == ato:
                 DATA_STORE['config'] = {}
-            invalidate_sync_cache()
-            # Every file carries the config, and the unloaded workspace's own
-            # file stays on disk (unload is "from view"; a restart reloads it).
-            mark_dirty()
-        # Persisted like any write: an unload that lived only in memory came
-        # back on the next server restart.
+                changed = True
+            if changed:
+                invalidate_sync_cache()
+                # Every file carries the config, and the unloaded workspace's own
+                # file stays on disk (unload is "from view"; a restart reloads it).
+                mark_dirty()
+        if not changed:
+            self._unchanged(message='ATO unloaded.')
+            return
+        # Saved at once like any write, so the cleared active workspace is on
+        # disk; the workspace itself comes back on a restart, from its own file.
         self._commit(f'unload_ato {ato}', message='ATO unloaded.')
 
     def _post_edit_report(self, data: dict) -> None:
@@ -2436,23 +2457,40 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 known_profile = DATA_STORE['profiles'].get(known_initials)
             if known_profile:
                 fields['user'] = known_profile
-        found = False
+        found = stale = False
         with data_lock:
             for r in DATA_STORE['workspaces'].get(ato, []):
                 if r.get('id') != report_id:
                     continue
+                found = True
+                # Newest edit wins, as when reports merge: an edit made to an
+                # older copy than the server's would undo someone's later change.
+                if 'lastModified' in fields and _sort_num(fields['lastModified']) < _sort_num(
+                    r.get('lastModified')
+                ):
+                    stale = True
+                    break
                 for k in _EDITABLE_FIELDS:
                     if k in fields:
                         r[k] = fields[k]
                 if 'lastModified' not in fields:
                     r['lastModified'] = int(time.time() * 1000)
-                found = True
                 break
-            if found:
+            if found and not stale:
                 invalidate_sync_cache()
                 mark_dirty(ato)
         if not found:
             self._send_json({'status': 'error', 'message': 'Report not found.'}, 404)
+            return
+        if stale:
+            self._send_json(
+                {
+                    'status': 'error',
+                    'message': 'This report was changed after the copy being edited. '
+                    'It was not edited; open it again.',
+                },
+                409,
+            )
             return
         self._commit(f'edit_report {ato} {report_id}')
 
@@ -2486,30 +2524,30 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             if removed > 0:
                 invalidate_sync_cache()
                 mark_dirty(ato)
+        if not removed:
+            self._unchanged(removed=0)
+            return
         self._commit(f'delete_history {ato}: {removed} entries', removed=removed)
 
     def _post_save_config(self, data: dict) -> None:
         cfg = data.get('config')
-        if cfg:
-            # Keep only the fields the app uses: config is re-broadcast to
-            # every client on every sync, so arbitrary extra keys would
-            # bloat everyone's payload and the backup file.
-            clean = {'ato': cfg.get('ato', ''), 'title': cfg.get('title', '')}
-            with data_lock:
-                DATA_STORE['config'] = clean
-                invalidate_sync_cache()
-                mark_dirty()  # the config rides in every file
-            self._commit(f'save_config {clean["ato"]} / {clean["title"]}')
+        if not cfg:
+            self._unchanged()
             return
-        self._commit('save_config (unchanged)')
+        # Keep only the fields the app uses: config is re-broadcast to
+        # every client on every sync, so arbitrary extra keys would
+        # bloat everyone's payload and the backup file.
+        clean = {'ato': cfg.get('ato', ''), 'title': cfg.get('title', '')}
+        if not self._store_shared('config', clean):  # the config rides in every file
+            self._unchanged()
+            return
+        self._commit(f'save_config {clean["ato"]} / {clean["title"]}')
 
     def _post_save_format(self, data: dict) -> None:
         # One format for every workspace; an older page's ATO is ignored.
-        fmt = data['format']
-        with data_lock:
-            DATA_STORE['format'] = fmt
-            invalidate_sync_cache()
-            mark_dirty()  # every workspace's file carries it
+        if not self._store_shared('format', data['format']):
+            self._unchanged()
+            return
         self._commit('save_format')
 
     def _post_save_overlays(self, data: dict) -> None:
@@ -2527,10 +2565,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             }
             for o in data.get('overlays') or []
         ]
-        with data_lock:
-            DATA_STORE['overlays'] = clean
-            invalidate_sync_cache()
-            mark_dirty()  # every workspace's backup carries the shared set
+        if not self._store_shared('overlays', clean):
+            self._unchanged()
+            return
         self._commit(f'save_overlays: {len(clean)} overlay(s)')
 
     def _post_save_basemaps(self, data: dict) -> None:
@@ -2544,10 +2581,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             }
             for b in data.get('basemaps') or []
         ]
-        with data_lock:
-            DATA_STORE['basemaps'] = clean
-            invalidate_sync_cache()
-            mark_dirty()  # every workspace's backup carries them
+        if not self._store_shared('basemaps', clean):
+            self._unchanged()
+            return
         self._commit(f'save_basemaps: {len(clean)} service(s)')
 
     def _post_save_drones(self, data: dict) -> None:
@@ -2561,18 +2597,16 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             }
             for d in data.get('drones') or []
         ]
-        with data_lock:
-            DATA_STORE['drones'] = clean
-            invalidate_sync_cache()
-            mark_dirty()  # every workspace's backup carries them
+        if not self._store_shared('drones', clean):
+            self._unchanged()
+            return
         self._commit(f'save_drones: {len(clean)} drone(s)')
 
     def _post_save_narrative(self, data: dict) -> None:
         clean = clean_narrative(data['narrative'])
-        with data_lock:
-            DATA_STORE['narrative'] = clean
-            invalidate_sync_cache()
-            mark_dirty()  # every workspace's backup carries them
+        if not self._store_shared('narrative', clean):
+            self._unchanged()
+            return
         self._commit(
             f'save_narrative: {len(clean["units"])} unit(s), {len(clean["equipment"])} type(s), '
             f'{len(clean["custom"])} rule(s)'
@@ -2595,13 +2629,21 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         # initials the IP map uses, so server-stamped attribution matches.
         clean = {'initials': ini, 'color': profile.get('color', '#0a84ff')}
         with data_lock:
-            DATA_STORE['profiles'][ini] = clean
-            invalidate_sync_cache()
-            mark_dirty()  # profiles ride in every file
+            changed = DATA_STORE['profiles'].get(ini) != clean
+            if changed:
+                DATA_STORE['profiles'][ini] = clean
+                invalidate_sync_cache()
+                mark_dirty()  # profiles ride in every file
         # IP -> initials so /api/sync includes them and /api/edit_report can server-stamp.
         machine = _machine(self.client_address[0])
         with sse_lock:
+            known = client_initials.get(machine) == ini
             client_initials[machine] = ini
+        if not changed:
+            if not known:
+                broadcast_update()  # who is connected changed, if nothing else did
+            self._unchanged()
+            return
         self._commit(f'save_profile {ini}')
 
     _POST_ROUTES: ClassVar[dict] = {

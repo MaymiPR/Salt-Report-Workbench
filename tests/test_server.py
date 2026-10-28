@@ -1129,6 +1129,78 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(edited["size"], "3x T-72")
         self.assertEqual(edited["user"]["initials"], "AB")
 
+    def test_an_edit_to_an_older_copy_is_refused(self):
+        # Regression: edit_report overwrote whatever the server held, so an
+        # edit made to a stale copy undid a later change by someone else.
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report(lm=50, size="v50")]})
+        edit = {"ato": "ALPHA", "reportId": "r1"}
+        status, body = self.post(
+            "/api/edit_report", {**edit, "fields": {"size": "stale", "lastModified": 40}}
+        )
+        self.assertEqual(status, 409)
+        self.assertIn("not edited", body["message"])
+        self.assertEqual(self.sync()["workspaces"]["ALPHA"][0]["size"], "v50")
+        for lm, size in ((50, "same stamp"), (60, "newer")):
+            status, _ = self.post(
+                "/api/edit_report", {**edit, "fields": {"size": size, "lastModified": lm}}
+            )
+            self.assertEqual(status, 200, lm)
+            self.assertEqual(self.sync()["workspaces"]["ALPHA"][0]["size"], size)
+        # What the page does: the edit, then save_reports with the same stamp.
+        now = 70
+        fields = {"size": "page edit", "lastModified": now}
+        self.assertEqual(self.post("/api/edit_report", {**edit, "fields": fields})[0], 200)
+        status, _ = self.post(
+            "/api/save_reports", {"ato": "ALPHA", "reports": [report(lm=now, size="page edit")]}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(self.sync()["workspaces"]["ALPHA"][0]["lastModified"], now)
+        # No stamp sent: the server stamps it now, as before.
+        self.assertEqual(self.post("/api/edit_report", {**edit, "fields": {"size": "x"}})[0], 200)
+        self.assertGreater(self.sync()["workspaces"]["ALPHA"][0]["lastModified"], now)
+
+    def test_writes_that_change_nothing_are_not_saved_broadcast_or_audited(self):
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        tiles = {"name": "Topo", "kind": "tiles", "url": "http://10.0.0.5/tiles/{z}/{y}/{x}.png"}
+        drone = {"name": "GE 1", "grid": "11S NV 39697 06762", "at": 1793018940000}
+        fmt = {"preset": "custom", "lines": [{"type": "id"}]}
+        writes = (
+            ("/api/save_config", {"config": {"ato": "ALPHA", "title": "Patrol"}}),
+            ("/api/save_format", {"format": fmt}),
+            ("/api/save_overlays", {"overlays": [NAI1]}),
+            ("/api/save_basemaps", {"basemaps": [tiles]}),
+            ("/api/save_drones", {"drones": [drone]}),
+            ("/api/save_narrative", {"narrative": {"enemy": "OPFOR"}}),
+            ("/api/save_profile", {"profile": {"initials": "AB", "color": "#32d74b"}}),
+        )
+        for path, body in writes:
+            self.assertEqual(self.post(path, body)[0], 200, path)
+        cancel_pending_save()
+        with srv.data_lock:
+            srv._dirty_atos, srv._shared_dirty = set(), False  # as if just saved
+        repeats = (
+            *writes,
+            ("/api/save_config", {}),
+            (
+                "/api/delete_history",
+                {"ato": "ALPHA", "deletions": [{"reportId": "r1", "lastModified": 5}]},
+            ),
+            ("/api/unload_ato", {"ato": "NOT-LOADED"}),
+        )
+        with (
+            mock.patch.object(srv, "schedule_save") as saved,
+            mock.patch.object(srv, "broadcast_update") as broadcast,
+            mock.patch.object(srv, "audit") as audited,
+        ):
+            for path, body in repeats:
+                status, reply = self.post(path, body)
+                self.assertEqual((status, reply["status"]), (200, "success"), path)
+        self.assertEqual(reply["message"], "ATO unloaded.", "the same reply as a real unload")
+        saved.assert_not_called()
+        broadcast.assert_not_called()
+        audited.assert_not_called()
+        self.assertEqual((srv._dirty_atos, srv._shared_dirty), (set(), False), "nothing to write")
+
     def test_importing_reports_does_not_change_who_the_importer_is(self):
         # Regression: a backup of someone else's reports re-labelled the
         # importer's connection, so their later edits were stamped as that person.
