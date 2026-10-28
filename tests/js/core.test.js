@@ -33,6 +33,15 @@ test('unparseable times pass through instead of rendering NaN', () => {
     assert.equal(core.toTimeString('yesterday', false), 'yesterday');
 });
 
+test('no time, or an invalid one, prints as a dash in every format', () => {
+    [null, undefined, '', 0, new Date(NaN), NaN].forEach(v => assert.equal(core.toTimeString(v, false), '—', String(v)));
+    [null, undefined, NaN, 'nonsense'].forEach(v => assert.equal(core.dtg(v, false), '—', String(v)));
+    assert.equal(core.dtg(Date.parse('2026-10-25T18:00:00Z'), false), '251800Z OCT 26');
+    const text = core.backupText('ALPHA', [report({ time: null }), report({ id: 'r2', displayId: 'ALPHA002', time: 'garbage' })], 'Patrol', {}, {}, NOW);
+    assert.equal((text.match(/ Time {5}: —\n/g) || []).length, 2, text);
+    assert.ok(!/NaN/.test(text));
+});
+
 test('typed times gain their colon', () => {
     assert.equal(core.autoColon('1430'), '14:30');
     assert.equal(core.autoColon(' 930 '), '09:30');
@@ -103,6 +112,29 @@ test('spreadsheet times are read in the common forms', () => {
     assert.equal(new Date(l).getHours(), 14, 'local mode reads the clock as local');
 });
 
+test('spreadsheet times that do not exist are refused, never rolled over', () => {
+    const now = new Date('2026-10-24T20:00:00Z');
+    const p = s => core.parseCsvTime(s, false, now);
+    assert.equal(p('311430ZNOV26'), null, '31 NOV');
+    assert.equal(p('992599Z'), null, 'day 99, hour 25');
+    assert.equal(p('312400Z'), null);
+    assert.equal(p('2026-02-30 10:00'), null, '30 FEB');
+    assert.equal(p('2026-10-24 24:00'), null);
+    assert.equal(p('2028-02-29 10:00'), '2028-02-29T10:00:00.000Z', 'a leap day');
+    // Month or year left out: the latest such date not in the future.
+    const on = (iso, s) => core.parseCsvTime(s, false, new Date(iso));
+    assert.equal(on('2026-11-01T08:00:00Z', '311430Z'), '2026-10-31T14:30:00.000Z', 'on the 1st, the 31st is last month');
+    assert.equal(on('2026-03-02T08:00:00Z', '301200Z'), '2026-01-30T12:00:00.000Z', 'February has no 30th');
+    assert.equal(on('2027-01-01T08:00:00Z', '311430ZDEC'), '2026-12-31T14:30:00.000Z', 'December, last year');
+    assert.equal(on('2026-10-24T20:00:00Z', '242030Z'), '2026-10-24T20:30:00.000Z', 'within the hour ahead: today');
+    assert.equal(on('2026-10-24T20:00:00Z', '252030Z'), '2026-09-25T20:30:00.000Z', 'tomorrow is a month ago');
+    // L reads the DTG in local time, as it does a time alone.
+    const l = new Date(p('241430L'));
+    assert.deepEqual([l.getDate(), l.getHours(), l.getMinutes()], [24, 14, 30]);
+    const l2 = new Date(core.parseCsvTime('241430LOCT26', false, now));
+    assert.deepEqual([l2.getMonth(), l2.getDate(), l2.getHours()], [9, 24, 14]);
+});
+
 // --- Text safety ---
 
 test('HTML, colors, and filenames are made safe', () => {
@@ -111,6 +143,12 @@ test('HTML, colors, and filenames are made safe', () => {
     assert.equal(core.safeColor('red;background:url(x)'), 'var(--system-gray)');
     assert.equal(core.safeFilename('A/B 1'), 'A_B_1');
     assert.equal(core.safeFilename('///'), 'X');
+    // Zero is a value, not nothing.
+    assert.equal(core.escapeHtml(0), '0');
+    assert.equal(core.escapeHtml(null), '');
+    assert.equal(core.escapeHtml(undefined), '');
+    const csv = core.reportsCsv([report({ size: 0 })], { local: false, customLabels: [], idOf: r => r.id }).split('\r\n')[1];
+    assert.ok(csv.startsWith('"r1","Original","0",'), csv);
 });
 
 // --- Reports ---
@@ -171,12 +209,16 @@ test('locations that are not just grids are left alone', () => {
 // --- BDA ---
 
 test('BDA elements pair with grids by position, or share a single grid', () => {
+    // Grids are read as grids (findGrids), so each is written as MGRS: "18S UJ 11 11".
     const pairs = core.bdaElements({ size: '4x T-72, 2x BMP-2', location: '18SUJ1111, 18SUJ2222' });
-    assert.deepEqual(pairs, [{ target: '4x T-72', coords: '18SUJ1111' }, { target: '2x BMP-2', coords: '18SUJ2222' }]);
+    assert.deepEqual(pairs, [{ target: '4x T-72', coords: '18S UJ 11 11' }, { target: '2x BMP-2', coords: '18S UJ 22 22' }]);
     const shared = core.bdaElements({ size: '4x T-72; 2x BMP-2', location: '18SUJ1111' });
-    assert.deepEqual(shared.map(p => p.coords), ['18SUJ1111', '18SUJ1111']);
+    assert.deepEqual(shared.map(p => p.coords), ['18S UJ 11 11', '18S UJ 11 11']);
     const unclear = core.bdaElements({ size: 'a1, b2, c3', location: '18SUJ1111 18SUJ2222' });
     assert.deepEqual(unclear.map(p => p.coords), ['', '', '']);
+    // A grid typed with spaces is one grid, and a place name beside it is not a grid.
+    assert.deepEqual(core.bdaElements({ size: '2x T-72', location: '38S MB 12345 67890' }).map(p => p.coords), ['38S MB 12345 67890']);
+    assert.deepEqual(core.bdaElements({ size: '2x T-72', location: '38SMB1234567890, NAI 1' }).map(p => p.coords), ['38S MB 12345 67890']);
 });
 
 test('the BDA pill counts each vehicle and gives the worst outcome', () => {
@@ -196,6 +238,28 @@ test('assessing some of an element leaves the rest to assess', () => {
     assert.deepEqual(core.bdaSummary(r), { done: 8, total: 43, worstCls: 'destroyed' });
     // Assessments from before counts were split off cover their whole element.
     assert.deepEqual(core.bdaPending({ size: '4x T-72, truck', location: '', bda: [{ target: '4x T-72', effect: 'Destroyed' }, { target: 'truck', effect: 'Damaged' }] }), []);
+});
+
+test('BDA reads counts and plurals as the Statistics do', () => {
+    assert.deepEqual(core.bdaCount('T-72 x4'), { count: 4, type: 'T-72', counted: true }, 'a count after the type');
+    assert.deepEqual(core.bdaCount('trucks (3)'), { count: 3, type: 'trucks', counted: true });
+    assert.equal(core.bdaCount('0x T-72').count, 0, 'none is none, not one');
+    assert.deepEqual(core.bdaCount('2S19'), { count: 1, type: '2S19', counted: false }, 'a number in a name');
+    // The same element counted the same way by both.
+    ['2x BUSES', '3x lorries', 'T-72 x4', 'trucks (3)', '2x T-72s', 'approx 4x BMP-2', '2S19'].forEach(s => {
+        assert.equal(core.bdaCount(s).count, core.sizeElements(s)[0].count, s);
+    });
+    // Assessed under the singular, in any case: nothing left to assess.
+    const r = { size: '2x BUSES, 3x lorries, T-72 x4', location: '', bda: [
+        { target: '2x bus', effect: 'Destroyed' }, { target: '1x lorry', effect: 'Damaged' }, { target: '1x LORRIES', effect: 'Damaged' },
+        { target: '4x T-72s', effect: 'Destroyed' }] };
+    assert.deepEqual(core.bdaPending(r).map(e => e.target), ['1x lorries']);
+    assert.deepEqual(core.bdaSummary(r), { done: 8, total: 9, worstCls: 'destroyed' });
+    assert.equal(core.bdaSummary({ size: '0x T-72', bda: [] }).total, 0);
+    // A team's own type folds when the team's equipment is given.
+    const team = core.teamEquipment([{ type: 'widget', role: 'logistics' }]);
+    const w = { size: '3X WIDGETS', location: '', bda: [{ target: '3x widget', effect: 'Destroyed' }] };
+    assert.deepEqual(core.bdaPending(w, team), []);
 });
 
 test('the BDA roll-up totals a workspace\'s elements and outcomes', () => {
@@ -367,6 +431,24 @@ test('NAI, OBJ and PL names read the way operators type them', () => {
     assert.equal(core.overlayRef('Bridge'), null);
 });
 
+test('common words after objective or phase line are not names', () => {
+    const keys = s => core.findRefs(s).map(r => r.key);
+    assert.deepEqual(keys('vic objective area'), []);
+    assert.deepEqual(keys('crossed the phase line of the advance'), []);
+    assert.deepEqual(keys('our objective is clear'), []);
+    assert.deepEqual(keys('OUR OBJECTIVE IS CLEAR, OBJ IS SECURED'), [], 'in capitals too');
+    assert.deepEqual(keys('obj is clear; pl to the north'), [], 'and after the short forms');
+    assert.deepEqual(keys('Objective 3, objective gold, OBJECTIVE IRON, Phase Line Red, OBJ A, nai 01'),
+        ['OBJ 3', 'OBJ IRON', 'PL RED', 'OBJ A', 'NAI 1'], 'a long form needs a number or a capital');
+    // editLocation reads them the same way: nothing to replace in "objective area".
+    assert.equal(core.editLocation('vic objective area, NAI 1', { replace: { 'OBJ AREA': '', 'NAI 1': 'NAI 2' } }), 'vic objective area, NAI 2');
+    assert.equal(core.editLocation('vic objective area', { add: ['OBJ GOLD'] }), 'vic objective area, OBJ GOLD');
+    // And an overlay's name.
+    assert.equal(core.overlayRef('Objective area', null), null);
+    assert.equal(core.overlayRef('The Bridge', 'OBJ').key, 'OBJ BRIDGE', 'the first word that is a name');
+    assert.equal(core.overlayRef('Objective Gold').key, 'OBJ GOLD');
+});
+
 // NAI 1 and NAI 2 side by side, OBJ BRIDGE north of NAI 1, PL BLUE across both NAIs.
 const ll = g => { const x = core.findGrids(g)[0]; return [x.lon, x.lat]; };
 const box = (...grids) => ({ type: 'Polygon', coordinates: [[...grids, grids[0]].map(ll)] });
@@ -445,6 +527,42 @@ test('an NAI or OBJ drawn as a path is still an area', () => {
     assert.deepEqual(core.analyzeLocation('38SMB4200092000', [{ ...ovs[0], type: 'PL' }]).obj.keys, [], 'a PL path is not an area');
 });
 
+test('a broken overlay is left out, and stops nothing', () => {
+    assert.doesNotThrow(() => core.asArea({ type: 'LineString', coordinates: [] }));
+    assert.deepEqual(core.asArea({ type: 'MultiLineString', coordinates: [[]] }), { type: 'MultiLineString', coordinates: [[]] });
+    const square = OVERLAYS[0].geometry;
+    const bad = [
+        { type: 'NAI', name: 'E', geometry: { type: 'Polygon', coordinates: [] } },
+        { type: 'NAI', name: 'L', geometry: { type: 'LineString', coordinates: [] } },
+        { type: 'OBJ', name: 'M', geometry: { type: 'MultiLineString', coordinates: [[]] } },
+        { type: '<img src=x onerror=alert(1)>', name: 'X', geometry: square },
+        { type: 'NAI', name: 5, geometry: square },
+        { type: 'NAI', name: 'N', geometry: { type: 'Polygon', coordinates: [[[NaN, 1], [2, 2], [3, 3]]] } },
+        { type: 'NAI', name: 'G', geometry: null },
+        null, 'junk',
+    ];
+    const twoPoint = { type: 'OBJ', name: 'T', geometry: { type: 'LineString', coordinates: square.coordinates[0].slice(0, 2) } };
+    const ovs = [...OVERLAYS, ...bad, twoPoint];
+    assert.deepEqual(core.foldOverlays(ovs), [...OVERLAYS, twoPoint], 'only what the server would take');
+    assert.deepEqual(core.foldOverlays({ ALPHA: ovs }), [...OVERLAYS, twoPoint]);
+    assert.deepEqual(core.analyzeLocation('38SMB4500082000', ovs).nai, { keys: ['NAI 1'], from: 'grid' });
+    assert.deepEqual(core.locationPlan('38SMB4500082000', ovs).add, ['NAI 1']);
+    assert.doesNotThrow(() => core.statsData([report({ location: '38SMB4500082000' })], ovs, {}));
+    assert.doesNotThrow(() => core.summaryReport('rollup', [report({ location: '38SMB4500082000' })], ovs, { local: false, now: NOW }));
+    assert.ok(!core.summaryPlaces([], ovs).some(p => /img/.test(p)));
+});
+
+test('an overlay is keyed as a typed name is', () => {
+    const sq = OVERLAYS[0].geometry;
+    const ovs = [{ type: 'OBJ', name: 'gold', geometry: sq }, { type: 'NAI', name: '01', geometry: OVERLAYS[1].geometry }];
+    assert.deepEqual(core.analyzeLocation('38SMB4500082000', ovs).obj.keys, ['OBJ GOLD']);
+    assert.deepEqual(core.analyzeLocation('38SMB5500082000, NAI 1', ovs).checks, [], 'overlay "01" is NAI 1');
+    assert.deepEqual(core.analyzeLocation('38SMB4500082000, NAI 1', ovs).checks, ['NAI 1 typed; grid is outside it']);
+    assert.deepEqual(core.summaryPlaces([report({ location: '38SMB4500082000, OBJ GOLD' })], ovs), ['NAI 1', 'OBJ GOLD'], 'one OBJ GOLD, not two');
+    // An older backup with "gold" in one workspace and "GOLD" in another: one overlay.
+    assert.equal(core.foldOverlays({ A: [ovs[0]], B: [{ ...ovs[0], name: 'GOLD' }] }).length, 1);
+});
+
 test('activity lines are tagged, with a heading when one is given', () => {
     const cases = {
         '2x BMP moving N on MSR':        [['Moving'], 'N', 0],
@@ -462,6 +580,36 @@ test('activity lines are tagged, with a heading when one is given', () => {
     for (const [text, [tags, heading, deg]] of Object.entries(cases)) {
         assert.deepEqual(core.classifyActivity(text), { tags, heading, headingDeg: deg }, text);
     }
+});
+
+test('a heading needs a heading word or a unit, and a whole compass point', () => {
+    const cases = {
+        'moving 120 trucks':                     [['Moving'], null, null],
+        'travelling with 300 pax':               [['Moving'], null, null],
+        'heading 360':                           [['Moving'], 'N', 0],
+        'heading 400':                           [['Moving'], null, null],
+        'moving to new position, northbound':    [['Moving'], 'N', 0],
+        'moving 120°':                           [['Moving'], 'ESE', 120],
+        'moving at 090 degrees':                 [['Moving'], 'E', 90],
+        'brg 045':                               [['Moving'], 'NE', 45],
+        'on a heading of 300':                   [['Moving'], 'WNW', 300],
+        'convoy moving nne on the MSR':          [['Moving'], 'NNE', 22.5],
+        'moving as needed':                      [['Moving'], null, null],
+        'withdrawing to the north-east':         [['Moving'], 'NE', 45],
+    };
+    for (const [text, [tags, heading, deg]] of Object.entries(cases)) {
+        assert.deepEqual(core.classifyActivity(text), { tags, heading, headingDeg: deg }, text);
+    }
+});
+
+test('fire support and launch sites are not firing, anywhere', () => {
+    assert.deepEqual(core.classifyActivity('moving to a fire support position').tags, ['Moving']);
+    assert.deepEqual(core.classifyActivity('launch site, stationary').tags, ['Stationary']);
+    assert.deepEqual(core.classifyActivity('ceasefire holding').tags, ['Stationary']);
+    assert.deepEqual(core.classifyActivity('engaging from firing positions').tags, ['Firing'], 'engaging still is');
+    const d = core.statsData([report({ activity: 'occupying a fire support position' })], [], {});
+    assert.deepEqual(d.tags, [{ label: 'Stationary', value: 1 }]);
+    assert.equal(core.activityMatches('launch site', new Set(['Firing'])), false);
 });
 
 test('the ArcGIS export has one point per grid, and leaves out reports without one', () => {
@@ -486,8 +634,9 @@ test('the ArcGIS export has one point per grid, and leaves out reports without o
     const field = n => esri.fields.find(f => f.name === n);
     assert.deepEqual(esri.fields[0], { name: 'OBJECTID', type: 'esriFieldTypeOID', alias: 'OBJECTID' });
     assert.deepEqual([field('report_id').type, field('report_id').length], ['esriFieldTypeString', 1]);
+    // heading_deg is always a double (NNE is 22.5), whatever the rows hold.
     assert.deepEqual([field('precision_m').type, field('heading_deg').type, field('lat').type],
-        ['esriFieldTypeInteger', 'esriFieldTypeInteger', 'esriFieldTypeDouble']);
+        ['esriFieldTypeInteger', 'esriFieldTypeDouble', 'esriFieldTypeDouble']);
     assert.deepEqual(esri.features[1].attributes.OBJECTID, 2);
     assert.deepEqual(esri.features[0].geometry, { x: rows[0].lon, y: rows[0].lat, spatialReference: { wkid: 4326 } });
     const csv = core.arcgisCsv(rows).split('\r\n');
@@ -511,9 +660,33 @@ test('the ArcGIS exports keep long text where they can, and every field one type
     const esri = JSON.parse(core.arcgisEsriJson(rows));
     assert.equal(esri.fields.find(f => f.name === 'analysis').length, 600);
     assert.equal(esri.features[0].attributes.analysis, long);
-    // heading_deg: null on one, 45 on the other: a number field, null kept.
-    assert.equal(esri.fields.find(f => f.name === 'heading_deg').type, 'esriFieldTypeInteger');
+    // heading_deg: null on one, 45 on the other: a number field (always a
+    // double, as NNE is 22.5), null kept.
+    assert.equal(esri.fields.find(f => f.name === 'heading_deg').type, 'esriFieldTypeDouble');
     assert.deepEqual(esri.features.map(f => f.attributes.heading_deg), [null, 45]);
+});
+
+test('the ArcGIS exports have the same fields however the rows fill them', () => {
+    // No heading and no phase lines in one export, every one in the other.
+    const quiet = core.arcgisRows([report({ id: 'a', location: '38SMB4500082000', activity: 'parked' })], [], { local: false, idOf: r => r.id }).rows;
+    const busy = core.arcgisRows([report({ id: 'b', location: '38SMB4500082000', activity: 'moving NNE' })], OVERLAYS, { local: false, idOf: r => r.id }).rows;
+    const schema = rows => JSON.parse(core.arcgisEsriJson(rows)).fields.filter(f => f.type !== 'esriFieldTypeString').map(f => `${f.name} ${f.type}`);
+    assert.deepEqual(schema(quiet), schema(busy));
+    assert.deepEqual(schema(quiet).filter(f => /^(heading_deg|pl_dist_m) /.test(f)), ['heading_deg esriFieldTypeDouble', 'pl_dist_m esriFieldTypeInteger']);
+    // The shapefile too: numeric (N) fields, the same in both.
+    const dbfFields = rows => {
+        const dbf = core.shapefileParts(rows, rows.map(r => [r.lon, r.lat]), 'point').dbf;
+        const out = [];
+        for (let o = 32; dbf[o] !== 0x0d; o += 32) out.push(`${String.fromCharCode(...dbf.subarray(o, o + 11)).replace(/\0+$/, '')} ${String.fromCharCode(dbf[o + 11])}${dbf[o + 16]}.${dbf[o + 17]}`);
+        return out.filter(f => / N/.test(f));
+    };
+    assert.deepEqual(dbfFields(quiet), dbfFields(busy));
+    assert.ok(dbfFields(quiet).includes('head_deg N19.7') && dbfFields(quiet).includes('pl_dist_m N18.0'), dbfFields(quiet).join(', '));
+    // A number too wide for its field loses decimals, never its whole part, or is left empty.
+    const wide = core.shapefileParts([{ big: 123456789012.5, huge: 1e25, lat: 1, lon: 1 }], [[1, 1]], 'point');
+    const rows = core.readDbf(wide.dbf.buffer, 'UTF-8');
+    assert.equal(rows[0].big, 123456789012.5);
+    assert.equal(rows[0].huge, '');
 });
 
 test('backups carry the shared overlays', () => {
@@ -540,6 +713,26 @@ test('Size lines are counted by type, plurals folded together', () => {
         { count: 3, type: 'T-72' }, { count: 2, type: 'TRUCK' }, { count: 1, type: 'BUS' },
     ]);
     assert.deepEqual(core.sizeElements(''), []);
+});
+
+test('an unknown word keeps a final s unless it is clearly a plural', () => {
+    const els = s => core.sizeElements(s).map(e => `${e.count} ${e.type}`);
+    assert.deepEqual(els('2x Gas, 2x radius, 2x Atlas, 2x chassis, 3x widgets, 2x M1s, 2x 2S19'),
+        ['2 GAS', '2 RADIUS', '2 ATLAS', '2 CHASSIS', '3 WIDGET', '2 M1', '2 2S19']);
+});
+
+test("a team's own types fold their plurals in the Statistics too", () => {
+    const team = core.teamEquipment([{ type: 'widget', role: 'logistics' }]);
+    const els = (s, t) => core.sizeElements(s, t).map(e => `${e.count} ${e.type}`);
+    assert.deepEqual(els('3X WIDGETS, 2x widget'), ['3 WIDGETS', '2 WIDGET'], 'without the team: the catalogue alone');
+    assert.deepEqual(els('3X WIDGETS, 2x widget', team), ['3 WIDGET', '2 WIDGET']);
+    const reps = [report({ size: '3X WIDGETS' }), report({ id: 'r2', displayId: 'ALPHA002', size: '2x widget' })];
+    assert.deepEqual(core.statsData(reps, [], { team }).equipment, [{ label: 'WIDGET', value: 5 }]);
+    // The summaries take the team from the narrative settings, or as given.
+    const rollup = o => core.summaryReport('rollup', reps, [], { local: false, now: NOW, ...o });
+    assert.ok(rollup({ narrative: { equipment: [{ type: 'widget', role: 'logistics' }] } }).includes('   WIDGET 5\n'));
+    assert.ok(rollup({ team }).includes('   WIDGET 5\n'));
+    assert.ok(rollup({}).includes('   WIDGETS 3, WIDGET 2\n'));
 });
 
 test('grid squares at 10 km and 1 km, and grids too coarse for them', () => {
@@ -716,6 +909,27 @@ test('a shapefile reads as areas (holes kept), lines and points, with its names'
     assert.equal(core.geometryContains(area, 22, 2), true, 'the second part');
 });
 
+test('a damaged shapefile ends or is refused in words, never hangs', () => {
+    const line = () => writeShapefile([{ type: 3, parts: [[[0, 20], [10, 21]]] }, { type: 1, parts: [[[5, 30]]] }], ['a', 'b']).shp;
+    const edit = (f) => { const shp = line(); f(new DataView(shp)); return shp; };
+    // A record length of none, or less than none, ends the file there.
+    [-4, 0, 1].forEach(words => {
+        const fc = core.parseShapefile(edit(v => v.setInt32(104, words)), null, WGS84_PRJ);
+        assert.deepEqual(fc.features, [], `${words} words`);
+    });
+    // Counts past the end of their record, or impossible ones, are refused.
+    const damaged = { message: /^it is damaged \(a shape runs past its end\)/ };
+    [
+        v => v.setInt32(108 + 40, 1e6, true),        // points
+        v => v.setInt32(108 + 36, 0x7fffffff, true), // parts
+        v => v.setInt32(108 + 40, -1, true),
+        v => v.setInt32(108 + 44, 5, true),          // a part starting past the points
+    ].forEach((f, i) => assert.throws(() => core.parseShapefile(edit(f), null, WGS84_PRJ), damaged, `case ${i}`));
+    // A record shorter than its shape needs is refused; one running past the file ends it.
+    assert.throws(() => core.parseShapefile(edit(v => v.setInt32(104, 10)), null, WGS84_PRJ), damaged);
+    assert.deepEqual(core.parseShapefile(edit(v => v.setInt32(104, 1000)), null, WGS84_PRJ).features, []);
+});
+
 test("a shapefile's coordinates come to longitude / latitude from its .prj", () => {
     const { shp } = writeShapefile([{ type: 1, parts: [[[400000, 3905000]]] }], ['x']);
     const [lon, lat] = core.parseShapefile(shp, null, utmPrj(11, false)).features[0].geometry.coordinates;
@@ -839,6 +1053,9 @@ test('WMS: capabilities link, projection and format choices', () => {
     assert.equal(core.pickWmsFormat(['image/jpeg', 'image/png8', 'image/png']), 'image/png');
     assert.equal(core.pickWmsFormat(['image/gif', 'image/jpeg']), 'image/jpeg');
     assert.equal(core.pickWmsFormat([]), 'image/png');
+    // A "?" inside a value is kept: only the first one starts the parameters.
+    assert.equal(core.wmsCapabilitiesUrl('http://s/wms?map=/maps/a.map&next=b?c=1'),
+        'http://s/wms?map=/maps/a.map&next=b?c=1&SERVICE=WMS&REQUEST=GetCapabilities');
 });
 
 test('a zip of stored files reads back, with the right CRCs', () => {
@@ -960,6 +1177,8 @@ test('the Statistics workbook: its parts, the tables its charts are drawn from, 
     const table = files['xl/tables/table1.xml'];
     assert.match(table, /ref="A1:C3"/);
     assert.match(table, /name="Identifier 2"/, 'repeated names made unique');
+    const thrice = unzipStored(core.statsXlsx({ reports: { header: ['Identifier', 'Identifier', 'identifier'], rows: [['a', 'b', 'c']] } }, NOW));
+    assert.match(thrice['xl/tables/table1.xml'], /name="Identifier"\/><tableColumn id="2" name="Identifier 2"\/><tableColumn id="3" name="identifier 3"/);
     assert.match(files['xl/worksheets/sheet2.xml'], /<c r="B2" s="4"><v>46319.25<\/v><\/c>/);
     assert.match(files['xl/worksheets/sheet2.xml'], /state="frozen"/);
     assert.match(files['xl/sharedStrings.xml'], /<t xml:space="preserve">ALPHA · all reports<\/t>/);
@@ -967,6 +1186,10 @@ test('the Statistics workbook: its parts, the tables its charts are drawn from, 
     const empty = unzipStored(core.statsXlsx({ charts: [], reports: { header: ['A'], rows: [] } }, NOW));
     assert.ok(!empty['xl/tables/table1.xml'] && !empty['xl/drawings/drawing1.xml']);
     assert.ok(!empty['[Content_Types].xml'].includes('table1'));
+    // Text XML can't hold is left out: control characters and a lone half
+    // of a surrogate pair; an emoji (a whole pair) stays.
+    const odd = unzipStored(core.statsXlsx({ title: 'a\u0001b\uD800c\uDC00d\u{1F600}e￾f', charts: [], reports: { header: [], rows: [] } }, NOW));
+    assert.match(odd['xl/sharedStrings.xml'], /<t xml:space="preserve">abcd\u{1F600}ef<\/t>/u);
 });
 
 test('report positions: the latest grids, or every saved version at its grids', () => {
@@ -1116,6 +1339,28 @@ test('the enemy can be called by another name, and units named from where they o
     // No unit fits: the enemy's name.
     const other = narrative(NARRATIVE_REPS, { narrative: { enemy: 'OPFOR', units: [{ name: 'X', places: ['NAI 9'], kinds: [] }] } }).join(' ');
     assert.ok(other.includes('that OPFOR are preparing a defense in NAI 1.'), other);
+    // Units whose names hold " or " are still listed with "and".
+    const two = narrative(NARRATIVE_REPS, { narrative: { units: [{ name: 'Task Force Sword or Shield', places: ['NAI 1'], kinds: [] },
+        { name: '2-7 IN', places: ['NAI 1'], kinds: [] }] } }).join(' ').replace(/\s+/g, ' ');
+    assert.ok(two.includes('NAI 1 (area of Task Force Sword or Shield and 2-7 IN):'), two);
+});
+
+test('narrative settings from a file are made the kinds the rules need', () => {
+    const reps = [...NARRATIVE_REPS,
+        report({ id: 'n6', displayId: 'ALPHA016', size: '1x PMP', activity: 'bridging the river', location: '38SMB4500082000', time: '2026-10-26T03:00:00Z' }),
+        report({ id: 'n7', displayId: 'ALPHA017', size: '2x trucks', activity: 'at the ferry site', location: '38SMB4500082000', time: '2026-10-26T04:00:00Z' })];
+    const text = narrative(reps, { narrative: {
+        units: [{ name: 7, places: [1, 'NAI 1'], kinds: 'armor' }, { name: '' }],
+        custom: [
+            { what: 'are preparing a river crossing', words: ['bridging', 'ferry'], min: '2', hours: '12' },
+            { what: 'junk', words: { a: 1 }, min: 'x', hours: 12 },
+            { what: 'nothing', words: ' , ', min: 1, hours: 12 },
+        ],
+    } }).join(' ').replace(/\s+/g, ' ');
+    // min "2" is 2, not "21": two reports are enough, and a third would be "likely".
+    assert.ok(text.includes('ROUGHLY EVEN CHANCE (45-55%) that elements of 7 are preparing a river crossing in NAI 1.'), text);
+    assert.ok(text.includes('Basis: reports of bridging, ferry within 12 hrs'), text);
+    assert.ok(!text.includes('junk') && !text.includes('nothing in'), text);
 });
 
 test("the team's own equipment, rules switched off, and rules of their own", () => {
@@ -1241,7 +1486,8 @@ test('the new rules: fires, maneuver, defense and support, each from its own sig
         [[['4x PAX', 'firing at OP', NAI1], ['10x T-72', 'moving W', NAI2]], 'are fixing friendly forces in NAI 1, with armor moving through NAI 2'],
         [[['3x PAX', 'hiding in the treeline', NAI1], ['2x PAX', 'observing', NAI1], ['3x PAX', 'stationary in a basement', NAI1]], 'are building up small infantry groups in NAI 1'],
         [[['3x motorcycles, 6x PAX', 'moving W', NAI1], ['2x buggy, 4x PAX', 'moving W', NAI1]], 'are moving fast in small groups on light vehicles through NAI 1'],
-        [[['2x Su-25', 'landed, refueling', NAI1], ['1x ATZ fuel truck', 'stationary', NAI1]], 'a forward arming and refueling point for helicopters in NAI 1'],
+        // A FARP is for helicopters: this was 2x Su-25 (fixed-wing), which no longer makes one.
+        [[['2x Mi-24', 'landed, refueling', NAI1], ['1x ATZ fuel truck', 'stationary', NAI1]], 'a forward arming and refueling point for helicopters in NAI 1'],
         [[['2x Lancet', 'struck trucks on the MSR', NAI1], ['1x FPV', 'hit vehicles on the road', NAI1]], 'are cutting the routes through NAI 1'],
         [[['1x ASN-301', 'launching', NAI1]], 'are suppressing friendly air defense'],
     ];
@@ -1252,6 +1498,13 @@ test('the new rules: fires, maneuver, defense and support, each from its own sig
     // Fire support and a firing position are not contact.
     const t = said(atPlaces([['2x T-72', 'moving to a fire support position', NAI1], ['2x T-72', 'in firing positions', NAI1]]));
     assert.ok(!t.includes('probing friendly positions'), t);
+    // Fixed-wing aircraft: attack aviation, but no FARP or air assault from them.
+    const jets = said(atPlaces([['2x Su-25', 'landed, refueling', NAI1], ['1x ATZ fuel truck', 'stationary', NAI1], ['2x Il-76', 'landed', NAI1]]));
+    assert.ok(!jets.includes('refueling point for helicopters') && !jets.includes('air assault'), jets);
+    assert.ok(jets.includes('are supporting ground forces with attack aviation'), jets);
+    // Transport helicopters with gunships escorting are an air assault.
+    const lift = said(atPlaces([['4x Mi-8', 'landing troops', NAI1], ['2x Ka-52', 'orbiting', NAI1]]));
+    assert.ok(lift.includes('air assault'), lift);
 });
 
 test('a point becomes the MGRS grid it is in, and back', () => {
@@ -1264,6 +1517,11 @@ test('a point becomes the MGRS grid it is in, and back', () => {
     const full = core.latLonToMgrs(35.2934, -116.6).split(' ');
     assert.equal(core.latLonToMgrs(35.2934, -116.6, 3), `${full[0]} ${full[1]} ${full[2].slice(0, 3)} ${full[3].slice(0, 3)}`);
     assert.equal(core.latLonToMgrs(85, 10), null, 'past 84°N is UPS, not MGRS');
+    // Digits outside 1-5 are brought into it.
+    const [zb, sq, e, n] = full;
+    assert.equal(core.latLonToMgrs(35.2934, -116.6, 0), `${zb} ${sq} ${e[0]} ${n[0]}`);
+    assert.equal(core.latLonToMgrs(35.2934, -116.6, 9), full.join(' '));
+    assert.equal(core.latLonToMgrs(35.2934, -116.6, 'x'), full.join(' '));
 });
 
 test('a total with its breakdown is counted once, and counts can follow the type', () => {
@@ -1315,4 +1573,17 @@ test('general words: vic, tracked, wheeled, support, fueler, engineer, and their
     const t = said([{ id: 'v1', displayId: 'ALPHA001', ato: 'ALPHA', title: 'P', size: 'Total of vics 10x: 5x tanks and 5x apc',
         activity: 'moving N', location: '38SMB4500082000', time: '2026-10-26T01:00:00.000Z', history: [], bda: [] }]);
     assert.ok(t.includes('Equipment reported: armor (5x tanks); mechanized infantry (5x APC).'), t);
+});
+
+test('plain words read as plurals in the narrative: tracked vehicles, buses', () => {
+    const t = said([{ id: 'w1', displayId: 'ALPHA001', ato: 'ALPHA', title: 'P', size: '4x tracked, 2x wheeled, 2X BUSES, 1x tracked vic',
+        activity: 'moving N', location: '38SMB4500082000', time: '2026-10-26T01:00:00.000Z', history: [], bda: [] }]);
+    assert.ok(t.includes('light vehicles (2x buses)'), t);
+    assert.ok(t.includes('other vehicles (4x tracked vehicles, 2x wheeled vehicles, 1x tracked vic)'), t);
+});
+
+test('a summary of a kind it does not know is a rollup', () => {
+    const text = core.summaryReport('weekly', [report()], [], { local: false, now: NOW, ato: 'ALPHA' });
+    assert.ok(text.startsWith('ROLLUP - ALPHA\n'), text);
+    assert.ok(!text.includes('undefined'));
 });

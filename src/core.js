@@ -22,11 +22,22 @@ const clockValue = (d, local) => { const f = dateFields(d, local); return `${f.h
 // "YYYYMMDD_HHMMZ" (or "...L"), for export filenames.
 const fileStamp = (d, local) => { const f = dateFields(d, local); return `${f.y}${f.mo}${f.day}_${f.h}${f.mi}${local ? 'L' : 'Z'}`; };
 
+// What the formatters print for a time that is missing or not a time, as
+// the app shows any empty value.
+const NO_TIME = '—';
+// A time as a Date, or null when there is none (null, '', 0) or it is invalid.
+const timeOf = (v) => {
+    if (v === null || v === undefined || v === '' || v === 0 || v === false) return null;
+    const d = v instanceof Date ? v : new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+};
+
 // Report times as shown in the table and copy text: "1430Z" or "0830L".
-// Unparseable input is returned as-is rather than rendered as NaN.
+// Unparseable text is returned as-is rather than rendered as NaN, so it can
+// be seen and fixed; no time at all (or an invalid Date) is NO_TIME.
 const toTimeString = (d, local) => {
-    const x = (d instanceof Date) ? d : new Date(d);
-    if (!x || isNaN(x.getTime())) return String(d);
+    const x = timeOf(d);
+    if (!x) return typeof d === 'string' && d.trim() ? d : NO_TIME;
     const f = dateFields(x, local);
     return `${f.h}${f.mi}${local ? 'L' : 'Z'}`;
 };
@@ -101,36 +112,66 @@ const submittedTime = (typed, local, origIso, now = new Date()) => {
 // A time from a spreadsheet cell as an ISO timestamp, or null when it can't be
 // read. Accepts ISO 8601; "YYYY-MM-DD HH:MM[:SS]" in the active mode; "HH:MM",
 // "HHMM", with an optional Z or L suffix forcing the mode (today's date, via
-// typedTime); and a DTG such as "241430Z", "241430ZOCT26" or "24 1430Z OCT 2026"
-// (missing month or year means the current one).
+// typedTime); and a DTG such as "241430Z", "241430ZOCT26" or "24 1430Z OCT 2026",
+// whose Z or L sets the mode the same way. A date that doesn't exist (31 NOV,
+// 30 FEB) or a clock past 23:59 is null, never rolled into the next month. A
+// DTG without its month (or year) is the latest such date not in the future,
+// with typedTime's hour of slack: "311430Z" read on 1 Nov is 31 Oct.
 const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 const parseCsvTime = (text, local, now = new Date()) => {
     const s = String(text || '').trim();
     if (!s) return null;
-    const valid = d => (isNaN(d.getTime()) ? null : d.toISOString());
+    // A calendar date that exists: day 1 to the month's last.
+    const realDate = (y, mo, day) => mo >= 1 && mo <= 12 && day >= 1 && new Date(Date.UTC(y, mo - 1, day)).getUTCDate() === day;
     let m;
     // Date and time, ISO or with a space. Without a zone, the active mode applies.
-    if ((m = /^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2})(\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i.exec(s))) {
-        const zone = m[6] || (local ? '' : 'Z');
-        return valid(new Date(`${m[1]}T${m[2].padStart(2, '0')}:${m[3]}:${m[4] || '00'}${m[5] || ''}${zone}`));
+    if ((m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2})(\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i.exec(s))) {
+        if (!realDate(+m[1], +m[2], +m[3]) || +m[4] > 23 || +m[5] > 59 || +(m[6] || 0) > 59) return null;
+        const zone = m[8] || (local ? '' : 'Z');
+        const d = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4].padStart(2, '0')}:${m[5]}:${m[6] || '00'}${m[7] || ''}${zone}`);
+        return isNaN(d.getTime()) ? null : d.toISOString();
     }
     if ((m = /^(\d{1,2}):?(\d{2})\s*([ZL])?$/i.exec(s))) {
         const mode = m[3] ? m[3].toUpperCase() === 'L' : local;
         return typedTime(`${m[1]}:${m[2]}`, mode, now);
     }
-    if ((m = /^(\d{2})\s?(\d{2})(\d{2})\s*Z?\s*([A-Z]{3})?\s*(\d{2}|\d{4})?$/i.exec(s))) {
-        const month = m[4] ? MONTHS.indexOf(m[4].toUpperCase()) : now.getUTCMonth();
-        if (month < 0) return null;
-        let year = m[5] ? +m[5] : now.getUTCFullYear();
-        if (year < 100) year += 2000;
-        return valid(new Date(Date.UTC(year, month, +m[1], +m[2], +m[3])));
+    if ((m = /^(\d{2})\s?(\d{2})(\d{2})\s*([ZL])?\s*([A-Z]{3})?\s*(\d{2}|\d{4})?$/i.exec(s))) {
+        const day = +m[1], h = +m[2], mi = +m[3];
+        if (day < 1 || day > 31 || h > 23 || mi > 59) return null;
+        const inLocal = m[4] ? m[4].toUpperCase() === 'L' : local;
+        const month = m[5] ? MONTHS.indexOf(m[5].toUpperCase()) : null;
+        if (month === -1) return null;
+        let year = m[6] ? +m[6] : null;
+        if (year !== null && year < 100) year += 2000;
+        // The time on that day of a month (months past 11 or below 0 roll the
+        // year), or null when the month has no such day.
+        const at = (y, mo) => {
+            const yy = y + Math.floor(mo / 12), mm = ((mo % 12) + 12) % 12;
+            const d = inLocal ? new Date(yy, mm, day, h, mi) : new Date(Date.UTC(yy, mm, day, h, mi));
+            return (inLocal ? d.getDate() : d.getUTCDate()) === day ? d : null;
+        };
+        const nowY = inLocal ? now.getFullYear() : now.getUTCFullYear(), nowM = inLocal ? now.getMonth() : now.getUTCMonth();
+        const past = d => d && d.getTime() - now.getTime() <= 60 * 60 * 1000;
+        let d = null;
+        if (month !== null && year !== null) d = at(year, month);
+        else if (month !== null) {
+            // The month given, in this year or the last that has the day (29 FEB).
+            for (let k = 0; k < 8 && !past(d); k++) d = at(nowY - k, month);
+        } else if (year !== null) d = at(year, nowM);
+        else {
+            // This month, or the last one before it that has the day.
+            for (let k = 0; k < 12 && !past(d); k++) d = at(nowY, nowM - k);
+        }
+        if (year === null) d = past(d) ? d : null;
+        return d ? d.toISOString() : null;
     }
     return null;
 };
 
 // --- Text safety ---
 
-const escapeHtml = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+// Only null and undefined are empty: a count of 0 still shows.
+const escapeHtml = (s) => (s == null ? '' : String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const safeColor  = (c) => /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(String(c)) ? c : 'var(--system-gray)';
 
 // Mirrors the server's _safe() helper, so filenames are interchangeable.
@@ -243,14 +284,13 @@ const BDA_EFFECTS = [
     { name: 'Unknown',       key: '?',    cls: 'unknown' },
 ];
 
-// Split a report's Size into elements and Location into grids, then pair
-// them: equal counts pair positionally; a single grid is shared by every
-// element; anything else leaves the grid blank for the user to fill.
+// Split a report's Size into elements and Location into grids (each as an
+// MGRS grid, "18S UJ 11 11", however it was typed), then pair them: equal
+// counts pair positionally; a single grid is shared by every element;
+// anything else leaves the grid blank for the user to fill.
 const bdaElements = (report) => {
     const els   = String(report.size || '').split(/[,;+]/).map(s => s.trim()).filter(t => t.length >= 2);
-    const raw   = String(report.location || '');
-    const grids = (raw.includes(',') ? raw.split(/[,;]/) : raw.split(/\s+/))
-                    .map(s => s.trim()).filter(t => t.length >= 4);
+    const grids = findGrids(report.location).map(g => g.mgrs);
     return els.slice(0, 20).map((element, i) => ({
         target: element,
         coords: (grids.length === els.length) ? grids[i]
@@ -259,32 +299,30 @@ const bdaElements = (report) => {
     }));
 };
 
-// An element or an assessment as a count and a type: "40x T-72" -> 40 of
-// T-72, "4 BMP-2" -> 4, "truck" -> 1. A number run into a name ("2S19") is
-// part of the name.
+// An element or an assessment as a count and a type, read as the Statistics
+// read a Size (sizePart): "40x T-72" -> 40 of T-72, "4 BMP-2" -> 4, "T-72 x4"
+// -> 4, "truck" -> 1, "0x T-72" -> none. A number run into a name ("2S19") is
+// part of the name. The type is as written, for display.
 const bdaCount = (text) => {
-    const s = String(text || '').trim();
-    const m = /^(\d+)\s*(?:x\s*|\s+)(\S.*)$/i.exec(s);
-    return m && +m[1] > 0 ? { count: +m[1], type: m[2].trim(), counted: true } : { count: 1, type: s, counted: false };
+    const c = sizeCount(String(text || '').trim());
+    return { count: c.count, type: c.text, counted: c.counted };
 };
-// Types match whatever the case, spacing, or a plural "s" ("T-72s").
-const bdaTypeKey = (type) => {
-    let t = String(type || '').trim().replace(/\s+/g, ' ').toUpperCase();
-    if (/[^SU]S$/.test(t) && !/SS$/.test(t)) t = t.slice(0, -1);
-    return t;
-};
+// Types match whatever the case or spacing, and a plural as the Statistics
+// fold it (singularType): "T-72s", "BUSES" and "lorries" are T-72, BUS, LORRY.
+// `team` is the team's equipment (teamEquipment), whose plurals fold too.
+const bdaTypeKey = (type, team = null) => singularType(String(type || '').trim().replace(/\s+/g, ' '), team).toUpperCase();
 
 // What is still to assess: each element less what has been assessed of its
 // type (taken from the elements in order), so 3x destroyed of "40x T-72"
 // leaves "37x T-72". `remaining` of `total`, and the element as it now reads.
-const bdaPending = (report) => {
+const bdaPending = (report, team = null) => {
     const assessed = {};
     (report.bda || []).forEach(b => {
-        const c = bdaCount(b.target), k = bdaTypeKey(c.type);
+        const c = bdaCount(b.target), k = bdaTypeKey(c.type, team);
         if (k) assessed[k] = (assessed[k] || 0) + c.count;
     });
     return bdaElements(report).map(e => {
-        const c = bdaCount(e.target), k = bdaTypeKey(c.type);
+        const c = bdaCount(e.target), k = bdaTypeKey(c.type, team);
         const off = Math.min(c.count, assessed[k] || 0);
         if (k) assessed[k] = (assessed[k] || 0) - off;
         const remaining = c.count - off;
@@ -330,7 +368,7 @@ const BACKUP_END   = '##SALT_BACKUP_END##';
 const BACKUP_DIV = '='.repeat(72), BACKUP_SUB = '─'.repeat(72);
 
 const backupFilename = (ato, title) => `${safeFilename(ato)}_${safeFilename(title)}`;
-const backupTime  = iso => { if (!iso) return '—'; const f = dateFields(new Date(iso), false); return `${f.y}-${f.mo}-${f.day} ${f.h}${f.mi}Z`; };
+const backupTime  = iso => { const d = timeOf(iso); if (!d) return NO_TIME; const f = dateFields(d, false); return `${f.y}-${f.mo}-${f.day} ${f.h}${f.mi}Z`; };
 const backupStamp = (now) => { const f = dateFields(now, false); return `${f.y}-${f.mo}-${f.day} · ${f.h}${f.mi}Z`; };
 
 // Readable entries for the given live reports, in report-number order.
@@ -354,16 +392,42 @@ const backupReportBlocks = (reps) => [...reps].sort((a,b) => reportNum(a) - repo
 const backupMachineData = (payload) =>
     `\n${BACKUP_DIV}\n MACHINE DATA — DO NOT EDIT BELOW THIS LINE\n${BACKUP_DIV}\n${BACKUP_START}\n${JSON.stringify(payload)}\n${BACKUP_END}\n`;
 
+// The overlay types, as the server's _OVERLAY_TYPES, and how deep each
+// geometry's coordinates nest above the [lon, lat] pairs (its _GEOMETRY_DEPTH).
+const OVERLAY_TYPES = new Set(['NAI', 'OBJ', 'PL']);
+const GEOMETRY_DEPTH = { Point: 0, LineString: 1, Polygon: 2, MultiLineString: 2, MultiPolygon: 3 };
+// Whether an overlay is one the server would take: a known type, a name, and
+// coordinates that are all longitude / latitude, no list of them empty.
+// Remembered per object, since every report is read against every overlay.
+const overlayChecked = new WeakMap();
+const overlayOk = (o) => {
+    if (!o || typeof o !== 'object') return false;
+    if (overlayChecked.has(o)) return overlayChecked.get(o);
+    const coordsOk = (c, depth) => (depth === 0
+        ? Array.isArray(c) && (c.length === 2 || c.length === 3) && c.every(v => typeof v === 'number' && Number.isFinite(v))
+            && Math.abs(c[0]) <= 180 && Math.abs(c[1]) <= 90
+        : Array.isArray(c) && c.length > 0 && c.every(p => coordsOk(p, depth - 1)));
+    const g = o.geometry;
+    const depth = g && typeof g === 'object' ? GEOMETRY_DEPTH[g.type] : undefined;
+    const ok = typeof o.type === 'string' && OVERLAY_TYPES.has(o.type) && typeof o.name === 'string' && o.name !== ''
+        && (!('label' in o) || typeof o.label === 'string') && depth !== undefined && coordsOk(g.coordinates, depth);
+    overlayChecked.set(o, ok);
+    return ok;
+};
+// An overlay's place key ("NAI 1", "OBJ GOLD"), read as a typed one is
+// (refName), so overlay "gold" is OBJ GOLD and overlay "01" is NAI 1.
+const overlayKey = (o) => `${o.type} ${refName(o.name)}`;
+
 // The shared overlay list from what a backup or the server holds. A list is
 // the shared set as it is; a dict is the older per-workspace form (ato ->
 // list), folded into one, a later overlay replacing an earlier one of the
-// same type and name.
+// same type and name. Overlays the server wouldn't take are left out.
 const foldOverlays = (value) => {
-    if (Array.isArray(value)) return value.filter(o => o && typeof o === 'object');
+    if (Array.isArray(value)) return value.filter(overlayOk);
     if (!value || typeof value !== 'object') return [];
     const byKey = new Map();
     Object.values(value).forEach(list => (Array.isArray(list) ? list : []).forEach(o => {
-        if (o && typeof o === 'object') byKey.set(`${o.type} ${o.name}`, o);
+        if (overlayOk(o)) byKey.set(overlayKey(o), o);
     }));
     return [...byKey.values()];
 };
@@ -439,7 +503,7 @@ const parseCsv = (csvText) => {
     return arr;
 };
 
-const csvField  = v => `"${String(v||'').replace(/"/g,'""')}"`;
+const csvField  = v => `"${(v == null ? '' : String(v)).replace(/"/g,'""')}"`;
 const csvHeader = (local, extra = []) =>
     `Identifier,UpdateStatus,Size,Activity,MGRS,Time (${local ? 'Local' : 'Z'}),Analysis${extra.map(c => ',' + c).join('')}\r\n`;
 // History entries newest first, labeled "Update #N (Old)" with N counting up from the oldest.
@@ -607,6 +671,7 @@ const gridToLatLon = (zone, band, col, row, digits) => {
 // Svalbard only zones 31, 33, 35 and 37 are used.
 const latLonToMgrs = (lat, lon, digits = 5) => {
     if (!(lat >= -80 && lat <= 84) || !Number.isFinite(lon)) return null;
+    digits = Number.isFinite(Number(digits)) ? Math.max(1, Math.min(5, Math.round(Number(digits)))) : 5;
     lon = ((lon + 180) % 360 + 360) % 360 - 180;
     let zone = Math.min(60, Math.floor((lon + 180) / 6) + 1);
     if (lat >= 56 && lat < 64 && lon >= 3 && lon < 12) zone = 32;
@@ -652,38 +717,60 @@ const findGrids = (text) => {
 // Named places as operators type them: "NAI 1", "nai01", "OBJ GOLD",
 // "Objective Gold", "PL BLUE", "Phase Line Blue". Numbers lose leading zeros,
 // so NAI 01 and NAI 1 are one place. A bare "PL" glued to letters ("PLATOON")
-// is not a phase line; "PL3" is.
+// is not a phase line; "PL3" is. The long forms are words of their own too
+// ("our objective", "the phase line"), so after them a name is a number or
+// starts with a capital ("Objective Silver"); and the common words below are
+// never a name, whatever comes before them ("vic objective area", "obj is
+// clear"). A single letter stays a name: OBJ A is a real objective.
 const REF_TYPES = { NAI: 'NAI', OBJ: 'OBJ', OBJECTIVE: 'OBJ', PL: 'PL', 'PHASE LINE': 'PL' };
 const REF_RE = /(^|[^A-Za-z0-9])(NAI|OBJECTIVE|OBJ|PHASE\s+LINE|PL)(?:\s*[-#:.]\s*|\s+|(?=\d))([A-Za-z0-9]+)/gi;
+const REF_STOP = new Set(['AREA', 'AREAS', 'OF', 'IS', 'WAS', 'ARE', 'THE', 'AN', 'AND', 'OR', 'TO', 'IN', 'ON', 'AT', 'BY', 'FOR',
+    'FROM', 'WITH', 'NEAR', 'INTO', 'ALONG', 'VIC', 'NOT', 'NO', 'CLEAR', 'CLEARED', 'SECURE', 'SECURED', 'TAKEN', 'SEIZED', 'REACHED']);
 const refName = (name) => { const n = String(name).toUpperCase(); return /^\d+$/.test(n) ? String(Number(n)) : n; };
-const findRefs = (text) => {
-    const out = [], seen = new Set();
-    const re = new RegExp(REF_RE.source, 'gi');
+// The place a prefix as typed and the word after it name, or null when the
+// word isn't a name.
+const refOf = (prefix, word) => {
+    const type = REF_TYPES[prefix.toUpperCase().replace(/\s+/g, ' ')];
+    if (!type || !word || REF_STOP.has(word.toUpperCase())) return null;
+    if (prefix.length > 3 && !/^[0-9A-Z]/.test(word)) return null;   // OBJECTIVE, PHASE LINE
+    const name = refName(word);
+    return { type, name, key: `${type} ${name}` };
+};
+// Every place named in some text, in order, with where its prefix starts and
+// its name ends.
+const refMatches = (text) => {
+    const s = String(text || ''), out = [];
+    const re = new RegExp(REF_RE.source, 'gid');
     let m;
-    const s = String(text || '');
     while ((m = re.exec(s))) {
-        const type = REF_TYPES[m[2].toUpperCase().replace(/\s+/g, ' ')];
+        const ref = refOf(m[2], m[3]);
+        if (!ref) continue;
         // "38S PL 12345": the 100 km square of a grid that didn't read as one
         // (a typo), not a phase line.
-        if (type === 'PL' && /\d{1,2}\s*[C-HJ-NP-X]\s*$/i.test(s.slice(0, m.index + m[1].length))) continue;
-        const name = refName(m[3]);
-        const key  = `${type} ${name}`;
-        if (!seen.has(key)) { seen.add(key); out.push({ type, name, key }); }
+        if (ref.type === 'PL' && /\d{1,2}\s*[C-HJ-NP-X]\s*$/i.test(s.slice(0, m.index + m[1].length))) continue;
+        out.push({ ...ref, start: m.indices[2][0], end: m.indices[3][1] });
     }
+    return out;
+};
+const findRefs = (text) => {
+    const out = [], seen = new Set();
+    refMatches(text).forEach(({ type, name, key }) => { if (!seen.has(key)) { seen.add(key); out.push({ type, name, key }); } });
     return out;
 };
 
 // An overlay's name ("NAI 3", "OBJ Gold (bridge)", "Gold") as a place
-// reference. The name is its first word after the prefix, as when typed.
-// Without a prefix, `fallbackType` decides; null when neither does.
+// reference. The name is its first word after the prefix, as when typed (and
+// by the same rules). Without a prefix, `fallbackType` decides, with the
+// first word that isn't a common one; null when neither does.
 const overlayRef = (rawName, fallbackType) => {
     const s = String(rawName || '').trim();
     const m = /^(NAI|OBJECTIVE|OBJ|PHASE\s+LINE|PL)(?:\s*[-#:.]\s*|\s+|(?=\d))([A-Za-z0-9]+)/i.exec(s);
-    const type = m ? REF_TYPES[m[1].toUpperCase().replace(/\s+/g, ' ')] : fallbackType;
-    const word = m ? m[2] : (/[A-Za-z0-9]+/.exec(s) || [])[0];
-    if (!type || !word) return null;
+    const own = m && refOf(m[1], m[2]);
+    if (own) return own;
+    const word = (s.match(/[A-Za-z0-9]+/g) || []).find(w => !REF_STOP.has(w.toUpperCase()));
+    if (!fallbackType || !word) return null;
     const name = refName(word);
-    return { type, name, key: `${type} ${name}` };
+    return { type: fallbackType, name, key: `${fallbackType} ${name}` };
 };
 
 // Ray casting in longitude/latitude: exact enough for areas a few tens of
@@ -726,16 +813,17 @@ const PL_NEAR_METRES = 1000;
 
 // An NAI or OBJ drawn as a path (Google Earth's Add Path, or a ring on its
 // own) is still an area: each path is closed back to its start. A path of
-// fewer than three points stays a line.
+// fewer than three points (or none) stays a line.
 const asArea = (g) => {
     const ring = (line) => {
+        if (!Array.isArray(line) || line.length < 3 || !line.every(Array.isArray)) return null;
         const r = line.slice(), a = r[0], b = r[r.length - 1];
         if (a[0] !== b[0] || a[1] !== b[1]) r.push(a);
         return r.length >= 4 ? [r] : null;
     };
     if (!g) return g;
     if (g.type === 'LineString') { const p = ring(g.coordinates); return p ? { type: 'Polygon', coordinates: p } : g; }
-    if (g.type === 'MultiLineString') {
+    if (g.type === 'MultiLineString' && Array.isArray(g.coordinates)) {
         const ps = g.coordinates.map(ring).filter(Boolean);
         return ps.length ? { type: 'MultiPolygon', coordinates: ps } : g;
     }
@@ -757,8 +845,10 @@ const analyzeLocation = (text, overlays) => {
     points.forEach(p => { rest = rest.slice(0, p.start) + ' '.repeat(p.end - p.start) + rest.slice(p.end); });
     const refs = findRefs(rest);
     const typed = t => refs.filter(r => r.type === t).map(r => r.key);
-    const ovs = (overlays || []).filter(o => o && o.geometry);
-    const keyOf = o => `${o.type} ${o.name}`;
+    // An overlay the server wouldn't take is left out, so one bad shape
+    // can't stop every report being read.
+    const ovs = (overlays || []).filter(overlayOk);
+    const keyOf = overlayKey;
     const contains = (o) => points.some(p => geometryContains(o.geometry, p.lon, p.lat));
     const checks = [];
     const place = (t) => {
@@ -803,8 +893,8 @@ const locationPlan = (text, overlays) => {
     const a = analyzeLocation(text, overlays);
     const plan = { add: [], conflicts: [] };
     if (!a.points.length) return plan;
-    const ovs = (overlays || []).filter(o => o && o.geometry);
-    const keyOf = o => `${o.type} ${o.name}`;
+    const ovs = (overlays || []).filter(overlayOk);
+    const keyOf = overlayKey;
     ['NAI', 'OBJ'].forEach(t => {
         const p = t === 'NAI' ? a.nai : a.obj;
         if (p.from === 'grid') { plan.add.push(...p.keys); return; }
@@ -844,14 +934,7 @@ const editLocation = (text, { replace = {}, add = [] } = {}) => {
         return out;
     };
     if (Object.keys(replace).length) {
-        const re = new RegExp(REF_RE.source, 'gid'), b = blank(s), spans = [];
-        let m;
-        while ((m = re.exec(b))) {
-            const type = REF_TYPES[m[2].toUpperCase().replace(/\s+/g, ' ')];
-            if (type === 'PL' && /\d{1,2}\s*[C-HJ-NP-X]\s*$/i.test(b.slice(0, m.index + m[1].length))) continue;
-            const key = `${type} ${refName(m[3])}`;
-            if (key in replace) spans.push([m.indices[2][0], m.indices[3][1], replace[key]]);
-        }
+        const spans = refMatches(blank(s)).filter(r => r.key in replace).map(r => [r.start, r.end, replace[r.key]]);
         if (spans.length) {
             spans.reverse().forEach(([x, y, to]) => { s = s.slice(0, x) + to + s.slice(y); });
             s = s.replace(/\s*,(\s*,)+\s*/g, ', ').replace(/[ \t]{2,}/g, ' ').replace(/^[\s,;]+|[\s,;]+$/g, '');
@@ -945,28 +1028,48 @@ const inRingXY = (x, y, ring) => {
 // A shapefile as a GeoJSON FeatureCollection in longitude / latitude, with
 // each shape's attributes as its properties: points, lines (PolyLine), and
 // areas (Polygon, holes kept), with or without Z and M. Throws a message for
-// the user when it can't be read.
+// the user when it can't be read: a fragment ("it is not a shapefile") that
+// the caller puts after the file's name.
+const SHP_DAMAGED = 'it is damaged (a shape runs past its end). Export it again';
 const parseShapefile = (shp, dbf, prj, cpg) => {
+    try {
+        return readShapefile(shp, dbf, prj, cpg);
+    } catch (e) {
+        // A count or offset that points outside the file, read anyway.
+        if (e instanceof RangeError) throw new Error(SHP_DAMAGED);
+        throw e;
+    }
+};
+const readShapefile = (shp, dbf, prj, cpg) => {
     const dv = new DataView(shp);
     if (shp.byteLength < 100 || dv.getInt32(0) !== 9994) throw new Error('it is not a shapefile (.shp)');
     const proj = shapefileProjection(prj);
     const rows = dbf ? readDbf(dbf, cpg) : [];
     const features = [];
     for (let p = 100, i = 0; p + 12 <= shp.byteLength; i++) {
-        const start = p + 8, end = start + dv.getInt32(p + 4) * 2;
+        // The content length is in 16-bit words, at least the shape type's two.
+        const words = dv.getInt32(p + 4), start = p + 8, end = start + words * 2;
+        if (words < 2 || end <= p) break;
         p = end;
         if (end > shp.byteLength) break;
+        // Each count is checked against the record before anything is read.
+        const fits = (bytes, ...counts) => { if (counts.some(n => n < 0) || start + bytes > end) throw new Error(SHP_DAMAGED); };
         const type = dv.getInt32(start, true);
         const kind = type === 31 ? 0 : type % 10;  // 1 point, 3 line, 5 area, 8 multipoint (Z, M alike); 31 multipatch
         const xy = (at) => [dv.getFloat64(at, true), dv.getFloat64(at + 8, true)];
         let geometry = null;
-        if (kind === 1) geometry = { type: 'Point', coordinates: xy(start + 4) };
+        if (kind === 1) { fits(20); geometry = { type: 'Point', coordinates: xy(start + 4) }; }
         else if (kind === 8) {
+            fits(40);
             const n = dv.getInt32(start + 36, true);
+            fits(40 + 16 * n, n);
             geometry = { type: 'MultiPoint', coordinates: Array.from({ length: n }, (_, k) => xy(start + 40 + 16 * k)) };
         } else if (kind === 3 || kind === 5) {
+            fits(44);
             const nParts = dv.getInt32(start + 36, true), nPts = dv.getInt32(start + 40, true);
+            fits(44 + 4 * nParts + 16 * nPts, nParts, nPts);
             const parts = Array.from({ length: nParts }, (_, k) => dv.getInt32(start + 44 + 4 * k, true));
+            if (parts.some((s, k) => s < 0 || s > nPts || (k && s < parts[k - 1]))) throw new Error(SHP_DAMAGED);
             const at0 = start + 44 + 4 * nParts;
             const paths = parts.map((s, k) => Array.from({ length: (k + 1 < nParts ? parts[k + 1] : nPts) - s }, (_, m) => xy(at0 + 16 * (s + m))))
                 .filter(path => path.length >= 2);
@@ -1132,8 +1235,10 @@ const pickWmsFormat = (formats) => {
 };
 
 // A service address's parameters, split off: [path, [[key, value], ...]].
+// Only the first "?" starts them; a later one is part of a value.
 const splitQuery = (url) => {
-    const [path, query = ''] = String(url).trim().split('?');
+    const s = String(url).trim(), q = s.indexOf('?');
+    const [path, query] = q < 0 ? [s, ''] : [s.slice(0, q), s.slice(q + 1)];
     return [path, query.split('&').filter(Boolean).map(kv => { const i = kv.indexOf('='); return i < 0 ? [kv, ''] : [kv.slice(0, i), kv.slice(i + 1)]; })];
 };
 const WMS_KEYS = new Set(['SERVICE', 'VERSION', 'REQUEST', 'LAYERS', 'STYLES', 'CRS', 'SRS', 'BBOX', 'WIDTH', 'HEIGHT', 'FORMAT', 'TRANSPARENT']);
@@ -1194,22 +1299,44 @@ const DIR_WORDS = {
     NORTH: 'N', SOUTH: 'S', EAST: 'E', WEST: 'W',
     NORTHEAST: 'NE', NORTHWEST: 'NW', SOUTHEAST: 'SE', SOUTHWEST: 'SW',
 };
-const MOVE_BEFORE_DIR = /\b(?:mov(?:e|es|ed|ing)|mvg|head(?:s|ed|ing)?|travel{1,2}(?:s|ed|ing)?|driv(?:e|es|ing)|advanc(?:e|es|ed|ing)|withdraw(?:s|n|ing)?|retreat(?:s|ed|ing)?|toward(?:s)?|to the|en ?route|transit(?:s|ing)?|proceed(?:s|ing)?|fly(?:ing)?|bearing|brg|az)\s+(?:[a-z]+\s+){0,2}?(north[- ]?(?:east|west)?|south[- ]?(?:east|west)?|east|west|[NSEW]{1,3}|\d{3})(?:°|\s*deg(?:rees)?)?\b/i;
+// Firing words that aren't contact: fire support, a firing position, a
+// cease-fire, a launch site. They don't make a line Firing.
+const NOT_CONTACT = /\b(fire support|fir(e|ing) positions?|cease[- ]?fire|fire teams?|launch (sites?|points?|positions?))\b/gi;
+// Where a line says it is headed. A bearing counts only with a heading word
+// or a unit ("heading 270", "brg 045", "moving 090°"), so "moving 120 trucks"
+// has none; 000 to 360, 360 being north. A direction after a movement word
+// is a whole compass point or word ("moving NE", "to the southeast"), so
+// "moving to new position" has none.
+const HEADING_BEARING = /\b(?:head(?:s|ed|ing)?|hdg|bearing|brg|az(?:imuth)?)(?:\s+of)?\s*:?\s*(\d{3})(?![\d.])(?:\s*(?:°|deg(?:rees)?\b))?/i;
+const MOVE_WORDS_BEFORE = '(?:mov(?:e|es|ed|ing)|mvg|head(?:s|ed|ing)?|travel{1,2}(?:s|ed|ing)?|driv(?:e|es|ing)|advanc(?:e|es|ed|ing)|withdraw(?:s|n|ing)?|retreat(?:s|ed|ing)?|toward(?:s)?|to the|en ?route|transit(?:s|ing)?|proceed(?:s|ing)?|fly(?:ing)?|bearing|brg|az)\\s+(?:[a-z]+\\s+){0,2}?';
+const MOVE_BEARING = new RegExp(`\\b${MOVE_WORDS_BEFORE}(\\d{3})\\s*(?:°|deg(?:rees)?\\b)`, 'i');
+const MOVE_DIR = new RegExp(`\\b${MOVE_WORDS_BEFORE}(north[- ]?(?:east|west)?|south[- ]?(?:east|west)?|east|west|${COMPASS.join('|')})\\b`, 'i');
+const BOUND = /\b(?:([NSEW])B|(north|south|east|west)bound)\b/i;
+// The heading a match gives: { at, heading, headingDeg }, or null.
+const headingFrom = (m, re) => {
+    if (!m) return null;
+    if (re === BOUND) {
+        const heading = m[1] ? m[1].toUpperCase() : DIR_WORDS[m[2].toUpperCase()];
+        return { at: m.index, heading, headingDeg: COMPASS.indexOf(heading) * 22.5 };
+    }
+    const d = m[1].toUpperCase().replace(/[- ]/g, '');
+    if (/^\d{3}$/.test(d)) {
+        if (+d > 360) return null;
+        const deg = +d % 360;
+        return { at: m.index, heading: COMPASS[Math.round(deg / 22.5) % 16], headingDeg: deg };
+    }
+    const heading = DIR_WORDS[d] || (COMPASS.includes(d) ? d : null);
+    return heading ? { at: m.index, heading, headingDeg: COMPASS.indexOf(heading) * 22.5 } : null;
+};
 const classifyActivity = (text) => {
     const s = String(text || '');
-    const tags = ACTIVITY_TAGS.filter(([, re]) => re.test(s)).map(([t]) => t);
-    let heading = null, headingDeg = null, m;
-    if ((m = MOVE_BEFORE_DIR.exec(s))) {
-        const d = m[1].toUpperCase().replace(/[- ]/g, '');
-        if (/^\d{3}$/.test(d)) {
-            if (+d < 360) { headingDeg = +d; heading = COMPASS[Math.round(headingDeg / 22.5) % 16]; }
-        } else if (DIR_WORDS[d] || COMPASS.includes(d)) {
-            heading = DIR_WORDS[d] || d; headingDeg = COMPASS.indexOf(heading) * 22.5;
-        }
-    } else if ((m = /\b(?:([NSEW])B|(north|south|east|west)bound)\b/i.exec(s))) {
-        heading = m[1] ? m[1].toUpperCase() : DIR_WORDS[m[2].toUpperCase()];
-        headingDeg = COMPASS.indexOf(heading) * 22.5;
-    }
+    const notContact = s.replace(NOT_CONTACT, ' ');
+    const tags = ACTIVITY_TAGS.filter(([t, re]) => re.test(t === 'Firing' ? notContact : s)).map(([t]) => t);
+    // The first heading said after a movement or heading word; failing
+    // that, a "-bound" ("NB", "westbound").
+    const said = [HEADING_BEARING, MOVE_BEARING, MOVE_DIR].map(re => headingFrom(re.exec(s), re)).filter(Boolean)
+        .sort((x, y) => x.at - y.at)[0] || headingFrom(BOUND.exec(s), BOUND);
+    const heading = said ? said.heading : null, headingDeg = said ? said.headingDeg : null;
     if (heading && !tags.includes('Moving')) tags.unshift('Moving');
     return { tags, heading, headingDeg };
 };
@@ -1268,17 +1395,32 @@ const arcgisGeoJson = (rows) => JSON.stringify({
     }),
 });
 
+// The numeric fields of the ArcGIS exports (points and tracks), each with
+// its one type: the same layer exported twice has the same fields, whatever
+// the rows hold (a heading or a phase-line distance no row has is still a
+// number). Every other field is text.
+const ARCGIS_NUMBERS = {
+    heading_deg: 'double', precision_m: 'integer', pl_dist_m: 'integer', lat: 'double', lon: 'double',
+    positions: 'integer', length_m: 'integer', bearing_deg: 'integer',
+};
+// A field's kind: 'integer', 'double' or 'text', from ARCGIS_NUMBERS; a
+// field it doesn't name is a number when every value given is one.
+const fieldKind = (name, rows) => {
+    if (Object.prototype.hasOwnProperty.call(ARCGIS_NUMBERS, name)) return ARCGIS_NUMBERS[name];
+    const vals = rows.map(r => r[name]).filter(v => v !== null && v !== undefined && v !== '');
+    if (!vals.length || !vals.every(v => typeof v === 'number' && isFinite(v))) return 'text';
+    return vals.every(Number.isInteger) ? 'integer' : 'double';
+};
+
 // Esri JSON: the format JSON To Features was made for. Every field's type
 // and length is written out, so ArcGIS Pro has nothing to guess. `rows` are
 // the attributes; `geometryOf(row, i)` gives each feature's shape.
 const esriJson = (rows, geometryType, geometryOf) => {
     const cols = rows.length ? Object.keys(rows[0]) : [];
     const fields = cols.map(name => {
+        const kind = fieldKind(name, rows);
+        if (kind !== 'text') return { name, type: kind === 'integer' ? 'esriFieldTypeInteger' : 'esriFieldTypeDouble', alias: name };
         const vals = rows.map(r => r[name]).filter(v => v !== null && v !== undefined && v !== '');
-        if (vals.length && vals.every(v => typeof v === 'number')) {
-            const type = vals.every(Number.isInteger) && !['lat', 'lon'].includes(name) ? 'esriFieldTypeInteger' : 'esriFieldTypeDouble';
-            return { name, type, alias: name };
-        }
         const length = Math.max(1, ...vals.map(v => String(v).length));
         return { name, type: 'esriFieldTypeString', alias: name, length };
     });
@@ -1385,11 +1527,12 @@ const shapefileParts = (rows, shapes, kind) => {
     const cols = rows.length ? Object.keys(rows[0]) : [];
     const names = shpFieldNames(cols);
     const fields = cols.map((c, i) => {
-        const vals = rows.map(r => r[c]).filter(v => v !== null && v !== undefined && v !== '');
-        if (vals.length && vals.every(v => typeof v === 'number' && isFinite(v))) {
-            const dec = vals.every(Number.isInteger) ? 0 : 7;
+        const kind = fieldKind(c, rows);
+        if (kind !== 'text') {
+            const dec = kind === 'integer' ? 0 : 7;
             return { col: c, name: names[i], type: 'N', len: dec ? 19 : 18, dec };
         }
+        const vals = rows.map(r => r[c]).filter(v => v !== null && v !== undefined && v !== '');
         const len = Math.min(254, Math.max(1, ...vals.map(v => enc.encode(String(v)).length)));
         return { col: c, name: names[i], type: 'C', len, dec: 0 };
     });
@@ -1412,7 +1555,13 @@ const shapefileParts = (rows, shapes, kind) => {
         fields.forEach(f => {
             const v = r[f.col];
             if (f.type === 'N') {
-                if (typeof v === 'number' && isFinite(v)) { const s = v.toFixed(f.dec).slice(0, f.len); dbf.set(enc.encode(s), o + f.len - s.length); }
+                // A number too wide for the field gives up decimals, never
+                // its whole part; one that still doesn't fit is left empty.
+                if (typeof v === 'number' && Math.abs(v) < 1e21) {   // larger ones print as "1e+21"
+                    let s = v.toFixed(f.dec);
+                    if (s.length > f.len) s = v.toFixed(Math.max(0, f.dec - (s.length - f.len)));
+                    if (s.length <= f.len) dbf.set(enc.encode(s), o + f.len - s.length);
+                }
             } else if (v !== null && v !== undefined) {
                 dbf.set(utf8Cut(enc, String(v), f.len), o);
             }
@@ -1462,36 +1611,46 @@ const arcgisTracksShapefileZip = (rows, name, now) => shapefileZip(name, shapefi
 
 // Words that say how many, not what: "total of", "approx", "about".
 const SIZE_FILLER = /\b(?:total(?:\s+of)?|approx(?:imately)?|about|around|est(?:imated)?|at\s+least|up\s+to)\b\.?|~/gi;
-// One element: "2x T-72", "4 BMP-2", "vics 10x", "vics x10", "trucks (3)",
-// "truck". `counted` says a number was given.
-const sizePart = (part) => {
+// One element's count and its type as written: "2x T-72", "4 BMP-2", "vics
+// 10x", "vics x10", "trucks (3)", "truck". `counted` says a number was given.
+// A number run into a name ("2S19") is part of the name.
+const sizeCount = (part) => {
     const text = part.replace(SIZE_FILLER, ' ').replace(/\s+/g, ' ').trim();
     let count = 1, type = text, counted = false, m;
-    if ((m = /^(\d+)\s*x?\s*(.+)$/i.exec(text))) { count = Number(m[1]); type = m[2]; counted = true; }
+    if ((m = /^(\d+)\s*(?:x\s*|\s+)(\S.*)$/i.exec(text))) { count = Number(m[1]); type = m[2]; counted = true; }
     else if ((m = /^(.+?)\s+(?:(\d+)\s*x|x\s*(\d+))$/i.exec(text) || /^(.+?)\s*\((\d+)\)$/.exec(text))) {
         count = Number(m[2] || m[3]); type = m[1]; counted = true;
     }
-    type = singularType(type.replace(/^of\s+/i, '').trim());
-    return { count, type: type.toUpperCase(), counted };
+    return { count, text: type.replace(/^of\s+/i, '').trim(), counted };
+};
+// One element as the Statistics count it: its type upper-cased and singular.
+const sizePart = (part, team = null) => {
+    const { count, text, counted } = sizeCount(part);
+    return { count, type: singularType(text, team).toUpperCase(), counted };
 };
 // A plural made singular, so "TANKS" and "tank" are one type. The last word
 // loses its "s" (or "es", or "ies" for "y": buses, lorries) when the
-// catalogue knows the singular and not the word as written (MANPADS stays),
-// or knows more of the whole singular than of the whole as written (RADIO
-// RELAYS, BRIDGE LAYERS; not TANK GLASS), in any case; otherwise only a
-// lower-case "s" goes ("T-72s", where "T-72S" is a variant).
-const singularType = (type) => {
+// catalogue (or the team's equipment, `team`) knows the singular and not the
+// word as written (MANPADS stays), or knows more of the whole singular than
+// of the whole as written (RADIO RELAYS, BRIDGE LAYERS; not TANK GLASS), in
+// any case. Otherwise only a lower-case "s" goes: from a designation ("T-72s",
+// where "T-72S" is a variant), or from a word of four letters or more that
+// doesn't end in "ss", "us", "is" or "as" ("widgets"; not "gas" or "radius").
+const singularType = (type, team = null) => {
+    const known = (t) => knownType(t, team);
     const m = /^(.*?)\b([A-Za-z]{2,})$/.exec(type);
-    if (m && knownType(m[2])) return type;
+    if (m && known(m[2])) return type;
     if (m && /s$/i.test(m[2])) {
-        const whole = knownType(type);
+        const whole = known(type);
         for (const one of [m[2].slice(0, -1), m[2].replace(/es$/i, ''), m[2].replace(/ies$/i, 'y')]) {
-            if (one.length > 1 && one !== m[2] && (knownType(one) || knownType(m[1] + one) > whole)) return m[1] + one;
+            if (one.length > 1 && one !== m[2] && (known(one) || known(m[1] + one) > whole)) return m[1] + one;
         }
     }
-    return /[^su]s$/.test(type) && !/ss$/i.test(type) ? type.slice(0, -1) : type;
+    const last = type.split(' ').pop();
+    const drop = /\d/.test(last) ? /[^su]s$/.test(last) : last.length >= 4 && /s$/.test(last) && !/(ss|us|is|as)$/i.test(last);
+    return drop ? type.slice(0, -1) : type;
 };
-const sizeList = (text) => text.split(/\s*(?:[,;+&]|\band\b|\bwith\b|\bw\/)\s*/i).filter(Boolean).map(sizePart)
+const sizeListOf = (text, team = null) => text.split(/\s*(?:[,;+&]|\band\b|\bwith\b|\bw\/)\s*/i).filter(Boolean).map(p => sizePart(p, team))
     .filter(e => e.type && e.count > 0);
 // The elements of a Size line with their counts: "2x T-72, 4 BMP-2; truck"
 // -> T-72 x2, BMP-2 x4, TRUCK x1. Types are upper-cased, and a plural is made
@@ -1502,9 +1661,12 @@ const sizeList = (text) => text.split(/\s*(?:[,;+&]|\band\b|\bwith\b|\bw\/)\s*/i
 // the breakdown and only what it leaves of the total ("12 vics (5 tanks)":
 // 5 tanks and 7 vics), so nothing is counted twice; brackets that aren't a
 // breakdown ("3x T-72 (one damaged)") are a note, and left out.
-const sizeElements = (size) => {
+// `team` (optional) is the team's equipment (teamEquipment), so its own
+// types fold their plurals too ("3X WIDGETS" and "2x widget").
+const sizeElements = (size, team = null) => {
     const text = String(size || '').trim();
     const plain = ({ count, type }) => ({ count, type });
+    const sizeList = (t) => sizeListOf(t, team);
     // The breakdown, and what it leaves of the total; null when it isn't one.
     const breakdown = (headText, tailText) => {
         const head = sizeList(headText), parts = sizeList(tailText);
@@ -1516,6 +1678,8 @@ const sizeElements = (size) => {
     if (m) {
         const got = breakdown(m[1], m[2] || m[3]);
         if (got) return got;
+        // "trucks (3)": a count in brackets after a type without one.
+        if (m[3] !== undefined && /^\d+$/.test(m[3].trim()) && !/^\d/.test(m[1])) return sizeList(text).map(plain);
         if (m[3] !== undefined) return sizeList(m[1]).map(plain);
     }
     // "Total 10 vics, 5x tanks, 5x APC": a total named as one, then its parts.
@@ -1538,7 +1702,9 @@ const HEADINGS_8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 // cut to the time window). Each report counts once per place, square, tag, or
 // type it names; history is not counted. Lists are sorted largest first.
 //   squareDigits  1 = 10 km squares, 2 = 1 km squares
-const statsData = (reps, overlays, { local, squareDigits = 1 } = {}) => {
+//   team          the team's equipment (teamEquipment), optional, so the
+//                 types it adds fold their plurals as the narrative does
+const statsData = (reps, overlays, { local, squareDigits = 1, team = null } = {}) => {
     const live = (reps || []).filter(r => !r.deleted);
     const tally = () => new Map();
     const add = (map, key, n = 1) => map.set(key, (map.get(key) || 0) + n);
@@ -1559,7 +1725,7 @@ const statsData = (reps, overlays, { local, squareDigits = 1 } = {}) => {
         const act = classifyActivity(r.activity);
         (act.tags.length ? act.tags : ['Untagged']).forEach(t => add(tags, t));
         if (act.headingDeg !== null) headings[Math.round(act.headingDeg / 45) % 8]++;
-        sizeElements(r.size).forEach(e => add(equipment, e.type, e.count));
+        sizeElements(r.size, team).forEach(e => add(equipment, e.type, e.count));
         const d = new Date(r.time);
         if (!isNaN(d.getTime())) {
             const f = dateFields(d, local);
@@ -1636,7 +1802,9 @@ const workbookReportRows = (reps, overlays, { local, idOf, customLabels = [] }) 
 const XLSX_BLUE = '007AFF', XLSX_INK = '1D1D1F', XLSX_INK2 = '6E6E73', XLSX_GRID = 'E5E5EA', XLSX_AXIS = 'D2D2D7';
 const XLSX_FONT = 'Segoe UI';
 const XLSX_BAR_MAX = 10;  // a bar chart shows the top ten; its table has them all
-const xmlText = (s) => String(s).replace(/[^\x09\x0A\x0D\x20-퟿-�\uD800-􏰀-\uDFFF]/g, '')
+// Text as XML holds it: characters XML 1.0 can't (control characters, and a
+// lone half of a surrogate pair) are left out; others, emoji included, stay.
+const xmlText = (s) => String(s).replace(/[^\t\n\r\x20-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu, '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const colName = (i) => { let s = ''; for (i++; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + (i - 1) % 26) + s; return s; };
 const XML_HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
@@ -1772,7 +1940,14 @@ const statsXlsx = ({ title = 'Statistics', context = '', kpis = [], charts = [],
     const { header, rows: repRows } = reports;
     // Table column names must be unique and non-empty.
     const seen = new Set();
-    const heads = header.map((h, i) => { let n = String(h).trim() || `Column ${i + 1}`; while (seen.has(n.toLowerCase())) n += ' 2'; seen.add(n.toLowerCase()); return n; });
+    // A repeated name is numbered: Identifier, Identifier 2, Identifier 3.
+    const heads = header.map((h, i) => {
+        const base = String(h).trim() || `Column ${i + 1}`;
+        let n = base;
+        for (let k = 2; seen.has(n.toLowerCase()); k++) n = `${base} ${k}`;
+        seen.add(n.toLowerCase());
+        return n;
+    });
     const lastCol = colName(Math.max(heads.length, 1) - 1);
     const hasTable = heads.length > 0 && repRows.length > 0;
     const tableRef = `A1:${lastCol}${repRows.length + 1}`;
@@ -1834,13 +2009,16 @@ const statsXlsx = ({ title = 'Statistics', context = '', kpis = [], charts = [],
 // reports always give the same text and nothing is made up. Plain text, for
 // chat, email, a .txt, or print.
 
-// "251800Z OCT 26" (a DTG), or "251800L OCT 26" in local time.
+// "251800Z OCT 26" (a DTG), or "251800L OCT 26" in local time; NO_TIME for
+// no time or an invalid one.
 const dtg = (ms, local) => {
-    const f = dateFields(new Date(ms), local);
+    const d = timeOf(ms);
+    if (!d) return NO_TIME;
+    const f = dateFields(d, local);
     return `${f.day}${f.h}${f.mi}${local ? 'L' : 'Z'} ${MONTHS[+f.mo - 1]} ${String(f.y).slice(2)}`;
 };
 // "251400Z": day and time, so a list crossing midnight still reads in order.
-const dayTime = (ms, local) => { const f = dateFields(new Date(ms), local); return `${f.day}${f.h}${f.mi}${local ? 'L' : 'Z'}`; };
+const dayTime = (ms, local) => { const d = timeOf(ms); if (!d) return NO_TIME; const f = dateFields(d, local); return `${f.day}${f.h}${f.mi}${local ? 'L' : 'Z'}`; };
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const countList = (items) => items.map(i => `${i.label} ${i.value}`).join(', ');
 
@@ -1899,9 +2077,14 @@ const SUMMARY_KINDS = {
 // "previous" period it compares with.
 //   opts: { local, from, to, now, ato, title, by, place, squareDigits, narrative }
 //   (narrative: the team's narrative settings, for the 'narrative' kind;
-//   width: the columns it's wrapped to, 100 unless shown narrower)
+//   width: the columns it's wrapped to, 100 unless shown narrower;
+//   team: the team's equipment (teamEquipment) for counting types, by
+//   default the one in the narrative settings)
+// A kind it doesn't know is a rollup.
 const summaryReport = (kind, reps, overlays, opts) => {
     const { local, from = null, to = null, now = new Date(), ato = '', title = '', by = '', place = '', squareDigits = 2, narrative = null, width = 100 } = opts;
+    if (!Object.prototype.hasOwnProperty.call(SUMMARY_KINDS, kind)) kind = 'rollup';
+    const team = opts.team !== undefined ? opts.team : narrative ? narrativeSettings(narrative).team : null;
     const facts = (reps || []).filter(r => !r.deleted).map(r => reportFacts(r, overlays))
         .filter(f => !isNaN(f.ms)).sort((x, y) => x.ms - y.ms);
     const within = (lo, hi) => facts.filter(f => (lo === null || f.ms >= lo) && (hi === null || f.ms <= hi));
@@ -1910,7 +2093,7 @@ const summaryReport = (kind, reps, overlays, opts) => {
     const prev = span !== null ? within(from - span, from - 1) : null;
     const hrs = span !== null ? Math.round(span / 3600000) : null;
     const prevNote = prev ? `previous ${hrs} hrs: ${prev.length}` : '';
-    const d = statsData(cur.map(f => f.r), overlays, { local, squareDigits });
+    const d = statsData(cur.map(f => f.r), overlays, { local, squareDigits, team });
     const name = kind === 'place' ? `${place || 'PLACE'} ${SUMMARY_KINDS.place}` : SUMMARY_KINDS[kind];
     const period = from === null && to === null ? `ALL REPORTS TO ${dtg(now.getTime(), local)}`
         : `${from === null ? 'START' : dtg(from, local)} TO ${to === null ? dtg(now.getTime(), local) : dtg(to, local)}${hrs ? ` (${hrs} HRS)` : ''}`;
@@ -1992,7 +2175,7 @@ const summaryReport = (kind, reps, overlays, opts) => {
 // Every place the summaries can be about: overlays, and whatever is named.
 const summaryPlaces = (reps, overlays) => {
     const d = statsData(reps, overlays, {});
-    const keys = new Set([...(overlays || []).map(o => `${o.type} ${o.name}`), ...d.nai, ...d.obj, ...d.pl].map(x => x.label || x));
+    const keys = new Set([...(overlays || []).filter(overlayOk).map(overlayKey), ...d.nai, ...d.obj, ...d.pl].map(x => x.label || x));
     const order = { NAI: 0, OBJ: 1, PL: 2 };
     return [...keys].sort((a, b) => order[a.split(' ')[0]] - order[b.split(' ')[0]] || a.localeCompare(b, undefined, { numeric: true }));
 };
@@ -2232,29 +2415,33 @@ const findKey = (keys, w) => {
     const hit = keys.find(k => k.test(w, w.replace(/ /g, '')));
     return hit ? { role: hit.role, origin: hit.origin, name: hit.name } : null;
 };
-// How much of a type as written the catalogue knows: the length of the
-// name it matches (TANK, MANPADS, RADIO RELAY), or 0.
+// How much of a type as written the catalogue (and the team's entries,
+// `team`, when given) knows: the length of the name it matches (TANK,
+// MANPADS, RADIO RELAY), or 0.
 const typesKnown = new Map();
-const knownType = (text) => {
+const knownType = (text, team = null) => {
     const w = normType(text);
     if (!typesKnown.has(w)) {
         const hit = equipmentKeys().find(k => k.test(w, w.replace(/ /g, '')));
         typesKnown.set(w, hit ? hit.len : 0);
     }
-    return typesKnown.get(w);
+    const own = team && team.length ? team.find(k => k.test(w, w.replace(/ /g, ''))) : null;
+    return Math.max(typesKnown.get(w), own ? own.len : 0);
 };
 // { role, origin, name } for a type (T-72B3, 2S19 MSTA-S, trucks), or null.
 // `team` is the team's own entries (teamEquipment), which win over the
 // built-in ones: a type added, or a built-in one put right.
 const lookupEquipment = (type, team = null) => {
     const w = normType(type);
-    // "TANKS", "VICS": a plural in capitals that reaches here as it is (a
-    // team's type, a BDA line) is tried without the S when the whole doesn't match.
-    const bare = /[^SU]S$/.test(w) ? w.slice(0, -1) : null;
-    const find = (keys) => findKey(keys, w) || (bare ? findKey(keys, bare) : null);
-    const own = team && team.length ? find(team) : null;
+    // "TANKS", "VICS": a plural that reaches here as it is (a team's type, a
+    // BDA line) is tried as its singular (singularType, as the Statistics
+    // fold it) when the whole doesn't match.
+    const bareBy = (t) => { const one = normType(singularType(String(type || '').trim(), t)); return one && one !== w ? one : null; };
+    const find = (keys, bare) => findKey(keys, w) || (bare ? findKey(keys, bare) : null);
+    const own = team && team.length ? find(team, bareBy(team)) : null;
     if (own) return own;
-    if (!equipmentSeen.has(w)) equipmentSeen.set(w, find(equipmentKeys()));
+    // The built-in answer doesn't depend on the team, so it is remembered.
+    if (!equipmentSeen.has(w)) equipmentSeen.set(w, find(equipmentKeys(), bareBy(null)));
     return equipmentSeen.get(w);
 };
 // The team's entries ({ type, role, origin }), ready for lookupEquipment.
@@ -2590,10 +2777,13 @@ const TYPE_ACRONYMS = new Set(['PAX', 'IFV', 'APC', 'MBT', 'BMP', 'BTR', 'BRDM',
     'ATGM', 'MLRS', 'MRL', 'SPG', 'AVLB', 'POL', 'CP', 'HQ', 'C2', 'EW', 'ATV', 'UTV', 'SUV', 'ATZ']);
 const NO_PLURAL = new Set(['personnel', 'people', 'men', 'infantry', 'ammo', 'fuel', 'water', 'cargo', 'artillery', 'arty', 'recon', 'supply']);
 const PLURALS = { man: 'men', person: 'people' };
+// A bare "tracked" or "wheeled" reads as the vehicle it describes.
+const BARE_ADJECTIVE = new Set(['TRACKED', 'WHEELED']);
 const typeCount = (type, n, kit) => {
     if (!kit || kit.origin || /\d/.test(type) || TYPE_ACRONYMS.has(type)) return `${n}x ${type}`;
-    const words = type.toLowerCase().split(' '), last = words.pop();
-    const many = n === 1 || NO_PLURAL.has(last) || /s$/.test(last) ? last : PLURALS[last] || last.replace(/([^aeiou])y$/, '$1ie') + 's';
+    const words = (BARE_ADJECTIVE.has(type) ? kit.name : type).toLowerCase().split(' '), last = words.pop();
+    const many = n === 1 || NO_PLURAL.has(last) ? last
+        : PLURALS[last] || (/(s|x|z|ch|sh)$/.test(last) ? `${last}es` : last.replace(/([^aeiou])y$/, '$1ie') + 's');
     return `${n}x ${[...words, many].join(' ')}`;
 };
 
@@ -2601,7 +2791,7 @@ const typeCount = (type, n, kit) => {
 // equipment, the roles in it, its size by kind, and the areas it counts in
 // (its NAIs and OBJs, else its 10 km square, else none).
 const narrativeFacts = (f, team) => {
-    const els = sizeElements(f.r.size).map(e => ({ ...e, kit: lookupEquipment(e.type, team) }));
+    const els = sizeElements(f.r.size, team).map(e => ({ ...e, kit: lookupEquipment(e.type, team) }));
     const groups = {};
     els.forEach(e => { const k = e.kit && ECHELON_KIND[e.kit.role]; if (k) groups[k] = (groups[k] || 0) + e.count; });
     const sq = f.a.points.length ? gridSquare(f.a.points[0].mgrs, 1) : null;
@@ -2641,6 +2831,8 @@ const ruleWords = (words) => new RegExp(`\\b(${String(words).split(',').map(w =>
 // What some equipment can do, by catalogue name, and the words in a report
 // that say the same ("bridging", "jamming").
 const capability = (names, words) => ({ names: new Set(names), words });
+const ATTACK_HELOS = ['Mi-24', 'Mi-35', 'Mi-28', 'Ka-50', 'Ka-52', 'Z-10', 'Z-19', 'Z-21'];
+const LIFT_HELOS = ['Mi-8', 'Mi-17', 'Mi-26', 'Ka-29', 'Z-8', 'Z-18', 'Z-20', 'S-70C2'];
 const CAPABILITIES = {
     uav: capability(['Orlan-10', 'Zala', 'Eleron-3', 'Forpost', 'Granat', 'Takhion', 'Supercam', 'Merlin-VR', 'ASN-206', 'ASN-207', 'ASN-209',
         'BZK-005', 'BZK-006', 'BZK-007', 'BZK-008', 'BZK-009', 'WZ-7', 'TB-001', 'CH-3'],
@@ -2657,11 +2849,15 @@ const CAPABILITIES = {
         /\b(thermobaric|flamethrowers?|shmel)\b/i),
     loitering: capability(['Lancet', 'Geran-2', 'Kub-BLA', 'Gerbera', 'Garpiya', 'Italmas', 'Molniya', 'KVN', 'VT-40', 'Skalpel', 'FPV',
         'CH-901', 'ASN-301', 'CM-501XA', 'WS-43'], /\b(loitering|kamikaze|fpvs?|one[- ]way attack|fib(er|re)[- ]?optic)\b/i),
-    attackAir: capability(['Mi-24', 'Mi-35', 'Mi-28', 'Ka-50', 'Ka-52', 'Su-24', 'Su-25', 'Su-34', 'Yak-130', 'Z-10', 'Z-19', 'Z-21', 'JH-7',
+    // Aircraft, rotary-wing apart from fixed-wing: only helicopters fly from
+    // a FARP or carry an air assault. Attack aviation is either, and armed UAVs.
+    attackHelo: capability(ATTACK_HELOS, /\b(gunships?|attack helicopters?)\b/i),
+    liftHelo: capability(LIFT_HELOS, /\b(transport helicopters?|lift helicopters?)\b/i),
+    helo: capability([...ATTACK_HELOS, ...LIFT_HELOS, 'Mi-2', 'Ka-226', 'Ka-27', 'Ansat', 'Z-9', 'Z-11', 'H120', 'SA342'],
+        /\b(helicopters?|helos?|gunships?)\b/i),
+    attackAir: capability([...ATTACK_HELOS, 'Su-24', 'Su-25', 'Su-34', 'Yak-130', 'JH-7',
         'CH-4', 'CH-5', 'KDV002', 'Wing Loong', 'GJ-11', 'Orion', 'Forpost-R', 'Okhotnik', 'Altius'],
     /\b(gunships?|attack helicopters?|close air support|air ?strikes?)\b/i),
-    liftAir: capability(['Mi-8', 'Mi-17', 'Mi-26', 'Ka-29', 'Z-8', 'Z-18', 'Z-20', 'S-70C2', 'Y-7', 'Y-8', 'Y-9', 'Y-20', 'Il-76', 'An-12',
-        'An-22', 'An-26'], /\b(transport helicopters?|lift helicopters?)\b/i),
     vdv: capability(['BMD-1', 'BMD-2', 'BMD-3', 'BMD-4', 'BTR-D', 'BTR-MD', 'BTR-ZD', 'BTR-RD', '2S9', '2S25', '2S42', 'ZBD-03'], /\b(vdv|paratroop\w*)\b/i),
     airlanding: capability([], /\b(air ?assault|airborne landing|heliborne|landing zone|lz|parachut\w*|air ?drop\w*|landed by helicopter)\b/i),
     amphibious: capability(['ZBD-05', 'ZTD-05', 'ZSD-05', 'Type 63A', 'PT-76', 'K-61'], /\b(amphibious|beach(ed|ing)?|landing craft|naval infantry|marines?|swimming)\b/i),
@@ -2689,8 +2885,7 @@ const CAPABILITIES = {
 };
 const textOf = (f) => `${f.r.size || ''} ${f.r.activity || ''}`;
 const can = (f, cap) => f.els.some(e => e.kit && CAPABILITIES[cap].names.has(e.kit.name)) || CAPABILITIES[cap].words.test(textOf(f));
-// Firing words that aren't contact: fire support, a firing position, a cease-fire.
-const NOT_CONTACT = /\b(fire support|fir(e|ing) positions?|cease[- ]?fire|fire teams?|launch (sites?|points?|positions?))\b/gi;
+// Firing words that aren't contact are NOT_CONTACT, with the activity tags.
 const FIRING_WORDS = ACTIVITY_TAGS.find(([t]) => t === 'Firing')[1];
 // Words some rules look for in a report.
 const LIGHT_WORDS = /\b(motorcycles?|motorbikes?|dirt ?bikes?|buggies|buggy|atvs?|quads?|quad bikes?|utvs?|scooters?|civilian (cars?|vans?|vehicles?))\b/i;
@@ -2870,10 +3065,11 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             judge('amphibious', levelBy(kindsOf(signs), 2, 3), `are preparing or conducting an amphibious landing or crossing near ${area}`, signs, [area]);
         }
         // Air assault: transport helicopters or landings, with airborne vehicles or escorts.
-        const lift = at(f => can(f, 'liftAir')), landing = at(f => can(f, 'airlanding'));
+        // Transport aircraft (Il-76, Y-20) alone are not one: they fly supplies too.
+        const lift = at(f => can(f, 'liftHelo')), landing = at(f => can(f, 'airlanding'));
         if (on('airassault') && (lift.length || landing.length)) {
             const signs = [['transport helicopters', lift], ['an air assault or landing reported', landing],
-                ['airborne (VDV) vehicles or paratroopers', at(f => can(f, 'vdv'))], ['attack helicopters escorting', at(f => can(f, 'attackAir'))]];
+                ['airborne (VDV) vehicles or paratroopers', at(f => can(f, 'vdv'))], ['attack helicopters escorting', at(f => can(f, 'attackHelo'))]];
             judge('airassault', levelBy(kindsOf(signs), 2, 3), {
                 RU: `are conducting or preparing an air assault or airborne landing near ${area} (VDV or air-assault forces)`,
                 CN: `are conducting or preparing an air assault near ${area} (an air-assault brigade)`,
@@ -3049,7 +3245,8 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
                 [['armor, artillery or supplies on trains or at a railhead', trains], ['loading or unloading', unloading]], [area]);
         }
         // A helicopter refueling point: helicopters on the ground with fuel, or a FARP reported.
-        const helos = at(f => (can(f, 'attackAir') || can(f, 'liftAir')) && (has(f, 'Stationary', 'Resupplying') || /\b(landed|on the ground)\b/i.test(f.r.activity || '')));
+        // Fixed-wing aircraft refueling (Su-25s at an airfield) are not one.
+        const helos = at(f => can(f, 'helo') && (has(f, 'Stationary', 'Resupplying') || /\b(landed|on the ground)\b/i.test(f.r.activity || '')));
         const farpSaid = at(f => FARP.test(f.r.activity || ''));
         const fuel = at(f => (f.roles.has('logistics') && FUEL_AMMO.test(textOf(f))) || has(f, 'Resupplying'));
         if (on('farp') && ((helos.length && fuel.length) || farpSaid.length)) {
@@ -3401,18 +3598,27 @@ const unitsFor = (j, units) => {
     return units.filter(u => (!u.places.length || u.places.some(p => at.has(p.toUpperCase())))
         && (!u.kinds.length || u.kinds.some(k => j.list.some(f => f.roles.has(k)))));
 };
-const orList = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`);
+// "A, B or C" and "A, B and C".
+const wordList = (names, word) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} ${word} ${names[names.length - 1]}`);
+const orList = (names) => wordList(names, 'or');
+const andList = (names) => wordList(names, 'and');
 
-// The narrative's settings as the rules use them, with what's unset filled in.
+// The narrative's settings as the rules use them, with what's unset filled
+// in. Settings come from a file or the server, so each value is made the
+// kind the rules need (a count typed as "2" is 2; words given as a list are
+// one comma-separated line), and an entry that still makes no sense is left out.
 const narrativeSettings = (s) => {
     s = s && typeof s === 'object' ? s : {};
     const list = (v) => (Array.isArray(v) ? v : []);
+    const text = (v) => (Array.isArray(v) ? v.map(String).join(', ') : v == null || typeof v === 'object' ? '' : String(v)).trim();
     return {
-        enemy: String(s.enemy || '').trim() || 'enemy forces',
-        units: list(s.units).filter(u => u && u.name).map(u => ({ name: u.name, places: list(u.places), kinds: list(u.kinds) })),
-        team: teamEquipment(list(s.equipment).filter(e => e && e.type && e.role)),
+        enemy: text(s.enemy) || 'enemy forces',
+        units: list(s.units).filter(u => u && text(u.name)).map(u => ({ name: text(u.name), places: list(u.places).map(text).filter(Boolean), kinds: list(u.kinds).map(text).filter(Boolean) })),
+        team: teamEquipment(list(s.equipment).filter(e => e && text(e.type) && text(e.role)).map(e => ({ type: text(e.type), role: text(e.role), origin: text(e.origin) }))),
         off: new Set(list(s.off)),
-        custom: list(s.custom).filter(c => c && c.what && c.words && c.min > 0 && c.hours > 0),
+        custom: list(s.custom).filter(c => c && typeof c === 'object')
+            .map(c => ({ what: text(c.what), words: text(c.words), min: Number(c.min), hours: Number(c.hours) }))
+            .filter(c => c.what && c.words.split(',').some(w => w.trim()) && Number.isFinite(c.min) && c.min > 0 && Number.isFinite(c.hours) && c.hours > 0),
     };
 };
 
@@ -3495,7 +3701,7 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, width = 
             const kinds = EQUIPMENT_ROLES.map(([r]) => r).filter(r => list.some(f => f.roles.has(r))).map(r => label[r]);
             // Whose area it is, from the unit list (not from the reports).
             const whose = set.units.filter(u => u.places.some(q => q.toUpperCase() === p.label.toUpperCase())).map(u => u.name);
-            say(`${p.label}${whose.length ? ` (area of ${orList(whose).replace(/ or /, ' and ')})` : ''}: ${plural(list.length, 'report')}, ${dayTime(list[0].ms, local)} to ${dayTime(list[list.length - 1].ms, local)}`
+            say(`${p.label}${whose.length ? ` (area of ${andList(whose)})` : ''}: ${plural(list.length, 'report')}, ${dayTime(list[0].ms, local)} to ${dayTime(list[list.length - 1].ms, local)}`
                 + `${kinds.length ? `; ${kinds.join(', ')}` : ''}; ${activityLine(list)}.`, '     ', '       ');
         });
     }
@@ -3594,7 +3800,7 @@ const SaltCore = {
     escapeHtml, safeColor, safeFilename,
     atoPrefix, reportNum, formatFullId, reportText, normalizeLocation, mgrsPrefix, applyMgrsPrefix,
     BDA_EFFECTS, bdaElements, bdaSummary, bdaRollup, bdaCount, bdaPending,
-    backupFilename, foldOverlays, backupText, allWorkspacesBackupText, parseBackup,
+    backupFilename, foldOverlays, overlayKey, backupText, allWorkspacesBackupText, parseBackup,
     parseCsv, reportsCsv, mtiCsvs,
     utmToLatLon, gridToLatLon, latLonToMgrs, findGrids, findRefs, overlayRef, geometryContains, metresToGeometry,
     webMercatorToLonLat, readDbf, shapefileProjection, parseShapefile,
