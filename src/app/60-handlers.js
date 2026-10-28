@@ -258,7 +258,8 @@ el.log.body.addEventListener('click', e => {
             : `Couldn't copy ${formatFullId(report)}: the browser blocked the clipboard.`, !ok));
         return;
     }
-    // BDA controls — toggle sub-row, target chip fill, add, delete.
+    // BDA controls — toggle the sub-row, revise an effect, stage and log the
+    // checklist, delete an assessment.
     const bdaToggle = e.target.closest('[data-bda-id]');
     if (bdaToggle) {
         const id = bdaToggle.dataset.bdaId;
@@ -842,9 +843,8 @@ const needsStartupSetup = () => {
 };
 const maybeShowStartupModal = () => { if (needsStartupSetup()) openStartupModal(); };
 
-// Import
-
-// CSV import — column mapping view
+// Import: files come in through the drop area (app/40-io.js). A CSV opens
+// the column mapping view, wired here.
 el.csv.closeBtn  .addEventListener('click', closeCsvImportView);
 el.csv.cancelBtn .addEventListener('click', closeCsvImportView);
 el.csv.confirmBtn.addEventListener('click', confirmCsvImport);
@@ -961,7 +961,7 @@ el.exp.fromTime.addEventListener('blur', formatTimeOnBlur);
 el.exp.toTime  .addEventListener('blur', formatTimeOnBlur);
 el.exp.clearBtn.addEventListener('click', clearExportFilter);
 
-// Quick-range presets (Last 12h / 6h / 1h).
+// Quick-range presets (Last 24h / 12h / 6h / 1h).
 // Writes both the From and To pairs from a single click, honoring the current
 // Zulu/Local time mode so the values line up with what the user sees elsewhere.
 const writeFilterPair = (dateField, timeField, d) => {

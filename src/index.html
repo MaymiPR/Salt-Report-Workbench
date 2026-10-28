@@ -162,7 +162,7 @@
                         <li><strong>Time field</strong>: type <code>HHMM</code> and it auto-formats to <code>HH:MM</code> on blur. Leave it blank and the report gets stamped with the current time when you submit. A typed time gets today&rsquo;s date, unless it is more than an hour ahead of now, in which case it is taken as yesterday&rsquo;s: in Zulu mode the day rolls over during a US evening, so <code>23:50</code> typed at <code>00:30Z</code> means forty minutes ago.</li>
                         <li>Press the blue <strong>Log New Report</strong> button or hit <kbd>Enter</kbd> from any field.</li>
                         <li>After submission: the report <strong>auto-copies to your clipboard</strong> in proper SALT format, ready to paste into a chat or radio script.</li>
-                        <li>Numbering is automatic (highest existing + 1). Override using the small <em>#</em> field next to the form.</li>
+                        <li>Numbering is automatic (highest existing + 1). Override using the small <em>Number</em> box beside <em>New Report</em>.</li>
                         <li><kbd>Esc</kbd> while filling out a new report clears all the fields.</li>
                     </ul>
                     <p class="manual-modes"><strong>Locally:</strong> The report saves to your browser&rsquo;s local storage immediately and stays there until you clear it.</p>
@@ -219,7 +219,7 @@
                 <section class="manual-section">
                     <h3>Working with the Table</h3>
                     <ul>
-                        <li><strong>Click any row</strong> to load it into the form for editing.</li>
+                        <li><strong>Click any row</strong> to load it into the form for editing (or <kbd>Tab</kbd> to its Identifier and press <kbd>Enter</kbd>). If someone else changes it before you press Edit or Update, you&rsquo;re asked whether to keep theirs or overwrite it.</li>
                         <li><strong>Copy button</strong> on each row copies that report to clipboard in SALT format. If the report has been updated, the identifier line includes <em>(Updated)</em> so the recipient knows it&rsquo;s a revised entry, not the original.</li>
                         <li><strong>Chevron (&rsaquo;)</strong> next to a report expands its history below: every prior version with size, activity, location, time, and who saved it.</li>
                         <li><strong>(Updated) tag</strong> under the ID means the report has been changed at least once.</li>
@@ -293,7 +293,7 @@
 
                     <p class="manual-step">Identity tab (person icon)</p>
                     <ul>
-                        <li>Same identity form as the startup modal: initials, tag color, Save.</li>
+                        <li>Same identity form as the startup modal: initials, tag color, <em>Set Initials</em>.</li>
                         <li>Shows the current <strong>Access Code</strong> at the top, hidden as dots until you press <em>Show</em>, with a <em>Copy</em> button that copies it without showing it, for sharing with another editor (display-only: you can&rsquo;t edit it here; that path is the startup modal).</li>
                     </ul>
 
@@ -351,7 +351,7 @@
                         <li>Each shape's type comes from its name (<code>NAI 1</code>, <code>OBJ GOLD</code>, <code>PL BLUE</code>), else from its folder, layer, or file name (<em>NAIs</em>, <em>Phase Lines</em>); lines with neither are phase lines. Review the list, set or change the type of any shape (or Skip it), then <strong>Add</strong>.</li>
                         <li>Areas are NAIs and OBJs; lines are phase lines; points are kept as labels only. An NAI or OBJ drawn as a path (Google Earth's <em>Add Path</em>) is closed back to its start and used as an area. Importing a shape with the same type and name again replaces it, so an updated overlay file just replaces the old one.</li>
                         <li>Overlays are <strong>one set for every workspace</strong>: import them once and every ATO, editor and viewer uses them. They are saved in every workspace's backup file.</li>
-                        <li>The tab groups them as NAIs, Objectives and Phase lines, each with how many reports in the workspace on screen name it. Each group folds, closed to start with: click its header to open it, or the two buttons at the right of <em>Import</em> to open or close them all. <strong>Unload</strong> on a group removes that group; the &times; removes one; <strong>Unload All</strong> removes them all. When one changes, import the new file: it replaces the old one of the same type and name. Reports themselves are never changed by this.</li>
+                        <li>The tab groups them as NAIs, Objectives and Phase lines, each with how many reports in the workspace on screen name it. Each group folds, closed to start with: click its header to open it, or the two buttons at the right of <em>Import</em> to open or close them all. <strong>Unload</strong> on a group removes that group; the &times; removes one for everyone (the first press asks <em>Remove for everyone?</em> in its name, a second removes it, and any other button lets it go); <strong>Unload All</strong> removes them all. When one changes, import the new file: it replaces the old one of the same type and name. Reports themselves are never changed by this.</li>
                     </ul>
                     <p class="manual-step">How the Location box is read</p>
                     <ul>
@@ -469,6 +469,7 @@
                         <li>Changes made while locally run queue in your browser and replay automatically the moment the server comes back.</li>
                         <li>Each change sends only the reports it touched, not the whole workspace, so syncing stays quick however long the operation runs.</li>
                         <li>If the server refuses a report (for example a field longer than it accepts), a red message gives the reason and the report stays in your table marked <strong>Not saved</strong>; hover the mark for the reason. Fix it (Edit or Update) and it is sent again; or click <strong>Discard</strong> (or delete it) to drop the change and get the server's copy back. The rest of your reports keep syncing either way.</li>
+                        <li>Anything else the server doesn&rsquo;t take (the workspace, your identity, the overlays, the report format, an unload) says so and why: <em>Not saved</em>, or <em>Not unloaded</em>. Changes made while it can&rsquo;t be reached say they&rsquo;re saved here; reports are sent, workspace by workspace, as soon as it&rsquo;s back.</li>
                     </ul>
                     <h4 class="manual-subhead">What the Sync Server Does Automatically</h4>
                     <ul>
@@ -550,8 +551,11 @@
                     <ul>
                         <li><kbd>Enter</kbd>: Submit. Update if editing, Log if logging new. In the ATO Designator or Report Title field it presses <em>Set</em> instead.</li>
                         <li><kbd>Ctrl</kbd>+<kbd>Enter</kbd>: Edit (overwrite without history).</li>
-                        <li><kbd>Esc</kbd>: Cancel editing, deselect any selected table rows, clear new-report fields, or (when focused on the search bar) clear the search filter.</li>
+                        <li><kbd>Esc</kbd>: Close whatever is open first (a question or confirmation, which then does nothing; the Settings menu; the User Manual; the CSV column matching; the map&rsquo;s full screen), else cancel editing, deselect any selected table rows, clear new-report fields, or (when focused on the search bar) clear the search filter.</li>
                         <li><kbd>Ctrl</kbd>+<kbd>S</kbd>: Jump to search bar.</li>
+                        <li><kbd>Tab</kbd> to a report&rsquo;s Identifier and press <kbd>Enter</kbd> to load it into the form; <kbd>Tab</kbd> to a column header and press <kbd>Enter</kbd> to sort by it. In the Settings menu, the arrow keys move between its items. While a dialog is open, <kbd>Tab</kbd> stays inside it.</li>
+                        <li><kbd>Shift</kbd> + click on the map copies the grid under the pointer.</li>
+                        <li><kbd>Ctrl</kbd> + scroll (<kbd>&#8984;</kbd> + scroll on a Mac) zooms the map; in full screen a plain scroll does.</li>
                     </ul>
                 </section>
 
@@ -803,7 +807,7 @@
                             </div>
                         </div>
 
-                        <!-- Tab: Identity — same form the header dropdown used; opened by the person icon. -->
+                        <!-- Tab: Identity: your initials and tag color, and the access code to share; opened by the person icon tab. -->
                         <div class="ws-tab-panel" data-tab-panel="identity" style="display:none;">
                             <div class="export-block">
                                 <div class="export-block-label">Report Identity</div>
@@ -851,7 +855,7 @@
                             </div>
                         </div>
 
-                        <!-- Tab: Builder — per-workspace report format editor with live preview. -->
+                        <!-- Tab: Builder: the report format, one for every workspace, with a live preview (app/40-io.js). -->
                         <div class="ws-tab-panel" data-tab-panel="builder" style="display:none;">
                             <div class="export-block">
                                 <div class="export-block-label">Report Format <span id="builderScopeNote"></span></div>
@@ -875,8 +879,7 @@
                             </div>
                         </div>
 
-                        <!-- Tab: Overlays — NAI / OBJ / PL shapes for the workspace (rendered by app/45-overlays.js). -->
-                        <!-- Tab: Map: the ops graphics (NAIs, OBJs, phase lines) and the basemaps, shared by every workspace. -->
+                        <!-- Tab: Map: the ops graphics (NAIs, OBJs, phase lines; app/45-overlays.js) and the basemaps (app/46-map.js), shared by every workspace. -->
                         <div class="ws-tab-panel" data-tab-panel="overlays" style="display:none;">
                             <div class="export-block">
                                 <div class="export-block-label">Ops graphics <span id="overlaysScopeNote"></span></div>

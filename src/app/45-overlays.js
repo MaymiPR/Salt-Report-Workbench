@@ -194,7 +194,6 @@ const readOverlayFile = async (file) => {
 const OVERLAY_TYPES = ['NAI', 'OBJ', 'PL'];
 const SHAPE_LABEL = { Polygon: 'Area', MultiPolygon: 'Area', LineString: 'Line', MultiLineString: 'Line', Point: 'Point', MultiPoint: 'Point' };
 let overlayReview = null;  // { rows: [{ label, geometry, type }], files: [names] }
-// The tab shows the overlays as a list or on a map (app/46-map.js). Per browser.
 
 // The overlay a review row becomes with the type picked for it.
 const reviewOverlay = (row) => {
