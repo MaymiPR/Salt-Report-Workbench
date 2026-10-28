@@ -56,6 +56,9 @@ async function handleFormSubmit(mode) {
     // With MGRS Lock on, grids typed as digits get the locked zone and square.
     const locked = lockedLocation(el.form.location.value);
     if (locked !== el.form.location.value) el.form.location.value = locked;
+    // Toasts from here on (settling the Location, a refused upload) say more
+    // than "logged", which then stays out of their way.
+    const toastsBefore = toastsShown;
     // Name the NAI / OBJ / PL the grid is in, and settle any that disagree.
     const settled = await settleLocation(el.form.location.value);
     if (settled === null) { el.form.location.focus(); return; }
@@ -147,7 +150,6 @@ async function handleFormSubmit(mode) {
     // cover a toast the upload has shown by then (a refusal says more).
     const verb = !idToUpdate || mode === 'new' ? 'logged' : mode === 'edit' ? 'edited' : 'saved';
     const shownId = formatFullId(finalReport);
-    const toastsBefore = toastsShown;
     copying.then(ok => {
         if (toastsShown === toastsBefore) showToast(ok ? `${shownId} ${verb} and copied.` : `${shownId} ${verb}. It couldn't be copied: use Copy on its row.`);
     });

@@ -143,7 +143,10 @@ const settleLocation = async (text) => {
         if (pick === 'both') add.push(...c.found);
     }
     const out = SaltCore.editLocation(text, { replace, add });
-    return out.length <= 500 ? out : text;  // the server's per-field limit
+    if (out.length <= 500) return out;
+    // Past the server's per-field limit: logged as typed, and said why.
+    if (add.length || Object.keys(replace).length) showToast('The places weren\'t added: the Location would be longer than 500 characters.', true);
+    return text;
 };
 
 // The orange Check tag on a logged report: settle it the same way, saved as

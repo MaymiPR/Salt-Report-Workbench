@@ -210,7 +210,8 @@ const renderBuilder = () => {
     if (!box) return;
     const fmt  = currentFormat();
     const note = document.getElementById('builderScopeNote');
-    if (note) note.textContent = activeAto ? `for ${activeAto} (synced to everyone)` : '(set a workspace first)';
+    // One format for every workspace (and everyone), as the Map tab's note says of the overlays.
+    if (note) note.textContent = activeAto ? 'shared by every workspace' : '(set a workspace first)';
     box.innerHTML = fmt.lines.map((l, i) => {
         const name = l.type === 'custom' ? (l.name || l.label) : BUILTIN_LABELS[l.type] || l.type;
         const sub  = l.type === 'id'     ? (i === 0 ? 'header line' : 'U: line')
