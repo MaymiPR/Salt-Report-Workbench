@@ -3,7 +3,7 @@
 """End-to-end tests of the page in a real browser, against the built server.
 
 These cover the DOM layer in ``src/app/``, which the Node tests of
-``core.js`` can't reach. They need Playwright and a Chromium:
+the core (``src/core/``) can't reach. They need Playwright and a Chromium:
 
     pip install playwright && playwright install chromium
     python -m unittest tests.test_browser

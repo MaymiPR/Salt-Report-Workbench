@@ -13,6 +13,11 @@ All notable changes to this project are documented here. The format follows
   numbered in the order they load (two shared a number). Tests check the
   order, that each script is loaded once, and that no two declare one name.
   Nothing the page does changed: the built page holds the same code, moved.
+- **The page's logic is in parts.** The 3,800-line `src/core.js` is now twelve
+  files in `src/core/`, one per subject (dates, reports, geography, the map,
+  exports, statistics, the equipment catalogue, doctrine, the narrative,
+  sync). The build joins them in name order into the same single script, so
+  the page works exactly as before; the Node tests load them the same way.
 
 ## [2.21.0] - 2026-10-28
 

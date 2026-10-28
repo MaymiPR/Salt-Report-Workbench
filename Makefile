@@ -30,7 +30,7 @@ setup-browser:  ## Install Playwright and a Chromium for the browser tests
 lint:  ## Lint Python and syntax-check the JavaScript
 	ruff check .
 	ruff format --check .
-	node --check src/core.js
+	node -e "require('./tests/js/load-core.js')"
 	for f in src/app/*.js; do node --check "$$f" || exit 1; done
 
 format:  ## Auto-format Python

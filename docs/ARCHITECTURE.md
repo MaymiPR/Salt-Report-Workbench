@@ -25,7 +25,7 @@ Three constraints drive almost every decision:
 ├── src/                      Frontend sources (edited by hand)
 │   ├── index.html            Markup and the built-in user manual
 │   ├── styles.css
-│   ├── core.js               Pure logic (formatting, parsing, exports); unit-tested
+│   ├── core/                 Pure logic (formatting, parsing, exports) in parts; unit-tested
 │   └── app/                  DOM, state, and sync: ordered scripts sharing one scope
 │       ├── 10-state.js       Elements, state, helpers, toasts
 │       ├── 20-render.js      The report table, BDA panel and roll-up
@@ -51,7 +51,7 @@ Three constraints drive almost every decision:
 │   ├── build.py              Bundles src/ into dist/index.html, copies the server and launcher
 │   ├── pack.py               Packs a release zip into one self-unpacking text file
 │   └── release.py            Builds a release: the zip, the one-file .txt, and SHA256SUMS.txt
-├── tests/                    Python tests (server, HTTP API, build, pack, release, launcher, browser); js/ for core.js
+├── tests/                    Python tests (server, HTTP API, build, pack, release, launcher, browser); js/ for the core
 ├── assets/                   Logo, icon, banners, social preview (see BRAND.md)
 ├── docs/                     Architecture, install guide, and screenshots
 └── dist/                     Build output (git-ignored)
@@ -60,7 +60,7 @@ Three constraints drive almost every decision:
 ## Components
 
 ```text
-        src/index.html + styles.css + core.js + app/*.js
+        src/index.html + styles.css + core/*.js + app/*.js
                           │  scripts/build.py (inline CSS + JS)
                           ▼
    dist/index.html ◄──── served by ────► dist/salt_sync_server.py
@@ -74,7 +74,7 @@ Three constraints drive almost every decision:
 
 ### Client (`src/`)
 
-`core.js` holds the pure logic: date and time formatting, identifiers, copy
+The core (`src/core/`) holds the pure logic: date and time formatting, identifiers, copy
 text, MGRS clean-up, BDA pairing, backup and CSV generation, parsing, and the
 geography (MGRS to latitude/longitude, reading grids and NAI/OBJ/PL names out of
 a Location box, placing them in overlay areas, activity tags, the ArcGIS
@@ -84,15 +84,26 @@ Statistics panel (`statsData`), the Excel workbook (`statsXlsx`: the
 other zip exports), and the written summaries (`summaryReport`:
 fixed templates over those counts, plus the Narrative below). It
 touches no DOM, storage, or network, so it loads in the page as
-`window.SaltCore` and in Node for `tests/js/`. The rest of the page is
+`window.SaltCore` and in Node for `tests/js/`. It is one function split
+into parts by subject, joined in name order (with a newline between parts)
+by the build and by `tests/js/load-core.js`, so the parts share one scope:
+`00-head.js` (opens the function), `10-dates.js` (dates, times, text safety),
+`20-reports.js` (reports, BDA, backups, CSV), `30-geography.js` (MGRS,
+overlays, Location boxes), `40-map.js` (shapefiles read, tracks, heat,
+activity), `50-arcgis.js` (the ArcGIS and shapefile exports),
+`60-statistics.js` (statistics, the Excel workbook, summary reports),
+`70-catalogue.js` (the equipment catalogue), `75-doctrine.js` (echelons,
+likelihood terms, the built-in rules, doctrine), `80-narrative.js` (the
+narrative), `85-sync.js` (sync bookkeeping) and `90-exports.js` (the
+`SaltCore` object; closes the function). The rest of the page is
 `src/app/`, seventeen top-level scripts loaded in order (state, rendering,
 form, import/export, overlays, the map in five parts, statistics, summary
 reports, the narrative's settings, the map view, sync, handlers, startup) that
 share one global scope, so a name declared in an earlier file is visible in the
 later ones. Their numbers rise in the order the page loads them, and
 `tests/test_build.py` checks that, that each is loaded once, and that no
-top-level name is declared in two of them. Together they hold the whole application state in a handful of top-level
-variables, with `reportsByAto` (every workspace's reports) as the core. Every
+top-level name is declared in two of them. Together they hold the whole
+application state in a handful of top-level variables, with `reportsByAto` (every workspace's reports) as the core. Every
 change is applied locally first and mirrored to `localStorage`, so the UI never
 waits on the network. Rendering is one function per surface, such as `renderLog`
 and `renderWorkspacesList`, that rebuilds its DOM from state into a
@@ -112,7 +123,7 @@ Because merging is idempotent (below), replaying is always safe.
 When the server refuses a batch outright (validation, size), the client
 splits it until it knows exactly which reports were refused, so the rest
 still land. Refused reports go to `salt_unsaved` in localStorage, are laid
-back over the server's copy after every pull (`withUnsaved` in `core.js`),
+back over the server's copy after every pull (`withUnsaved` in `core/85-sync.js`),
 and are marked *Not saved* with the server's reason. A refused version isn't
 re-sent until someone changes it; editing it sends it again, and Discard
 drops it so the server's copy returns. Nothing a user typed is lost, and one
@@ -163,16 +174,16 @@ workspace): `{type: NAI|OBJ|PL, name, label?, geometry}`, with GeoJSON
 geometry in longitude/latitude. Every workspace's backup file carries the
 whole list, and on boot the newest file in that form wins; older files' per-
 workspace dicts are pooled (`fold_overlays` in the server, `foldOverlays` in
-`core.js`). The page converts KML, KMZ and zipped shapefiles (unzipped with
+`core/20-reports.js`). The page converts KML, KMZ and zipped shapefiles (unzipped with
 the browser's `DecompressionStream`), loose shapefile parts, and GeoJSON (Web
 Mercator converted, other projections refused) into that shape before saving,
 so the server only validates: types, name lengths, coordinate ranges, at most
 500 features and 200,000 points. Shapefiles are read by `parseShapefile` in
-`core.js` (.shp geometry, .dbf attributes, .prj to longitude/latitude for
+`core/40-map.js` (.shp geometry, .dbf attributes, .prj to longitude/latitude for
 geographic, Web Mercator and UTM).
 
 Nothing derived is stored. Each Location box is read on the fly by
-`analyzeLocation` in `core.js` (grids, typed names, the areas the grids fall
+`analyzeLocation` in `core/30-geography.js` (grids, typed names, the areas the grids fall
 in, the nearest phase line, and checks where the two disagree), cached in the
 page by text until the overlays change. MGRS uses Krüger's series for UTM and
 picks the northing that lands inside the latitude band, which also refuses
@@ -183,7 +194,7 @@ The map (`app/60-map.js`) draws in screen pixels from Web Mercator, redrawn
 on every pan and zoom. Nothing on it is synced; each browser keeps its own
 choices (`salt_map_layers`, `salt_map_grids`, `salt_map_base`,
 `salt_map_side`, `salt_map_only_in_view`). Tracks, heat and dots come from
-`reportTracks`, `heatPoints` and `reportPositions` in `core.js`: tracks are a
+`reportTracks`, `heatPoints` and `reportPositions` in `core/40-map.js`: tracks are a
 report's versions in reported order; heat and dots are each report once at its
 latest grid (*Latest grids*), or every saved version at its grids (*All
 reports*, `all = true`). The
@@ -217,7 +228,7 @@ it is saved, like anything else typed there.
 
 ### The narrative
 
-The Narrative summary (`narrativeLines` in `core.js`) is rules, not a model:
+The Narrative summary (`narrativeLines` in `core/80-narrative.js`) is rules, not a model:
 the same reports always give the same words, and nothing leaves the page.
 Each report's Size is split into elements and looked up in
 `EQUIPMENT_CATALOGUE` (`lookupEquipment`: a name with a digit matches the
@@ -411,10 +422,13 @@ block the others.
 ## Build
 
 `scripts/build.py` replaces the page's single `<link rel="stylesheet">` and
-`<script src>` tags with inline copies of `styles.css`, `core.js` and the
+`<script src>` tags with inline copies of `styles.css`, the core and the
 `src/app/` scripts, in page order, writes
 `dist/index.html`, and copies the server and the Windows launcher beside it.
-The launcher is written with CRLF line endings whatever the checkout used,
+The page's `<script src="core.js">` names no file: in its place go the parts
+in `src/core/`, joined in name order with a newline between parts
+(`core_source`), and the build stops if a `src/core.js` exists beside them, so
+a stale copy can't ship. The launcher is written with CRLF line endings whatever the checkout used,
 because cmd.exe misparses batch files with bare LF endings. The build fails if
 either placeholder is missing rather than shipping a broken page. The page's
 favicon is an inline data URI for the same reason everything else is inline:

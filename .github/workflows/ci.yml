@@ -29,9 +29,13 @@ jobs:
         run: ruff check --output-format=github .
       - name: Ruff format
         run: ruff format --check .
+      # The core's parts in src/core/ are one function in pieces, so they are
+      # checked joined (as the build joins them), not one by one.
       - name: JavaScript syntax
-        run: for f in src/core.js src/app/*.js; do node --check "$f"; done
-      # The page's pure logic (src/core.js), on Node's built-in test runner.
+        run: |
+          node -e "require('./tests/js/load-core.js')"
+          for f in src/app/*.js; do node --check "$f"; done
+      # The page's pure logic (src/core/), on Node's built-in test runner.
       - name: JavaScript tests
         run: node --test tests/js/core.test.js
 
