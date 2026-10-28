@@ -22,11 +22,22 @@ const clockValue = (d, local) => { const f = dateFields(d, local); return `${f.h
 // "YYYYMMDD_HHMMZ" (or "...L"), for export filenames.
 const fileStamp = (d, local) => { const f = dateFields(d, local); return `${f.y}${f.mo}${f.day}_${f.h}${f.mi}${local ? 'L' : 'Z'}`; };
 
+// What the formatters print for a time that is missing or not a time, as
+// the app shows any empty value.
+const NO_TIME = '—';
+// A time as a Date, or null when there is none (null, '', 0) or it is invalid.
+const timeOf = (v) => {
+    if (v === null || v === undefined || v === '' || v === 0 || v === false) return null;
+    const d = v instanceof Date ? v : new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+};
+
 // Report times as shown in the table and copy text: "1430Z" or "0830L".
-// Unparseable input is returned as-is rather than rendered as NaN.
+// Unparseable text is returned as-is rather than rendered as NaN, so it can
+// be seen and fixed; no time at all (or an invalid Date) is NO_TIME.
 const toTimeString = (d, local) => {
-    const x = (d instanceof Date) ? d : new Date(d);
-    if (!x || isNaN(x.getTime())) return String(d);
+    const x = timeOf(d);
+    if (!x) return typeof d === 'string' && d.trim() ? d : NO_TIME;
     const f = dateFields(x, local);
     return `${f.h}${f.mi}${local ? 'L' : 'Z'}`;
 };
@@ -101,36 +112,66 @@ const submittedTime = (typed, local, origIso, now = new Date()) => {
 // A time from a spreadsheet cell as an ISO timestamp, or null when it can't be
 // read. Accepts ISO 8601; "YYYY-MM-DD HH:MM[:SS]" in the active mode; "HH:MM",
 // "HHMM", with an optional Z or L suffix forcing the mode (today's date, via
-// typedTime); and a DTG such as "241430Z", "241430ZOCT26" or "24 1430Z OCT 2026"
-// (missing month or year means the current one).
+// typedTime); and a DTG such as "241430Z", "241430ZOCT26" or "24 1430Z OCT 2026",
+// whose Z or L sets the mode the same way. A date that doesn't exist (31 NOV,
+// 30 FEB) or a clock past 23:59 is null, never rolled into the next month. A
+// DTG without its month (or year) is the latest such date not in the future,
+// with typedTime's hour of slack: "311430Z" read on 1 Nov is 31 Oct.
 const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 const parseCsvTime = (text, local, now = new Date()) => {
     const s = String(text || '').trim();
     if (!s) return null;
-    const valid = d => (isNaN(d.getTime()) ? null : d.toISOString());
+    // A calendar date that exists: day 1 to the month's last.
+    const realDate = (y, mo, day) => mo >= 1 && mo <= 12 && day >= 1 && new Date(Date.UTC(y, mo - 1, day)).getUTCDate() === day;
     let m;
     // Date and time, ISO or with a space. Without a zone, the active mode applies.
-    if ((m = /^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2})(\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i.exec(s))) {
-        const zone = m[6] || (local ? '' : 'Z');
-        return valid(new Date(`${m[1]}T${m[2].padStart(2, '0')}:${m[3]}:${m[4] || '00'}${m[5] || ''}${zone}`));
+    if ((m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2})(\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i.exec(s))) {
+        if (!realDate(+m[1], +m[2], +m[3]) || +m[4] > 23 || +m[5] > 59 || +(m[6] || 0) > 59) return null;
+        const zone = m[8] || (local ? '' : 'Z');
+        const d = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4].padStart(2, '0')}:${m[5]}:${m[6] || '00'}${m[7] || ''}${zone}`);
+        return isNaN(d.getTime()) ? null : d.toISOString();
     }
     if ((m = /^(\d{1,2}):?(\d{2})\s*([ZL])?$/i.exec(s))) {
         const mode = m[3] ? m[3].toUpperCase() === 'L' : local;
         return typedTime(`${m[1]}:${m[2]}`, mode, now);
     }
-    if ((m = /^(\d{2})\s?(\d{2})(\d{2})\s*Z?\s*([A-Z]{3})?\s*(\d{2}|\d{4})?$/i.exec(s))) {
-        const month = m[4] ? MONTHS.indexOf(m[4].toUpperCase()) : now.getUTCMonth();
-        if (month < 0) return null;
-        let year = m[5] ? +m[5] : now.getUTCFullYear();
-        if (year < 100) year += 2000;
-        return valid(new Date(Date.UTC(year, month, +m[1], +m[2], +m[3])));
+    if ((m = /^(\d{2})\s?(\d{2})(\d{2})\s*([ZL])?\s*([A-Z]{3})?\s*(\d{2}|\d{4})?$/i.exec(s))) {
+        const day = +m[1], h = +m[2], mi = +m[3];
+        if (day < 1 || day > 31 || h > 23 || mi > 59) return null;
+        const inLocal = m[4] ? m[4].toUpperCase() === 'L' : local;
+        const month = m[5] ? MONTHS.indexOf(m[5].toUpperCase()) : null;
+        if (month === -1) return null;
+        let year = m[6] ? +m[6] : null;
+        if (year !== null && year < 100) year += 2000;
+        // The time on that day of a month (months past 11 or below 0 roll the
+        // year), or null when the month has no such day.
+        const at = (y, mo) => {
+            const yy = y + Math.floor(mo / 12), mm = ((mo % 12) + 12) % 12;
+            const d = inLocal ? new Date(yy, mm, day, h, mi) : new Date(Date.UTC(yy, mm, day, h, mi));
+            return (inLocal ? d.getDate() : d.getUTCDate()) === day ? d : null;
+        };
+        const nowY = inLocal ? now.getFullYear() : now.getUTCFullYear(), nowM = inLocal ? now.getMonth() : now.getUTCMonth();
+        const past = d => d && d.getTime() - now.getTime() <= 60 * 60 * 1000;
+        let d = null;
+        if (month !== null && year !== null) d = at(year, month);
+        else if (month !== null) {
+            // The month given, in this year or the last that has the day (29 FEB).
+            for (let k = 0; k < 8 && !past(d); k++) d = at(nowY - k, month);
+        } else if (year !== null) d = at(year, nowM);
+        else {
+            // This month, or the last one before it that has the day.
+            for (let k = 0; k < 12 && !past(d); k++) d = at(nowY, nowM - k);
+        }
+        if (year === null) d = past(d) ? d : null;
+        return d ? d.toISOString() : null;
     }
     return null;
 };
 
 // --- Text safety ---
 
-const escapeHtml = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+// Only null and undefined are empty: a count of 0 still shows.
+const escapeHtml = (s) => (s == null ? '' : String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const safeColor  = (c) => /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(String(c)) ? c : 'var(--system-gray)';
 
 // Mirrors the server's _safe() helper, so filenames are interchangeable.
@@ -330,7 +371,7 @@ const BACKUP_END   = '##SALT_BACKUP_END##';
 const BACKUP_DIV = '='.repeat(72), BACKUP_SUB = '─'.repeat(72);
 
 const backupFilename = (ato, title) => `${safeFilename(ato)}_${safeFilename(title)}`;
-const backupTime  = iso => { if (!iso) return '—'; const f = dateFields(new Date(iso), false); return `${f.y}-${f.mo}-${f.day} ${f.h}${f.mi}Z`; };
+const backupTime  = iso => { const d = timeOf(iso); if (!d) return NO_TIME; const f = dateFields(d, false); return `${f.y}-${f.mo}-${f.day} ${f.h}${f.mi}Z`; };
 const backupStamp = (now) => { const f = dateFields(now, false); return `${f.y}-${f.mo}-${f.day} · ${f.h}${f.mi}Z`; };
 
 // Readable entries for the given live reports, in report-number order.
@@ -1834,13 +1875,16 @@ const statsXlsx = ({ title = 'Statistics', context = '', kpis = [], charts = [],
 // reports always give the same text and nothing is made up. Plain text, for
 // chat, email, a .txt, or print.
 
-// "251800Z OCT 26" (a DTG), or "251800L OCT 26" in local time.
+// "251800Z OCT 26" (a DTG), or "251800L OCT 26" in local time; NO_TIME for
+// no time or an invalid one.
 const dtg = (ms, local) => {
-    const f = dateFields(new Date(ms), local);
+    const d = timeOf(ms);
+    if (!d) return NO_TIME;
+    const f = dateFields(d, local);
     return `${f.day}${f.h}${f.mi}${local ? 'L' : 'Z'} ${MONTHS[+f.mo - 1]} ${String(f.y).slice(2)}`;
 };
 // "251400Z": day and time, so a list crossing midnight still reads in order.
-const dayTime = (ms, local) => { const f = dateFields(new Date(ms), local); return `${f.day}${f.h}${f.mi}${local ? 'L' : 'Z'}`; };
+const dayTime = (ms, local) => { const d = timeOf(ms); if (!d) return NO_TIME; const f = dateFields(d, local); return `${f.day}${f.h}${f.mi}${local ? 'L' : 'Z'}`; };
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const countList = (items) => items.map(i => `${i.label} ${i.value}`).join(', ');
 

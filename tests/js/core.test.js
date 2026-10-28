@@ -33,6 +33,15 @@ test('unparseable times pass through instead of rendering NaN', () => {
     assert.equal(core.toTimeString('yesterday', false), 'yesterday');
 });
 
+test('no time, or an invalid one, prints as a dash in every format', () => {
+    [null, undefined, '', 0, new Date(NaN), NaN].forEach(v => assert.equal(core.toTimeString(v, false), '—', String(v)));
+    [null, undefined, NaN, 'nonsense'].forEach(v => assert.equal(core.dtg(v, false), '—', String(v)));
+    assert.equal(core.dtg(Date.parse('2026-10-25T18:00:00Z'), false), '251800Z OCT 26');
+    const text = core.backupText('ALPHA', [report({ time: null }), report({ id: 'r2', displayId: 'ALPHA002', time: 'garbage' })], 'Patrol', {}, {}, NOW);
+    assert.equal((text.match(/ Time {5}: —\n/g) || []).length, 2, text);
+    assert.ok(!/NaN/.test(text));
+});
+
 test('typed times gain their colon', () => {
     assert.equal(core.autoColon('1430'), '14:30');
     assert.equal(core.autoColon(' 930 '), '09:30');
@@ -101,6 +110,29 @@ test('spreadsheet times are read in the common forms', () => {
     assert.equal(p('2026-13-45 10:00'), null, 'nonsense dates are not guessed');
     const l = core.parseCsvTime('2026-10-24 14:30', true, now);
     assert.equal(new Date(l).getHours(), 14, 'local mode reads the clock as local');
+});
+
+test('spreadsheet times that do not exist are refused, never rolled over', () => {
+    const now = new Date('2026-10-24T20:00:00Z');
+    const p = s => core.parseCsvTime(s, false, now);
+    assert.equal(p('311430ZNOV26'), null, '31 NOV');
+    assert.equal(p('992599Z'), null, 'day 99, hour 25');
+    assert.equal(p('312400Z'), null);
+    assert.equal(p('2026-02-30 10:00'), null, '30 FEB');
+    assert.equal(p('2026-10-24 24:00'), null);
+    assert.equal(p('2028-02-29 10:00'), '2028-02-29T10:00:00.000Z', 'a leap day');
+    // Month or year left out: the latest such date not in the future.
+    const on = (iso, s) => core.parseCsvTime(s, false, new Date(iso));
+    assert.equal(on('2026-11-01T08:00:00Z', '311430Z'), '2026-10-31T14:30:00.000Z', 'on the 1st, the 31st is last month');
+    assert.equal(on('2026-03-02T08:00:00Z', '301200Z'), '2026-01-30T12:00:00.000Z', 'February has no 30th');
+    assert.equal(on('2027-01-01T08:00:00Z', '311430ZDEC'), '2026-12-31T14:30:00.000Z', 'December, last year');
+    assert.equal(on('2026-10-24T20:00:00Z', '242030Z'), '2026-10-24T20:30:00.000Z', 'within the hour ahead: today');
+    assert.equal(on('2026-10-24T20:00:00Z', '252030Z'), '2026-09-25T20:30:00.000Z', 'tomorrow is a month ago');
+    // L reads the DTG in local time, as it does a time alone.
+    const l = new Date(p('241430L'));
+    assert.deepEqual([l.getDate(), l.getHours(), l.getMinutes()], [24, 14, 30]);
+    const l2 = new Date(core.parseCsvTime('241430LOCT26', false, now));
+    assert.deepEqual([l2.getMonth(), l2.getDate(), l2.getHours()], [9, 24, 14]);
 });
 
 // --- Text safety ---
