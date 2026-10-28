@@ -64,6 +64,8 @@ const renderExportPreview = () => {
 
 // Loaded Workspaces list — rendered into both the panel tab and the
 // viewer-mode sidebar. Active workspace highlighted blue.
+// What each workspaces list was last drawn with.
+const workspacesDrawn = new WeakMap();
 const renderWorkspacesList = () => {
     if (!el.workspaces.list && !el.workspaces.sidebarList) return;
     const atos = Object.keys(reportsByAto).filter(a => (reportsByAto[a]||[]).some(r => !r.deleted));
@@ -114,6 +116,8 @@ const renderWorkspacesList = () => {
             const hereHtml = here.length
                 ? `<span class="workspace-here" title="Editors in this workspace">${here.map(escapeHtml).join(', ')}</span>`
                 : '';
+            // Its Unload pressed once: the line under its name asks in its place.
+            const ask = isAsking(`unload|${ato}`);
             // `data-switch-ato` is used by viewer mode (whole row clickable).
             // ACTIVE dot is a flex sibling of the ATO text so it stays pinned
             // beside the title even when long titles ellipsize. SHOWING dot
@@ -125,16 +129,19 @@ const renderWorkspacesList = () => {
                         ${activeTag}
                         ${showingTag ? `<div class="workspace-row-tags">${showingTag}</div>` : ''}
                     </div>
-                    <div class="workspace-row-meta">${sourceHtml}${hereHtml}</div>
+                    <div class="workspace-row-meta">${ask ? '<span class="map-base-ask" role="status">Unload for everyone?</span>' : sourceHtml + hereHtml}</div>
                 </div>
                 <div class="workspace-row-counts"><strong>${live.length}</strong> unique reports<br>${live.length + histTotal} total reports</div>
-                <button type="button" class="workspace-row-unload" data-unload-ato="${escapeHtml(ato)}">Unload</button>
+                <button type="button" class="workspace-row-unload" data-unload-ato="${escapeHtml(ato)}"${ask ? ' data-asking' : ''}>Unload</button>
             </div>`;
         }).join('');
     }
-    // Mirror into both containers (panel tab + viewer sidebar).
-    if (el.workspaces.list)        el.workspaces.list.innerHTML        = html;
-    if (el.workspaces.sidebarList) el.workspaces.sidebarList.innerHTML = html;
+    // Mirror into both containers (panel tab + viewer sidebar). Unchanged,
+    // it's left as it is: every sync draws it, and a row replaced under the
+    // pointer loses the click being made on it.
+    [el.workspaces.list, el.workspaces.sidebarList].forEach(box => {
+        if (box && workspacesDrawn.get(box) !== html) { box.innerHTML = html; workspacesDrawn.set(box, html); }
+    });
 };
 
 // This editor is in no workspace now (theirs was unloaded): they set one
@@ -159,28 +166,62 @@ function renderWhoIsWhere() {
     document.querySelectorAll('.connected-users-chip').forEach(chip => { chip.title = label; });
 }
 
-// Unload a workspace: server POST + local state clear. Active-workspace
-// unload clears `activeAto` and the local config too. Only once the server
-// has unloaded it: a pull would bring back one it still holds.
+// Unload a workspace (its caller has asked first): server POST + local
+// state clear. Active-workspace unload clears `activeAto` and the local
+// config too. Only once the server has unloaded it: a pull would bring back
+// one it still holds. Its backup file on disk is kept either way.
 async function unloadWorkspace(ato) {
     if (isReadOnly) { showToast('View-only mode. Unload is disabled here.', true); return; }
     if (!ato || !reportsByAto[ato]) return;
-    showConfirmation(`Unload workspace "${ato}" from view? (Backup file on disk is preserved.)`, async () => {
-        const res = isLocalFile ? { ok: true } : await apiPost('/api/unload_ato', { ato });
-        if (!res.ok) {
-            if (res.status !== 401) showToast(`Not unloaded: ${res.message}`, true);
-            return;
-        }
-        markPending(ato, false);
-        delete reportsByAto[ato];
-        delete workspaceSources[ato];
-        saveReportsByAtoToLocal();
-        if (ato === activeAto) leaveWorkspace();
-        renderLog();
-        populateAtoHistory();
-        renderWorkspacesList();
-        showToast(`Workspace "${ato}" unloaded.`);
-    });
+    // What Undo sends back: its reports as they are now, and this editor's
+    // place in it.
+    const kept = JSON.parse(JSON.stringify(ato === activeAto ? localReports : reportsByAto[ato]));
+    const mine = ato === activeAto ? { ...localConfig } : null;
+    const res = isLocalFile ? { ok: true } : await apiPost('/api/unload_ato', { ato });
+    if (!res.ok) {
+        if (res.status !== 401) showToast(`Not unloaded: ${res.message}`, true);
+        return;
+    }
+    markPending(ato, false);
+    delete reportsByAto[ato];
+    delete workspaceSources[ato];
+    saveReportsByAtoToLocal();
+    if (ato === activeAto) leaveWorkspace();
+    renderLog();
+    populateAtoHistory();
+    renderWorkspacesList();
+    undoToast(`Workspace "${ato}" unloaded.`, () => undoUnload(ato, kept, mine));
+}
+
+// Undo an unload: its reports go back to the server, all of them (it holds
+// none now), beside any that came back meanwhile. They go as a backup's do,
+// so each keeps its author (a plain save would make the one pressing Undo
+// the author of every report). An editor who was in it is in it again,
+// unless they have set another since.
+async function undoUnload(ato, kept, mine) {
+    const have = reportsByAto[ato] || [];
+    const list = [...have, ...kept.filter(r => !have.some(x => x.id === r.id))];
+    if (!list.length) return;   // an empty push would unload it again
+    delete serverVersions[ato];
+    const queued = await pushWorkspace(ato, list, 'backup') === 'queued';
+    markPending(ato, queued);
+    // A pull while it was sent may have replaced the lists.
+    reportsByAto[ato] = reportsByAto[ato] || list;
+    if (mine && !activeAto) {
+        configChanging = false;
+        activeAto    = ato;
+        localConfig  = mine;
+        localReports = reportsByAto[ato];
+        writeStored('salt_last_active_ato', activeAto);
+        writeStored('salt_offline_config', JSON.stringify(localConfig));
+        loadConfig();
+        apiPost('/api/save_config', { config: mine });
+    }
+    saveReportsByAtoToLocal();
+    renderLog();
+    populateAtoHistory();
+    renderWorkspacesList();
+    undoneToast(`Workspace "${ato}" is back.`, !queued);
 }
 
 // Reset the filter pickers (Clear button + post-export).

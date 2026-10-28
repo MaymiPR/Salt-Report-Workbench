@@ -124,8 +124,9 @@ handler's `_POST_ROUTES` table, paired with a schema validator in
 | --- | --- | --- |
 | `/`, `/index.html` | GET | The bundled page. On the viewer port it is stamped `read-only` before any script runs; for the host's own browser the access code is injected into a `<meta>` tag. |
 | `/Salt%20Report%20Workbench.html` | GET | The same page, under its old single-file name, so old bookmarks still open it. |
-| `/api/sync` | GET | Full state: workspaces, config (the workspace viewers are shown), profiles, the report format, overlays, basemaps, drones, the narrative's settings, sources, the workspaces unloaded since the server started (`unloaded`), connected users, and which workspace each connected editor is in (`connected_where`, initials to ATO). |
-| `/api/events` | GET | Server-Sent Events stream. Each message just says "something changed"; clients then call `/api/sync`. |
+| `/api/sync` | GET | Full state: workspaces, config (the workspace viewers are shown), profiles, the report format, overlays, basemaps, drones, the narrative's settings, sources, the workspaces unloaded since the server started (`unloaded`), connected users, which workspace each connected editor is in (`connected_where`, initials to ATO), the number of the change it is as of (`version`, read before the data, so the answer holds at least that change) and the server's release (`server_version`). |
+| `/api/events` | GET | Server-Sent Events stream. Each message says the newest change's number, `{"v": n}`; a page that already has it doesn't pull, and others call `/api/sync`. Changes within 150 ms of each other go out as one message. |
+| `/api/health` | GET | No code needed, on either port: `{status: ok \| not saving, version, uptime_seconds, last_saved, save_failures, connected_machines, change}`. Nothing about the reports. |
 | `/api/basemap?u=` | GET | An image from an `http://` basemap, for an HTTPS page that can't load it itself. Only from the host of a saved basemap; a redirect followed only on that host (to https, say); images only, up to 16 MB. |
 | `/api/save_reports` | POST | Merge a batch of reports into a workspace. A report that is new or says something new is stamped with the sender's profile as its author; one only deleted or put back keeps the author it has; an import (`source` `backup` or `csv`) keeps its reports' own. |
 | `/api/edit_report` | POST | Overwrite fields of one report in place, without touching its history, stamped with the sender's profile. The page's Edit sends only this; `save_reports` carries it when the server can't be reached. |
@@ -235,9 +236,18 @@ It is never synced.
 
 The server is the meeting point, not the authority over content.
 
-- **Notify, then pull.** SSE messages carry no payload. On `data: update`, a
-  client fetches `/api/sync`. One message type keeps the protocol trivial, and a
-  client that missed events catches up on its next pull.
+- **Notify, then pull.** SSE messages carry only a number: every change
+  anyone can see (the data, or who is connected and where) takes the next one
+  (`broadcast_update`), starting at the boot time in milliseconds so a
+  restarted server's are higher still. On `data: {"v": n}` a client fetches
+  `/api/sync`, unless it already has change `n`. One message type keeps the
+  protocol trivial, and a client that missed events catches up on its next
+  pull. Changes within 150 ms of each other go out as one message.
+- **No answer older than what was seen.** A write's reply carries its
+  change's number (in the body and the `X-Salt-Change` header), and
+  `/api/sync` says the number it is as of. A pull asked for before a save and
+  answered after it is older than the save: the page drops it and asks again,
+  rather than putting the old state back on screen.
 - **Last-modified wins.** Every report carries `lastModified` (epoch
   milliseconds). `_merge_reports` keys reports by `id` (or `displayId` for rows
   that predate UUIDs) and keeps whichever copy is newer; ties go to the incoming
@@ -248,7 +258,8 @@ The server is the meeting point, not the authority over content.
 - **Cached sync payload.** The JSON for workspaces, config, profiles, the
   format, overlays, basemaps, drones and narrative settings is serialized
   once and cached as a byte prefix; only the small per-request tail
-  (connected users, read-only flag) is appended each time. Any mutation
+  (connected users, where they are, read-only flag, the change number and
+  the server's release) is appended each time. Any mutation
   clears the cache. A client that accepts gzip (every browser) gets
   the body compressed, five to eight times smaller; since every client pulls
   the same state after a change, the compressed form is cached too and one

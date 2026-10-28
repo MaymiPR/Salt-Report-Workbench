@@ -19,6 +19,7 @@ import ssl
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.parse
@@ -50,6 +51,10 @@ PL_BLUE = {
 }
 
 
+# An update notice: the number of the latest change.
+NOTICE = rb'^data: \{"v":\d+\}\n$'
+
+
 def reset_state() -> None:
     """Return every piece of module-level server state to a fresh boot."""
     srv.DATA_STORE.clear()
@@ -73,6 +78,11 @@ def reset_state() -> None:
     srv._auth_fail_buckets.clear()
     srv._basemap_buckets.clear()
     srv.invalidate_sync_cache()
+    # A notice or console line still to come from the last test goes with it.
+    for timer in ("_notice_timer", "_machines_timer"):
+        if pending := getattr(srv, timer):
+            pending.cancel()
+            setattr(srv, timer, None)
     srv._dirty_atos = None
     srv._shared_dirty = True
     srv._save_failures = 0
@@ -888,6 +898,64 @@ class StartupTests(unittest.TestCase):
 CODE = "TESTCODE23"
 
 
+class RestoreTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="salt-restore-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        patch = mock.patch.object(srv, "BACKUP_DIR", str(self.tmp))
+        patch.start()
+        self.addCleanup(patch.stop)
+        snaps = self.tmp / "snapshots"
+        snaps.mkdir()
+        for stamp, body in (("20261027_090000Z", "old"), ("20261028_090000Z", "newer")):
+            (snaps / f"{stamp}_ALPHA_Patrol.txt").write_text(body, encoding="utf-8")
+            (snaps / f"{stamp}_Shared settings.json").write_text(body, encoding="utf-8")
+        (snaps / "Superseded_X.txt").write_text("moved", encoding="utf-8")
+        (self.tmp / "ALPHA_Patrol.txt").write_text("live", encoding="utf-8")
+        (self.tmp / "BRAVO_Patrol.txt").write_text("live, made later", encoding="utf-8")
+        (self.tmp / "audit.log").write_text("", encoding="utf-8")
+
+    def restore(self, which, running=False):
+        out = io.StringIO()
+        with (
+            mock.patch.object(srv, "_server_answers", return_value=running),
+            mock.patch("sys.stdout", out),
+        ):
+            return srv.restore_snapshot(which), out.getvalue()
+
+    def test_a_round_replaces_the_backups_which_are_kept(self):
+        code, out = self.restore("20261027_090000Z")
+        self.assertEqual(code, 0, out)
+        live = {p.name: p.read_text(encoding="utf-8") for p in self.tmp.glob("*.txt")}
+        self.assertEqual(live, {"ALPHA_Patrol.txt": "old"}, "the later workspace goes too")
+        self.assertEqual((self.tmp / "Shared settings.json").read_text(encoding="utf-8"), "old")
+        kept = next((self.tmp / "snapshots").glob("before-restore-*"))
+        self.assertEqual(
+            sorted(p.name for p in kept.iterdir()), ["ALPHA_Patrol.txt", "BRAVO_Patrol.txt"]
+        )
+        self.assertIn("restored snapshot 20261027_090000Z", (self.tmp / "audit.log").read_text())
+        # Rounds are pruned by name; the kept copies never are.
+        self.assertEqual(sorted(srv.snapshot_rounds()), ["20261027_090000Z", "20261028_090000Z"])
+
+    def test_latest_list_unknown_and_a_running_server(self):
+        code, _ = self.restore("latest")
+        self.assertEqual(code, 0)
+        self.assertEqual((self.tmp / "ALPHA_Patrol.txt").read_text(encoding="utf-8"), "newer")
+        code, out = self.restore("list")
+        self.assertEqual(code, 0)
+        self.assertLess(out.index("20261028_090000Z"), out.index("20261027_090000Z"))
+        code, out = self.restore("20250101_000000Z")
+        self.assertEqual(code, 1)
+        self.assertIn("No snapshot round named", out)
+        code, out = self.restore("latest", running=True)
+        self.assertEqual(code, 1)
+        self.assertIn("A server is running", out)
+
+    def test_the_flag_runs_it_and_exits(self):
+        with mock.patch.object(sys, "argv", ["salt_sync_server", "--restore", "list"]):
+            self.assertEqual(srv.parse_cli_args().restore, "list")
+
+
 class HttpApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -1164,7 +1232,7 @@ class HttpApiTests(unittest.TestCase):
                 self.assertEqual(self.request("/api/sync")[0], 200)
             with contextlib.closing(self.open_events()) as resp:
                 self.assertEqual(resp.status, 200)
-                self.assertEqual(resp.readline(), b"data: update\n")
+                self.assertRegex(resp.readline(), NOTICE)
 
     def test_map_images_are_rate_limited_on_both_ports(self):
         with (
@@ -1192,7 +1260,7 @@ class HttpApiTests(unittest.TestCase):
                 self.post("/api/save_config", {"config": {"ato": "A", "title": "T"}})
                 for s in streams[1:]:
                     s.readline()
-                    self.assertEqual(s.readline(), b"data: update\n", "the newer ones still flow")
+                    self.assertRegex(s.readline(), NOTICE, "the newer ones still flow")
             finally:
                 for s in streams:
                     s.close()
@@ -1216,7 +1284,7 @@ class HttpApiTests(unittest.TestCase):
                 resp.readline()
                 time.sleep(0.6)  # twice the idle timeout
                 self.post("/api/save_config", {"config": {"ato": "A", "title": "T"}})
-                self.assertEqual(resp.readline(), b"data: update\n")
+                self.assertRegex(resp.readline(), NOTICE)
 
     def test_files_beside_the_server_are_not_exposed(self):
         # Regression: the handler inherited SimpleHTTPRequestHandler, whose HEAD
@@ -2272,7 +2340,7 @@ class HttpApiTests(unittest.TestCase):
     def test_event_stream_opens_with_an_update(self):
         with contextlib.closing(self.open_events()) as resp:
             self.assertEqual(resp.headers["Content-Type"], "text/event-stream")
-            self.assertEqual(resp.readline(), b"data: update\n")
+            self.assertRegex(resp.readline(), NOTICE)
 
     def test_heartbeats_flow_while_the_client_is_quiet(self):
         with (
@@ -2318,6 +2386,66 @@ class HttpApiTests(unittest.TestCase):
             self.assertEqual(self.sync()["connected_where"], {})
         finally:
             resp.close()
+
+    def test_every_change_is_numbered_in_syncs_replies_and_notices(self):
+        first = self.sync()
+        self.assertEqual(first["server_version"], srv.APP_VERSION)
+        status, reply = self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        self.assertEqual(status, 200)
+        self.assertGreater(reply["version"], first["version"])
+        self.assertGreaterEqual(self.sync()["version"], reply["version"])
+        # A write that changes nothing takes no number.
+        cfg = {"config": {"ato": "ALPHA", "title": "Patrol"}}
+        self.post("/api/save_config", cfg)
+        self.assertNotIn("version", self.post("/api/save_config", cfg)[1])
+        # The stream opens with the latest number.
+        with contextlib.closing(self.open_events()) as resp:
+            line = resp.readline()
+        self.assertEqual(json.loads(line[len(b"data: ") :])["v"], srv.current_version())
+
+    def test_changes_close_together_go_out_as_one_notice(self):
+        sent = io.BytesIO()
+        client = srv.SSEClient(sent, "10.0.0.9")
+        with mock.patch.object(srv, "BROADCAST_BATCH_SECONDS", 0.2):
+            srv.sse_clients.append(client)
+            try:
+                versions = [srv.broadcast_update() for _ in range(3)]
+                self.assertEqual(sent.getvalue(), b"", "not yet")
+                self.assertTrue(self.wait_until(lambda: sent.getvalue()))
+                time.sleep(0.3)
+            finally:
+                srv.sse_clients.remove(client)
+        self.assertEqual(sent.getvalue(), b'data: {"v":%d}\n\n' % versions[-1], "one, the newest")
+
+    def test_health_needs_no_code_and_says_whether_it_is_saving(self):
+        for base in (self.base, self.viewer_base):
+            status, raw = self.request("/api/health", base=base, code=None)
+            self.assertEqual(status, 200)
+            health = json.loads(raw)
+            self.assertEqual(health["status"], "ok")
+            self.assertEqual(health["version"], srv.APP_VERSION)
+            self.assertGreaterEqual(health["uptime_seconds"], 0)
+            self.assertIn("last_saved", health)
+            self.assertNotIn("workspaces", health, "nothing about the reports")
+        with mock.patch.object(srv, "_save_failures", 2):
+            self.assertEqual(srv.health()["status"], "not saving")
+        with mock.patch.object(srv, "_last_saved_at", 1793000000.0):
+            self.assertEqual(srv.health()["last_saved"], "2026-10-26T07:33:20Z")
+
+    def test_the_console_lists_the_machines_connected(self):
+        clients = [
+            srv.SSEClient(io.BytesIO(), ip)
+            for ip in ("127.0.0.1", "10.0.0.7", "10.0.0.7", "10.0.0.8")
+        ]
+        srv.client_initials.update({"127.0.0.1": "AB", "10.0.0.7": "CD"})
+        srv.client_workspace.update({"127.0.0.1": "ALPHA"})
+        with mock.patch.object(srv, "sse_clients", clients):
+            self.assertEqual(
+                srv.machines_line(),
+                "[i] Connected (3): AB at this computer in ALPHA; CD at 10.0.0.7; no name at 10.0.0.8",
+            )
+        with mock.patch.object(srv, "sse_clients", []):
+            self.assertEqual(srv.machines_line(), "[i] Nobody is connected.")
 
     def test_the_host_counts_once_with_a_localhost_and_a_lan_tab(self):
         # Regression: the launcher opens the LAN URL, so a host with a

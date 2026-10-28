@@ -65,13 +65,16 @@ const buildBdaRow = (report) => {
                    .filter(th => getComputedStyle(th).display !== 'none').length || 8;
     const entries = (report.bda || []).map(b => {
         const eff = BDA_EFFECTS.find(e => e.name === b.effect) || BDA_EFFECTS[5];
+        // Its delete pressed once: the time and initials ask in their place.
+        const ask = isAsking(`bda|${report.id}|${b.lastModified}`);
         return `<div class="bda-entry" data-entry-lm="${escapeHtml(b.lastModified)}">
             <span class="bda-effect bda-eff-${eff.cls}" data-bda-editopen="${escapeHtml(report.id)}" title="Click to change the assessment">${escapeHtml(b.effect || 'Unknown')}</span>
             <span class="bda-target">${escapeHtml(b.target || '')}</span>
             ${b.coords ? `<span class="bda-coords">${escapeHtml(b.coords)}</span>` : ''}
             ${b.note ? `<span class="bda-note">${escapeHtml(b.note)}</span>` : ''}
-            <span class="bda-meta">${escapeHtml(toZuluTimeString(b.time))}${b.user && b.user.initials ? ' · ' + escapeHtml(b.user.initials) : ''}</span>
-            <button type="button" class="bda-del" data-bda-del="${escapeHtml(report.id)}" data-lm="${escapeHtml(b.lastModified)}" title="Delete assessment">&#10005;</button>
+            ${ask ? '<span class="bda-meta map-base-ask" role="status">Delete for everyone?</span>'
+                : `<span class="bda-meta">${escapeHtml(toZuluTimeString(b.time))}${b.user && b.user.initials ? ' · ' + escapeHtml(b.user.initials) : ''}</span>`}
+            <button type="button" class="bda-del" data-bda-del="${escapeHtml(report.id)}" data-lm="${escapeHtml(b.lastModified)}"${ask ? ' data-asking' : ''} title="Delete assessment" aria-label="Delete ${escapeHtml(b.target || 'assessment')}">&#10005;</button>
         </div>`;
     }).join('');
     // Checklist: one row per element from the report, already paired with its
@@ -166,17 +169,32 @@ const updateBdaEffect = (reportId, lm, effect) => {
     showToast(`${entry.target || 'Assessment'}: ${prev} → ${effect}.`);
 };
 
+// The first press asks, in the entry's row; the second deletes it.
 const deleteBdaEntry = (reportId, lm) => {
     if (isReadOnly) { showToast('View-only mode. BDA delete is disabled here.', true); return; }
     const report = localReports.find(r => r.id === reportId);
-    if (!report || !report.bda) return;
-    showConfirmation('Delete this BDA assessment?', () => {
-        report.bda = report.bda.filter(b => b.lastModified !== lm);
-        report.lastModified = nextStamp(report);
-        reportsByAto[activeAto] = localReports;
-        saveLocalAndSync(reportsByAto);
-        showToast('BDA assessment deleted.');
-    });
+    const at = report && report.bda ? report.bda.findIndex(b => b.lastModified === lm) : -1;
+    if (at < 0) return;
+    if (!askFirst(`bda|${reportId}|${lm}`, renderLog)) return;
+    const gone = report.bda[at];
+    report.bda = report.bda.filter(b => b !== gone);
+    report.lastModified = nextStamp(report);
+    reportsByAto[activeAto] = localReports;
+    saveLocalAndSync(reportsByAto);
+    const ato = activeAto;
+    undoToast('BDA assessment deleted.', () => undoBdaDelete(ato, reportId, gone, at));
+};
+// Put a deleted assessment back where it was, by its report's id (a sync
+// may have replaced the report meanwhile).
+const undoBdaDelete = async (ato, reportId, gone, at) => {
+    const list = reportsByAto[ato];
+    const report = list && list.find(r => r.id === reportId && !r.deleted);
+    if (!report) { showToast('That report is no longer here.', true); return; }
+    const bda = report.bda || [];
+    if (bda.some(b => b.lastModified === gone.lastModified)) { showToast('Nothing left to put back.', true); return; }
+    report.bda = [...bda.slice(0, at), gone, ...bda.slice(at)];
+    report.lastModified = nextStamp(report);
+    undoneToast('BDA assessment put back.', await pushUndone(ato, list));
 };
 
 // The BDA roll-up strip: totals for the whole workspace as chips. Clicking a
@@ -452,6 +470,13 @@ const updateSelectionUI = () => {
     }
     const n = checked.length;
     el.log.deleteBtn.style.display = n > 0 ? 'inline-block' : 'none';
+    // Delete asks on its own face; a changed selection lets the question go.
+    const key = `delete|${[...checked].map(cb => `${cb.dataset.id}|${cb.dataset.lm || ''}`).sort().join()}`;
+    if (askingAbout('delete|') && !isAsking(key)) forgetAsk();
+    const ask = isAsking(key);
+    el.log.deleteBtn.textContent = ask ? `Delete ${n} for everyone?` : 'Delete';
+    el.log.deleteBtn.toggleAttribute('data-asking', ask);
+    el.log.deleteBtn.dataset.ask = key;
     if (activeAto === 'IMPORT' && nMain > 0) {
         const targets = Object.keys(reportsByAto).filter(k => k !== 'IMPORT' && (reportsByAto[k]||[]).some(r => !r.deleted));
         const picked  = el.log.sendSelect.value;   // kept over a redraw

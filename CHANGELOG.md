@@ -6,6 +6,48 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Tools for whoever runs the server.** `docs/OPERATIONS.md` covers the day
+  to day. The console lists the connected machines (initials, address,
+  workspace) as they come and go. `/api/health` says, without the code,
+  whether the server is saving, since when, and how many machines are
+  connected. `--restore <round>` (or `latest`, or `list`) puts a snapshot
+  round back with the server stopped, keeping the backups it replaces in
+  `snapshots/before-restore-<time>/`.
+- **The page says when something needs attention**: a red **Not saving** bar
+  when changes have waited more than 30 seconds for the server, a bar with
+  **Reload** when the page and the server are different versions, and a
+  message for any unexpected error. Closing the tab with changes not yet sent
+  asks first. The version shows beside the connected-users count and on the
+  server console.
+
+### Changed
+
+- **Fewer, smaller syncs.** The server numbers every change. A page that
+  already has the newest one doesn't pull again, and changes within 150 ms of
+  each other send one notice instead of one each.
+- **One way to remove things, everywhere.** Deleting reports or a BDA
+  assessment, removing an overlay, basemap, drone or narrative setting, and
+  unloading overlays or a workspace all ask first in place, with no pop-up:
+  the first press turns the button (or the name beside it) into "... for
+  everyone?", so nothing moves, and a second press removes. Any other button
+  lets the question go. The message that follows has **Undo** for ten
+  seconds, which puts back what was removed, for everyone; an unloaded
+  workspace's reports go back to the server with their own authors, and you
+  are back in it if it was yours.
+
+### Fixed
+
+- **A sync answer that left the server before a save no longer undoes it on
+  screen.** A pull asked for before a change and answered after it put the old
+  state back (a drone just added disappeared, say), and the next change saved
+  from that. The page now drops an answer older than a change it has seen and
+  asks again.
+- **A click on the Workspaces list is no longer lost to a sync.** Every sync
+  drew the list anew, so a button could be replaced between pressing and
+  releasing it; an unchanged list is now left as it is.
+
 ## [2.19.0] - 2026-10-28
 
 ### Added

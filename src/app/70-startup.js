@@ -8,6 +8,31 @@
 // 11. STARTUP
 // Restores saved session state then connects to the server.
 // ═══════════════════════════════════════════════════════════════
+// Anything that goes wrong unexpectedly is said, not left silent (at most
+// one a few seconds, should one fault repeat).
+let lastErrorSaid = 0;
+const sayUnexpected = (what) => {
+    if (Date.now() - lastErrorSaid < 5000) return;
+    lastErrorSaid = Date.now();
+    showToast(`Something went wrong: ${what || 'unknown error'}. Your reports are kept; reload the page if it misbehaves.`, true, { ms: 8000 });
+};
+window.addEventListener('error', e => {
+    // The browser's own layout notice, harmless.
+    if (/ResizeObserver loop/.test(e.message || '')) return;
+    sayUnexpected(e.message || (e.error && e.error.message));
+});
+window.addEventListener('unhandledrejection', e => sayUnexpected(e.reason && e.reason.message ? e.reason.message : String(e.reason)));
+// Closing the tab with changes the server hasn't taken: the browser asks
+// first. They are kept here and sent when it's opened again, but only on
+// this machine, so the others don't see them till then.
+window.addEventListener('beforeunload', e => {
+    const refused = Object.values(unsaved).some(entries => Object.keys(entries).length);
+    if (!changesWaiting() && !(refused && !isReadOnly)) return;
+    e.preventDefault();
+    e.returnValue = '';
+});
+el.status.version.textContent = `v${APP_VERSION}`;
+
 setProfileFromLocalStorage();
 updateTimeBtnText();
 updateSepBtnText();

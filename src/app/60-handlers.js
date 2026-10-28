@@ -350,7 +350,7 @@ el.log.body.addEventListener('change', e => {
     updateSelectionUI();
 });
 
-el.log.deleteBtn.addEventListener('click', () => {
+el.log.deleteBtn.addEventListener('click', async () => {
     // Single pass over the checked boxes — partition into main vs history
     // deletions instead of running two separate `querySelectorAll`s.
     const mainIds = [];
@@ -364,53 +364,53 @@ el.log.deleteBtn.addEventListener('click', () => {
     });
     const total = mainIds.length + histSel.length;
     if (!total) return;
-    showConfirmation(`Delete ${total} item(s)?`, async () => {
-        // A change the server refused can't be deleted on the server (the
-        // deleted version would be refused too), so deleting it discards it.
-        const refusedIds = mainIds.filter(id => { const r = localReports.find(x => x.id === id); return r && unsavedEntry(activeAto, r); });
-        if (refusedIds.length) {
-            discardUnsaved(refusedIds, { confirm: false });
-            refusedIds.forEach(id => mainIds.splice(mainIds.indexOf(id), 1));
-        }
-        // What Undo has to put back. A discarded refused change is gone for good.
-        const ato = activeAto;
-        const undone = { ids: [], history: {} };
-        // ── Main report deletions (soft-delete via the deleted flag) ─────────
-        if (mainIds.length) {
-            const deletedSet = new Set(mainIds);
-            localReports.forEach(r => { if (deletedSet.has(r.id)) { r.deleted = true; r.lastModified = nextStamp(r); undone.ids.push(r.id); } });
-            reportsByAto[activeAto] = localReports;
-            // Prune the history-open Set so deleted report IDs don't linger in
-            // memory across long sessions (no functional impact, just hygiene).
-            mainIds.forEach(id => openHistoryRows.delete(id));
-        }
-        // ── History deletions (filter the history[] arrays in place) ────────
-        if (histSel.length) {
-            const byReport = {};
-            histSel.forEach(s => { (byReport[s.reportId] = byReport[s.reportId] || new Set()).add(s.lastModified); });
-            localReports.forEach(r => {
-                const lms = byReport[r.id];
-                if (lms && r.history && r.history.length) {
-                    const removed = r.history.filter(h => lms.has(h.lastModified));
-                    if (removed.length) undone.history[r.id] = removed;
-                    r.history = r.history.filter(h => !lms.has(h.lastModified));
-                    r.lastModified = nextStamp(r); // bump so server merge prefers our copy
-                }
-            });
-            reportsByAto[activeAto] = localReports;
-            // Tell the server to remove the same entries server-side and broadcast
-            // SSE. Unreachable or refused, the push below carries the same change.
-            await apiPost('/api/delete_history', { ato: activeAto, deletions: histSel });
-        }
-        // Persist locally + push (save_reports merges by lastModified, which we bumped above).
-        clearChecked();
-        const saved = await saveLocalAndSync(reportsByAto);
-        resetForm();
-        updateSelectionUI();
-        const canUndo = undone.ids.length || Object.keys(undone.history).length;
-        showToast(saved || isLocalFile ? `${total} item(s) deleted.` : `${total} item(s) deleted here; the server can't be reached.`,
-            false, canUndo ? { ms: UNDO_MS, undo: () => undoDeletion(ato, undone) } : {});
-    });
+    // The first press asks, on the button itself; the second deletes.
+    if (!askFirst(el.log.deleteBtn.dataset.ask, updateSelectionUI)) return;
+    // A change the server refused can't be deleted on the server (the
+    // deleted version would be refused too), so deleting it discards it.
+    const refusedIds = mainIds.filter(id => { const r = localReports.find(x => x.id === id); return r && unsavedEntry(activeAto, r); });
+    if (refusedIds.length) {
+        discardUnsaved(refusedIds, { confirm: false });
+        refusedIds.forEach(id => mainIds.splice(mainIds.indexOf(id), 1));
+    }
+    // What Undo has to put back. A discarded refused change is gone for good.
+    const ato = activeAto;
+    const undone = { ids: [], history: {} };
+    // ── Main report deletions (soft-delete via the deleted flag) ─────────
+    if (mainIds.length) {
+        const deletedSet = new Set(mainIds);
+        localReports.forEach(r => { if (deletedSet.has(r.id)) { r.deleted = true; r.lastModified = nextStamp(r); undone.ids.push(r.id); } });
+        reportsByAto[activeAto] = localReports;
+        // Prune the history-open Set so deleted report IDs don't linger in
+        // memory across long sessions (no functional impact, just hygiene).
+        mainIds.forEach(id => openHistoryRows.delete(id));
+    }
+    // ── History deletions (filter the history[] arrays in place) ────────
+    if (histSel.length) {
+        const byReport = {};
+        histSel.forEach(s => { (byReport[s.reportId] = byReport[s.reportId] || new Set()).add(s.lastModified); });
+        localReports.forEach(r => {
+            const lms = byReport[r.id];
+            if (lms && r.history && r.history.length) {
+                const removed = r.history.filter(h => lms.has(h.lastModified));
+                if (removed.length) undone.history[r.id] = removed;
+                r.history = r.history.filter(h => !lms.has(h.lastModified));
+                r.lastModified = nextStamp(r); // bump so server merge prefers our copy
+            }
+        });
+        reportsByAto[activeAto] = localReports;
+        // Tell the server to remove the same entries server-side and broadcast
+        // SSE. Unreachable or refused, the push below carries the same change.
+        await apiPost('/api/delete_history', { ato: activeAto, deletions: histSel });
+    }
+    // Persist locally + push (save_reports merges by lastModified, which we bumped above).
+    clearChecked();
+    const saved = await saveLocalAndSync(reportsByAto);
+    resetForm();
+    updateSelectionUI();
+    const canUndo = undone.ids.length || Object.keys(undone.history).length;
+    showToast(saved || isLocalFile ? `${total} item(s) deleted.` : `${total} item(s) deleted here; the server can't be reached.`,
+        false, canUndo ? { ms: UNDO_MS, undo: () => undoDeletion(ato, undone) } : {});
 });
 
 el.log.selectAll.addEventListener('click',   () => { document.querySelectorAll('.row-selector, .history-selector').forEach(cb => { cb.checked=true; keepChecked(cb); });  updateSelectionUI(); el.menu.panel.style.display='none'; });
@@ -536,10 +536,17 @@ el.config.history.addEventListener('change', () => {
     if (sel && sel.value) { el.config.ato.value=sel.value; el.config.title.value=sel.dataset.title||'Report #'; applyAtoConfig(); }
 });
 
+// Clear Workspace unloads this editor's workspace. The first press turns
+// the menu item into the question, and the menu stays open for the second.
+const drawClearBtn = () => {
+    const ask = isAsking(`clear|${activeAto}`);
+    el.menu.clearBtn.textContent = ask ? `Unload ${activeAto} for everyone?` : 'Clear Workspace';
+    el.menu.clearBtn.toggleAttribute('data-asking', ask);
+};
 el.menu.clearBtn.addEventListener('click', () => {
     if (!activeAto) { showToast('No active ATO board to clear.', true); return; }
     if (localReports.filter(r=>!r.deleted).length===0) { showToast('This board is already empty.', true); return; }
-    unloadWorkspace(activeAto);
+    if (askFirst(`clear|${activeAto}`, drawClearBtn)) unloadWorkspace(activeAto);
 });
 
 // Profile
@@ -934,8 +941,13 @@ renderIoPicker();
 const _wireWorkspaceList = (container) => {
     if (!container) return;
     container.addEventListener('click', e => {
+        // The first press asks, in its row; the second unloads it.
         const unloadBtn = e.target.closest('[data-unload-ato]');
-        if (unloadBtn) { unloadWorkspace(unloadBtn.getAttribute('data-unload-ato')); return; }
+        if (unloadBtn) {
+            const ato = unloadBtn.getAttribute('data-unload-ato');
+            if (!isReadOnly && askFirst(`unload|${ato}`, renderWorkspacesList)) unloadWorkspace(ato);
+            return;
+        }
         // In viewer mode, clicking anywhere on a row switches the local view.
         if (isReadOnly) {
             const row = e.target.closest('[data-switch-ato]');
@@ -1035,7 +1047,8 @@ el.menu.bdaBtn.addEventListener('click', () => { bdaMode = !bdaMode; bdaFilter =
 
 // Menus
 setupMenuToggle(el.menu.btn, el.menu.panel);
-el.menu.panel.addEventListener('click', e => { if(e.target.tagName==='BUTTON') el.menu.panel.style.display='none'; });
+// A pick closes it; an item that has just asked its question stays open for the answer.
+el.menu.panel.addEventListener('click', e => { if(e.target.tagName==='BUTTON' && !e.target.hasAttribute('data-asking')) el.menu.panel.style.display='none'; });
 document.addEventListener('click', e => { if(!el.menu.btn.contains(e.target)&&!el.menu.panel.contains(e.target)) el.menu.panel.style.display='none'; });
 // The Settings menu for the keyboard: its button says whether it is open
 // (whatever opened or closed it), opening it puts focus on its first item,

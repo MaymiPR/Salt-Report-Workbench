@@ -649,6 +649,16 @@ body.local-mode .startup-access-divider { display: none; }
 .confirm-btn { background-color: var(--system-red); }
 .cancel-btn { background-color: var(--input-bg); color: var(--text-primary); }
 
+/* Bars for what needs attention (not saving, another release): fixed at the
+   top, above the page, until it's dealt with. */
+.status-bars { position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 2600; display: flex; flex-direction: column; gap: 6px; width: min(720px, calc(100vw - 32px)); margin-top: 8px; pointer-events: none; }
+.status-bar { pointer-events: auto; background-color: var(--glass-bg); border: 1px solid var(--glass-border); backdrop-filter: blur(16px); color: #fff; border-radius: 12px; padding: 10px 16px; font-size: 0.9em; font-weight: 500; text-align: center; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+.status-bar[hidden] { display: none; }
+.status-bar-error { background-color: #c0261c; border-color: rgba(255, 255, 255, 0.12); }
+.status-bar button { margin-left: 10px; padding: 4px 14px; border-radius: 100px; font-size: 0.85em; font-weight: 600; }
+/* The release, small beside who is connected. */
+.app-version { font-size: 0.7em; font-weight: 400; color: var(--text-secondary); white-space: nowrap; }
+
 /* Review fixes: toasts, dialogs, table access */
 /* An error toast: a red dark enough for white text (5.9:1). */
 .toast.toast-error { background-color: #c0261c; border-color: rgba(255, 255, 255, 0.12); }
@@ -1265,6 +1275,11 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-drone-grid, .map-drone-grid-in { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
 .map-drone-grid { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .map-drone-grid-in { margin: 0; padding: 5px 8px; font-size: 0.95em; }
+/* Remove pressed once: the question sits where its grid was, over a hidden
+   copy of the box, so the row keeps its height and nothing moves. */
+.map-drone-ask { display: grid; align-items: center; min-width: 0; }
+.map-drone-ask > * { grid-area: 1 / 1; }
+.map-drone-ask .map-drone-grid-in { visibility: hidden; }
 /* Under each drone: where it's looking and its range. */
 .map-drone-sub { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 64px; align-items: center; gap: 8px; padding: 2px 2px 6px; border-bottom: 1px solid var(--divider); font-size: 0.84em; }
 .map-drone-row:has(+ .map-drone-sub) { border-bottom: none; }

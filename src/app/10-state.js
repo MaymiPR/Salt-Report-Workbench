@@ -49,7 +49,15 @@ const el = {
         dot:          document.getElementById('status-dot'),
         dotExp:       document.getElementById('status-dot-export'),
         userCount:    document.getElementById('connected-users-count'),
+        version:      document.getElementById('appVersion'),
         userCountExp: document.getElementById('connected-users-count-export'),
+    },
+    // Bars for what needs attention (renderStatusBars in app/50-sync.js).
+    bars: {
+        notSaving:   document.getElementById('notSavingBar'),
+        version:     document.getElementById('versionBar'),
+        versionText: document.getElementById('versionBarText'),
+        reloadBtn:   document.getElementById('versionReloadBtn'),
     },
     // Identity form, plus the display-only access-code row with Copy button.
     profile: {
@@ -503,9 +511,18 @@ const copyToClipboard = async (text) => {
 };
 // POST a JSON body to the sync server. Resolves to the Response whatever its
 // status; rejects only when the server can't be reached.
+// This release. The server says its own in every sync; when they differ,
+// a bar asks for a reload (the server's tests/test_docs.py checks they agree).
+const APP_VERSION = '2.19.0';
+// The server numbers every change (see broadcast_update in the server):
+// `syncedVersion` is the change the data on screen is as of, `seenVersion`
+// the newest heard of, from update notices and this page's own saves. A
+// pull answer older than one seen is out of date before it lands.
+let syncedVersion = 0, seenVersion = 0;
+const noteChange = (v) => { if (typeof v === 'number' && v > seenVersion) seenVersion = v; };
 const postJson = (path, body) => fetch(path, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-});
+}).then(res => { noteChange(Number(res.headers.get('X-Salt-Change')) || 0); return res; });
 // POST and say how it went: { ok, status, message }, where message is the
 // server's reason when it gives one. Never throws: a server that can't be
 // reached is status 0. A rejected access code (401) re-prompts for it.
@@ -684,3 +701,59 @@ const showConfirmation = (msg, onConfirm) => {
 };
 el.toast.confirmBtn.addEventListener('click', () => { const run = pendingConfirm; hideConfirmation(); if (run) run(); });
 el.toast.cancelBtn .addEventListener('click', hideConfirmation);
+
+// --- Removing: asked in place, then Undo ---
+// Every remove asks first, on the control itself: the first press turns it
+// (or the name beside it) into "… for everyone?" where it is, so nothing
+// else moves; a second press removes, and the toast then offers Undo. Any
+// other button pressed lets the question go. One control asks at a time:
+// `key` names it, and `redraw` draws its owner with or without the
+// question. The asking control carries data-asking, and keeps focus over
+// the redraw, so the second press can come from the keyboard.
+let askNow = null;   // { key, redraw }
+const isAsking = (key) => !!askNow && askNow.key === key;
+const askingAbout = (prefix) => (askNow && askNow.key.startsWith(prefix) ? askNow.key : null);
+const forgetAsk = () => { askNow = null; };
+// Said to screen readers: a control that is its own question says it here
+// (a row's question is said by its own role="status").
+const askSaid = document.createElement('div');
+askSaid.className = 'visually-hidden';
+askSaid.setAttribute('role', 'status');
+document.body.appendChild(askSaid);
+// Draw, and give focus back to the control that had it, found again by its
+// id and data attributes when the drawing replaced it.
+const refocusAfter = (draw) => {
+    const had = document.activeElement;
+    draw();
+    const now = document.activeElement;
+    if (!had || had === document.body || had.isConnected || (now && now !== document.body)) return;
+    const named = [...had.attributes].filter(a => (a.name === 'id' || a.name.startsWith('data-')) && a.name !== 'data-asking')
+        .map(a => `[${a.name}="${CSS.escape(a.value)}"]`).join('');
+    const again = named && [...document.querySelectorAll(had.tagName.toLowerCase() + named)].find(n => n.getClientRects().length);
+    if (again) again.focus({ preventScroll: true });
+};
+// True on the second press (go ahead); the first press asks, and is false.
+const askFirst = (key, redraw) => {
+    if (isAsking(key)) { askNow = null; askSaid.textContent = ''; refocusAfter(redraw); return true; }
+    if (askNow) { const was = askNow.redraw; askNow = null; refocusAfter(was); }
+    askNow = { key, redraw };
+    refocusAfter(redraw);
+    const q = document.querySelector('[data-asking]');
+    const text = q ? q.textContent.trim() : '';
+    askSaid.textContent = text.endsWith('?') ? text : '';
+    return false;
+};
+const letGo = () => {
+    if (!askNow) return;
+    const { redraw } = askNow;
+    askNow = null;
+    askSaid.textContent = '';
+    refocusAfter(redraw);
+};
+// Any other button pressed: let go before its own handler runs.
+document.addEventListener('click', e => {
+    const b = askNow && e.target.closest && e.target.closest('button');
+    if (b && !b.hasAttribute('data-asking')) letGo();
+}, true);
+// The toast that offers Undo after a removal.
+const undoToast = (msg, undo) => showToast(msg, false, { ms: UNDO_MS, undo });
