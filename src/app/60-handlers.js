@@ -6,6 +6,30 @@
 
 // --- 10. Event handlers ---
 
+// Someone saved the report in the form after it was loaded. Resolves 'mine'
+// (write over theirs), 'theirs' (theirs is loaded into the form instead), or
+// null for Cancel.
+const askEditConflict = async (theirs) => {
+    const who = (theirs.user && theirs.user.initials) || 'Someone';
+    const now = [theirs.size, theirs.activity, theirs.location].filter(Boolean).join(' · ');
+    const pick = await askChoice(`${who} changed this report since you opened it`,
+        `${formatFullId(theirs)} now reads ${now}.`,
+        [{ label: 'Keep theirs', value: 'theirs', primary: true }, { label: 'Overwrite theirs', value: 'mine' }]);
+    if (pick === 'theirs') loadReportForEditing(theirs.id);
+    return pick;
+};
+
+// The form's values put back over a report loaded for editing.
+const refillForm = (data) => {
+    el.form.size.value     = data.size;
+    el.form.activity.value = data.activity;
+    el.form.location.value = data.location;
+    el.form.analysis.value = data.yourAnalysis || '';
+    el.form.time.value     = clockValue(new Date(data.time), timeDisplayMode === 'local');
+    document.querySelectorAll('#salt-fields [data-custom-label]').forEach(i => { i.value = (data.custom || {})[i.dataset.customLabel] || ''; });
+    renderLocationHints();
+};
+
 // Form submit. `mode`: 'new' (log new), 'edit' (overwrite, no history),
 // 'update' (snapshot old values to history[]).
 async function handleFormSubmit(mode) {
@@ -37,8 +61,17 @@ async function handleFormSubmit(mode) {
     if (settled === null) { el.form.location.focus(); return; }
     if (settled !== el.form.location.value) { el.form.location.value = settled; renderLocationHints(); }
 
-    let reports = [...localReports];
     const idToUpdate = el.form.reportId.value;
+    // Changed by someone else since it was loaded: ask before writing over it.
+    if (idToUpdate && (mode === 'edit' || mode === 'update') && editingVersion && editingVersion.id === idToUpdate) {
+        const cur = localReports.find(r => r.id === idToUpdate);
+        if (cur && !cur.deleted && editedFields(cur) !== editingVersion.fields) {
+            if (await askEditConflict(cur) !== 'mine') return;
+            editingVersion = { id: cur.id, fields: editedFields(cur) };
+        }
+    }
+
+    let reports = [...localReports];
     const timeValue  = el.form.time.value.trim();
     // An edited report whose time box was left alone keeps its timestamp;
     // a typed time gets today's date, or yesterday's when it is more than an
@@ -117,9 +150,11 @@ async function handleFormSubmit(mode) {
     // Edit mode also hits the dedicated server route so the server can apply a
     // surgical overwrite (no history mutation) and broadcast SSE to peers. The
     // subsequent saveLocalAndSync push still runs as a safety net via merge.
-    // Unreachable or refused, the save_reports push below reconciles or says why.
+    // Unreachable or refused, the save_reports push below reconciles or says
+    // why. A 409 is the server holding a newer version than the one edited:
+    // fetch it and ask, as when the change is seen before submitting.
     if (editTargetId && finalReport) {
-        await apiPost('/api/edit_report', {
+        const res = await apiPost('/api/edit_report', {
             ato:      activeAto,
             reportId: editTargetId,
             fields: {
@@ -138,6 +173,19 @@ async function handleFormSubmit(mode) {
                 lastModified: now
             }
         });
+        if (res.status === 409) {
+            await syncWithServer();
+            const theirs = localReports.find(r => r.id === editTargetId && !r.deleted);
+            if (!theirs) { showToast('That report no longer exists. Another operator may have deleted it.', true); return; }
+            const pick = await askEditConflict(theirs);
+            if (pick === 'theirs') return;
+            // Mine, or Cancel: this edit goes back in the form over theirs;
+            // mine is then saved again, past their version.
+            loadReportForEditing(theirs.id);
+            refillForm(data);
+            if (pick === 'mine') await handleFormSubmit(mode);
+            return;
+        }
     }
 
     // Await the push so a stale broadcast from another client can't clobber the

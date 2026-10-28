@@ -164,7 +164,15 @@ const fixReportLocation = async (id) => {
     await saveLocalAndSync(reportsByAto);
 };
 
+// The report in the form, as it was when loaded: { id, fields }, where fields
+// is what the form edits. A submit that finds it changed since (someone
+// else's Update, or a sync from before) asks before writing over it.
+let editingVersion = null;
+const editedFields = (r) => JSON.stringify([r.size, r.activity, r.location, r.time, r.yourAnalysis || '',
+    r.custom || {}, r.displayId, r.title]);
+
 const resetForm = () => {
+    editingVersion = null;
     el.form.root.reset();
     el.form.reportId.value = '';
     el.form.title.textContent = 'New Report';
@@ -199,6 +207,7 @@ const loadReportForEditing = (reportId) => {
     el.form.editingNote.title = note;
     el.form.editingNote.hidden = false;
     el.form.reportId.value    = report.id;
+    editingVersion = { id: report.id, fields: editedFields(report) };
     el.form.startNum.value = reportNum(report) || 1;
     el.form.size.value     = report.size;
     el.form.activity.value = report.activity;
