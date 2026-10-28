@@ -199,7 +199,10 @@ const summaryFileName = () =>
         if (kind) { finishEditing(); summaryKind = kind.dataset.summaryKind; writeStored('salt_summary_kind', JSON.stringify(summaryKind)); renderSummary(); return; }
         const preset = e.target.closest('[data-summary-hours]');
         if (preset) { fillWindow(s, +preset.dataset.summaryHours); renderSummary(); return; }
-        if (e.target.closest('#summaryCopyBtn')) { copyToClipboard(shownSummary()); showToast('Report copied.'); return; }
+        if (e.target.closest('#summaryCopyBtn')) {
+            copyToClipboard(shownSummary()).then(ok => showToast(ok ? 'Report copied.' : "Couldn't copy the report: the browser blocked the clipboard.", !ok));
+            return;
+        }
         if (e.target.closest('#summarySaveBtn')) { triggerDownload(summaryFileName(), shownSummary().replace(/\n/g, '\r\n')); return; }
         // Edit: the text in a box to change as you like; Done keeps it, Revert drops it.
         if (e.target.closest('#summaryEditBtn')) {

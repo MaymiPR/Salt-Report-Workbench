@@ -1458,7 +1458,11 @@ const wireMapBox = () => {
         if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return;
         if (e.shiftKey) {
             const g = gridAtPointer(e, m.box);
-            if (g && g.mgrs) { copyToClipboard(g.mgrs); showToast(`Copied ${g.mgrs}`); }
+            if (g && g.mgrs) {
+                copyToClipboard(g.mgrs).then(ok => showToast(ok
+                    ? `Copied ${g.mgrs}.`
+                    : `Couldn't copy ${g.mgrs}: the browser blocked the clipboard.`, !ok));
+            }
             return;
         }
         const item = d.item && mapItems[+d.item.dataset.mapItem];

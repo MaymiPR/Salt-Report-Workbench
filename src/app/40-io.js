@@ -418,8 +418,9 @@ const importFiles = (fileList) => {
 })();
 
 const openExportView = () => {
-    closeStatsView();
-    closeSummaryView();
+    // Manage opens straight after: the Report Log isn't drawn in between.
+    closeStatsView(true);
+    closeSummaryView(true);
     hideHomeViews();
     isExportViewActive = true;
     el.exp.panel.style.display = 'flex';

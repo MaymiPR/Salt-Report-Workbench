@@ -241,7 +241,7 @@ const startOverlayImport = async (files) => {
 };
 
 // `incoming` replaces any overlay of the same type and name in `list`.
-const overlayKey = o => `${o.type} ${o.name}`;
+const overlayKey = o => SaltCore.overlayKey(o);
 const mergeOverlays = (list, incoming) => {
     const keys = new Set(incoming.map(overlayKey));
     return [...list.filter(o => !keys.has(overlayKey(o))), ...incoming];

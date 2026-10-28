@@ -303,9 +303,7 @@ class BrowserTests(unittest.TestCase):
         page.click("#toast-notification .toast-undo")
         page.wait_for_selector("#reportLogBody .col-size:has-text('2x BTR')")
         # And the server agrees: the report is live again.
-        page.wait_for_function(
-            f"() => fetch('/api/sync').then(r => r.json()).then(s => s.workspaces['{self.ato}'].every(r => !r.deleted))"
-        )
+        self.wait_for_server(page, f"s => s.workspaces['{self.ato}'].every(r => !r.deleted)")
 
     def test_a_save_the_server_refuses_says_so(self):
         # Regression: every POST resolved whatever the server answered, so a
@@ -490,8 +488,8 @@ class BrowserTests(unittest.TestCase):
         page.click(".bda-commit-btn")
         page.wait_for_selector("#bdaRollup:has-text('BDA 4 / 7')")
         # Let that save settle: the server has it and this page has pulled it back.
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => Object.values(s.workspaces).flat().some(r => (r.bda || []).length === 1))"
+        self.wait_for_server(
+            page, "s => Object.values(s.workspaces).flat().some(r => (r.bda || []).length === 1)"
         )
         page.wait_for_function("() => window.bdaPulled && pushesInFlight === 0 && !pullDeferred")
         self.next_frames(page)  # and redrawn
@@ -658,9 +656,7 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(place(page, "4x BRDM"), ["38SMB4500085200, NAI 1, PL BLUE", []])
         # Synced: the server holds them, and a viewer tags the same way
         # without keeping a copy (and can't settle a check).
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.overlays.length === 4)"
-        )
+        self.wait_for_server(page, "s => s.overlays.length === 4")
         viewer = self.open_viewer()
         viewer.wait_for_selector("#reportLogBody span.loc-tag.warn")
         self.assertEqual(viewer.locator("#reportLogBody button.loc-tag").count(), 0)
@@ -1336,8 +1332,8 @@ class BrowserTests(unittest.TestCase):
         )
         self.pick_basemap(page, "off")
         page.wait_for_function("() => document.querySelectorAll('#mapBase image').length === 0")
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.map(b => b.name).join() === 'Imagery,basemap.test')"
+        self.wait_for_server(
+            page, "s => s.basemaps.map(b => b.name).join() === 'Imagery,basemap.test'"
         )
         # Viewers get the map too (its layers, window and basemap picker), the
         # same list to pick from, and can't change it; the Overlays tab isn't theirs.
@@ -1383,9 +1379,7 @@ class BrowserTests(unittest.TestCase):
         page.fill("#mapTileUrl", "https://basemap.test/topo/{z}/{x}/{y}.png")
         page.click("#mapTileSave")
         page.wait_for_selector("#toast-notification:has-text('basemap.test saved')")
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps[1].url.includes('/topo/'))"
-        )
+        self.wait_for_server(page, "s => s.basemaps[1].url.includes('/topo/')")
         self.back_to_map(page)
         self.assertEqual(
             page.locator("#mapBaseSelect option").all_text_contents(),
@@ -1560,9 +1554,7 @@ class BrowserTests(unittest.TestCase):
         page.click("#mapWmsAdd")
         page.wait_for_selector("#toast-notification:has-text('Range Maps added')")
         self.back_to_map(page)
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.some(b => b.name === 'Range Maps'))"
-        )
+        self.wait_for_server(page, "s => s.basemaps.some(b => b.name === 'Range Maps')")
         entry = page.evaluate(
             "fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.find(b => b.name === 'Range Maps'))"
         )
@@ -1630,8 +1622,8 @@ class BrowserTests(unittest.TestCase):
         page.check(".map-layer-row:has-text('Roads') input")
         page.click("#mapWmsAdd")
         page.wait_for_selector("#toast-notification:has-text('Range Maps saved')")
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.length === 1 && s.basemaps[0].layers === 'roads')"
+        self.wait_for_server(
+            page, "s => s.basemaps.length === 1 && s.basemaps[0].layers === 'roads'"
         )
         self.assertEqual(page.locator(".map-base-detail").count(), 0)
         page.evaluate("saveBasemaps([])")
@@ -1952,9 +1944,8 @@ class BrowserTests(unittest.TestCase):
         self.context.add_init_script(
             """(() => {
                 const blocked = () => { throw new DOMException('Storage is blocked.', 'SecurityError'); };
-                // The map's and statistics' own settings (app/46, 47, 49) are read raw at load.
-                const theirs = /^salt_(map|drone|stats|log_view)/;
-                Storage.prototype.getItem = function (k) { if (theirs.test(k)) return null; return blocked(); };
+                // Every read throws, the map's and statistics' own settings included.
+                Storage.prototype.getItem = blocked;
                 Storage.prototype.setItem = blocked;
                 Storage.prototype.removeItem = blocked;
             })();"""
@@ -2041,8 +2032,8 @@ class BrowserTests(unittest.TestCase):
         page.check("#mapDroneShow")
         page.wait_for_selector("#mapSvg .map-drone")
         # Shared: the server has it, and a viewer sees it but can't move it.
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.drones.length === 1 && s.drones[0].grid === '38S MB 41000 79000')"
+        self.wait_for_server(
+            page, "s => s.drones.length === 1 && s.drones[0].grid === '38S MB 41000 79000'"
         )
         viewer = self.open_viewer()
         self.open_map(viewer)
@@ -2089,15 +2080,17 @@ class BrowserTests(unittest.TestCase):
         page.fill("#mapDroneRange0", "")
         page.press("#mapDroneRange0", "Enter")
         page.wait_for_function("() => !document.querySelector('#mapSvg .map-drone-range')")
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.drones.length === 1 && !('look' in s.drones[0]) && !('range' in s.drones[0]))"
+        self.wait_for_server(
+            page,
+            "s => s.drones.length === 1 && !('look' in s.drones[0]) && !('range' in s.drones[0])",
         )
         # Moving it keeps where it looks and its range.
         page.evaluate("saveDrones([{ ...sharedDrones[0], look: '38S MB 40000 90000', range: 15 }])")
         page.fill("#mapDroneGrid0", "38SMB4100078000")
         page.press("#mapDroneGrid0", "Enter")
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.drones[0].grid === '38S MB 41000 78000' && s.drones[0].range === 15 && s.drones[0].look === '38S MB 40000 90000')"
+        self.wait_for_server(
+            page,
+            "s => s.drones[0].grid === '38S MB 41000 78000' && s.drones[0].range === 15 && s.drones[0].look === '38S MB 40000 90000'",
         )
         viewer = self.open_viewer()
         self.open_map(viewer)
@@ -2364,9 +2357,7 @@ class BrowserTests(unittest.TestCase):
             1,
             "kept in a new workspace",
         )
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => (s.format.lines || []).some(l => l.label === 'W'))"
-        )
+        self.wait_for_server(page, "s => (s.format.lines || []).some(l => l.label === 'W')")
         # Another browser, in yet another workspace, has it too.
         second = self.browser.new_context(ignore_https_errors=True)
         self.addCleanup(second.close)
@@ -2379,9 +2370,7 @@ class BrowserTests(unittest.TestCase):
         other.click("#startupContinueBtn")
         other.wait_for_selector("#salt-fields [data-custom-label='W']")
         page.evaluate("saveWorkspaceFormat(defaultFormat())")
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => !(s.format.lines || []).some(l => l.label === 'W'))"
-        )
+        self.wait_for_server(page, "s => !(s.format.lines || []).some(l => l.label === 'W')")
 
     def test_updating_shows_which_report_and_the_panel_keeps_its_width(self):
         page = self.open_editor(title="A very long workspace title for this patrol")

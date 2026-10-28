@@ -2153,6 +2153,21 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             while length > 0 and (chunk := self.rfile.read(min(length, 65536))):
                 length -= len(chunk)
 
+    def _drain_available(self) -> None:
+        """Drop what a client has already sent of a body whose length is unknown.
+
+        For the same reason as _discard_body: unread data turns the close into
+        a reset that can swallow the reply. It waits only briefly for more,
+        and never reads past MAX_DRAIN_BYTES.
+        """
+        self.close_connection = True
+        self.connection.settimeout(0.2)
+        read = 0
+        with contextlib.suppress(OSError):
+            while read < MAX_DRAIN_BYTES and (chunk := self.rfile.read1(65536)):
+                read += len(chunk)
+        self.connection.settimeout(5)
+
     def _refuse(self, status: int, message: str, body_length: int) -> None:
         """Send an error reply to a POST without processing its body."""
         self._discard_body(body_length)
@@ -2299,8 +2314,8 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         except (TypeError, ValueError):
             length = -1
         if length < 0:
-            # Unknowable body: answer and close rather than read.
-            self.close_connection = True
+            # Unknowable body: drop what has already arrived, answer, and close.
+            self._drain_available()
             self._send_json({'status': 'error', 'message': 'Invalid Content-Length header.'}, 400)
             return
         # Viewer port rejects every mutation up front.

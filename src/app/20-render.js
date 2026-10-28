@@ -77,7 +77,7 @@ const buildBdaRow = (report) => {
     // Checklist: one row per element from the report, already paired with its
     // grid, less what has been assessed of it, so the list only ever shows
     // what's still outstanding. How many to log defaults to all that's left.
-    const pending  = SaltCore.bdaPending(report);
+    const pending  = SaltCore.bdaPending(report, narrTeam());
     const effBtns  = (i, picked) => BDA_EFFECTS.map(e =>
         `<button type="button" class="bda-eff-btn bda-eff-${e.cls}${e.name === picked ? ' picked' : ''}" data-bda-eff="${e.name}" data-row="${i}" title="${e.name}">${e.key}</button>`).join('');
     const rows = pending.map((e, i) => {

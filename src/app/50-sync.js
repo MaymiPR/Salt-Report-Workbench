@@ -152,10 +152,11 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
             apiPost('/api/save_format', { format: sharedFormat });
         }
     }
-    // The shared overlays: the server's set wins. An unchanged set keeps its
-    // identity, so the location cache survives.
-    if (Array.isArray(overlays) && JSON.stringify(overlays) !== JSON.stringify(sharedOverlays)) {
-        sharedOverlays = overlays;
+    // The shared overlays: the server's set wins, less any that are broken.
+    // An unchanged set keeps its identity, so the location cache survives.
+    const foldedOverlays = Array.isArray(overlays) ? SaltCore.foldOverlays(overlays) : null;
+    if (foldedOverlays && JSON.stringify(foldedOverlays) !== JSON.stringify(sharedOverlays)) {
+        sharedOverlays = foldedOverlays;
         if (!readOnly) storeOverlays();
         renderLocationHints();
     }
