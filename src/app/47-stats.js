@@ -247,7 +247,7 @@ const setStatsTable = (cardEl, on) => {
 
 const openStatsView = () => {
     if (isExportViewActive) closeExportView();
-    closeSummaryView();
+    closeSummaryView(true);
     hideHomeViews();
     isStatsViewActive = true;
     setViewIcon('statsViewToggleBtn', true);
@@ -258,12 +258,14 @@ const openStatsView = () => {
     writeStored('salt_view', 'stats');
     renderStats();
 };
-const closeStatsView = () => {
+// `next`: another view opens straight after, so the Report Log (and its map)
+// isn't drawn and animated in only to be hidden again.
+const closeStatsView = (next = false) => {
     if (!isStatsViewActive) return;
     isStatsViewActive = false;
     setViewIcon('statsViewToggleBtn', false);
     statsEls().panel.style.display = 'none';
-    showHomeView();
+    if (!next) showHomeView();
 };
 
 // --- Export ---

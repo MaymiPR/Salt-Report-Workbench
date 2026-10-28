@@ -85,7 +85,7 @@ const summaryFit = () => {
 
 const openSummaryView = () => {
     if (isExportViewActive) closeExportView();
-    closeStatsView();
+    closeStatsView(true);
     hideHomeViews();
     isSummaryViewActive = true;
     setViewIcon('summaryViewToggleBtn', true);
@@ -101,12 +101,13 @@ const openSummaryView = () => {
 };
 // Leave the edit box; what was typed stays as the report's text.
 const finishEditing = () => { summaryEditing = false; };
-const closeSummaryView = () => {
+// `next`: another view opens straight after (see closeStatsView).
+const closeSummaryView = (next = false) => {
     if (!isSummaryViewActive) return;
     isSummaryViewActive = false;
     setViewIcon('summaryViewToggleBtn', false);
     summaryEls().panel.style.display = 'none';
-    showHomeView();
+    if (!next) showHomeView();
 };
 
 // The charts that go with each kind when printed: the same drawing as the
@@ -114,9 +115,10 @@ const closeSummaryView = () => {
 const summaryCharts = () => {
     const s = summaryEls();
     const { from, to } = windowBounds(s);
-    let reps = localReports.filter(r => !r.deleted && r.time);
-    if (from !== null) reps = reps.filter(r => new Date(r.time).getTime() >= from);
-    if (to !== null)   reps = reps.filter(r => new Date(r.time).getTime() <= to);
+    // As Statistics: a report with no time is left out only by a bound.
+    let reps = localReports.filter(r => !r.deleted);
+    if (from !== null) reps = reps.filter(r => r.time && new Date(r.time).getTime() >= from);
+    if (to !== null)   reps = reps.filter(r => r.time && new Date(r.time).getTime() <= to);
     const local = timeDisplayMode === 'local';
     if (summaryKind === 'place') {
         reps = reps.filter(r => {

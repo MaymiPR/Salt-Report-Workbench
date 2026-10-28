@@ -2154,6 +2154,42 @@ class BrowserTests(unittest.TestCase):
         self.assertLess(text.index("1. OBSERVED"), text.index("2. ASSESSMENT"))
         self.assertEqual(page.evaluate("summaryCharts().map(c => c.id)"), ["nai", "tags"])
 
+    def test_summary_charts_count_what_statistics_counts(self):
+        # Regression: the Summary's charts always left out a report with no
+        # time; Statistics only when the window has a bound.
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x T-72", activity="moving N", location="38SMB4500082000")
+        page.click("#summaryViewToggleBtn")
+        # Both over every report, one of them with no time (in one go, so no
+        # sync replaces the reports between).
+        counts = page.evaluate("""() => {
+            localReports.push({ ...localReports[0], id: 'no-time', time: '' });
+            fillWindow(summaryEls(), 0);
+            fillWindow(statsEls(), 0);
+            const nai = items => items.find(i => i.label === 'NAI 1').value;
+            const summary = nai(summaryCharts().find(c => c.id === 'nai').items);
+            const stats = nai(SaltCore.statsData(statsWindow().reps, currentOverlays(), {}).nai);
+            localReports.pop();
+            return [summary, stats];
+        }""")
+        self.assertEqual(counts, [2, 2])
+        # Straight from one view to another: the Report Log isn't drawn and
+        # animated in between.
+        page.evaluate("document.getElementById('homeView').classList.remove('view-in')")
+        page.click("#statsViewToggleBtn")
+        page.wait_for_selector("#statsPanel", state="visible")
+        page.click("#summaryViewToggleBtn")
+        self.assertFalse(
+            page.evaluate("document.getElementById('homeView').classList.contains('view-in')")
+        )
+        # Closed, it's the Report Log again.
+        page.click("#summaryViewToggleBtn")
+        page.wait_for_selector("#reportLogTable")
+        self.assertTrue(
+            page.evaluate("document.getElementById('homeView').classList.contains('view-in')")
+        )
+
     def test_the_narrative_names_units_takes_your_equipment_and_rules_and_can_be_edited(self):
         page = self.open_editor()
         self.import_overlays(page)
