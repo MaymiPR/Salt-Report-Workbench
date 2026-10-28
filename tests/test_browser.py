@@ -2403,6 +2403,61 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#narrUnitName", state="detached")
         page.evaluate("saveNarrative({ enemy: '', units: [], equipment: [], off: [], custom: [] })")
 
+    def test_the_narrative_settings_and_map_controls_say_what_they_are(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "1x XYZ-9", location="38SMB4500082000")
+        self.open_map(page)
+        # Labelled groups, the slider read as the time it shows, switches as switches.
+        self.assertEqual(page.get_attribute("#mapBox .map-tools", "role"), "group")
+        self.assertEqual(page.get_attribute("#mapBox .filter-presets", "role"), "group")
+        self.assertEqual(page.get_attribute("#mapEndRange", "aria-valuetext"), "Now")
+        page.fill("#mapEndRange", "0")
+        page.dispatch_event("#mapEndRange", "input")
+        self.assertEqual(
+            page.get_attribute("#mapEndRange", "aria-valuetext"), page.text_content("#mapEndLabel")
+        )
+        page.click("#mapEndNow")
+        page.click("#mapDroneBtn")
+        self.assertEqual(page.locator("#mapDronePop input[role='switch']").count(), 2)
+        page.click("#mapDroneBtn")
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        # The dot on Equipment is said, not only shown.
+        self.assertIn("catalogue doesn't know", page.text_content("[data-narr-tab='equipment']"))
+        # A dropdown's menu is a group of toggle buttons, its button named by its question.
+        page.click("[data-narr-add]")
+        page.click("[data-narr-dd='kind'] .narr-dd-btn")
+        self.assertEqual(page.get_attribute("[data-narr-dd='kind'] .narr-dd-menu", "role"), "group")
+        page.click("[data-narr-kind='infantry']")
+        self.assertEqual(page.get_attribute("[data-narr-kind='infantry']", "aria-pressed"), "true")
+        self.assertEqual(
+            page.locator(".narr-panel [role='option'], .narr-panel [role='listbox']").count(), 0
+        )
+        self.assertEqual(
+            page.get_by_role("button", name="What it has dismounted personnel").count(), 1
+        )
+        page.click("[data-narr-back]")
+        # One choice of several: radios, one tab stop, the arrow keys move the choice.
+        page.click("[data-narr-tab='equipment']")
+        page.click("[data-narr-fill='XYZ-9']")
+        radio = "[role='radiogroup'][aria-label='What it is'] [role='radio']"
+        self.assertEqual(
+            page.locator(radio).evaluate_all("rs => rs.filter(r => r.tabIndex === 0).length"), 1
+        )
+        page.focus(f"{radio} >> nth=0")
+        page.keyboard.press("ArrowRight")
+        self.assertEqual(page.get_attribute(f"{radio} >> nth=1", "aria-checked"), "true")
+        self.assertEqual(page.get_attribute(f"{radio} >> nth=0", "aria-checked"), "false")
+        self.assertEqual(
+            page.evaluate("document.activeElement.getAttribute('aria-checked')"), "true"
+        )
+        page.click("[data-narr-back]")
+        page.click("[data-narr-tab='rules']")
+        self.assertEqual(
+            page.locator("input.narr-switch:not([role='switch'])").count(), 0, "every one a switch"
+        )
+
     def test_escape_in_the_narrative_settings_leaves_an_edit_alone(self):
         # Regression: Escape closed the settings' form and cancelled the edit too.
         page = self.open_editor()

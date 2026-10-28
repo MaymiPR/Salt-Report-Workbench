@@ -974,11 +974,11 @@ const renderOverlayMap = (box) => {
                 <svg id="mapSvg" class="map-svg" role="img" aria-label="Map of the overlays and reports"></svg>
                 <!-- Pinned to the corner, open or closed, for an easy click either way. -->
                 <button type="button" id="mapSideBtn" class="map-side-btn" title="Hide the sidebar" aria-label="Sidebar" aria-pressed="true"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M6 2.75v10.5"/></svg></button>
-                <div class="map-tools" aria-label="Map controls">
+                <div class="map-tools" role="group" aria-label="Map controls">
                     <div class="map-layers" role="group" aria-label="Layers">
                         ${MAP_LAYERS.map(([k, t]) => `<button type="button" class="map-layer-btn" data-map-layer="${k}" aria-pressed="false"><span class="map-layer-check" aria-hidden="true"></span>${t}</button>`).join('')}
                     </div>
-                    <div class="filter-presets" aria-label="Time window">
+                    <div class="filter-presets" role="group" aria-label="Time window">
                         <span class="filter-presets-label">Window</span>
                         ${hours.map(([v, t]) => `<button type="button" class="filter-preset-btn" data-map-hours="${v}">${t}</button>`).join('')}
                     </div>
@@ -1048,7 +1048,7 @@ const renderDronePop = () => {
     const pop = document.getElementById('mapDronePop');
     if (!pop) return;
     const typed = [...pop.querySelectorAll('input[type="text"][id]')].map(i => [i.id, i.value, document.activeElement === i]);
-    const toggle = (id, on, label) => `<label class="map-drone-switch"><span>${label}</span><input type="checkbox" class="narr-switch" id="${id}"${on ? ' checked' : ''}></label>`;
+    const toggle = (id, on, label) => `<label class="map-drone-switch"><span>${label}</span><input type="checkbox" role="switch" class="narr-switch" id="${id}"${on ? ' checked' : ''}></label>`;
     pop.innerHTML = `<div class="map-base-pop-head">Drones</div>
         ${toggle('mapDroneShow', droneShow, 'Show on the map')}
         ${toggle('mapDroneView', droneView, 'Show its view')}

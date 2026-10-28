@@ -216,6 +216,8 @@ const renderMapTime = () => {
     range.value = String(mapEnd === null ? 1000 : Math.round((mapEnd - first) / span * 1000));
     const local = timeDisplayMode === 'local';
     label.textContent = mapEnd === null ? 'Now' : SaltCore.dtg(mapEnd, local);
+    // Read out as the time it shows, not a number out of 1000.
+    range.setAttribute('aria-valuetext', label.textContent);
     now.hidden = mapEnd === null;
 };
 

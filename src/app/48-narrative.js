@@ -58,8 +58,13 @@ const narrUnknown = () => {
 
 // --- The parts ---
 
-const chip = (attr, value, label, on) =>
-    `<button type="button" class="narr-chip" ${attr}="${escapeHtml(value)}" aria-pressed="${on}">${escapeHtml(label)}</button>`;
+// One choice of several, as radio buttons: the arrow keys move between them,
+// and only the one picked (else the first) is a tab stop. `items` are [value, label].
+const radios = (attr, label, items, picked) => {
+    const at = Math.max(0, items.findIndex(([v]) => v === picked));
+    return `<div class="narr-chips" data-narr-single role="radiogroup" aria-label="${escapeHtml(label)}">${items.map(([v, l], i) =>
+        `<button type="button" class="narr-chip" role="radio" ${attr}="${escapeHtml(v)}" aria-checked="${v === picked}" tabindex="${i === at ? 0 : -1}">${escapeHtml(l)}</button>`).join('')}</div>`;
+};
 // A list row: the whole row opens it (editors); a chevron says so. `id` is
 // the entry's, as narrId gives it.
 const row = (i, name, meta, id) => (isReadOnly
@@ -79,22 +84,28 @@ const drill = (back, title, body) => `<button type="button" class="narr-back" da
 // --- Units ---
 
 // A dropdown that picks several: its button says what's picked (or `none`),
-// its menu ticks each option; it stays open while you pick, and closes on a
-// click elsewhere or Escape. `options` are [value, label, on].
+// its menu ticks each option (a group of toggle buttons); it stays open while
+// you pick, and closes on a click elsewhere or Escape. `label` is what it
+// asks, shown above it; `options` are [value, label, on].
 const ddLabel = (dd) => {
-    const on = [...dd.querySelectorAll('[role="option"][aria-selected="true"]')].map(o => o.dataset.label);
+    const on = [...dd.querySelectorAll('.narr-dd-opt[aria-pressed="true"]')].map(o => o.dataset.label);
     dd.querySelector('.narr-dd-value').textContent = on.join(', ') || dd.dataset.none;
 };
-const dropdown = (name, attr, none, options) => {
+const dropdown = (name, attr, label, none, options) => {
     const on = options.filter(([, , o]) => o).map(([, l]) => l);
-    return `<div class="narr-dd" data-narr-dd="${name}" data-none="${escapeHtml(none)}">
-        <button type="button" class="narr-dd-btn" aria-haspopup="listbox" aria-expanded="false">
-            <span class="narr-dd-value">${escapeHtml(on.join(', ') || none)}</span>
+    return `<div class="narr-label" id="narrDdLabel-${name}">${escapeHtml(label)}</div>
+    <div class="narr-dd" data-narr-dd="${name}" data-none="${escapeHtml(none)}">
+        <button type="button" class="narr-dd-btn" aria-expanded="false" aria-controls="narrDdMenu-${name}" aria-labelledby="narrDdLabel-${name} narrDdValue-${name}">
+            <span class="narr-dd-value" id="narrDdValue-${name}">${escapeHtml(on.join(', ') || none)}</span>
             <svg viewBox="0 0 12 8" width="10" height="7" aria-hidden="true"><path d="M1 1.5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        <div class="narr-dd-menu" role="listbox" aria-multiselectable="true" hidden>${options.map(([v, l, o]) =>
-            `<button type="button" role="option" ${attr}="${escapeHtml(v)}" data-label="${escapeHtml(l)}" aria-selected="${!!o}">${escapeHtml(l)}</button>`).join('')}</div>
+        <div class="narr-dd-menu" id="narrDdMenu-${name}" role="group" aria-labelledby="narrDdLabel-${name}" hidden>${options.map(([v, l, o]) =>
+            `<button type="button" class="narr-dd-opt" ${attr}="${escapeHtml(v)}" data-label="${escapeHtml(l)}" aria-pressed="${!!o}">${escapeHtml(l)}</button>`).join('')}</div>
     </div>`;
+};
+// A radio picked: the only one checked in its group, and its tab stop.
+const pickRadio = (r) => {
+    r.parentElement.querySelectorAll('[role="radio"]').forEach(o => { o.setAttribute('aria-checked', String(o === r)); o.tabIndex = o === r ? 0 : -1; });
 };
 const closeDropdowns = (except = null) => document.querySelectorAll('.narr-dd').forEach(dd => {
     if (dd === except) return;
@@ -110,11 +121,9 @@ const unitForm = (u) => {
     // Other: places not in the list (a 10 km square, say), typed in the box it brings up.
     return `<div class="narr-form">
         <input type="text" id="narrUnitName" value="${escapeHtml(u.name || '')}" placeholder="Unit, e.g. 1-60 GMRB" maxlength="60" spellcheck="false" aria-label="Unit">
-        <div class="narr-label">Where it operates</div>
-        ${dropdown('place', 'data-narr-place', 'Anywhere', [...known.map(p => [p, p, on.has(p.toUpperCase())]), ['', 'Other', other.length > 0]])}
+        ${dropdown('place', 'data-narr-place', 'Where it operates', 'Anywhere', [...known.map(p => [p, p, on.has(p.toUpperCase())]), ['', 'Other', other.length > 0]])}
         <input type="text" id="narrUnitOther" value="${escapeHtml(other.join(', '))}" placeholder="Other places, e.g. 11S NV 31" maxlength="400" spellcheck="false" aria-label="Other places, comma-separated"${other.length ? '' : ' hidden'}>
-        <div class="narr-label">What it has</div>
-        ${dropdown('kind', 'data-narr-kind', 'Any equipment', SaltCore.EQUIPMENT_ROLES.map(([r, t]) => [r, t, kinds.has(r)]))}
+        ${dropdown('kind', 'data-narr-kind', 'What it has', 'Any equipment', SaltCore.EQUIPMENT_ROLES.map(([r, t]) => [r, t, kinds.has(r)]))}
         ${formFoot(narrOpen.id !== null)}
     </div>`;
 };
@@ -145,9 +154,9 @@ const equipmentForm = (e) => `<div class="narr-form">
         <input type="text" id="narrEqType" value="${escapeHtml(e.type || '')}" placeholder="Type, e.g. BTR-4" maxlength="40" spellcheck="false" aria-label="Type">
         <div class="narr-says" id="narrEqSays">${escapeHtml(lookupSays(e.type || ''))}</div>
         <div class="narr-label">What it is</div>
-        <div class="narr-chips" data-narr-single>${SaltCore.EQUIPMENT_ROLES.map(([r, t]) => chip('data-narr-role', r, t, r === e.role)).join('')}</div>
+        ${radios('data-narr-role', 'What it is', SaltCore.EQUIPMENT_ROLES, e.role)}
         <div class="narr-label">Army</div>
-        <div class="narr-chips" data-narr-single>${Object.entries(ORIGIN_NAMES).map(([o, t]) => chip('data-narr-origin', o, t, o === (e.origin || ''))).join('')}</div>
+        ${radios('data-narr-origin', 'Army', Object.entries(ORIGIN_NAMES), e.origin || '')}
         ${formFoot(narrOpen.id !== null)}
     </div>`;
 const equipmentTab = () => {
@@ -204,7 +213,7 @@ const rulesTab = () => {
         ${groups.map(g => `<div class="narr-label">${escapeHtml(g)}</div>
         <div class="narr-list">${SaltCore.NARRATIVE_RULES.filter(r => r[3] === g).map(([id, name, what]) => `
             <label class="narr-switch-row"><span><strong>${escapeHtml(name)}</strong><small>${escapeHtml(what)}</small></span>
-                <input type="checkbox" class="narr-switch" data-narr-rule="${id}"${off.has(id) ? '' : ' checked'}${isReadOnly ? ' disabled' : ''} aria-label="${escapeHtml(name)}"></label>`).join('')}</div>`).join('')}
+                <input type="checkbox" role="switch" class="narr-switch" data-narr-rule="${id}"${off.has(id) ? '' : ' checked'}${isReadOnly ? ' disabled' : ''} aria-label="${escapeHtml(name)}"></label>`).join('')}</div>`).join('')}
         <div class="narr-label">Your own</div>
         <div class="narr-list">${narrList('custom').map((c, i) => row(i, c.what, `${c.words} · ${c.min} in ${c.hours} hrs`, narrId('custom', c))).join('')
             || '<div class="narr-empty">None yet: a judgment, the words that point to it, and how often.</div>'}</div>
@@ -234,7 +243,7 @@ const renderNarrSettings = () => {
             <input type="text" id="narrEnemy" value="${escapeHtml(sharedNarrative.enemy || '')}" placeholder="enemy forces" maxlength="60" spellcheck="false"${isReadOnly ? ' disabled' : ''}></label>
         <div class="narr-hint narr-call-hint">When no unit fits a judgment.</div>
         <div class="summary-kinds narr-tabs" role="group" aria-label="Narrative settings">${tabs.map(([t, n]) =>
-            `<button type="button" class="ws-tab${t === narrTab ? ' active' : ''}" data-narr-tab="${t}">${n}<span class="narr-count">${counts[t]}</span>${t === 'equipment' && unknown && !isReadOnly ? '<span class="narr-dot" title="Types in your reports that the catalogue doesn\'t know"></span>' : ''}</button>`).join('')}</div>
+            `<button type="button" class="ws-tab${t === narrTab ? ' active' : ''}" data-narr-tab="${t}">${n}<span class="narr-count">${counts[t]}</span>${t === 'equipment' && unknown && !isReadOnly ? '<span class="narr-dot" title="Types in your reports that the catalogue doesn\'t know" aria-hidden="true"></span><span class="visually-hidden">, with types in your reports that the catalogue doesn\'t know</span>' : ''}</button>`).join('')}</div>
         <div class="narr-body">${{ units: unitsTab, equipment: equipmentTab, rules: rulesTab }[narrTab]()}</div>
         <div class="narr-hint narr-shared">Shared with everyone${isReadOnly ? '; editors change them' : ''}.</div>`;
 };
@@ -249,7 +258,7 @@ const showNarrSettings = (show) => {
 // What the open form says, as an entry; null (and a toast) when it won't do.
 const readNarrForm = () => {
     const val = id => (document.getElementById(id) || {}).value || '';
-    const picked = attr => [...document.querySelectorAll(`[${attr}][aria-pressed="true"], [${attr}][aria-selected="true"]`)].map(b => b.getAttribute(attr));
+    const picked = attr => [...document.querySelectorAll(`[${attr}][aria-pressed="true"], [${attr}][aria-checked="true"]`)].map(b => b.getAttribute(attr));
     if (narrTab === 'units') {
         const name = val('narrUnitName').trim();
         if (!name) { showToast('Give the unit a name.', true); return null; }
@@ -336,27 +345,21 @@ const saveNarrForm = () => {
             ddBtn.setAttribute('aria-expanded', String(!menu.hidden));
             return;
         }
-        const opt = e.target.closest('.narr-dd [role="option"]');
+        const opt = e.target.closest('.narr-dd-opt');
         if (opt) {
-            opt.setAttribute('aria-selected', String(opt.getAttribute('aria-selected') !== 'true'));
+            opt.setAttribute('aria-pressed', String(opt.getAttribute('aria-pressed') !== 'true'));
             ddLabel(opt.closest('.narr-dd'));
             // Other: the menu makes way for the box to type the places in.
             if (opt.dataset.narrPlace === '') {
                 const box = document.getElementById('narrUnitOther');
-                box.hidden = opt.getAttribute('aria-selected') !== 'true';
+                box.hidden = opt.getAttribute('aria-pressed') !== 'true';
                 if (!box.hidden) { closeDropdowns(); box.focus(); }
             }
             return;
         }
-        // A chip: on or off; in a one-choice group, the others go off.
-        const c = e.target.closest('.narr-chip[aria-pressed]');
-        if (c) {
-            const single = c.parentElement.hasAttribute('data-narr-single');
-            const on = single || c.getAttribute('aria-pressed') !== 'true';
-            if (single) c.parentElement.querySelectorAll('.narr-chip').forEach(o => o.setAttribute('aria-pressed', 'false'));
-            c.setAttribute('aria-pressed', String(on));
-            return;
-        }
+        // One of a one-choice group: picked, and the others not.
+        const c = e.target.closest('.narr-chip[role="radio"]');
+        if (c) { pickRadio(c); return; }
         if (e.target.closest('[data-narr-save]')) { saveNarrForm(); return; }
         if (e.target.closest('[data-narr-remove]')) {
             if (!narrRemoving) { narrRemoving = true; rerender(); return; }
@@ -392,6 +395,17 @@ const saveNarrForm = () => {
             e.preventDefault();
             e.stopPropagation();
             if (open) { closeDropdowns(); open.closest('.narr-dd').querySelector('.narr-dd-btn').focus(); } else go(null);
+            return;
+        }
+        // In a one-choice group, the arrow keys pick the next or previous one.
+        const radio = e.target.closest && e.target.closest('.narr-chip[role="radio"]');
+        const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+        if (radio && step) {
+            e.preventDefault();
+            const all = [...radio.parentElement.querySelectorAll('[role="radio"]')];
+            const next = all[(all.indexOf(radio) + step + all.length) % all.length];
+            pickRadio(next);
+            next.focus();
             return;
         }
         if (e.key !== 'Enter' || e.target.tagName !== 'INPUT') return;
