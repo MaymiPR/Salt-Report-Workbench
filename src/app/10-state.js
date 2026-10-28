@@ -484,9 +484,20 @@ const autoColonTime = (input) => {
     input.value = v;
     return true;
 };
-const copyToClipboard = (text) => {
-    if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).catch(() => {}); return; }
-    const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px'; document.body.appendChild(ta); ta.focus(); ta.select(); try { document.execCommand('copy'); } catch(e){} ta.remove();
+// Resolves whether the text reached the clipboard, so a toast can say so.
+// The Clipboard API needs a secure context; elsewhere (or if it refuses) the
+// old copy command is tried, and focus goes back where it was.
+const copyToClipboard = async (text) => {
+    if (navigator.clipboard && window.isSecureContext) {
+        try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* try the copy command */ }
+    }
+    const back = document.activeElement;
+    const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px'; document.body.appendChild(ta); ta.focus(); ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    ta.remove();
+    if (back && back !== document.body && back.isConnected && typeof back.focus === 'function') back.focus();
+    return ok;
 };
 // POST a JSON body to the sync server. Resolves to the Response whatever its
 // status; rejects only when the server can't be reached.
@@ -542,8 +553,10 @@ const setViewIcon = (id, on) => {
 
 // --- 4. Notifications (toasts + confirmation dialog) ---
 let toastTimer = null;
+let toastsShown = 0;   // so a late toast can tell whether another came first
 // `ms` is how long the toast stays; `undo` adds an Undo button that runs it.
 const showToast = (msg, isErr = false, { ms = 4000, undo = null } = {}) => {
+    toastsShown++;
     el.toast.regular.textContent = msg;
     if (undo) {
         const btn = document.createElement('button');

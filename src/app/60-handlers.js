@@ -122,8 +122,6 @@ async function handleFormSubmit(mode) {
             finalReport = { ...orig, ...data, history:hist, updated:changed, lastModified:now, user:userProfile };
         }
         reports[idx] = finalReport;
-        const verb = mode === 'edit' ? 'edited' : 'saved';
-        showToast(`${formatFullId(finalReport)} ${verb} & copied!`);
     } else {
         // NEW REPORT path
         const atoPrefix   = SaltCore.atoPrefix(el.config.ato.value);
@@ -136,7 +134,6 @@ async function handleFormSubmit(mode) {
         if (reports.some(r => !r.deleted && r.displayId === newDid)) { showToast(`${newDid} already exists.`, true); return; }
         finalReport = { ...data, id:generateUUID(), displayId:newDid, ato:atoPrefix, title:titlePrefix, fullId:`${titlePrefix}${newDid}`, history:[], updated:false, lastModified:now, user:userProfile };
         reports.push(finalReport);
-        showToast(`${formatFullId(finalReport)} logged & copied!`);
     }
 
     localReports = reports;
@@ -144,8 +141,16 @@ async function handleFormSubmit(mode) {
     // Copy and clear now, while the click is fresh (clipboard access needs
     // it) and before the upload: an operator who starts the next report while
     // this one is still being sent must not have the fields wiped under them.
-    copyToClipboard(generateReportText(finalReport));
+    const copying = copyToClipboard(generateReportText(finalReport));
     resetForm();
+    // Not awaited: the upload doesn't wait on the clipboard. Nor does it
+    // cover a toast the upload has shown by then (a refusal says more).
+    const verb = !idToUpdate || mode === 'new' ? 'logged' : mode === 'edit' ? 'edited' : 'saved';
+    const shownId = formatFullId(finalReport);
+    const toastsBefore = toastsShown;
+    copying.then(ok => {
+        if (toastsShown === toastsBefore) showToast(ok ? `${shownId} ${verb} and copied.` : `${shownId} ${verb}. It couldn't be copied: use Copy on its row.`);
+    });
 
     // Edit mode also hits the dedicated server route so the server can apply a
     // surgical overwrite (no history mutation) and broadcast SSE to peers. The
@@ -246,7 +251,9 @@ el.log.body.addEventListener('click', e => {
     }
     if (e.target.classList.contains('copy-btn')) {
         const report = localReports.find(r => r.id === e.target.dataset.id);
-        if (report) { copyToClipboard(generateReportText(report)); showToast(`Copied ${formatFullId(report)} to clipboard`); }
+        if (report) copyToClipboard(generateReportText(report)).then(ok => showToast(ok
+            ? `Copied ${formatFullId(report)} to the clipboard.`
+            : `Couldn't copy ${formatFullId(report)}: the browser blocked the clipboard.`, !ok));
         return;
     }
     // BDA controls — toggle sub-row, target chip fill, add, delete.
@@ -542,8 +549,9 @@ el.profile.initials.addEventListener('input', () => { el.profile.avatar.textCont
 if (el.profile.accessCopy) {
     el.profile.accessCopy.addEventListener('click', () => {
         if (!accessCode) return;
-        copyToClipboard(accessCode);
-        showToast('Access code copied to clipboard');
+        copyToClipboard(accessCode).then(ok => showToast(ok
+            ? 'Access code copied to the clipboard.'
+            : 'Couldn\'t copy the access code: the browser blocked the clipboard. Press Show to read it.', !ok));
     });
 }
 
