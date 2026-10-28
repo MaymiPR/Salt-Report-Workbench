@@ -1403,6 +1403,61 @@ class BrowserTests(unittest.TestCase):
         self.assertFalse(viewer.locator("#mapDroneAdd").is_visible())
         page.evaluate("saveDrones([])")
 
+    def test_drone_view_points_where_told_and_flags_out_of_range(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
+        self.open_map(page)
+        page.evaluate("saveDrones([{ name: 'GE 1', grid: '38S MB 40000 78000', at: Date.now() }])")
+        page.wait_for_selector("#mapSvg .map-drone-cone")
+        page.click("#mapDroneBtn")
+        # Told where to look: the cone points there, not at the newest report.
+        page.fill("#mapDroneLook0", "38SMB4000090000")
+        page.press("#mapDroneLook0", "Enter")
+        page.wait_for_selector(
+            "#toast-notification:has-text('GE 1 is looking at 38S MB 40000 90000')"
+        )
+        page.wait_for_function(
+            "() => [...document.querySelectorAll('#mapSvg .map-label-drone')].some(t => t.textContent === '12.0 km N')"
+        )
+        self.assertEqual(page.locator("#mapSvg .map-drone-range").count(), 0, "no range, no ring")
+        # A range shorter than that: the ring, a red view, and how far out.
+        page.fill("#mapDroneRange0", "10")
+        page.press("#mapDroneRange0", "Enter")
+        page.wait_for_selector("#toast-notification:has-text(\"GE 1's range is 10 km\")")
+        page.wait_for_selector("#mapSvg .map-drone-range")
+        page.wait_for_selector("#mapSvg .map-drone-cone.out")
+        labels = " ".join(page.locator("#mapSvg .map-label-drone").all_text_contents())
+        self.assertIn("2.0 km out of range", labels)
+        self.assertIn("10 km", labels)
+        # Back to the newest report (in range): no longer red; no range: no ring.
+        page.fill("#mapDroneLook0", "")
+        page.press("#mapDroneLook0", "Enter")
+        page.wait_for_selector(
+            "#toast-notification:has-text(\"GE 1's view follows the newest report\")"
+        )
+        page.wait_for_function("() => document.querySelector('#mapSvg .map-drone-cone:not(.out)')")
+        page.fill("#mapDroneRange0", "")
+        page.press("#mapDroneRange0", "Enter")
+        page.wait_for_function("() => !document.querySelector('#mapSvg .map-drone-range')")
+        page.wait_for_function(
+            "() => fetch('/api/sync').then(r => r.json()).then(s => s.drones.length === 1 && !('look' in s.drones[0]) && !('range' in s.drones[0]))"
+        )
+        # Moving it keeps where it looks and its range.
+        page.evaluate("saveDrones([{ ...sharedDrones[0], look: '38S MB 40000 90000', range: 15 }])")
+        page.fill("#mapDroneGrid0", "38SMB4100078000")
+        page.press("#mapDroneGrid0", "Enter")
+        page.wait_for_function(
+            "() => fetch('/api/sync').then(r => r.json()).then(s => s.drones[0].grid === '38S MB 41000 78000' && s.drones[0].range === 15 && s.drones[0].look === '38S MB 40000 90000')"
+        )
+        viewer = self.open_viewer()
+        self.open_map(viewer)
+        viewer.click("#mapDroneBtn")
+        self.assertIn("38S MB 40000 90000", viewer.text_content("#mapDronePop"))
+        self.assertIn("15 km", viewer.text_content("#mapDronePop"))
+        self.assertEqual(viewer.locator("#mapDroneLook0").count(), 0, "viewers can't change it")
+        page.evaluate("saveDrones([])")
+
     def test_shift_click_copies_the_grid_under_it(self):
         self.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=self.editor)
         page = self.open_editor()

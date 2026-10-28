@@ -428,6 +428,7 @@ MAX_BDA_NOTE = 500
 MAX_OVERLAYS = 500  # NAI / OBJ / PL features per workspace
 MAX_DRONES = 10  # drones on the map
 MAX_DRONE_NAME = 40
+MAX_DRONE_RANGE_KM = 1000  # how far a drone can see, at most
 MAX_OVERLAY_NAME = 40
 MAX_OVERLAY_LABEL = 100
 MAX_BASEMAPS = 20
@@ -898,6 +899,19 @@ def _v_save_drones(data: dict) -> str | None:
             return f'drones[{i}].grid must be an MGRS grid like "11S NV 39697 06762"'
         if not _is_int(d.get('at')):
             return f'drones[{i}].at must be a time in milliseconds'
+        # Optional: where it's looking (a grid), and how far it can see (km).
+        look = d.get('look')
+        if look is not None and (not isinstance(look, str) or not _DRONE_GRID_RE.fullmatch(look)):
+            return f'drones[{i}].look must be an MGRS grid like "11S NV 39697 06762"'
+        rng = d.get('range')
+        if rng is not None and (
+            isinstance(rng, bool)
+            or not isinstance(rng, (int, float))
+            or not 0 < rng <= MAX_DRONE_RANGE_KM
+        ):
+            return (
+                f'drones[{i}].range must be a number of km, more than 0 and ≤{MAX_DRONE_RANGE_KM}'
+            )
     return None
 
 
@@ -2083,7 +2097,13 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
 
     def _post_save_drones(self, data: dict) -> None:
         clean = [
-            {'name': d['name'].strip(), 'grid': d['grid'], 'at': d['at']}
+            {
+                'name': d['name'].strip(),
+                'grid': d['grid'],
+                'at': d['at'],
+                **({'look': d['look']} if d.get('look') else {}),
+                **({'range': d['range']} if d.get('range') is not None else {}),
+            }
             for d in data.get('drones') or []
         ]
         with data_lock:

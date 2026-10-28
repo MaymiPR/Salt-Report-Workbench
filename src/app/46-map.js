@@ -114,9 +114,14 @@ const shownDrones = () => (droneShow ? sharedDrones.map(d => ({ d, p: dronePoint
 // A grid as the drones keep it ("11S NV 39697 06762"), from what was typed:
 // digits alone take MGRS Lock's zone and square. Null when it isn't one.
 const droneGrid = (text) => { const g = SaltCore.findGrids(lockedLocation(String(text || '').trim()))[0]; return g ? g.mgrs : null; };
+// Where a drone is looking, when it's been given a grid to look at; without
+// one, its view follows the newest report.
+const lookPoint = (d) => { const g = d.look ? SaltCore.findGrids(d.look)[0] : null; return g ? { lon: g.lon, lat: g.lat } : null; };
+const DRONE_OUT = '#ff453a';   // a view past the drone's range
 const droneTip = (d) => {
     const local = timeDisplayMode === 'local';
-    return `<strong>${escapeHtml(d.name)}</strong><br>${escapeHtml(d.grid)}<br>Put there ${escapeHtml(SaltCore.toTimeString(new Date(d.at).toISOString(), local))}`;
+    return `<strong>${escapeHtml(d.name)}</strong><br>${escapeHtml(d.grid)}<br>Put there ${escapeHtml(SaltCore.toTimeString(new Date(d.at).toISOString(), local))}`
+        + (d.look ? `<br>Looking at ${escapeHtml(d.look)}` : '') + (d.range ? `<br>Range ${d.range} km` : '');
 };
 
 // --- Drawing ---
@@ -343,10 +348,11 @@ const reportLayer = (reps, tracks, px) => {
 };
 
 // Each drone, pointing where it's looking: with its view on, a cone from the
-// drone to the newest report on the map, narrow at the drone and widening to
-// the report (where it's looking, not the camera's footprint, which we don't
-// know), with the sightline down its middle, a box round the report, and the
-// distance and direction. It follows the newest report as reports come in.
+// drone to the grid it was given to look at, else to the newest report on the
+// map, narrow at the drone and widening to a round end (where it's looking,
+// not the camera's footprint, which we don't know), with the sightline down
+// its middle, a box round the target, and the distance and direction. With a
+// range, a faint ring shows it, and a target past it turns the view red.
 const droneLayer = (tracks, px) => {
     const list = shownDrones();
     if (!list.length) return { view: '', marks: '' };
@@ -357,8 +363,15 @@ const droneLayer = (tracks, px) => {
     list.forEach(({ d, p }, i) => {
         const [x, y] = px(p.lon, p.lat);
         let angle = 0;
-        if (newest) {
-            const q = last(newest), [tx, ty] = px(q.lon, q.lat);
+        // Its range, as a ring: metres on the ground to pixels at its latitude.
+        if (droneView && d.range && mapView) {
+            const r = d.range * 1000 / (mapView.mpp * Math.cos(p.lat * Math.PI / 180));
+            cones.push(`<circle class="map-drone-range" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${DRONE_COLOR}" fill-opacity="0.025" stroke="${DRONE_COLOR}" stroke-opacity="0.6" stroke-width="1.3" stroke-dasharray="3 4"/>`);
+            if (r > 36) marks.push(`<text x="${x.toFixed(1)}" y="${(y - r - 5).toFixed(1)}" text-anchor="middle" class="map-label map-label-drone">${d.range} km</text>`);
+        }
+        const q = droneView ? lookPoint(d) || (newest && last(newest)) : null;
+        if (q) {
+            const [tx, ty] = px(q.lon, q.lat);
             const dx = tx - x, dy = ty - y, len = Math.hypot(dx, dy);
             if (len > 16) {
                 angle = Math.atan2(dx, -dy) * 180 / Math.PI;
@@ -376,20 +389,25 @@ const droneLayer = (tracks, px) => {
                 const ox = nx / hw, oy = ny / hw, gap = hw * 0.5 + 9;
                 const lx = (x + tx) / 2 + ox * gap, ly = (y + ty) / 2 + oy * gap + 4;
                 const anchor = ox < -0.3 ? 'end' : ox > 0.3 ? 'start' : 'middle';
-                defs.push(`<linearGradient id="droneCone${i}" gradientUnits="userSpaceOnUse" x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}">`
-                    + `<stop offset="0" stop-color="${DRONE_COLOR}" stop-opacity="0.16"/><stop offset="1" stop-color="${DRONE_COLOR}" stop-opacity="0.42"/></linearGradient>`);
-                const km = (SaltCore.metresBetween(p, q) / 1000).toFixed(1);
+                const metres = SaltCore.metresBetween(p, q);
+                const km = (metres / 1000).toFixed(1);
                 const dir = SaltCore.compass16(SaltCore.bearingBetween(p, q));
-                // Edged in orange, and the dashed sightline over a dark one, so
+                const out = d.range ? metres - d.range * 1000 : 0;   // past its range, in metres
+                const color = out > 0 ? DRONE_OUT : DRONE_COLOR;
+                defs.push(`<linearGradient id="droneCone${i}" gradientUnits="userSpaceOnUse" x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}">`
+                    + `<stop offset="0" stop-color="${color}" stop-opacity="0.16"/><stop offset="1" stop-color="${color}" stop-opacity="0.42"/></linearGradient>`);
+                // Edged in its colour, and the dashed sightline over a dark one, so
                 // they hold on a light basemap or a busy heat map.
                 // From one touching point the long way round the far side to the
                 // other (clockwise on screen, more than half the circle).
-                cones.push(`<path class="map-drone-cone" d="M${f(x)},${f(y)} L${f(p1[0])},${f(p1[1])} A${f(hw)},${f(hw)} 0 1 1 ${f(p2[0])},${f(p2[1])} Z" fill="url(#droneCone${i})" stroke="${DRONE_COLOR}" stroke-opacity="0.85" stroke-width="1.2" stroke-linejoin="round"/>`
+                cones.push(`<path class="map-drone-cone${out > 0 ? ' out' : ''}" d="M${f(x)},${f(y)} L${f(p1[0])},${f(p1[1])} A${f(hw)},${f(hw)} 0 1 1 ${f(p2[0])},${f(p2[1])} Z" fill="url(#droneCone${i})" stroke="${color}" stroke-opacity="0.85" stroke-width="1.2" stroke-linejoin="round"/>`
                     + `<line x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}" stroke="#000" stroke-width="4" stroke-opacity="0.7" stroke-dasharray="8 5"/>`
-                    + `<line x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}" stroke="${DRONE_COLOR}" stroke-width="2.2" stroke-dasharray="8 5"/>`
-                    + `<rect x="${f(tx - 9)}" y="${f(ty - 9)}" width="18" height="18" rx="2" fill="none" stroke="${DRONE_COLOR}" stroke-width="2.4"/>`);
+                    + `<line x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}" stroke="${color}" stroke-width="2.2" stroke-dasharray="8 5"/>`
+                    + `<rect x="${f(tx - 9)}" y="${f(ty - 9)}" width="18" height="18" rx="2" fill="none" stroke="${color}" stroke-width="2.4"/>`);
                 // On top, with the drones, so no graphic hides it.
-                marks.push(`<text x="${f(lx)}" y="${f(ly)}" text-anchor="${anchor}" class="map-label map-label-drone">${km} km ${dir}</text>`);
+                // Past its range: how far, on a second line, so the label stays short.
+                const said = out > 0 ? `${km} km ${dir}<tspan x="${f(lx)}" dy="13">${(out / 1000).toFixed(1)} km out of range</tspan>` : `${km} km ${dir}`;
+                marks.push(`<text x="${f(lx)}" y="${f(ly)}" text-anchor="${anchor}" class="map-label map-label-drone${out > 0 ? ' map-label-out' : ''}">${said}</text>`);
             }
         }
         const k = mapItems.push({ kind: 'drone', d }) - 1;
@@ -430,7 +448,7 @@ const mapLegend = (reps, tracks) => {
             : `Fewer to more reports (${heat}, each once, at its latest grid)`),
         mapLayers.tracks && key(trackLine, `Track, first to latest (${tracks.filter(t => t.moved).length} moved${mapLayers.reports ? '' : `, ${tracks.filter(t => !t.moved).length} at one grid`})`),
         shownDrones().length && key('<svg width="18" height="10" aria-hidden="true"><path d="M9,0.5 L10.2,3.6 L14.5,5.3 L14.5,6.4 L10.2,5.8 L9.9,8.4 L11.3,9.5 L6.7,9.5 L8.1,8.4 L7.8,5.8 L3.5,6.4 L3.5,5.3 L7.8,3.6 Z" fill="#ff9f0a" stroke="#000" stroke-width="0.8"/></svg>',
-            droneView ? 'Drone, and its view of the newest report' : 'Drone'),
+            droneView ? 'Drone, and its view' : 'Drone'),
         mapLayers.reports && key(dot, mapAllGrids
             ? `Report, every saved one (${SaltCore.reportPositions(reps, true).length} positions; earlier ones smaller)`
             : `Report, at its latest grid (${tracks.length})`),
@@ -937,7 +955,7 @@ const renderDronePop = () => {
     const toggle = (id, on, label) => `<label class="map-drone-switch"><span>${label}</span><input type="checkbox" class="narr-switch" id="${id}"${on ? ' checked' : ''}></label>`;
     pop.innerHTML = `<div class="map-base-pop-head">Drones</div>
         ${toggle('mapDroneShow', droneShow, 'Show on the map')}
-        ${toggle('mapDroneView', droneView, 'Show its view of the newest report')}
+        ${toggle('mapDroneView', droneView, 'Show its view')}
         ${sharedDrones.length ? `<div class="map-drone-list">${sharedDrones.map((d, i) => `
             <div class="map-drone-row">
                 <span class="map-drone-name">${escapeHtml(d.name)}</span>
@@ -945,13 +963,21 @@ const renderDronePop = () => {
                     : `<input type="text" id="mapDroneGrid${i}" class="map-drone-grid-in" data-drone-grid="${i}" value="${escapeHtml(d.grid)}" maxlength="40" spellcheck="false" aria-label="${escapeHtml(d.name)}'s grid">`}
                 <button type="button" class="text-btn" data-drone-zoom="${i}">Zoom</button>
                 <button type="button" class="overlay-remove editor-only" data-drone-remove="${i}" title="Remove ${escapeHtml(d.name)}" aria-label="Remove ${escapeHtml(d.name)}">&times;</button>
+            </div>
+            <div class="map-drone-sub">
+                <span class="map-drone-sub-label">Looking at</span>
+                ${isReadOnly ? `<span class="map-drone-grid">${escapeHtml(d.look || 'the newest report')}</span>`
+                    : `<input type="text" id="mapDroneLook${i}" class="map-drone-grid-in" data-drone-look="${i}" value="${escapeHtml(d.look || '')}" placeholder="Newest report" maxlength="40" spellcheck="false" aria-label="Where ${escapeHtml(d.name)} is looking">`}
+                <span class="map-drone-sub-label">Range</span>
+                ${isReadOnly ? `<span class="map-drone-grid">${d.range ? `${d.range} km` : 'none'}</span>`
+                    : `<input type="text" id="mapDroneRange${i}" class="map-drone-range-in" data-drone-range="${i}" value="${d.range || ''}" placeholder="km" maxlength="6" inputmode="decimal" aria-label="${escapeHtml(d.name)}'s range in km">`}
             </div>`).join('')}</div>` : '<div class="map-base-none">No drones yet.</div>'}
         <div class="map-form-row map-drone-add editor-only">
             <input type="text" id="mapDroneName" placeholder="Name" maxlength="40" spellcheck="false" aria-label="Drone name (e.g. GE 1)">
             <input type="text" id="mapDroneGridNew" placeholder="Grid" maxlength="40" spellcheck="false" aria-label="Drone grid">
             <button type="button" id="mapDroneAdd" class="set-btn">Add</button>
         </div>
-        <div class="map-base-hint editor-only">Shared with everyone. Type a new grid and press Enter to move a drone.</div>`;
+        <div class="map-base-hint editor-only">Shared with everyone. Type a grid or range and press Enter: a new grid moves the drone, <em>Looking at</em> points its view (empty: the newest report), and its range rings it.</div>`;
     // The add row keeps what was typed; a drone's grid only while it's being changed.
     typed.forEach(([id, v, focused]) => {
         const i = document.getElementById(id);
@@ -1091,6 +1117,29 @@ if (mapBody) {
             if (!grid) { showToast('Type its grid, e.g. 11S NV 39697 06762.', true); return; }
             moved.blur();
             saveDrones(sharedDrones.map(x => (x === d ? { ...d, grid, at: Date.now() } : x)), `${d.name} moved to ${grid}.`);
+        }
+        // Where it's looking (empty: back to the newest report), and its range (empty: none).
+        const look = e.target.closest('[data-drone-look]');
+        if (e.key === 'Enter' && look) {
+            e.preventDefault();
+            const d = sharedDrones[+look.dataset.droneLook], text = look.value.trim(), grid = text ? droneGrid(text) : null;
+            if (!d) return;
+            if (text && !grid) { showToast('Type the grid it\'s looking at, e.g. 11S NV 44000 07000, or leave it empty for the newest report.', true); return; }
+            look.blur();
+            const { look: _, ...rest } = d;
+            saveDrones(sharedDrones.map(x => (x === d ? (grid ? { ...d, look: grid } : rest) : x)),
+                grid ? `${d.name} is looking at ${grid}.` : `${d.name}'s view follows the newest report.`);
+        }
+        const ranged = e.target.closest('[data-drone-range]');
+        if (e.key === 'Enter' && ranged) {
+            e.preventDefault();
+            const d = sharedDrones[+ranged.dataset.droneRange], text = ranged.value.trim().replace(/\s*km$/i, ''), km = Number(text);
+            if (!d) return;
+            if (text && !(km > 0 && km <= 1000)) { showToast('Type its range in km (up to 1,000), or leave it empty for none.', true); return; }
+            ranged.blur();
+            const { range: _, ...rest } = d;
+            saveDrones(sharedDrones.map(x => (x === d ? (text ? { ...d, range: km } : rest) : x)),
+                text ? `${d.name}'s range is ${km} km.` : `${d.name} has no range set.`);
         }
         if (e.key === 'Enter' && (e.target.id === 'mapDroneName' || e.target.id === 'mapDroneGridNew')) { e.preventDefault(); document.getElementById('mapDroneAdd').click(); }
     });

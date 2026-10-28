@@ -325,6 +325,11 @@ class ValidatorTests(unittest.TestCase):
         self.assertRejects(v, {"drones": [{**ge, "at": "now"}]}, "milliseconds")
         many = [{**ge, "name": f"GE {i}"} for i in range(11)]
         self.assertRejects(v, {"drones": many}, "too many")
+        # Where it's looking and how far it sees: both optional.
+        self.assertIsNone(v({"drones": [{**ge, "look": "11S NV 44000 07000", "range": 12.5}]}))
+        self.assertRejects(v, {"drones": [{**ge, "look": "the bridge"}]}, "look")
+        for bad in (0, -3, 5000, "10", True):
+            self.assertRejects(v, {"drones": [{**ge, "range": bad}]}, "range")
 
     def test_the_server_knows_every_kind_of_equipment_the_page_has(self):
         import re
@@ -1151,9 +1156,24 @@ class HttpApiTests(unittest.TestCase):
     def test_drones_sync_and_survive_a_restart(self):
         shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
         self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
-        sent = {"name": " GE 1 ", "grid": "11S NV 39697 06762", "at": 1793018940000, "x": 1}
+        sent = {
+            "name": " GE 1 ",
+            "grid": "11S NV 39697 06762",
+            "at": 1793018940000,
+            "x": 1,
+            "look": "11S NV 44000 07000",
+            "range": 12.5,
+        }
         self.assertEqual(self.post("/api/save_drones", {"drones": [sent]})[0], 200)
-        clean = [{"name": "GE 1", "grid": "11S NV 39697 06762", "at": 1793018940000}]
+        clean = [
+            {
+                "name": "GE 1",
+                "grid": "11S NV 39697 06762",
+                "at": 1793018940000,
+                "look": "11S NV 44000 07000",
+                "range": 12.5,
+            }
+        ]
         self.assertEqual(self.sync()["drones"], clean, "trimmed, known fields only")
         srv.flush_pending_save()
         reset_state()

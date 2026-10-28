@@ -1228,6 +1228,11 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-drone-grid, .map-drone-grid-in { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
 .map-drone-grid { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .map-drone-grid-in { margin: 0; padding: 5px 8px; font-size: 0.95em; }
+/* Under each drone: where it's looking and its range. */
+.map-drone-sub { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 64px; align-items: center; gap: 8px; padding: 2px 2px 6px; border-bottom: 1px solid var(--divider); font-size: 0.84em; }
+.map-drone-row:has(+ .map-drone-sub) { border-bottom: none; }
+.map-drone-sub-label { color: var(--text-secondary); white-space: nowrap; }
+.map-drone-range-in { margin: 0; padding: 5px 8px; font-size: 0.95em; text-align: right; }
 .map-drone-add input { padding: 7px 10px; font-size: 0.84em; }
 .map-drone-add #mapDroneName { flex: 0 1 120px; }
 .map-drone-add #mapDroneGridNew { flex: 1 1 150px; }
@@ -1393,6 +1398,7 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .map-grids .io-mode:disabled { opacity: 0.4; cursor: default; }
 .map-label-time { font-weight: 500; font-size: 10px; fill: #ffd60a; }
 .map-label-drone { fill: #ffcc80; }
+.map-label-out { fill: #ff8a80; }
 /* A faint dark edge round the drone's view, so it reads on any background without shouting. */
 .map-drone-view { filter: drop-shadow(0 0 1.2px rgba(0, 0, 0, 0.85)); }
 .map-selected.flash circle { animation: map-ring 0.8s ease-out 2; }

@@ -14,7 +14,10 @@ All notable changes to this project are documented here. The format follows
   narrow at the drone and widening to a rounded end round the newest report on the map, with the
   sightline down its middle, a box round the report, and the distance and
   direction; it follows newer reports, the time slider and the filters.
-  **Zoom** centres the map on a drone. The drones are shared with everyone;
+  **Zoom** centres the map on a drone. **Looking at** points a drone's view
+  at a grid instead of the newest report, and **Range** (km) rings the drone
+  and turns its view red, with how far out of range, when the target is past
+  it. The drones are shared with everyone;
   showing them and their view is each browser's choice.
 - **Grab a grid.** Shift + click on the map copies the ten-digit grid there;
   while Shift is held, the grid under the pointer shows beside it.
