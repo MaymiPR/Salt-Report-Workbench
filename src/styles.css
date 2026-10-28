@@ -1258,6 +1258,8 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-find-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; font-size: 0.85em; }
 .map-find-name { font-size: 1.05em; color: var(--text-primary); }
 .map-layer-filter { margin: 0 0 6px; padding: 7px 12px; font-size: 0.85em; background: var(--panel-bg); border: 1px solid var(--divider) !important; }
+/* Its border is the focus ring (inputs have no outline), so it turns blue as theirs do. */
+.map-layer-filter:focus { border-color: var(--system-blue) !important; }
 .map-layer-list { max-height: 220px; overflow-y: auto; border-radius: 10px; background: var(--panel-bg); padding: 4px; margin-bottom: 8px; }
 .map-layer-row { display: flex; align-items: center; gap: 8px; margin: 0; padding: 5px 8px; border-radius: 7px; font-size: 0.85em; font-weight: 400; color: var(--text-primary); cursor: pointer; }
 .map-layer-row[hidden] { display: none; }
