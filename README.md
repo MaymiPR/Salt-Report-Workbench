@@ -108,8 +108,9 @@ write is refused.
   shapefile.
 - **Exports:** backups that re-import losslessly, CSV, ArcGIS points and tracks,
   and Excel.
-- **Hardened server:** request validation, per-address rate limits, attribution
-  clients can't forge, and atomic writes.
+- **Hardened server:** request validation, per-address rate limits, refusal of
+  cross-site writes, an audit log with each writer's address, and atomic,
+  retried writes.
 
 ## Quick start
 
@@ -144,11 +145,11 @@ The server prints its addresses, an access code and its certificate's
 fingerprint, then opens your browser:
 
 ```text
- [+] Workbench   : https://10.0.0.12:8080
- [+] Access Code : K7M2X9PQR3
- [+] Read Only   : https://10.0.0.12:8081
- [+] Certificate : B4 BE F7 C2 0A 29 8F 0F 02 64 80 CF 8D 30 03 89
-                   08 E7 DC 26 72 0A 90 D5 19 80 BC 79 84 66 3A 60
+[+] Workbench   : https://10.0.0.12:8080
+[+] Access Code : K7M2X9PQR3
+[+] Read Only   : https://10.0.0.12:8081
+[+] Certificate : B4 BE F7 C2 0A 29 8F 0F 02 64 80 CF 8D 30 03 89
+                  08 E7 DC 26 72 0A 90 D5 19 80 BC 79 84 66 3A 60
 ```
 
 Each browser warns once that the connection isn't private, because the server

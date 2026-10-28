@@ -278,17 +278,36 @@ Concurrency is handled in two steps:
 
 1. `render_workspace_backups`, a pure function, builds the file texts while
    `data_lock` is held, giving a consistent snapshot without any I/O.
-2. Each text is written to a temporary file and moved into place with
-   `os.replace` after the lock is released, so request handlers are never
-   blocked on the disk and readers never see a partial file. A separate
-   `_disk_lock` keeps writes in order.
+2. Each text is written to a temporary file, flushed to disk (`fsync`), and
+   moved into place with `os.replace` after the lock is released, so request
+   handlers are never blocked on the disk and readers never see a partial
+   file. A separate `_disk_lock` keeps writes in order. If preparing or writing
+   fails (a file held open by antivirus or a sync tool, say), the changes stay
+   marked unsaved and the save is retried after 1, 2 and 5 seconds, then every
+   30 seconds, with one console line per run of failures.
+
+The shared settings (overlays, basemaps, drones, the narrative's settings,
+profiles, the report format, the config) are also written to their own
+`Shared settings.json`, so they survive a restart even when no workspace
+exists. Workspace files still carry them too, and on boot the newest file
+decides.
+
+File names come from the ATO and title. When two workspaces would get the same
+name (Windows ignores case, and `A B` and `A_B` both become `A_B`), the one
+whose ATO isn't already safe for a file name gets a short hash of its ATO. A
+file whose reports have all been rewritten elsewhere (an old title, say) is
+moved into `snapshots/` as `Superseded_<time>_<name>`, never deleted, so it
+can't merge back in at the next boot. A backup that can't be read is skipped
+with a console line naming it, and the startup banner counts them.
 
 The live file is the only copy and it is replaced on every change, so
-`write_snapshot` also stores a dated copy under `snapshots/` on the first save
-after boot and then at most once an hour (`SNAPSHOT_INTERVAL_SECONDS`), pruning
-past `SNAPSHOT_KEEP`. Snapshot names begin with the UTC time, so a listing is
-chronological. `load_data_from_disk` reads only the top level of the backup
-folder, so snapshots never load on their own; restoring one is a manual copy.
+`write_snapshot` also stores a dated copy of every file under `snapshots/` on
+the first save after boot and then at most once an hour
+(`SNAPSHOT_INTERVAL_SECONDS`), keeping the newest `SNAPSHOT_KEEP` rounds (one
+round is every file from one save, sharing one UTC time). Snapshot names begin
+with that time, so a listing is chronological. `load_data_from_disk` reads only
+the top level of the backup folder, so snapshots never load on their own;
+restoring one is a manual copy.
 
 Every accepted write passes through `_commit`, which also appends a line to
 `audit.log` in the backup folder: UTC time, the operator the server knows for
@@ -325,10 +344,17 @@ The viewer port has no code; its protection is that every POST returns `405`.
 
 Every POST is also rate-limited per IP with a token bucket (60-request burst,
 refilling at 5 per second), validated against a hand-written schema for its
-endpoint, and capped at 16 MB. A refused request's body is read and dropped
-before the reply, so the client receives the error rather than a connection
-reset. Edits are attributed to the operator the server already associates with
-that IP, not to whatever identity the client claims.
+endpoint, and capped at 16 MB. A POST must be `application/json` (else `415`),
+and one another site sends (`Sec-Fetch-Site: cross-site`, or an `Origin` that
+isn't this server) is refused with `403`, so a web page open on the host can't
+write through the host's free pass. Wrong access codes are throttled on GET as
+well as POST, and map images through `/api/basemap` have their own per-IP limit
+on both ports. A connection that goes quiet for 30 seconds is closed (event
+streams excepted), and every reply forbids framing and content sniffing. A
+refused request's body is read and dropped before the reply, so the client
+receives the error rather than a connection reset. The `user` on a report and
+the initials in `audit.log` are what the page says; only the address in
+`audit.log` is observed by the server.
 
 See [SECURITY.md](../SECURITY.md) for what this model does and does not protect
 against.

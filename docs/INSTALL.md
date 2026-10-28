@@ -170,16 +170,23 @@ Every change is written, debounced, to the changed workspace's own file,
 `{ATO}_{Title}.txt`, in the backup folder (`Auto Backups/` beside the server,
 or `--backup-dir`): a readable summary of each report on top, and a
 machine-readable JSON block below that the server reloads on the next start.
-Writes are atomic, so a crash never leaves a half-written file. Unloading a
+Writes are atomic, so a crash never leaves a half-written file, and a write
+that fails (a file held open by antivirus or a sync tool) is retried until it
+succeeds. The shared settings (overlays, basemaps, drones, the narrative's
+settings, the report format) also have their own `Shared settings.json`, so
+they're kept even before any workspace exists. Unloading a
 workspace leaves its file in place, so a restart brings it back. (Before 2.4
 one file held every loaded workspace; such files still load, and the first save
 after upgrading gives each workspace its own file.)
 
 Because that file is replaced within half a second of every change, the server
 also keeps dated copies in `Auto Backups/snapshots/`: one on every start and
-then at most one an hour, the newest 48 kept. To go back to an earlier state,
-stop the server, copy the snapshot you want over the live file, and start it
-again. The snapshots folder itself is never loaded.
+then at most one an hour, the newest 48 rounds kept (about two days; a round is
+every backup file from one save). To go back to an earlier state, stop the
+server, copy the snapshot you want over the live file, and start it again. The
+snapshots folder itself is never loaded. It also holds `Superseded_` files: an
+old backup file whose reports now live in another file (after a title change,
+for example), moved aside so it can't merge back in.
 
 `Auto Backups/audit.log` records every accepted write as one line: when, who
 (the operator's initials and address), and what, such as
