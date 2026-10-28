@@ -546,7 +546,7 @@ const drawBasemap = (m, ext, view, w, h) => {
 let wmsFind = null;   // { link, edit, busy, error, title, version, getMap, formats, layers: [{ name, title, crs, missing }], picked: Set, via }
 let baseCheck = null; // { name, ok, text }: what Check found for a service
 let baseOpen = null;  // the saved service whose details are open, by name
-let baseRemoving = false; // its Remove has asked "for everyone?"
+let baseRemoving = null; // the saved service whose Remove has asked "for everyone?", by name
 
 // Read a service address as text. The page asks first; a service that sends
 // no CORS headers refuses that, and then the sync server asks for it.
@@ -654,18 +654,19 @@ const replaceBasemap = (oldName, entry) => {
         try { localStorage.setItem('salt_map_base', entry.name); } catch (err) { /* this session only */ }
     }
     if (baseCheck && baseCheck.name === oldName) baseCheck = null;
-    wmsFind = null; baseOpen = null; baseRemoving = false;
+    wmsFind = null; baseOpen = null; baseRemoving = null;
     saveBasemaps(sharedBasemaps.map(b => (b.name === oldName ? entry : b)), `${entry.name} saved for everyone.`);
     return true;
 };
 
-// The service whose details are open: removed for everyone, on the second press.
-const removeOpenBasemap = () => {
-    const gone = sharedBasemaps.find(b => b.name === baseOpen);
+// A saved service, from its row: removed for everyone, on the second press.
+const removeBasemap = (name) => {
+    const gone = sharedBasemaps.find(b => b.name === name);
     if (!gone) return;
-    if (!baseRemoving) { baseRemoving = true; basemapsChanged(); return; }
+    if (baseRemoving !== name) { baseRemoving = name; renderBasemapManager(); return; }
     if (baseCheck && baseCheck.name === gone.name) baseCheck = null;
-    wmsFind = null; baseOpen = null; baseRemoving = false;
+    if (baseOpen === name) { wmsFind = null; baseOpen = null; }
+    baseRemoving = null;
     saveBasemaps(sharedBasemaps.filter(b => b !== gone), `${gone.name} removed.`);
 };
 
@@ -775,11 +776,10 @@ const wmsFindHtml = () => {
 const wmsPickLabel = (n, edit) => (edit ? (n ? 'Save' : 'Tick layers to keep')
     : n > 1 ? `Add ${n} layers as one` : n ? 'Add 1 layer' : 'Tick layers to add');
 
-// Under a saved service: Save, Cancel and, on the far side, Remove (which asks first).
+// Under a saved service: Save and Cancel (Remove is on its row).
 const baseEditFoot = (save) => `<div class="map-form-row map-find-foot">
             ${save}
             <button type="button" class="cancel-btn" data-base-close>Cancel</button>
-            <button type="button" id="mapBaseRemove" class="text-btn map-base-remove${baseRemoving ? ' sure' : ''}">${baseRemoving ? 'Remove for everyone?' : 'Remove'}</button>
         </div>`;
 
 // A saved service's details: a WMS's layers (looked up again), or a tile
@@ -794,25 +794,30 @@ const baseDetailHtml = (b) => {
         </div>`;
 };
 
-// Editors keep the list of services (each can be checked, or opened to change
-// its layers or address, or remove it), and add one by pasting its address: a
-// WMS link, whose layers are then looked up, or a tile address with {z}, {x}
-// and {y}. Each is named for itself: a WMS by its title, tiles by their host.
+// Editors keep the list of services (each can be checked, opened to change its
+// layers or address, or removed: its name asks "for everyone?" in place, so
+// nothing on the row moves, and Remove again does it), and add one by pasting
+// its address: a WMS link, whose layers are then looked up, or a tile address
+// with {z}, {x} and {y}. Each is named for itself: a WMS by its title, tiles by their host.
 // It lives in Manage > Map; the map's own basemap button only switches.
 const basemapForm = () => {
     // Removed (here or by someone else) while open: closed.
     if (baseOpen && !sharedBasemaps.some(b => b.name === baseOpen)) {
-        baseOpen = null; baseRemoving = false;
+        baseOpen = null;
         if (wmsFind && wmsFind.edit) wmsFind = null;
     }
+    if (baseRemoving && !sharedBasemaps.some(b => b.name === baseRemoving)) baseRemoving = null;
     const adding = wmsFind && !wmsFind.edit ? wmsFind : null;
     return `<div class="map-basemap-form editor-only" id="mapBasemapForm" data-open="${escapeHtml(baseOpen || '')}">
         ${sharedBasemaps.length ? `<div class="map-base-list">${sharedBasemaps.map((b, i) => `
             <div class="map-base-row${baseOpen === b.name ? ' open' : ''}">
-                <span class="map-base-name" title="${escapeHtml(b.url)}${b.layers ? `\n${escapeHtml(b.layers)}` : ''}">${escapeHtml(b.name)}</span>
+                ${baseRemoving === b.name
+                    ? `<span class="map-base-name map-base-ask" role="status" title="${escapeHtml(b.name)}">Remove for everyone?</span>`
+                    : `<span class="map-base-name" title="${escapeHtml(b.url)}${b.layers ? `\n${escapeHtml(b.layers)}` : ''}">${escapeHtml(b.name)}</span>`}
                 <span class="map-base-kind">${b.kind === 'wms' ? 'WMS' : 'Tiles'}</span>
                 <button type="button" class="text-btn" data-base-check="${i}">Check</button>
                 <button type="button" class="text-btn" data-base-open="${i}" aria-expanded="${baseOpen === b.name}">${b.kind === 'wms' ? 'Layers' : 'Edit'}</button>
+                <button type="button" class="text-btn map-base-del" data-base-remove="${i}" aria-label="Remove ${escapeHtml(b.name)}">Remove</button>
             </div>${baseCheck && baseCheck.name === b.name ? `<div class="map-base-check${baseCheck.ok ? ' ok' : ''}" role="status">${escapeHtml(baseCheck.text)}</div>` : ''}${baseOpen === b.name ? baseDetailHtml(b) : ''}`).join('')}</div>` : ''}
         <div class="map-form-row map-base-add">
             <input type="text" id="mapBaseInput" placeholder="WMS link or tile address" maxlength="4000" spellcheck="false" value="${escapeHtml(adding ? adding.link : '')}" aria-label="WMS link or tile address">
@@ -1177,12 +1182,15 @@ if (mapBody) {
 const baseHost = document.getElementById('mapBaseFormSlot');
 if (baseHost) {
     baseHost.addEventListener('click', e => {
+        const remove = e.target.closest('[data-base-remove]');
+        if (remove) { const b = sharedBasemaps[+remove.dataset.baseRemove]; if (b) removeBasemap(b.name); return; }
+        // Any other button pressed: a Remove that asked is let go.
+        if (baseRemoving && e.target.closest('button')) { baseRemoving = null; renderBasemapManager(); }
         // A saved service's details: opened (a WMS's layers looked up again), or closed.
         const open = e.target.closest('[data-base-open]');
         if (open) {
             const b = sharedBasemaps[+open.dataset.baseOpen];
             if (!b) return;
-            baseRemoving = false;
             wmsFind = null;
             if (baseOpen === b.name) { baseOpen = null; basemapsChanged(); return; }
             baseOpen = b.name;
@@ -1190,8 +1198,7 @@ if (baseHost) {
             else basemapsChanged();
             return;
         }
-        if (e.target.closest('[data-base-close]')) { wmsFind = null; baseOpen = null; baseRemoving = false; basemapsChanged(); return; }
-        if (e.target.closest('#mapBaseRemove')) { removeOpenBasemap(); return; }
+        if (e.target.closest('[data-base-close]')) { wmsFind = null; baseOpen = null; basemapsChanged(); return; }
         if (e.target.closest('#mapTileSave')) {
             const b = sharedBasemaps.find(s => s.name === baseOpen);
             const url = document.getElementById('mapTileUrl').value.trim();
@@ -1205,7 +1212,7 @@ if (baseHost) {
         // One box for both: a tile address has {z} (or WMTS's {TileMatrix}); anything
         // else is taken as a WMS, and its layers are looked up.
         if (e.target.closest('#mapBaseAddBtn')) {
-            if (baseOpen) { baseOpen = null; baseRemoving = false; if (wmsFind && wmsFind.edit) wmsFind = null; }
+            if (baseOpen) { baseOpen = null; if (wmsFind && wmsFind.edit) wmsFind = null; }
             const text = document.getElementById('mapBaseInput').value.trim();
             if (!/^https?:\/\//i.test(text)) { showToast('Paste an address that starts with http:// or https://.', true); return; }
             if (/\{(z|TileMatrix)\}/i.test(text)) {
