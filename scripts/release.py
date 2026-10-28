@@ -91,15 +91,14 @@ YOUR DATA
   data-handling rules.
 
 TROUBLESHOOTING
-  Firewall prompt on first start: allow Python on Private networks. On a
-    managed laptop IT may need to allow python.exe or ports 8080 and 8081.
+  Firewall prompt: allow Python on Private networks (on a managed laptop,
+    IT may need to allow python.exe or ports 8080 and 8081).
   "Could not listen on port": close the other copy, or start with
-    --port 9090 --viewer-port 9091 (typed after the launcher's name, too).
-  Warned again by the browser: the certificate is new (a new address, or
-    Auto Backups was not copied). Check the fingerprint, then Proceed.
-  Reports gone: this folder has no Auto Backups of yours; copy it here.
-  Every change is logged in Auto Backups/audit.log; dated copies of the
-    backups are in Auto Backups/snapshots.
+    --port 9090 --viewer-port 9091 (after the launcher's name works too).
+  Browser warns again: the certificate is new (a new address, or Auto
+    Backups not copied). Check the fingerprint, then Proceed.
+  Reports gone: copy your old Auto Backups folder here (see UPGRADING).
+  Change log: Auto Backups/audit.log. Dated copies: Auto Backups/snapshots.
 
 SECURITY
   The server encrypts every connection (HTTPS), so the reports and the access

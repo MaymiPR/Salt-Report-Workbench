@@ -41,8 +41,12 @@ Playwright the browser tests are skipped; CI runs them.
 
    ```bash
    python scripts/build.py
-   python dist/salt_sync_server.py
+   python dist/salt_sync_server.py --backup-dir .dev-data
    ```
+
+   `--backup-dir .dev-data` (git-ignored) keeps your test reports, snapshots
+   and the TLS key out of `dist/`, so `make clean` or deleting `dist/` never
+   takes them. `make run` does the same.
 
 4. Run the checks:
 
