@@ -1027,28 +1027,48 @@ const inRingXY = (x, y, ring) => {
 // A shapefile as a GeoJSON FeatureCollection in longitude / latitude, with
 // each shape's attributes as its properties: points, lines (PolyLine), and
 // areas (Polygon, holes kept), with or without Z and M. Throws a message for
-// the user when it can't be read.
+// the user when it can't be read: a fragment ("it is not a shapefile") that
+// the caller puts after the file's name.
+const SHP_DAMAGED = 'it is damaged (a shape runs past its end). Export it again';
 const parseShapefile = (shp, dbf, prj, cpg) => {
+    try {
+        return readShapefile(shp, dbf, prj, cpg);
+    } catch (e) {
+        // A count or offset that points outside the file, read anyway.
+        if (e instanceof RangeError) throw new Error(SHP_DAMAGED);
+        throw e;
+    }
+};
+const readShapefile = (shp, dbf, prj, cpg) => {
     const dv = new DataView(shp);
     if (shp.byteLength < 100 || dv.getInt32(0) !== 9994) throw new Error('it is not a shapefile (.shp)');
     const proj = shapefileProjection(prj);
     const rows = dbf ? readDbf(dbf, cpg) : [];
     const features = [];
     for (let p = 100, i = 0; p + 12 <= shp.byteLength; i++) {
-        const start = p + 8, end = start + dv.getInt32(p + 4) * 2;
+        // The content length is in 16-bit words, at least the shape type's two.
+        const words = dv.getInt32(p + 4), start = p + 8, end = start + words * 2;
+        if (words < 2 || end <= p) break;
         p = end;
         if (end > shp.byteLength) break;
+        // Each count is checked against the record before anything is read.
+        const fits = (bytes, ...counts) => { if (counts.some(n => n < 0) || start + bytes > end) throw new Error(SHP_DAMAGED); };
         const type = dv.getInt32(start, true);
         const kind = type === 31 ? 0 : type % 10;  // 1 point, 3 line, 5 area, 8 multipoint (Z, M alike); 31 multipatch
         const xy = (at) => [dv.getFloat64(at, true), dv.getFloat64(at + 8, true)];
         let geometry = null;
-        if (kind === 1) geometry = { type: 'Point', coordinates: xy(start + 4) };
+        if (kind === 1) { fits(20); geometry = { type: 'Point', coordinates: xy(start + 4) }; }
         else if (kind === 8) {
+            fits(40);
             const n = dv.getInt32(start + 36, true);
+            fits(40 + 16 * n, n);
             geometry = { type: 'MultiPoint', coordinates: Array.from({ length: n }, (_, k) => xy(start + 40 + 16 * k)) };
         } else if (kind === 3 || kind === 5) {
+            fits(44);
             const nParts = dv.getInt32(start + 36, true), nPts = dv.getInt32(start + 40, true);
+            fits(44 + 4 * nParts + 16 * nPts, nParts, nPts);
             const parts = Array.from({ length: nParts }, (_, k) => dv.getInt32(start + 44 + 4 * k, true));
+            if (parts.some((s, k) => s < 0 || s > nPts || (k && s < parts[k - 1]))) throw new Error(SHP_DAMAGED);
             const at0 = start + 44 + 4 * nParts;
             const paths = parts.map((s, k) => Array.from({ length: (k + 1 < nParts ? parts[k + 1] : nPts) - s }, (_, m) => xy(at0 + 16 * (s + m))))
                 .filter(path => path.length >= 2);
@@ -1372,17 +1392,32 @@ const arcgisGeoJson = (rows) => JSON.stringify({
     }),
 });
 
+// The numeric fields of the ArcGIS exports (points and tracks), each with
+// its one type: the same layer exported twice has the same fields, whatever
+// the rows hold (a heading or a phase-line distance no row has is still a
+// number). Every other field is text.
+const ARCGIS_NUMBERS = {
+    heading_deg: 'double', precision_m: 'integer', pl_dist_m: 'integer', lat: 'double', lon: 'double',
+    positions: 'integer', length_m: 'integer', bearing_deg: 'integer',
+};
+// A field's kind: 'integer', 'double' or 'text', from ARCGIS_NUMBERS; a
+// field it doesn't name is a number when every value given is one.
+const fieldKind = (name, rows) => {
+    if (Object.prototype.hasOwnProperty.call(ARCGIS_NUMBERS, name)) return ARCGIS_NUMBERS[name];
+    const vals = rows.map(r => r[name]).filter(v => v !== null && v !== undefined && v !== '');
+    if (!vals.length || !vals.every(v => typeof v === 'number' && isFinite(v))) return 'text';
+    return vals.every(Number.isInteger) ? 'integer' : 'double';
+};
+
 // Esri JSON: the format JSON To Features was made for. Every field's type
 // and length is written out, so ArcGIS Pro has nothing to guess. `rows` are
 // the attributes; `geometryOf(row, i)` gives each feature's shape.
 const esriJson = (rows, geometryType, geometryOf) => {
     const cols = rows.length ? Object.keys(rows[0]) : [];
     const fields = cols.map(name => {
+        const kind = fieldKind(name, rows);
+        if (kind !== 'text') return { name, type: kind === 'integer' ? 'esriFieldTypeInteger' : 'esriFieldTypeDouble', alias: name };
         const vals = rows.map(r => r[name]).filter(v => v !== null && v !== undefined && v !== '');
-        if (vals.length && vals.every(v => typeof v === 'number')) {
-            const type = vals.every(Number.isInteger) && !['lat', 'lon'].includes(name) ? 'esriFieldTypeInteger' : 'esriFieldTypeDouble';
-            return { name, type, alias: name };
-        }
         const length = Math.max(1, ...vals.map(v => String(v).length));
         return { name, type: 'esriFieldTypeString', alias: name, length };
     });
@@ -1489,11 +1524,12 @@ const shapefileParts = (rows, shapes, kind) => {
     const cols = rows.length ? Object.keys(rows[0]) : [];
     const names = shpFieldNames(cols);
     const fields = cols.map((c, i) => {
-        const vals = rows.map(r => r[c]).filter(v => v !== null && v !== undefined && v !== '');
-        if (vals.length && vals.every(v => typeof v === 'number' && isFinite(v))) {
-            const dec = vals.every(Number.isInteger) ? 0 : 7;
+        const kind = fieldKind(c, rows);
+        if (kind !== 'text') {
+            const dec = kind === 'integer' ? 0 : 7;
             return { col: c, name: names[i], type: 'N', len: dec ? 19 : 18, dec };
         }
+        const vals = rows.map(r => r[c]).filter(v => v !== null && v !== undefined && v !== '');
         const len = Math.min(254, Math.max(1, ...vals.map(v => enc.encode(String(v)).length)));
         return { col: c, name: names[i], type: 'C', len, dec: 0 };
     });
@@ -1516,7 +1552,13 @@ const shapefileParts = (rows, shapes, kind) => {
         fields.forEach(f => {
             const v = r[f.col];
             if (f.type === 'N') {
-                if (typeof v === 'number' && isFinite(v)) { const s = v.toFixed(f.dec).slice(0, f.len); dbf.set(enc.encode(s), o + f.len - s.length); }
+                // A number too wide for the field gives up decimals, never
+                // its whole part; one that still doesn't fit is left empty.
+                if (typeof v === 'number' && Math.abs(v) < 1e21) {   // larger ones print as "1e+21"
+                    let s = v.toFixed(f.dec);
+                    if (s.length > f.len) s = v.toFixed(Math.max(0, f.dec - (s.length - f.len)));
+                    if (s.length <= f.len) dbf.set(enc.encode(s), o + f.len - s.length);
+                }
             } else if (v !== null && v !== undefined) {
                 dbf.set(utf8Cut(enc, String(v), f.len), o);
             }

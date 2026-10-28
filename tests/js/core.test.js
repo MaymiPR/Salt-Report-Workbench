@@ -634,8 +634,9 @@ test('the ArcGIS export has one point per grid, and leaves out reports without o
     const field = n => esri.fields.find(f => f.name === n);
     assert.deepEqual(esri.fields[0], { name: 'OBJECTID', type: 'esriFieldTypeOID', alias: 'OBJECTID' });
     assert.deepEqual([field('report_id').type, field('report_id').length], ['esriFieldTypeString', 1]);
+    // heading_deg is always a double (NNE is 22.5), whatever the rows hold.
     assert.deepEqual([field('precision_m').type, field('heading_deg').type, field('lat').type],
-        ['esriFieldTypeInteger', 'esriFieldTypeInteger', 'esriFieldTypeDouble']);
+        ['esriFieldTypeInteger', 'esriFieldTypeDouble', 'esriFieldTypeDouble']);
     assert.deepEqual(esri.features[1].attributes.OBJECTID, 2);
     assert.deepEqual(esri.features[0].geometry, { x: rows[0].lon, y: rows[0].lat, spatialReference: { wkid: 4326 } });
     const csv = core.arcgisCsv(rows).split('\r\n');
@@ -659,9 +660,33 @@ test('the ArcGIS exports keep long text where they can, and every field one type
     const esri = JSON.parse(core.arcgisEsriJson(rows));
     assert.equal(esri.fields.find(f => f.name === 'analysis').length, 600);
     assert.equal(esri.features[0].attributes.analysis, long);
-    // heading_deg: null on one, 45 on the other: a number field, null kept.
-    assert.equal(esri.fields.find(f => f.name === 'heading_deg').type, 'esriFieldTypeInteger');
+    // heading_deg: null on one, 45 on the other: a number field (always a
+    // double, as NNE is 22.5), null kept.
+    assert.equal(esri.fields.find(f => f.name === 'heading_deg').type, 'esriFieldTypeDouble');
     assert.deepEqual(esri.features.map(f => f.attributes.heading_deg), [null, 45]);
+});
+
+test('the ArcGIS exports have the same fields however the rows fill them', () => {
+    // No heading and no phase lines in one export, every one in the other.
+    const quiet = core.arcgisRows([report({ id: 'a', location: '38SMB4500082000', activity: 'parked' })], [], { local: false, idOf: r => r.id }).rows;
+    const busy = core.arcgisRows([report({ id: 'b', location: '38SMB4500082000', activity: 'moving NNE' })], OVERLAYS, { local: false, idOf: r => r.id }).rows;
+    const schema = rows => JSON.parse(core.arcgisEsriJson(rows)).fields.filter(f => f.type !== 'esriFieldTypeString').map(f => `${f.name} ${f.type}`);
+    assert.deepEqual(schema(quiet), schema(busy));
+    assert.deepEqual(schema(quiet).filter(f => /^(heading_deg|pl_dist_m) /.test(f)), ['heading_deg esriFieldTypeDouble', 'pl_dist_m esriFieldTypeInteger']);
+    // The shapefile too: numeric (N) fields, the same in both.
+    const dbfFields = rows => {
+        const dbf = core.shapefileParts(rows, rows.map(r => [r.lon, r.lat]), 'point').dbf;
+        const out = [];
+        for (let o = 32; dbf[o] !== 0x0d; o += 32) out.push(`${String.fromCharCode(...dbf.subarray(o, o + 11)).replace(/\0+$/, '')} ${String.fromCharCode(dbf[o + 11])}${dbf[o + 16]}.${dbf[o + 17]}`);
+        return out.filter(f => / N/.test(f));
+    };
+    assert.deepEqual(dbfFields(quiet), dbfFields(busy));
+    assert.ok(dbfFields(quiet).includes('head_deg N19.7') && dbfFields(quiet).includes('pl_dist_m N18.0'), dbfFields(quiet).join(', '));
+    // A number too wide for its field loses decimals, never its whole part, or is left empty.
+    const wide = core.shapefileParts([{ big: 123456789012.5, huge: 1e25, lat: 1, lon: 1 }], [[1, 1]], 'point');
+    const rows = core.readDbf(wide.dbf.buffer, 'UTF-8');
+    assert.equal(rows[0].big, 123456789012.5);
+    assert.equal(rows[0].huge, '');
 });
 
 test('backups carry the shared overlays', () => {
@@ -882,6 +907,27 @@ test('a shapefile reads as areas (holes kept), lines and points, with its names'
     assert.equal(core.geometryContains(area, 3, 3), false, 'in the hole');
     assert.equal(core.geometryContains(area, 6, 6), true);
     assert.equal(core.geometryContains(area, 22, 2), true, 'the second part');
+});
+
+test('a damaged shapefile ends or is refused in words, never hangs', () => {
+    const line = () => writeShapefile([{ type: 3, parts: [[[0, 20], [10, 21]]] }, { type: 1, parts: [[[5, 30]]] }], ['a', 'b']).shp;
+    const edit = (f) => { const shp = line(); f(new DataView(shp)); return shp; };
+    // A record length of none, or less than none, ends the file there.
+    [-4, 0, 1].forEach(words => {
+        const fc = core.parseShapefile(edit(v => v.setInt32(104, words)), null, WGS84_PRJ);
+        assert.deepEqual(fc.features, [], `${words} words`);
+    });
+    // Counts past the end of their record, or impossible ones, are refused.
+    const damaged = { message: /^it is damaged \(a shape runs past its end\)/ };
+    [
+        v => v.setInt32(108 + 40, 1e6, true),        // points
+        v => v.setInt32(108 + 36, 0x7fffffff, true), // parts
+        v => v.setInt32(108 + 40, -1, true),
+        v => v.setInt32(108 + 44, 5, true),          // a part starting past the points
+    ].forEach((f, i) => assert.throws(() => core.parseShapefile(edit(f), null, WGS84_PRJ), damaged, `case ${i}`));
+    // A record shorter than its shape needs is refused; one running past the file ends it.
+    assert.throws(() => core.parseShapefile(edit(v => v.setInt32(104, 10)), null, WGS84_PRJ), damaged);
+    assert.deepEqual(core.parseShapefile(edit(v => v.setInt32(104, 1000)), null, WGS84_PRJ).features, []);
 });
 
 test("a shapefile's coordinates come to longitude / latitude from its .prj", () => {
