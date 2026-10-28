@@ -133,13 +133,21 @@ const renderWorkspacesList = () => {
 };
 
 // Unload a workspace: server POST + local state clear. Active-workspace
-// unload clears `activeAto` and the local config too.
+// unload clears `activeAto` and the local config too. Only once the server
+// has unloaded it: a pull would bring back one it still holds.
 async function unloadWorkspace(ato) {
     if (isReadOnly) { showToast('View-only mode. Unload is disabled here.', true); return; }
     if (!ato || !reportsByAto[ato]) return;
-    const wasActive = (ato === activeAto);
     showConfirmation(`Unload workspace "${ato}" from view? (Backup file on disk is preserved.)`, async () => {
-        try { await postJson('/api/unload_ato', { ato }); } catch(e){}
+        const res = isLocalFile ? { ok: true } : await apiPost('/api/unload_ato', { ato });
+        if (!res.ok) {
+            if (res.status !== 401) showToast(`Not unloaded: ${res.message}`, true);
+            return;
+        }
+        // Whether it is the active one now, not when the prompt opened: a
+        // sync while it was open may have switched workspaces.
+        const wasActive = (ato === activeAto);
+        markPending(ato, false);
         delete reportsByAto[ato];
         delete workspaceSources[ato];
         saveReportsByAtoToLocal();
@@ -148,7 +156,7 @@ async function unloadWorkspace(ato) {
             localReports = [];
             localConfig  = { ato:'', title:'' };
             writeStored('salt_offline_config', JSON.stringify(localConfig));
-            localStorage.removeItem('salt_last_active_ato');
+            removeStored('salt_last_active_ato');
             offlinePendingPush = false;
             writeStored('salt_offline_push', 'false');
             loadConfig();
@@ -202,7 +210,8 @@ const renderBuilder = () => {
     if (!box) return;
     const fmt  = currentFormat();
     const note = document.getElementById('builderScopeNote');
-    if (note) note.textContent = activeAto ? `for ${activeAto} (synced to everyone)` : '(set a workspace first)';
+    // One format for every workspace (and everyone), as the Map tab's note says of the overlays.
+    if (note) note.textContent = activeAto ? 'shared by every workspace' : '(set a workspace first)';
     box.innerHTML = fmt.lines.map((l, i) => {
         const name = l.type === 'custom' ? (l.name || l.label) : BUILTIN_LABELS[l.type] || l.type;
         const sub  = l.type === 'id'     ? (i === 0 ? 'header line' : 'U: line')
@@ -349,7 +358,7 @@ const ioFormat = () => IO_FORMATS.export.find(f => f.id === el.ioPicker.select.v
 const renderIoPicker = () => {
     const p = el.ioPicker;
     if (!p.select) return;
-    const remembered = localStorage.getItem('salt_io_export');
+    const remembered = readRaw('salt_io_export');
     p.select.innerHTML = IO_FORMATS.export.map(f => `<option value="${f.id}">${escapeHtml(f.label)}</option>`).join('');
     if (IO_FORMATS.export.some(f => f.id === remembered)) p.select.value = remembered;
     const f = ioFormat();
@@ -421,7 +430,7 @@ const openExportView = () => {
     writeStored('salt_view', 'export');
     renderIoPicker();
     // Restore last-used tab; default 'export' for fresh sessions.
-    switchWorkspacesTab(localStorage.getItem('salt_workspaces_tab') || 'export');
+    switchWorkspacesTab(readRaw('salt_workspaces_tab', 'export'));
     renderExportPreview();
     renderWorkspacesList();
 };
@@ -450,21 +459,51 @@ const importNarrative = async (n) => {
     await saveNarrative(n, 'Narrative settings taken from the file.');
 };
 
+// A backup's reports merged into a workspace's the way the server merges a
+// push (_merge_reports): matched by id (or displayId for rows from before
+// ids), the higher lastModified wins whole, its history and deleted flag
+// with it, and a tie goes to the file. Rows with neither key are dropped.
+const mergeReports = (existing, incoming) => {
+    const byKey = new Map();
+    (existing || []).forEach(r => { const k = SaltCore.reportKey(r); if (k) byKey.set(k, r); });
+    (incoming || []).forEach(r => {
+        const k = SaltCore.reportKey(r);
+        if (!k) return;
+        const have = byKey.get(k);
+        if (!have || (r.lastModified || 0) >= (have.lastModified || 0)) byKey.set(k, r);
+    });
+    return [...byKey.values()];
+};
+
 function processJsonImport(rawText) {
     // Validate up-front so the user sees a precise error before the confirm prompt.
     const parsed = SaltCore.parseBackup(rawText);
     if (parsed.error) { showToast(parsed.error, true); return; }
     const imp = parsed.data;
 
-    showConfirmation('Merge central log with data from backup file?', async () => {
+    // The prompt says everything the import changes besides the reports.
+    const switchTo  = imp.config && imp.config.ato && imp.config.title ? imp.config : null;
+    // Everyone's identity in it but this operator's own, which stays as set here.
+    const ownInitials = (userProfile && userProfile.initials) || '';
+    const profiles  = Object.values(imp.profiles || {}).filter(p => p && p.initials && String(p.initials).trim() !== ownInitials);
+    const operators = profiles.map(p => String(p.initials).trim());
+    const impOverlays = SaltCore.foldOverlays(imp.overlays);
+    const takesFormat = !!(imp.formats && typeof imp.formats === 'object' && isStockFormat() && Object.values(imp.formats).some(isFormat));
+    const effects = ['Merge the backup file into the log? A report in both keeps whichever version is newer.'];
+    if (switchTo && (switchTo.ato !== activeAto || switchTo.title !== localConfig.title)) effects.push(`${switchTo.ato} becomes the active workspace for everyone.`);
+    if (operators.length) effects.push(`The tag colors of ${operators.slice(0, 5).join(', ')}${operators.length > 5 ? ` and ${operators.length - 5} more` : ''} are set from it for everyone.`);
+    if (impOverlays.length) effects.push(impOverlays.length === 1 ? 'Its overlay replaces any with the same type and name.' : `Its ${impOverlays.length} overlays replace any with the same type and name.`);
+    if (takesFormat) effects.push('Its report format replaces the stock one.');
+
+    showConfirmation(effects.join(' '), async () => {
         try {
             let all = { ...reportsByAto };
             if (imp.workspaces && typeof imp.workspaces === 'object') {
-                for (const [ato, reps] of Object.entries(imp.workspaces)) all[ato] = reps;
+                for (const [ato, reps] of Object.entries(imp.workspaces)) all[ato] = mergeReports(all[ato], reps);
             } else if (imp.reports && Array.isArray(imp.reports)) {
-                if (activeAto) all[activeAto] = imp.reports;
+                if (activeAto) all[activeAto] = mergeReports(all[activeAto], imp.reports);
             }
-            if (imp.config && imp.config.ato && imp.config.title) {
+            if (switchTo) {
                 activeAto   = imp.config.ato;
                 localConfig = { ato: imp.config.ato, title: imp.config.title };
                 writeStored('salt_offline_config', JSON.stringify(localConfig));
@@ -473,14 +512,13 @@ function processJsonImport(rawText) {
             }
             // The file's report format is taken only while this one is still
             // the stock one: an operator's own format changes only in the Builder.
-            if (imp.formats && typeof imp.formats === 'object' && isStockFormat()) {
+            if (takesFormat && isStockFormat()) {
                 const own = Object.values(imp.formats).filter(isFormat);
                 const fFmt = (imp.config && isFormat(imp.formats[imp.config.ato]) && imp.formats[imp.config.ato]) || own[0];
                 if (fFmt) saveWorkspaceFormat(fFmt);
             }
             // And the overlays (NAI / OBJ / PL): the file's replace any of the
             // same type and name; the rest are kept.
-            const impOverlays = SaltCore.foldOverlays(imp.overlays);
             if (impOverlays.length) await saveOverlays(mergeOverlays(sharedOverlays, impOverlays));
             await importNarrative(imp.narrative);
             await saveLocalAndSync(all, 'backup');
@@ -490,18 +528,34 @@ function processJsonImport(rawText) {
             let unsent = 0;
             for (const ato of isLocalFile ? [] : Object.keys(imp.workspaces || {})) {
                 if (ato === activeAto || !(all[ato] || []).length) continue;
-                if (await pushWorkspace(ato, all[ato], 'backup') === 'queued') unsent++;
+                const queued = await pushWorkspace(ato, all[ato], 'backup') === 'queued';
+                markPending(ato, queued);
+                if (queued) unsent++;
             }
             closeExportView();
             loadConfig();
-            if (imp.profiles) { for (const key in imp.profiles) { try { await postJson('/api/save_profile', { profile: imp.profiles[key] }); } catch(e){} } }
-            if (imp.config && imp.config.ato) { try { await postJson('/api/save_config', { config: imp.config }); } catch(e){} }
+            // The rest goes to the server as it is; what it refuses is said.
+            const refusals = [];
+            const send = async (path, body) => {
+                if (isLocalFile) return;
+                const r = await apiPost(path, body);
+                if (!r.ok && r.status !== 0 && r.status !== 401) refusals.push(r.message);
+            };
+            if (profiles.length) {
+                for (const p of profiles) await send('/api/save_profile', { profile: p });
+                // The server takes the last profile sent as this connection's
+                // operator, for attribution: make that this operator again.
+                if (ownInitials) await send('/api/save_profile', { profile: userProfile });
+            }
+            if (switchTo) await send('/api/save_config', { config: switchTo });
             if (unsent) {
                 // Don't sync: it would drop the workspaces the server never got.
-                showToast(`${unsent} workspace(s) couldn't reach the server. Import the file again once it's back.`, true);
+                // They're kept here and sent before the next pull.
+                showToast(`${unsent} workspace(s) couldn't reach the server. They're kept here and sent when it's back.`, true);
                 return;
             }
-            showToast('Import successful. Syncing...');
+            if (refusals.length) showToast(`Imported, but not all of it was saved: ${refusals[0]}`, true);
+            else showToast('Import successful. Syncing...');
             syncWithServer();
         } catch (err) { showToast('Import failed: ' + (err && err.message ? err.message : 'invalid file'), true); }
     });
@@ -568,12 +622,17 @@ const openCsvImportView = () => {
     destHtml += '<option value="IMPORT">IMPORT workspace</option>';
     others.forEach(a => { destHtml += `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`; });
     el.csv.destSelect.innerHTML = destHtml;
+    // Focus goes in (on Cancel, the safe button) and back where it was after.
+    // Not held inside: the panel is a view, and the view switcher stays usable.
+    dialogOpeners.delete(el.csv.panel);   // left another way last time
+    enterDialog(el.csv.panel, el.csv.cancelBtn);
 };
 
 const closeCsvImportView = () => {
     el.csv.panel.style.display = 'none';
     showHomeView();
     pendingCsv = null;
+    leaveDialog(el.csv.panel);
 };
 
 const confirmCsvImport = async () => {

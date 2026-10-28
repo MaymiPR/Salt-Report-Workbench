@@ -13,8 +13,8 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div id="toast-notification" class="toast"></div>
-    <div id="confirmation-toast" class="toast confirm">
+    <div id="toast-notification" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+    <div id="confirmation-toast" class="toast confirm" role="dialog" aria-modal="true" aria-labelledby="confirmation-message">
         <div id="confirmation-message" style="margin-bottom: 8px;"></div>
         <div id="confirmButtons">
              <button id="cancelActionBtn" class="cancel-btn">Cancel</button>
@@ -78,16 +78,16 @@
                     </div>
                 </div>
                 <div class="startup-field">
-                    <label class="startup-field-label">Tag Color</label>
-                    <div class="color-swatches" id="startup-color-swatches">
-                        <button type="button" class="color-swatch selected" data-color="#0a84ff" style="background:#0a84ff" title="Blue"></button>
-                        <button type="button" class="color-swatch" data-color="#5ac8fa" style="background:#5ac8fa" title="Sky"></button>
-                        <button type="button" class="color-swatch" data-color="#32d74b" style="background:#32d74b" title="Green"></button>
-                        <button type="button" class="color-swatch" data-color="#ffd60a" style="background:#ffd60a" title="Yellow"></button>
-                        <button type="button" class="color-swatch" data-color="#ff9f0a" style="background:#ff9f0a" title="Orange"></button>
-                        <button type="button" class="color-swatch" data-color="#ff453a" style="background:#ff453a" title="Red"></button>
-                        <button type="button" class="color-swatch" data-color="#ff375f" style="background:#ff375f" title="Pink"></button>
-                        <button type="button" class="color-swatch" data-color="#bf5af2" style="background:#bf5af2" title="Purple"></button>
+                    <label class="startup-field-label" id="startup-color-label">Tag Color</label>
+                    <div class="color-swatches" id="startup-color-swatches" role="group" aria-labelledby="startup-color-label">
+                        <button type="button" class="color-swatch selected" data-color="#0a84ff" style="background:#0a84ff" title="Blue" aria-label="Blue" aria-pressed="true"></button>
+                        <button type="button" class="color-swatch" data-color="#5ac8fa" style="background:#5ac8fa" title="Sky" aria-label="Sky" aria-pressed="false"></button>
+                        <button type="button" class="color-swatch" data-color="#32d74b" style="background:#32d74b" title="Green" aria-label="Green" aria-pressed="false"></button>
+                        <button type="button" class="color-swatch" data-color="#ffd60a" style="background:#ffd60a" title="Yellow" aria-label="Yellow" aria-pressed="false"></button>
+                        <button type="button" class="color-swatch" data-color="#ff9f0a" style="background:#ff9f0a" title="Orange" aria-label="Orange" aria-pressed="false"></button>
+                        <button type="button" class="color-swatch" data-color="#ff453a" style="background:#ff453a" title="Red" aria-label="Red" aria-pressed="false"></button>
+                        <button type="button" class="color-swatch" data-color="#ff375f" style="background:#ff375f" title="Pink" aria-label="Pink" aria-pressed="false"></button>
+                        <button type="button" class="color-swatch" data-color="#bf5af2" style="background:#bf5af2" title="Purple" aria-label="Purple" aria-pressed="false"></button>
                     </div>
                     <input type="hidden" id="startup-color" value="#0a84ff">
                 </div>
@@ -162,7 +162,7 @@
                         <li><strong>Time field</strong>: type <code>HHMM</code> and it auto-formats to <code>HH:MM</code> on blur. Leave it blank and the report gets stamped with the current time when you submit. A typed time gets today&rsquo;s date, unless it is more than an hour ahead of now, in which case it is taken as yesterday&rsquo;s: in Zulu mode the day rolls over during a US evening, so <code>23:50</code> typed at <code>00:30Z</code> means forty minutes ago.</li>
                         <li>Press the blue <strong>Log New Report</strong> button or hit <kbd>Enter</kbd> from any field.</li>
                         <li>After submission: the report <strong>auto-copies to your clipboard</strong> in proper SALT format, ready to paste into a chat or radio script.</li>
-                        <li>Numbering is automatic (highest existing + 1). Override using the small <em>#</em> field next to the form.</li>
+                        <li>Numbering is automatic (highest existing + 1). Override using the small <em>Number</em> box beside <em>New Report</em>.</li>
                         <li><kbd>Esc</kbd> while filling out a new report clears all the fields.</li>
                     </ul>
                     <p class="manual-modes"><strong>Locally:</strong> The report saves to your browser&rsquo;s local storage immediately and stays there until you clear it.</p>
@@ -219,7 +219,7 @@
                 <section class="manual-section">
                     <h3>Working with the Table</h3>
                     <ul>
-                        <li><strong>Click any row</strong> to load it into the form for editing.</li>
+                        <li><strong>Click any row</strong> to load it into the form for editing (or <kbd>Tab</kbd> to its Identifier and press <kbd>Enter</kbd>). If someone else changes it before you press Edit or Update, you&rsquo;re asked whether to keep theirs or overwrite it.</li>
                         <li><strong>Copy button</strong> on each row copies that report to clipboard in SALT format. If the report has been updated, the identifier line includes <em>(Updated)</em> so the recipient knows it&rsquo;s a revised entry, not the original.</li>
                         <li><strong>Chevron (&rsaquo;)</strong> next to a report expands its history below: every prior version with size, activity, location, time, and who saved it.</li>
                         <li><strong>(Updated) tag</strong> under the ID means the report has been changed at least once.</li>
@@ -278,7 +278,7 @@
                         <li><strong>Time range</strong>: set From and/or To to narrow what gets exported. Leave both blank to include everything.</li>
                         <li><strong>Quick presets (24h / 12h / 6h / 1h)</strong>: one click fills both pickers relative to now, respecting your active Zulu/Local time mode. <strong>Clear</strong>, at the top right of the card, empties both to export everything.</li>
                         <li><strong>Filter stats</strong>: stacked counts beneath the picker show <em>N of M unique reports</em> + <em>N of M total reports</em> (the second line includes every saved history entry). Turns blue when a filter is active.</li>
-                        <li><strong>Backup (.txt)</strong>: full snapshot with human-readable content at the top and machine-readable JSON at the bottom: the reports with their updates and BDA, the report format, the overlays and the narrative settings. Re-import to merge it back in. Option: <strong>Export All ATOs</strong> bundles every loaded workspace into one file instead of just the active one.</li>
+                        <li><strong>Backup (.txt)</strong>: full snapshot with human-readable content at the top and machine-readable JSON at the bottom: the reports with their updates and BDA, the report format, the overlays and the narrative settings. Re-import to merge it back in: a report in both keeps whichever version is newer, and the rest are added. Importing also makes the file&rsquo;s workspace the active one for everyone, sets the tag colors of the operators in it (yours stay as you set them), replaces overlays of the same type and name and takes its report format while yours is the stock one (the prompt says which of these apply), and asks before taking its narrative settings. Option: <strong>Export All ATOs</strong> bundles every loaded workspace into one file instead of just the active one.</li>
                         <li><strong>Reports for Excel (.csv)</strong>: flat tabular export. The Identifier column matches the table (<code>Patrol - ALPHA001</code>, following the Title Separator). Current report appears first, then each history entry on its own row labeled <code>Update #N (Old)</code>, then each BDA assessment as a <code>BDA #N</code> row (target in Size, effect in Activity, coords in MGRS). Custom builder fields are appended as extra columns after Analysis. Its options: <strong>Latest version only</strong>, one row per report without its earlier updates (for tools that put every row on a map); and <strong>MTI Export</strong>, which splits it into two files (<code>_tracked.csv</code> and <code>_wheeled.csv</code>) by scanning Size for vehicle counts written as <code>4 tracked</code>, <code>4x tracked</code>, or <code>4 x wheeled</code>, history entries included.</li>
                         <li><strong>ArcGIS points</strong> (Shapefile .zip, .json, .geojson or .csv): one point per MGRS grid, ready for ArcGIS Pro. <strong>ArcGIS tracks</strong> (Shapefile .zip, .json or .geojson): one line per report that moved. See <em>Overlays and ArcGIS</em> below.</li>
                         <li><strong>CSV Import</strong>: maps incoming columns to SALT fields and imports the rows into the workspace you choose: the active one, another loaded workspace, or a staging workspace called <em>IMPORT</em>. From IMPORT, check the rows you want, pick a destination ATO from the dropdown that appears, and send them. A mapped Time column is read as ISO 8601, <code>YYYY-MM-DD HH:MM</code>, <code>HH:MM</code> or <code>HHMM</code> (today, in your time mode; a <code>Z</code> or <code>L</code> suffix overrides it), or a DTG such as <code>241430Z</code> or <code>241430ZOCT26</code>. Anything else gets the import time, and the result message says how many rows that happened to.</li>
@@ -293,12 +293,12 @@
 
                     <p class="manual-step">Identity tab (person icon)</p>
                     <ul>
-                        <li>Same identity form as the startup modal: initials, tag color, Save.</li>
+                        <li>Same identity form as the startup modal: initials, tag color, <em>Set Initials</em>.</li>
                         <li>Shows the current <strong>Access Code</strong> at the top, hidden as dots until you press <em>Show</em>, with a <em>Copy</em> button that copies it without showing it, for sharing with another editor (display-only: you can&rsquo;t edit it here; that path is the startup modal).</li>
                     </ul>
 
-                    <p class="manual-modes"><strong>Locally:</strong> Exports generate files from your browser&rsquo;s current state and download to your machine. Backup and CSV imports merge incoming data into your local workspace.</p>
-                    <p class="manual-modes"><strong>With sync server:</strong> Imports also push the merged result to the server, so peers see the new entries on their next refresh and the server&rsquo;s backup file is rewritten to include them. Unloads broadcast in real time.</p>
+                    <p class="manual-modes"><strong>Locally:</strong> Exports generate files from your browser&rsquo;s current state and download to your machine. A backup import merges its reports into yours (the newer version of each wins); a CSV import adds its rows to the workspace you pick.</p>
+                    <p class="manual-modes"><strong>With sync server:</strong> Imports also push the merged result to the server, so peers see the new entries straight away and the server&rsquo;s backup file is rewritten to include them. Unloads broadcast in real time; one the server refuses (or can&rsquo;t be reached for) leaves the workspace loaded and says why.</p>
                 </section>
 
                 <section class="manual-section">
@@ -351,7 +351,7 @@
                         <li>Each shape's type comes from its name (<code>NAI 1</code>, <code>OBJ GOLD</code>, <code>PL BLUE</code>), else from its folder, layer, or file name (<em>NAIs</em>, <em>Phase Lines</em>); lines with neither are phase lines. Review the list, set or change the type of any shape (or Skip it), then <strong>Add</strong>.</li>
                         <li>Areas are NAIs and OBJs; lines are phase lines; points are kept as labels only. An NAI or OBJ drawn as a path (Google Earth's <em>Add Path</em>) is closed back to its start and used as an area. Importing a shape with the same type and name again replaces it, so an updated overlay file just replaces the old one.</li>
                         <li>Overlays are <strong>one set for every workspace</strong>: import them once and every ATO, editor and viewer uses them. They are saved in every workspace's backup file.</li>
-                        <li>The tab groups them as NAIs, Objectives and Phase lines, each with how many reports in the workspace on screen name it. Each group folds, closed to start with: click its header to open it, or the two buttons at the right of <em>Import</em> to open or close them all. <strong>Unload</strong> on a group removes that group; the &times; removes one; <strong>Unload All</strong> removes them all. When one changes, import the new file: it replaces the old one of the same type and name. Reports themselves are never changed by this.</li>
+                        <li>The tab groups them as NAIs, Objectives and Phase lines, each with how many reports in the workspace on screen name it. Each group folds, closed to start with: click its header to open it, or the two buttons at the right of <em>Import</em> to open or close them all. <strong>Unload</strong> on a group removes that group; the &times; removes one for everyone (the first press asks <em>Remove for everyone?</em> in its name, a second removes it, and any other button lets it go); <strong>Unload All</strong> removes them all. When one changes, import the new file: it replaces the old one of the same type and name. Reports themselves are never changed by this.</li>
                     </ul>
                     <p class="manual-step">How the Location box is read</p>
                     <ul>
@@ -469,6 +469,7 @@
                         <li>Changes made while locally run queue in your browser and replay automatically the moment the server comes back.</li>
                         <li>Each change sends only the reports it touched, not the whole workspace, so syncing stays quick however long the operation runs.</li>
                         <li>If the server refuses a report (for example a field longer than it accepts), a red message gives the reason and the report stays in your table marked <strong>Not saved</strong>; hover the mark for the reason. Fix it (Edit or Update) and it is sent again; or click <strong>Discard</strong> (or delete it) to drop the change and get the server's copy back. The rest of your reports keep syncing either way.</li>
+                        <li>Anything else the server doesn&rsquo;t take (the workspace, your identity, the overlays, the report format, an unload) says so and why: <em>Not saved</em>, or <em>Not unloaded</em>. Changes made while it can&rsquo;t be reached say they&rsquo;re saved here; reports are sent, workspace by workspace, as soon as it&rsquo;s back.</li>
                     </ul>
                     <h4 class="manual-subhead">What the Sync Server Does Automatically</h4>
                     <ul>
@@ -550,8 +551,11 @@
                     <ul>
                         <li><kbd>Enter</kbd>: Submit. Update if editing, Log if logging new. In the ATO Designator or Report Title field it presses <em>Set</em> instead.</li>
                         <li><kbd>Ctrl</kbd>+<kbd>Enter</kbd>: Edit (overwrite without history).</li>
-                        <li><kbd>Esc</kbd>: Cancel editing, deselect any selected table rows, clear new-report fields, or (when focused on the search bar) clear the search filter.</li>
+                        <li><kbd>Esc</kbd>: Close whatever is open first (a question or confirmation, which then does nothing; the Settings menu; the User Manual; the CSV column matching; the map&rsquo;s full screen), else cancel editing, deselect any selected table rows, clear new-report fields, or (when focused on the search bar) clear the search filter.</li>
                         <li><kbd>Ctrl</kbd>+<kbd>S</kbd>: Jump to search bar.</li>
+                        <li><kbd>Tab</kbd> to a report&rsquo;s Identifier and press <kbd>Enter</kbd> to load it into the form; <kbd>Tab</kbd> to a column header and press <kbd>Enter</kbd> to sort by it. In the Settings menu, the arrow keys move between its items. While a dialog is open, <kbd>Tab</kbd> stays inside it.</li>
+                        <li><kbd>Shift</kbd> + click on the map copies the grid under the pointer.</li>
+                        <li><kbd>Ctrl</kbd> + scroll (<kbd>&#8984;</kbd> + scroll on a Mac) zooms the map; in full screen a plain scroll does.</li>
                     </ul>
                 </section>
 
@@ -587,7 +591,7 @@
                             </div>
                         </div>
                         <div class="config-button-wrapper">
-                            <select id="atoHistorySelect" disabled></select>
+                            <select id="atoHistorySelect" disabled aria-label="Other workspaces"></select>
                             <button id="setAtoBtn" class="set-btn">Set</button>
                         </div>
                     </div>
@@ -598,36 +602,36 @@
                             <!-- While updating: which report, in full (app/30-form.js). -->
                             <div id="formEditingNote" class="form-editing-note" hidden></div>
                         </div>
-                        <input type="number" id="reportStartNum" min="1" placeholder="Number">
+                        <input type="number" id="reportStartNum" min="1" placeholder="Number" aria-label="Report number">
                     </div>
 
                     <form id="saltForm">
                         <input type="hidden" id="reportId">
                         <div id="salt-fields">
                             <div class="input-group">
-                                <input type="text" id="size" placeholder="Size" maxlength="500">
+                                <input type="text" id="size" placeholder="Size" maxlength="500" aria-label="Size">
                             </div>
                             <div class="input-group">
-                                <input type="text" id="activity" placeholder="Activity" maxlength="500">
+                                <input type="text" id="activity" placeholder="Activity" maxlength="500" aria-label="Activity">
                             </div>
                             <div class="input-group">
                                 <div class="location-row">
                                     <!-- MGRS Lock (Settings): the grid zone and square put in front of grids typed as digits. -->
                                     <input type="text" id="mgrsPrefix" class="mgrs-prefix" placeholder="11S NV" maxlength="8" spellcheck="false" aria-label="Locked grid zone and square" title="Grid zone and 100 km square, put in front of grids typed as digits">
-                                    <input type="text" id="location" placeholder="Location" maxlength="500">
+                                    <input type="text" id="location" placeholder="Location" maxlength="500" aria-label="Location">
                                 </div>
                                 <!-- What Log / Update will add from the overlays, and what disagrees (app/30-form.js). -->
                                 <div id="locationHints" class="loc-hints" hidden></div>
                             </div>
                             <div class="input-group">
                                 <div class="time-control">
-                                    <input type="text" id="time" placeholder="Time" maxlength="5">
+                                    <input type="text" id="time" placeholder="Time" maxlength="5" aria-label="Time (HH:MM)">
                                     <button type="button" id="updateTimeBtn" disabled>Now</button>
                                 </div>
                             </div>
                         </div>
                         <div id="analysis-field">
-                            <textarea id="yourAnalysis" rows="2" placeholder="Your Analysis (Optional)" maxlength="5000"></textarea>
+                            <textarea id="yourAnalysis" rows="2" placeholder="Your Analysis (Optional)" maxlength="5000" aria-label="Your analysis (optional)"></textarea>
                         </div>
                         <div class="update-controls">
                             <button type="submit" id="logButton">Log New Report</button>
@@ -664,22 +668,22 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>
                     </button>
                     <div class="data-management-menu">
-                        <button type="button" id="dataMgmtBtn" class="view-icon" title="Settings" aria-label="Settings" aria-haspopup="menu">
+                        <button type="button" id="dataMgmtBtn" class="view-icon" title="Settings" aria-label="Settings" aria-haspopup="menu" aria-expanded="false" aria-controls="dataMgmtMenu">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="6.2"/><circle cx="12" cy="12" r="2.4"/><path stroke-width="2.6" stroke-linecap="butt" d="M12 2.6v3.2M12 18.2v3.2M2.6 12h3.2M18.2 12h3.2M5.35 5.35l2.26 2.26M16.39 16.39l2.26 2.26M5.35 18.65l2.26-2.26M16.39 7.61l2.26-2.26"/></svg>
                         </button>
                         <div id="dataMgmtMenu" role="menu">
-                            <button id="toggleLayoutBtn"></button>
-                            <button id="toggleTimeFormatBtn"></button>
-                            <button id="toggleSepBtn"></button>
-                            <button id="toggleBdaBtn"></button>
-                            <button id="toggleMgrsLockBtn"></button>
-                            <hr>
-                            <button id="selectAllBtn">Select All</button>
-                            <button id="deselectAllBtn">Deselect All</button>
-                            <hr>
-                            <button id="userManualBtn">User Manual</button>
-                            <hr>
-                            <button id="clearAllBtn">Clear Workspace</button>
+                            <button type="button" role="menuitem" id="toggleLayoutBtn"></button>
+                            <button type="button" role="menuitem" id="toggleTimeFormatBtn"></button>
+                            <button type="button" role="menuitem" id="toggleSepBtn"></button>
+                            <button type="button" role="menuitem" id="toggleBdaBtn"></button>
+                            <button type="button" role="menuitem" id="toggleMgrsLockBtn"></button>
+                            <hr role="separator">
+                            <button type="button" role="menuitem" id="selectAllBtn">Select All</button>
+                            <button type="button" role="menuitem" id="deselectAllBtn">Deselect All</button>
+                            <hr role="separator">
+                            <button type="button" role="menuitem" id="userManualBtn">User Manual</button>
+                            <hr role="separator">
+                            <button type="button" role="menuitem" id="clearAllBtn">Clear Workspace</button>
                         </div>
                     </div>
                 </div>
@@ -688,9 +692,9 @@
                          and each other view its one-line summary (setTopBar in app/10-state.js). -->
                     <div id="topBar" class="report-header top-bar" data-view="home">
                         <h2>
-                            <div id="status-dot" class="status-dot" title="Sync Status"></div>
+                            <span id="status-dot" class="status-dot" title="Sync Status" role="img" aria-label="Sync status"></span>
                             <span id="connected-users" class="connected-users-chip" title="Users connected">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                                 <span id="connected-users-count">1</span>
                             </span>
                             <span id="homeTitle" class="home-title">Report Log</span>
@@ -701,7 +705,7 @@
                              <span class="icon">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
                             </span>
-                            <input type="search" id="searchBar" placeholder="Search...">
+                            <input type="search" id="searchBar" placeholder="Search..." aria-label="Search reports">
                         </div>
                         <div class="report-metrics home-only">
                             <span id="report-count"></span>
@@ -726,11 +730,12 @@
                                     <tr>
                                         <th class="col-action">Action</th>
                                         <th class="col-by reporter-col">By</th>
-                                        <th class="col-id sortable-th" data-sort="id" title="Sort by number, or most recently changed">Identifier <span class="sort-icon">&#8645;</span></th>
-                                        <th class="col-size sortable-th" data-sort="size" title="Sort by size">Size <span class="sort-icon">&#8645;</span></th>
-                                        <th class="col-activity sortable-th" data-sort="activity" title="Sort by activity">Activity <span class="sort-icon">&#8645;</span></th>
-                                        <th class="col-location sortable-th" data-sort="location" title="Sort by location">Location <span class="sort-icon">&#8645;</span></th>
-                                        <th class="col-time sortable-th" data-sort="time" title="Sort by time"><span id="time-header">Time (Z)</span> <span class="sort-icon">&#8645;</span></th>
+                                        <!-- Each sortable header holds a button, for the keyboard; aria-sort says which sorts (updateSortIcons). -->
+                                        <th class="col-id sortable-th" data-sort="id" title="Sort by number, or most recently changed" aria-sort="none"><button type="button" class="sort-btn">Identifier <span class="sort-icon" aria-hidden="true">&#8645;</span></button></th>
+                                        <th class="col-size sortable-th" data-sort="size" title="Sort by size" aria-sort="none"><button type="button" class="sort-btn">Size <span class="sort-icon" aria-hidden="true">&#8645;</span></button></th>
+                                        <th class="col-activity sortable-th" data-sort="activity" title="Sort by activity" aria-sort="none"><button type="button" class="sort-btn">Activity <span class="sort-icon" aria-hidden="true">&#8645;</span></button></th>
+                                        <th class="col-location sortable-th" data-sort="location" title="Sort by location" aria-sort="none"><button type="button" class="sort-btn">Location <span class="sort-icon" aria-hidden="true">&#8645;</span></button></th>
+                                        <th class="col-time sortable-th" data-sort="time" title="Sort by time" aria-sort="none"><button type="button" class="sort-btn"><span id="time-header">Time (Z)</span> <span class="sort-icon" aria-hidden="true">&#8645;</span></button></th>
                                         <th class="col-analysis">Analysis</th>
                                     </tr>
                                 </thead>
@@ -802,7 +807,7 @@
                             </div>
                         </div>
 
-                        <!-- Tab: Identity — same form the header dropdown used; opened by the person icon. -->
+                        <!-- Tab: Identity: your initials and tag color, and the access code to share; opened by the person icon tab. -->
                         <div class="ws-tab-panel" data-tab-panel="identity" style="display:none;">
                             <div class="export-block">
                                 <div class="export-block-label">Report Identity</div>
@@ -817,8 +822,8 @@
 
                                     <!-- Access code (display-only). Editing path is the startup modal, gated by server validation. -->
                                     <div class="profile-field">
-                                        <label class="profile-field-label">Access Code <span class="profile-field-hint">share with other editors</span></label>
-                                        <div class="access-code-display">
+                                        <label class="profile-field-label" id="identityAccessLabel">Access Code <span class="profile-field-hint">share with other editors</span></label>
+                                        <div class="access-code-display" role="group" aria-labelledby="identityAccessLabel">
                                             <code id="identityAccessCode" class="access-code-text">&mdash;</code>
                                             <button type="button" id="identityAccessShowBtn" class="copy-btn access-show-btn" aria-pressed="false" aria-controls="identityAccessCode">Show</button>
                                             <button type="button" id="identityAccessCopyBtn" class="copy-btn" title="Copy access code to clipboard">Copy</button>
@@ -828,20 +833,20 @@
                                     <div class="profile-menu-divider"></div>
 
                                     <div class="profile-field">
-                                        <label class="profile-field-label">Initials</label>
+                                        <label class="profile-field-label" for="user-initials-input">Initials</label>
                                         <input type="text" id="user-initials-input" placeholder="e.g. AB" maxlength="3">
                                     </div>
                                     <div class="profile-field">
-                                        <label class="profile-field-label">Tag Color</label>
-                                        <div class="color-swatches" id="color-swatches">
-                                            <button class="color-swatch" data-color="#0a84ff" style="background:#0a84ff" title="Blue"></button>
-                                            <button class="color-swatch" data-color="#5ac8fa" style="background:#5ac8fa" title="Sky"></button>
-                                            <button class="color-swatch" data-color="#32d74b" style="background:#32d74b" title="Green"></button>
-                                            <button class="color-swatch" data-color="#ffd60a" style="background:#ffd60a" title="Yellow"></button>
-                                            <button class="color-swatch" data-color="#ff9f0a" style="background:#ff9f0a" title="Orange"></button>
-                                            <button class="color-swatch" data-color="#ff453a" style="background:#ff453a" title="Red"></button>
-                                            <button class="color-swatch" data-color="#ff375f" style="background:#ff375f" title="Pink"></button>
-                                            <button class="color-swatch" data-color="#bf5af2" style="background:#bf5af2" title="Purple"></button>
+                                        <label class="profile-field-label" id="profile-color-label">Tag Color</label>
+                                        <div class="color-swatches" id="color-swatches" role="group" aria-labelledby="profile-color-label">
+                                            <button class="color-swatch" data-color="#0a84ff" style="background:#0a84ff" title="Blue" aria-label="Blue" aria-pressed="false"></button>
+                                            <button class="color-swatch" data-color="#5ac8fa" style="background:#5ac8fa" title="Sky" aria-label="Sky" aria-pressed="false"></button>
+                                            <button class="color-swatch" data-color="#32d74b" style="background:#32d74b" title="Green" aria-label="Green" aria-pressed="false"></button>
+                                            <button class="color-swatch" data-color="#ffd60a" style="background:#ffd60a" title="Yellow" aria-label="Yellow" aria-pressed="false"></button>
+                                            <button class="color-swatch" data-color="#ff9f0a" style="background:#ff9f0a" title="Orange" aria-label="Orange" aria-pressed="false"></button>
+                                            <button class="color-swatch" data-color="#ff453a" style="background:#ff453a" title="Red" aria-label="Red" aria-pressed="false"></button>
+                                            <button class="color-swatch" data-color="#ff375f" style="background:#ff375f" title="Pink" aria-label="Pink" aria-pressed="false"></button>
+                                            <button class="color-swatch" data-color="#bf5af2" style="background:#bf5af2" title="Purple" aria-label="Purple" aria-pressed="false"></button>
                                         </div>
                                         <input type="hidden" id="user-color-input" value="#0a84ff">
                                     </div>
@@ -850,7 +855,7 @@
                             </div>
                         </div>
 
-                        <!-- Tab: Builder — per-workspace report format editor with live preview. -->
+                        <!-- Tab: Builder: the report format, one for every workspace, with a live preview (app/40-io.js). -->
                         <div class="ws-tab-panel" data-tab-panel="builder" style="display:none;">
                             <div class="export-block">
                                 <div class="export-block-label">Report Format <span id="builderScopeNote"></span></div>
@@ -862,8 +867,8 @@
                                 <div id="builderLines" class="builder-lines"></div>
                                 <div id="builderPalette" class="builder-palette" style="display:none;"></div>
                                 <div class="builder-add-row">
-                                    <input type="text" id="builderNewLetter" class="builder-letter-input" placeholder="Letter (e.g. W)" maxlength="3">
-                                    <input type="text" id="builderNewLabel" placeholder="What it represents (e.g. Weather)" maxlength="30">
+                                    <input type="text" id="builderNewLetter" class="builder-letter-input" placeholder="Letter (e.g. W)" maxlength="3" aria-label="Letter the field copies as">
+                                    <input type="text" id="builderNewLabel" placeholder="What it represents (e.g. Weather)" maxlength="30" aria-label="What the field represents">
                                     <button type="button" id="builderAddBtn" class="set-btn">Add Field</button>
                                 </div>
                             </div>
@@ -874,8 +879,7 @@
                             </div>
                         </div>
 
-                        <!-- Tab: Overlays — NAI / OBJ / PL shapes for the workspace (rendered by app/45-overlays.js). -->
-                        <!-- Tab: Map: the ops graphics (NAIs, OBJs, phase lines) and the basemaps, shared by every workspace. -->
+                        <!-- Tab: Map: the ops graphics (NAIs, OBJs, phase lines; app/45-overlays.js) and the basemaps (app/46-map.js), shared by every workspace. -->
                         <div class="ws-tab-panel" data-tab-panel="overlays" style="display:none;">
                             <div class="export-block">
                                 <div class="export-block-label">Ops graphics <span id="overlaysScopeNote"></span></div>
@@ -1105,8 +1109,8 @@
                                 <div class="export-panel-title">Import CSV &mdash; Map Columns</div>
                                 <div id="csvImportSubtitle" class="export-panel-subtitle">No file loaded</div>
                             </div>
-                            <button id="closeCsvImportBtn" class="icon-btn" title="Cancel Import">
-                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            <button id="closeCsvImportBtn" class="icon-btn" title="Cancel Import" aria-label="Cancel import">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                             </button>
                         </div>
 
@@ -1118,23 +1122,23 @@
                             <div>
                                 <div class="export-block-label">Map to Report Fields</div>
                                 <div class="csv-map-row">
-                                    <label>Title</label>
+                                    <label for="csvMapTitle">Title</label>
                                     <select id="csvMapTitle"></select>
                                 </div>
                                 <div class="csv-map-row">
-                                    <label>Size</label>
+                                    <label for="csvMapSize">Size</label>
                                     <select id="csvMapSize"></select>
                                 </div>
                                 <div class="csv-map-row">
-                                    <label>Activity</label>
+                                    <label for="csvMapActivity">Activity</label>
                                     <select id="csvMapActivity"></select>
                                 </div>
                                 <div class="csv-map-row">
-                                    <label>Location</label>
+                                    <label for="csvMapLocation">Location</label>
                                     <select id="csvMapLocation"></select>
                                 </div>
                                 <div class="csv-map-row">
-                                    <label>Time</label>
+                                    <label for="csvMapTime">Time</label>
                                     <select id="csvMapTime"></select>
                                 </div>
                             </div>
@@ -1145,7 +1149,7 @@
                         <div class="export-block">
                             <div class="export-block-label">Destination Workspace</div>
                             <div class="csv-dest-row">
-                                <select id="csvDestSelect"></select>
+                                <select id="csvDestSelect" aria-label="Destination workspace"></select>
                                 <button id="csvConfirmBtn" class="set-btn">Import Reports</button>
                                 <button id="csvCancelBtn" class="cancel-btn">Cancel</button>
                             </div>

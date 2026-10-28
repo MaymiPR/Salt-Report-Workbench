@@ -55,6 +55,7 @@ const rebuildFormFields = (fields, groupFor, fmt) => {
             inp.maxLength = 500;  // the server's per-value limit
             // Form shows the descriptive name; the copy text uses the letter.
             inp.placeholder = line.name || line.label;
+            inp.setAttribute('aria-label', line.name || line.label);
             inp.dataset.customLabel = line.label;
             inp.value = prevVals[line.label] || '';
             g.appendChild(inp);
@@ -98,7 +99,12 @@ const saveWorkspaceFormat = (format) => {
     applyFormFieldOrder();
     // Custom fields own table columns now, so the log has to repaint too.
     renderLog();
-    postJson('/api/save_format', { format }).catch(() => {});
+    // The server's format wins on the next sync, so one it didn't take is lost:
+    // say so, whatever the toast that called this said.
+    return apiPost('/api/save_format', { format }).then(r => {
+        if (!r.ok && r.status !== 401 && !isLocalFile) showToast(`Format not saved: ${r.message}`, true);
+        return r.ok;
+    });
 };
 
 // --- Location against the overlays ---
@@ -138,7 +144,10 @@ const settleLocation = async (text) => {
         if (pick === 'both') add.push(...c.found);
     }
     const out = SaltCore.editLocation(text, { replace, add });
-    return out.length <= 500 ? out : text;  // the server's per-field limit
+    if (out.length <= 500) return out;
+    // Past the server's per-field limit: logged as typed, and said why.
+    if (add.length || Object.keys(replace).length) showToast('The places weren\'t added: the Location would be longer than 500 characters.', true);
+    return text;
 };
 
 // The orange Check tag on a logged report: settle it the same way, saved as
@@ -149,7 +158,7 @@ const fixReportLocation = async (id) => {
     if (!r) return;
     const loc = await settleLocation(r.location);
     if (loc === null || loc === r.location) return;
-    const now = Date.now();
+    const now = nextStamp(r);
     const hist = [...(r.history || []), { size: r.size || '', activity: r.activity || '', location: r.location || '', time: r.time,
         yourAnalysis: r.yourAnalysis || '', custom: r.custom || {}, user: r.user, lastModified: r.lastModified }];
     const next = { ...r, location: loc, history: hist, updated: true, lastModified: now, user: userProfile };
@@ -159,7 +168,15 @@ const fixReportLocation = async (id) => {
     await saveLocalAndSync(reportsByAto);
 };
 
+// The report in the form, as it was when loaded: { id, fields }, where fields
+// is what the form edits. A submit that finds it changed since (someone
+// else's Update, or a sync from before) asks before writing over it.
+let editingVersion = null;
+const editedFields = (r) => JSON.stringify([r.size, r.activity, r.location, r.time, r.yourAnalysis || '',
+    r.custom || {}, r.displayId, r.title]);
+
 const resetForm = () => {
+    editingVersion = null;
     el.form.root.reset();
     el.form.reportId.value = '';
     el.form.title.textContent = 'New Report';
@@ -194,6 +211,7 @@ const loadReportForEditing = (reportId) => {
     el.form.editingNote.title = note;
     el.form.editingNote.hidden = false;
     el.form.reportId.value    = report.id;
+    editingVersion = { id: report.id, fields: editedFields(report) };
     el.form.startNum.value = reportNum(report) || 1;
     el.form.size.value     = report.size;
     el.form.activity.value = report.activity;
@@ -242,16 +260,21 @@ const discardUnsaved = (ids, { confirm = true } = {}) => {
 // may have replaced the report objects (the server keeps soft-deleted
 // reports, so they are still there to find), and pushes with a new
 // lastModified so the server takes the restored copy.
+// Resolves false when the server couldn't take it yet (kept here and sent
+// again before the next pull).
 const pushUndone = async (ato, list) => {
-    if (ato === activeAto) { localReports = list; await saveLocalAndSync(reportsByAto); }
-    else { saveReportsByAtoToLocal(); renderLog(); await pushWorkspace(ato, list); }
+    if (ato === activeAto) { localReports = list; return saveLocalAndSync(reportsByAto); }
+    saveReportsByAtoToLocal(); renderLog();
+    const queued = await pushWorkspace(ato, list) === 'queued';
+    markPending(ato, queued);
+    return !queued;
 };
+const undoneToast = (text, saved) => showToast(saved || isLocalFile ? text : `${text} Saved here; the server can't be reached.`);
 
 // `undone` is what a Delete removed: soft-deleted ids, and history entries by report id.
 async function undoDeletion(ato, undone) {
     const list = reportsByAto[ato];
     if (!list) { showToast('That workspace is no longer loaded.', true); return; }
-    const now = Date.now();
     let restored = 0;
     list.forEach(r => {
         let touched = false;
@@ -266,11 +289,10 @@ async function undoDeletion(ato, undone) {
                 touched = true;
             }
         }
-        if (touched) { r.lastModified = now; restored++; }
+        if (touched) { r.lastModified = nextStamp(r); restored++; }
     });
     if (!restored) { showToast('Nothing left to put back.', true); return; }
-    await pushUndone(ato, list);
-    showToast(`${restored} item(s) put back.`);
+    undoneToast(`${restored} item(s) put back.`, await pushUndone(ato, list));
 }
 
 // `before` is the report as it was before a Restore.
@@ -278,10 +300,10 @@ async function undoRestore(ato, before) {
     const list = reportsByAto[ato];
     const r = list && list.find(x => x.id === before.id);
     if (!r) { showToast('That report is no longer here.', true); return; }
+    const stamp = nextStamp(r);
     Object.keys(r).forEach(k => { if (!(k in before)) delete r[k]; });
-    Object.assign(r, before, { lastModified: Date.now() });
-    await pushUndone(ato, list);
-    showToast(`${formatFullId(r)} is back as it was.`);
+    Object.assign(r, before, { lastModified: stamp });
+    undoneToast(`${formatFullId(r)} is back as it was.`, await pushUndone(ato, list));
 }
 
 // DESTRUCTIVE rollback: chosen history version becomes current; current
@@ -300,7 +322,7 @@ const restoreHistoryVersion = (reportId, lastModified) => {
     showConfirmation(`Restore this version as current for ${formatFullId(report)}?${dropMsg}`, async () => {
         const ato = activeAto;
         const before = JSON.parse(JSON.stringify(report));
-        const now = Date.now();
+        const now = nextStamp(report);
         // Drop the chosen snapshot and everything newer; keep strictly older.
         report.history = (report.history || []).filter(h => h.lastModified < snapshot.lastModified);
         report.size         = snapshot.size;
@@ -322,6 +344,7 @@ const restoreHistoryVersion = (reportId, lastModified) => {
 };
 
 const setAtoState = (isSet) => {
+    if (isSet) configChanging = false;   // locked: nothing being changed
     el.config.ato.readOnly   = isSet;
     el.config.title.readOnly = isSet;
     el.config.setBtn.textContent = isSet ? 'Change' : 'Set';
@@ -335,4 +358,9 @@ const setProfileFromLocalStorage = () => {
     if (saved) { userProfile = saved; el.profile.initials.value = userProfile.initials; el.profile.color.value = userProfile.color; selectSwatch(userProfile.color); updateProfilePreview(); }
 };
 
-const selectSwatch = (color) => document.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('selected', s.dataset.color === color));
+// Mark the swatch of `color` as picked (for screen readers too) in `scope`.
+const markSwatch = (scope, color) => scope.querySelectorAll('.color-swatch').forEach(s => {
+    s.classList.toggle('selected', s.dataset.color === color);
+    s.setAttribute('aria-pressed', String(s.dataset.color === color));
+});
+const selectSwatch = (color) => markSwatch(document, color);

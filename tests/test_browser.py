@@ -241,6 +241,44 @@ class BrowserTests(unittest.TestCase):
     def sizes(page):
         return page.locator("#reportLogBody tr[data-id] .col-size").all_text_contents()
 
+    @staticmethod
+    def wait_for_server(page, predicate, timeout=15):
+        """Wait until ``predicate`` (JS, given the /api/sync state) holds.
+        Not wait_for_function: it takes the promise a fetch returns as true."""
+        check = f"() => fetch('/api/sync').then(r => r.json()).then({predicate})"
+        deadline = time.monotonic() + timeout
+        while not page.evaluate(check):
+            if time.monotonic() > deadline:
+                raise AssertionError(f"the server never had {predicate}")
+            page.wait_for_timeout(100)
+
+    def second_editor(self, initials, ato):
+        """Another operator on the same server: a browser with storage of its own."""
+        context = self.browser.new_context(ignore_https_errors=True)
+        self.addCleanup(context.close)
+        other = context.new_page()
+        other.on("pageerror", lambda exc: self.errors.append(str(exc)))
+        other.goto(self.editor + "/")
+        other.fill("#startup-initials", initials)
+        other.fill("#startup-ato", ato)
+        other.fill("#startup-title", "Patrol")
+        other.click("#startupContinueBtn")
+        other.wait_for_selector("#startupModal.show", state="hidden")
+        return other
+
+    @staticmethod
+    def refuse(message, status=400):
+        """A route handler answering as the server does when it refuses a POST."""
+
+        def handler(route):
+            route.fulfill(
+                status=status,
+                content_type="application/json",
+                body=json.dumps({"status": "error", "message": message}),
+            )
+
+        return handler
+
     # -- tests --------------------------------------------------------------- #
     def test_a_logged_report_reaches_the_server_and_every_viewer(self):
         editor = self.open_editor()
@@ -269,6 +307,53 @@ class BrowserTests(unittest.TestCase):
             f"() => fetch('/api/sync').then(r => r.json()).then(s => s.workspaces['{self.ato}'].every(r => !r.deleted))"
         )
 
+    def test_a_save_the_server_refuses_says_so(self):
+        # Regression: every POST resolved whatever the server answered, so a
+        # refused save showed the same toast as one that worked.
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        page.route("**/api/save_config", self.refuse("Validation failed: config.title is too long"))
+        page.click("#setAtoBtn")  # Change
+        page.fill("#reportTitlePrefix", "Other")
+        page.click("#setAtoBtn")
+        page.wait_for_selector(
+            "#toast-notification:has-text('Not saved: Validation failed: config.title is too long.')"
+        )
+        # An error is announced at once, on a red white text can be read on.
+        toast = page.locator("#toast-notification")
+        self.assertEqual(toast.get_attribute("role"), "alert")
+        self.assertEqual(
+            toast.evaluate("t => getComputedStyle(t).backgroundColor"), "rgb(192, 38, 28)"
+        )
+        # An unload the server refuses leaves the workspace here.
+        page.route("**/api/unload_ato", self.refuse("Unload refused"))
+        page.click("#dataMgmtBtn")
+        page.click("#clearAllBtn")
+        page.click("#confirmActionBtn")
+        page.wait_for_selector("#toast-notification:has-text('Not unloaded: Unload refused.')")
+        self.assertEqual(self.sizes(page), ["2x BTR"])
+        self.assertTrue(page.evaluate(f"!!reportsByAto['{self.ato}']"))
+
+    def test_toasts_are_announced_and_undo_waits_while_pointed_at(self):
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        toast = page.locator("#toast-notification")
+        self.assertEqual(
+            (toast.get_attribute("role"), toast.get_attribute("aria-live")), ("status", "polite")
+        )
+        page.check("#reportLogBody .row-selector")
+        page.click("#deleteSelectedBtn")
+        page.click("#confirmActionBtn")
+        page.wait_for_selector("#toast-notification .toast-undo")
+        page.hover("#toast-notification")
+        self.assertTrue(page.evaluate("toastHeld"), "the clock stops under the pointer")
+        page.wait_for_timeout(300)
+        self.assertIn("show", toast.get_attribute("class"))
+        page.mouse.move(5, 5)
+        self.assertFalse(page.evaluate("toastHeld"), "and runs again when it leaves")
+        page.focus("#toast-notification .toast-undo")
+        self.assertTrue(page.evaluate("toastHeld"), "and stops while the Undo button has focus")
+
     def test_sorting_by_size_is_numeric(self):
         page = self.open_editor()
         self.log(page, "10x T-72")
@@ -277,6 +362,112 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(self.sizes(page), ["2x BTR", "10x T-72"])
         page.click("th[data-sort='size']")
         self.assertEqual(self.sizes(page), ["10x T-72", "2x BTR"])
+
+    def test_checked_rows_the_edited_row_and_open_cells_survive_a_redraw(self):
+        # Regression: every sync redrew the table and dropped all three, and
+        # Delete stayed on with nothing checked.
+        page = self.open_editor()
+        long = "10x T-72, 4x BMP-2, 2x BTR-82A, 3x MT-LB, 6x Ural trucks, 2x 2S19 Msta, 1x BREM-1"
+        self.log(page, long)
+        self.log(page, "1x truck")
+
+        def row(size):
+            return f"#reportLogBody tr[data-id]:has(.col-size:has-text('{size}'))"
+
+        page.check(f"{row('1x truck')} .row-selector")
+        page.click(f"{row('1x truck')} .id-edit-btn")  # into the form
+        page.click(f"{row(long)} .col-size .cell-clamp.clampable")
+        page.evaluate("renderLog()")  # what a sync from another operator does
+        self.assertTrue(page.is_checked(f"{row('1x truck')} .row-selector"))
+        self.assertIn("selected-row", page.get_attribute(row("1x truck"), "class"))
+        self.assertIn("expanded", page.get_attribute(f"{row(long)} .col-size .cell-clamp", "class"))
+        self.assertTrue(page.is_visible("#deleteSelectedBtn"))
+        # A checked report that goes away (deleted elsewhere) takes Delete with it.
+        page.evaluate("localReports.find(r => r.size === '1x truck').deleted = true; renderLog()")
+        self.assertFalse(page.is_visible("#deleteSelectedBtn"))
+        self.assertEqual(page.evaluate("selectedRows.size"), 0)
+
+    def test_the_log_works_from_the_keyboard(self):
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        ident = page.evaluate("formatFullId(localReports.find(r => !r.deleted))")
+        self.assertEqual(
+            page.get_attribute("#reportLogBody .copy-btn", "aria-label"), f"Copy {ident}"
+        )
+        self.assertEqual(
+            page.get_attribute("#reportLogBody .row-selector", "aria-label"), f"Select {ident}"
+        )
+        # The Identifier is a button: Enter loads the report into the form.
+        page.focus("#reportLogBody .id-edit-btn")
+        page.keyboard.press("Enter")
+        self.assertIn("Updating", page.text_content("#form-title"))
+        page.fill("#size", "3x BTR")
+        page.click("#updateButton")
+        page.wait_for_selector("#reportLogBody .col-size:has-text('3x BTR')")
+        history = "#reportLogBody .history-btn[data-history-id]"
+        self.assertEqual(page.get_attribute(history, "aria-expanded"), "false")
+        page.click(history)
+        self.assertEqual(page.get_attribute(history, "aria-expanded"), "true")
+        # Sorting from the keyboard; the header says how it sorts.
+        self.assertEqual(page.get_attribute("th[data-sort='id']", "aria-sort"), "other")
+        page.focus("th[data-sort='size'] .sort-btn")
+        page.keyboard.press("Enter")
+        self.assertEqual(page.get_attribute("th[data-sort='size']", "aria-sort"), "ascending")
+        self.assertEqual(page.get_attribute("th[data-sort='id']", "aria-sort"), "none")
+        for box in ("#size", "#activity", "#location", "#time", "#reportStartNum", "#searchBar",
+                    "#yourAnalysis", "#atoHistorySelect"):  # fmt: skip
+            self.assertTrue(page.get_attribute(box, "aria-label"), box)
+        self.assertEqual(
+            page.get_attribute("#color-swatches .color-swatch.selected", "aria-pressed"), "true"
+        )
+
+    def test_escape_and_tab_in_dialogs_and_the_settings_menu(self):
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        # The confirmation takes focus on Cancel, keeps Tab inside, and Escape
+        # cancels it, giving focus back.
+        page.check("#reportLogBody .row-selector")
+        page.click("#deleteSelectedBtn")
+        page.wait_for_selector("#confirmation-toast.show")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "cancelActionBtn")
+        page.keyboard.press("Tab")
+        page.keyboard.press("Tab")
+        self.assertTrue(
+            page.evaluate("el.toast.confirm.contains(document.activeElement)"), "Tab stays inside"
+        )
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#confirmation-toast.show", state="hidden")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "deleteSelectedBtn")
+        self.assertEqual(self.sizes(page), ["2x BTR"])
+        # The Settings menu: open says so, arrows move, Escape closes it.
+        page.click("#dataMgmtBtn")
+        self.assertEqual(page.get_attribute("#dataMgmtBtn", "aria-expanded"), "true")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "toggleLayoutBtn")
+        page.keyboard.press("ArrowDown")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "toggleTimeFormatBtn")
+        page.keyboard.press("End")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "clearAllBtn")
+        page.keyboard.press("Escape")
+        self.assertFalse(page.is_visible("#dataMgmtMenu"))
+        self.assertEqual(page.get_attribute("#dataMgmtBtn", "aria-expanded"), "false")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "dataMgmtBtn")
+        # The manual from the menu: focus on Close, back to the menu's button.
+        page.click("#dataMgmtBtn")
+        page.click("#userManualBtn")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "manualCloseBtn")
+        page.keyboard.press("Tab")
+        self.assertTrue(page.evaluate("el.manual.modal.contains(document.activeElement)"))
+        page.keyboard.press("Escape")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "dataMgmtBtn")
+        # A search with spaces round it still finds; Escape clears it.
+        page.fill("#searchBar", "  btr ")
+        page.wait_for_timeout(300)
+        self.assertEqual(self.sizes(page), ["2x BTR"])
+        page.fill("#searchBar", "nothing like it")
+        page.wait_for_timeout(300)
+        self.assertEqual(self.sizes(page), [])
+        page.press("#searchBar", "Escape")
+        self.assertEqual(self.sizes(page), ["2x BTR"])
 
     def test_bda_roll_up_counts_and_filters(self):
         page = self.open_editor()
@@ -334,6 +525,61 @@ class BrowserTests(unittest.TestCase):
         self.next_frames(page)  # and the redraw it scheduled has run
         page.keyboard.type("MP")
         self.assertEqual(page.input_value("#size"), "2x BMP")
+
+    def test_a_sync_leaves_the_workspace_being_changed(self):
+        # Regression: a peer's sync rewrote the ATO and title boxes and locked
+        # them again while a new workspace was being typed.
+        page = self.open_editor()
+        page.click("#setAtoBtn")  # Change
+        page.fill("#atoDesignator", "SOMEWHERE")
+        page.evaluate("() => syncWithServer()")
+        page.wait_for_timeout(300)
+        self.assertEqual(page.input_value("#atoDesignator"), "SOMEWHERE")
+        self.assertFalse(page.evaluate("el.config.ato.readOnly"))
+
+    def test_an_update_asks_when_someone_else_changed_the_report(self):
+        # Regression: Edit and Update wrote over a peer's newer change, silently.
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        other = self.second_editor("CD", self.ato)
+        other.wait_for_selector("#reportLogBody .col-size:has-text('2x BTR')")
+        page.click("#reportLogBody .id-edit-btn")
+        # Someone else updates it while it is in this form.
+        other.click("#reportLogBody .id-edit-btn")
+        other.fill("#size", "3x BTR")
+        other.click("#updateButton")
+        page.wait_for_selector("#reportLogBody .col-size:has-text('3x BTR')")
+        page.fill("#activity", "Moving S")
+        page.click("#updateButton")
+        page.wait_for_selector(
+            "#choice-toast.show:has-text('CD changed this report since you opened it')"
+        )
+        page.click("#choiceButtons button:text-is('Keep theirs')")
+        self.assertEqual(
+            (page.input_value("#size"), page.input_value("#activity")), ("3x BTR", "Moving N")
+        )
+        # The server holding a newer version (409) asks the same; Overwrite
+        # saves this one over it.
+        answered = []
+
+        def newer_on_the_server(route):
+            if answered:
+                route.continue_()
+                return
+            answered.append(route.request.url)
+            self.refuse("A newer version is saved.", status=409)(route)
+
+        page.route("**/api/edit_report", newer_on_the_server)
+        page.fill("#size", "4x BTR")
+        page.click("#editButton")
+        page.wait_for_selector(
+            "#choice-toast.show:has-text('changed this report since you opened it')"
+        )
+        page.click("#choiceButtons button:text-is('Overwrite theirs')")
+        self.wait_for_server(
+            page, f"s => s.workspaces['{self.ato}'].some(r => r.size === '4x BTR')"
+        )
+        self.assertEqual(len(answered), 1)
 
     # -- overlays and ArcGIS -------------------------------------------------- #
     def overlay_kmz(self) -> Path:
@@ -553,10 +799,47 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-overlay-fold='close']")
         self.assertEqual(page.locator(".overlay-group[open]").count(), 0, "all closed")
         page.click(".overlay-group[data-overlay-group='OBJ'] summary")
+        # The × asks first (see test_an_overlay_is_removed_on_the_second_press).
         page.click(".overlay-group[data-overlay-group='OBJ'] .overlay-remove")
-        page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.overlays.map(o => o.type + ' ' + o.name).join() === 'NAI 1,NAI 2')"
+        page.click(".overlay-group[data-overlay-group='OBJ'] .overlay-remove")
+        self.wait_for_server(
+            page, "s => s.overlays.map(o => o.type + ' ' + o.name).join() === 'NAI 1,NAI 2'"
         )
+
+    def test_an_overlay_is_removed_on_the_second_press(self):
+        # Regression: one press of the × removed it for everyone.
+        page = self.open_editor()
+        self.import_overlays(page)
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.click("[data-overlay-fold='open']")
+        nai1 = ".overlay-group[data-overlay-group='NAI'] tr:has([aria-label='Unload NAI 1'])"
+        box = page.locator(nai1).bounding_box()
+        page.click(f"{nai1} .overlay-remove")
+        # Its name asks, in red, and nothing on the row moves.
+        page.wait_for_selector(f"{nai1} .map-base-ask:has-text('Remove for everyone?')")
+        self.assertEqual(page.locator(nai1).bounding_box(), box)
+        here = "currentOverlays().some(o => o.type === 'NAI' && o.name === '1')"
+        self.assertTrue(page.evaluate(here))
+        # Any other button lets it go.
+        page.click("[data-overlay-fold='open']")
+        self.assertEqual(page.locator("#overlaysBody .map-base-ask").count(), 0)
+        page.click(f"{nai1} .overlay-remove")
+        page.click(f"{nai1} .overlay-remove")
+        self.wait_for_server(page, "s => !s.overlays.some(o => o.type === 'NAI' && o.name === '1')")
+        self.assertFalse(page.evaluate(here))
+
+    def test_a_synced_color_cant_add_css(self):
+        page = self.open_editor()
+        page.evaluate(
+            """() => {
+                localProfiles = { ZZ: { initials: 'ZZ', color: 'red;background:url(https://example.invalid/x.png)' } };
+                renderStartupPresets();
+            }"""
+        )
+        chip = "#startup-preset-profiles [data-initials='ZZ']"
+        self.assertNotIn("url(", page.get_attribute(f"{chip} .chip-dot", "style"))
+        self.assertEqual(page.get_attribute(chip, "data-color"), "#0a84ff")
 
     def test_statistics_across_every_ato(self):
         page = self.open_editor(ato="SCOPEA")
@@ -663,6 +946,88 @@ class BrowserTests(unittest.TestCase):
         page.click(".ws-tab[data-tab='export']")
         page.set_input_files("#ioDropInput", [str(csv), str(self.overlay_kmz())])
         page.wait_for_selector("#toast-notification:has-text('Drop one backup or CSV at a time')")
+
+    def test_backup_import_merges_report_by_report(self):
+        # Regression: importing replaced each workspace in the file whole, so
+        # whatever was logged or updated since the backup went.
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        with page.expect_download() as dl:
+            self.run_io(page, "backup")
+        backup = self.tmp / f"{self._testMethodName}.txt"
+        backup.write_text(Path(dl.value.path()).read_text(encoding="utf-8"), encoding="utf-8")
+        page.click("#exportViewToggleBtn")
+        # Since the backup: one report logged, the other updated.
+        self.log(page, "3x T-72")
+        page.click("#reportLogBody tr:has(.col-size:has-text('2x BTR')) .id-edit-btn")
+        page.fill("#size", "5x BTR")
+        page.click("#updateButton")
+        page.wait_for_selector("#reportLogBody .col-size:has-text('5x BTR')")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        page.set_input_files("#ioDropInput", str(backup))
+        page.wait_for_selector(
+            "#confirmation-message:has-text('A report in both keeps whichever version is newer')"
+        )
+        page.click("#confirmActionBtn")
+        page.wait_for_selector("#toast-notification:has-text('Import successful')")
+        self.assertEqual(
+            page.evaluate(
+                f"reportsByAto['{self.ato}'].filter(r => !r.deleted).map(r => r.size).sort()"
+            ),
+            ["3x T-72", "5x BTR"],
+        )
+        self.wait_for_server(
+            page,
+            f"s => s.workspaces['{self.ato}'].filter(r => !r.deleted).map(r => r.size).sort().join() === '3x T-72,5x BTR'",
+        )
+
+    def test_send_to_ato_keeps_the_reports_until_the_destination_has_them(self):
+        # Regression: Send took the reports out of IMPORT first and never
+        # checked that the destination got them.
+        page = self.open_editor()
+        self.log(page, "1x BTR")
+        dest = self.ato
+        csv = self.tmp / f"{self._testMethodName}.csv"
+        csv.write_text("Name,Count,MGRS\nA1,2x SENT,18SUJ1234\n", encoding="utf-8")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        page.set_input_files("#ioDropInput", str(csv))
+        page.wait_for_selector("#csvImportPanel", state="visible")
+        page.select_option("#csvDestSelect", "IMPORT")
+        page.click("#csvConfirmBtn")
+        # Work in IMPORT, as everyone's active workspace (a sync keeps it).
+        page.click("#setAtoBtn")
+        page.fill("#atoDesignator", "IMPORT")
+        page.fill("#reportTitlePrefix", "IMPORT")
+        page.click("#setAtoBtn")
+        page.wait_for_function("() => activeAto === 'IMPORT'")
+        sent = "#reportLogBody tr[data-id]:has(.col-size:has-text('2x SENT'))"
+        page.check(f"{sent} .row-selector")
+        page.select_option("#sendToAtoSelect", dest)
+
+        def destination_down(route):
+            if json.loads(route.request.post_data or "{}").get("ato") == dest:
+                self.refuse("Down.", status=500)(route)
+            else:
+                route.continue_()
+
+        page.route("**/api/save_reports", destination_down)
+        page.click("#sendToAtoBtn")
+        page.wait_for_selector("#toast-notification:has-text('Not moved')")
+        self.assertTrue(page.is_visible(sent), "still in IMPORT")
+        self.assertTrue(page.is_checked(f"{sent} .row-selector"), "and still checked")
+        page.unroute("**/api/save_reports")
+        page.click("#sendToAtoBtn")
+        page.wait_for_selector(f"#toast-notification:has-text('Moved 1 report(s) to {dest}')")
+        page.wait_for_selector(sent, state="detached")
+        self.wait_for_server(
+            page,
+            f"s => s.workspaces['{dest}'].some(r => r.size === '2x SENT')"
+            " && s.workspaces['IMPORT'].every(r => r.size !== '2x SENT' || r.deleted)",
+        )
 
     def test_horizontal_layout_fits_the_window(self):
         page = self.open_editor()
@@ -1580,6 +1945,25 @@ class BrowserTests(unittest.TestCase):
         page.click("#exportViewToggleBtn")
         page.click("#exportPanel .ws-tab[data-tab='identity']")
         self.assertEqual(code.inner_text(), "\u2022" * len(CODE))
+
+    def test_the_page_starts_when_browser_storage_throws(self):
+        # Regression: a browser that blocks storage threw on the first raw
+        # localStorage read, and the page never started.
+        self.context.add_init_script(
+            """(() => {
+                const blocked = () => { throw new DOMException('Storage is blocked.', 'SecurityError'); };
+                // The map's and statistics' own settings (app/46, 47, 49) are read raw at load.
+                const theirs = /^salt_(map|drone|stats|log_view)/;
+                Storage.prototype.getItem = function (k) { if (theirs.test(k)) return null; return blocked(); };
+                Storage.prototype.setItem = blocked;
+                Storage.prototype.removeItem = blocked;
+            })();"""
+        )
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        page.click("#dataMgmtBtn")
+        page.click("#toggleTimeFormatBtn")
+        self.assertEqual(page.evaluate("timeDisplayMode"), "local")
 
     def test_mgrs_lock_keeps_its_zone_and_square_after_a_report(self):
         # Regression: logging reset the form, which emptied the box while the lock went on.
