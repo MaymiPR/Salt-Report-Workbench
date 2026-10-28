@@ -30,8 +30,8 @@ Three constraints drive almost every decision:
 │       ├── 10-state.js       Elements, state, helpers, toasts
 │       ├── 20-render.js      The report table, BDA panel and roll-up
 │       ├── 30-form.js        Entry, editing, restore, undo
-│       ├── 40-io.js          Workspaces panel, builder, export, import
-│       ├── 45-overlays.js    Overlay import (KML, KMZ, GeoJSON, SHP), Overlays tab, ArcGIS export
+│       ├── 40-io.js          Manage panel, builder, export, import
+│       ├── 45-overlays.js    Overlay import (KML, KMZ, GeoJSON, SHP), the Map tab's graphics, ArcGIS export
 │       ├── 46-map.js         The map: basemap, report dots, heat map, tracks
 │       ├── 47-stats.js       Statistics panel: charts, hover, tables, PNG / SVG / Excel export
 │       ├── 48-summary.js     Summary Reports panel: written reports, copy, .txt, print, edit
@@ -123,7 +123,7 @@ handler's `_POST_ROUTES` table, paired with a schema validator in
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
 | `/`, `/index.html` | GET | The bundled page. On the viewer port it is stamped `read-only` before any script runs; for the host's own browser the access code is injected into a `<meta>` tag. |
-| `/api/sync` | GET | Full state: workspaces, config, profiles, the report format, overlays, basemaps, the narrative's settings, sources, connected users. |
+| `/api/sync` | GET | Full state: workspaces, config, profiles, the report format, overlays, basemaps, drones, the narrative's settings, sources, connected users. |
 | `/api/events` | GET | Server-Sent Events stream. Each message just says "something changed"; clients then call `/api/sync`. |
 | `/api/basemap?u=` | GET | An image from an `http://` basemap, for an HTTPS page that can't load it itself. Only from the host of a saved basemap; no redirects followed; images only, up to 16 MB. |
 | `/api/save_reports` | POST | Merge a batch of reports into a workspace. |
@@ -135,6 +135,7 @@ handler's `_POST_ROUTES` table, paired with a schema validator in
 | `/api/save_format` | POST | Save the report format (Builder): one for every workspace. An `ato` from an older page is ignored. |
 | `/api/save_overlays` | POST | Replace the shared NAI / OBJ / PL overlays (GeoJSON geometries, longitude/latitude). An empty list clears them. |
 | `/api/save_basemaps` | POST | Replace the map's basemap services: `[{name, kind: wms \| tiles, url, layers?, version?, crs?, format?}]` (at most 20, names unique, http/https only; the last three are what a WMS's capabilities said to ask for). Shared like the overlays and kept in every backup file; each browser picks which to show. |
+| `/api/save_drones` | POST | Replace the drones on the map: `[{name, grid, at}]` (at most 10, names unique, `grid` an MGRS grid as the page writes it, `at` when it was put there, in ms). Shared like the basemaps and kept in every backup file; each browser chooses whether they and their view show. |
 | `/api/save_narrative` | POST | Replace the narrative's settings: `{enemy, units: [{name, places, kinds}], equipment: [{type, role, origin}], off: [rule ids], custom: [{what, words, min, hours}]}` (at most 50 units, 500 equipment entries, 30 rules; unit names and equipment types unique; roles and rule ids from the fixed lists, origin `RU`, `CN` or empty; a rule's `min` 1-20 reports within `hours` 1-168). Shared like the basemaps and kept in every backup file. |
 | `/api/wms_fetch` | POST | `{url}`: the server GETs an http(s) address for an editor's page and returns its status, content type, size and text (not images). For WMS capabilities and Check when a service sends no CORS headers. Changes nothing; logged in the audit log. Not on the viewer port. |
 
@@ -244,7 +245,7 @@ The server is the meeting point, not the authority over content.
 - **Soft deletes.** Deleting marks a report `deleted` rather than removing it,
   so the deletion itself merges and propagates like any other edit.
 - **Cached sync payload.** The JSON for workspaces, config, profiles, the
-  format, overlays, basemaps and narrative settings is serialized once and cached as a byte prefix; only the small
+  format, overlays, basemaps, drones and narrative settings is serialized once and cached as a byte prefix; only the small
   per-request tail (connected users, read-only flag) is appended each time. Any
   mutation clears the cache. A client that accepts gzip (every browser) gets
   the body compressed, five to eight times smaller; since every client pulls
@@ -257,7 +258,7 @@ The server is the meeting point, not the authority over content.
 backup folder, which defaults to `Auto Backups/` beside the server. Writes are
 debounced by 0.5 seconds so a burst of edits becomes one write, and every
 mutation marks its workspace dirty (`mark_dirty`) so only changed workspaces
-are rewritten. The report format, overlays, basemaps, narrative settings, config and profiles ride in every
+are rewritten. The report format, overlays, basemaps, drones, narrative settings, config and profiles ride in every
 file (the format under each workspace's name, as older versions read it), and
 a change to any of them marks all workspaces dirty. On boot the newest file's
 format is the one used.

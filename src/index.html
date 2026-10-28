@@ -132,7 +132,7 @@
                     <ul>
                         <li>Set your <strong>Initials</strong> and <strong>Tag Color</strong> on first launch via the startup modal.</li>
                         <li>The startup modal opens with a compact <strong>Quick Start</strong> strip listing what it already knows as one-click presets, in three rows: <strong>Operator</strong> (known initials with their tag color), <strong>ATO</strong> (loaded workspaces), and <strong>Title</strong> (report titles seen before). The rows are independent, so you can pick a known operator and ATO but type a brand-new title. Picking an ATO also fills its usual title if you haven&rsquo;t typed one. Each row shows up to five entries, and the whole strip hides on a first-ever run when there&rsquo;s nothing to offer.</li>
-                        <li>To change them later: click the <strong>Workspaces</strong> icon (the folder, top right of the report panel), then click the <strong>person icon</strong> tab. Edit and press <em>Set Initials</em>.</li>
+                        <li>To change them later: click the <strong>Manage</strong> icon (the folder, top right of the report panel), then click the <strong>person icon</strong> tab. Edit and press <em>Set Initials</em>.</li>
                         <li>The Identity tab also shows the current <strong>Access Code</strong>, hidden as dots until you press <em>Show</em>, with a one-click Copy button (handy for sharing with a teammate joining the session).</li>
                         <li>Each device or operator has its own identity stored per-browser.</li>
                     </ul>
@@ -247,7 +247,7 @@
                     <h3>The Four Icons</h3>
                     <p>At the top right of the report panel, a square of four icons is there in every view:</p>
                     <ul>
-                        <li><strong>Folder</strong>: Workspaces (import and export, loaded workspaces, the report builder, overlays, your identity).</li>
+                        <li><strong>Folder</strong>: Manage (import and export, loaded workspaces, the report builder, the map's graphics and basemaps, your identity).</li>
                         <li><strong>Bar chart</strong>: Statistics. <strong>Page</strong>: Summary Reports.</li>
                         <li><strong>Gear</strong>: Settings: layout, Zulu or Local time, the title separator, BDA, MGRS Lock, Select All / Deselect All, the User Manual, and Clear Workspace.</li>
                         <li>The icon of the view on screen is blue; click it again to go back to the Report Log (or the map under it, if that was on screen).</li>
@@ -268,13 +268,13 @@
                 </section>
 
                 <section class="manual-section">
-                    <h3>The Workspaces Panel</h3>
-                    <p>Open with the <strong>Workspaces</strong> icon (the folder). The report panel shows five tabs: Import / Export, Workspaces, Builder (see <em>Report Builder</em> below), Overlays (see <em>Overlays and ArcGIS</em> below), and Identity. Viewers get only Import / Export, for exporting.</p>
+                    <h3>Manage</h3>
+                    <p>Open with the <strong>Manage</strong> icon (the folder). The report panel shows five tabs: Import / Export, Workspaces, Builder (see <em>Report Builder</em> below), Map (the ops graphics, see <em>Overlays and ArcGIS</em> below, and the basemaps, see <em>The Map</em>), and Identity. Viewers get only Import / Export, for exporting.</p>
 
                     <p class="manual-step">Import / Export tab (default)</p>
                     <ul>
                         <li>Export and Import are on the same screen. <strong>Export</strong>: pick what from the list (a line under it says what it is and how to use it) and press <strong>Export</strong>. Below it is the <strong>Time range</strong>; beside that, the <strong>Options</strong> for the picked format (when it has any), and <strong>Import</strong> under them. Your last choice is remembered in this browser.</li>
-                        <li><strong>Import</strong> (editors): drop a file anywhere on the tab, or click the drop area to choose one. What it is gets worked out from the file: a backup (<code>.txt</code>), another tool&rsquo;s CSV (opens the column matching), or overlays (KML, KMZ, GeoJSON, or a shapefile&rsquo;s files or zip, opening the Overlays tab to review them). Several files together must all be overlays.</li>
+                        <li><strong>Import</strong> (editors): drop a file anywhere on the tab, or click the drop area to choose one. What it is gets worked out from the file: a backup (<code>.txt</code>), another tool&rsquo;s CSV (opens the column matching), or overlays (KML, KMZ, GeoJSON, or a shapefile&rsquo;s files or zip, opening the Map tab to review them). Several files together must all be overlays.</li>
                         <li><strong>Time range</strong>: set From and/or To to narrow what gets exported. Leave both blank to include everything.</li>
                         <li><strong>Quick presets (24h / 12h / 6h / 1h)</strong>: one click fills both pickers relative to now, respecting your active Zulu/Local time mode. <strong>Clear</strong>, at the top right of the card, empties both to export everything.</li>
                         <li><strong>Filter stats</strong>: stacked counts beneath the picker show <em>N of M unique reports</em> + <em>N of M total reports</em> (the second line includes every saved history entry). Turns blue when a filter is active.</li>
@@ -303,7 +303,7 @@
 
                 <section class="manual-section">
                     <h3>Report Builder</h3>
-                    <p>Open the <strong>Workspaces</strong> icon (the folder), then the <strong>Builder</strong> tab. It controls how reports are composed: the order of the form fields and the exact shape of the copied report text. There is <strong>one format for every workspace</strong>, synced to everyone, so the whole team writes reports the same way. Switching or starting a workspace keeps it; it changes only when someone edits it here. Importing a backup takes the file's format only while yours is still the stock SALT one.</p>
+                    <p>Open the <strong>Manage</strong> icon (the folder), then the <strong>Builder</strong> tab. It controls how reports are composed: the order of the form fields and the exact shape of the copied report text. There is <strong>one format for every workspace</strong>, synced to everyone, so the whole team writes reports the same way. Switching or starting a workspace keeps it; it changes only when someone edits it here. Importing a backup takes the file's format only while yours is still the stock SALT one.</p>
                     <ul>
                         <li>A format is an ordered list of lines. Drag a line (or use the arrow buttons) to move it; the &#10005; removes it.</li>
                         <li>The <strong>Identifier</strong> line is special: at the top it renders as the header (like it always has); anywhere lower it renders as a <code>U:</code> line. That is the whole difference between the two presets.</li>
@@ -344,7 +344,7 @@
                 <section class="manual-section">
                     <h3>Overlays and ArcGIS</h3>
                     <p>Bring your NAIs, OBJs, and phase lines in from ArcGIS, and send your reports back out to it as points for heat maps and analysis.</p>
-                    <p class="manual-step">Importing overlays (Workspaces &rarr; Overlays tab, editors)</p>
+                    <p class="manual-step">Importing overlays (Manage &rarr; Map tab, editors)</p>
                     <ul>
                         <li>In ArcGIS Pro, export the layers as <strong>KMZ or KML</strong> (Layer To KML), <strong>GeoJSON</strong> (Features To JSON with <em>Output to GeoJSON</em> and <em>Project to WGS 1984</em> checked), or a <strong>shapefile</strong>. Then <strong>Import KML / KMZ / GeoJSON / SHP</strong> here. Several files at once are fine.</li>
                         <li><strong>Shapefiles</strong>: pick the zip ArcGIS makes, or the <code>.shp</code>, <code>.dbf</code> and <code>.prj</code> together. Names come from the attribute table (a NAME field), areas keep their holes. Coordinates in WGS 84 or NAD 83 latitude/longitude, Web Mercator, or a UTM zone are converted; another coordinate system is refused by name, so export it again in WGS 1984.</li>
@@ -394,20 +394,22 @@
                         <li><strong>Window</strong>: All, or the last 24, 12, or 6 hours. The key and, under it, <strong>Up to</strong> sit inside the map at its foot: the slider moves the window's end back from now to the first report, to see how things stood then; <strong>Now</strong> brings it back.</li>
                         <li><strong>Ctrl + scroll</strong> to zoom (&#8984; + scroll on a Mac, or pinch on a trackpad; in full screen a plain scroll zooms), drag to move, double-click to zoom in; <strong>+</strong>, <strong>&minus;</strong> and the arrows button (show all). The map covers your overlays and reports and can't be zoomed out past them. Names stay on screen as you zoom in: a shape's name moves to the part of it in view. A plain scroll over the map scrolls the page on, down to the table.</li>
                         <li><strong>Full screen</strong>: the corners button under the zoom buttons fills the screen with the map, its controls and key; <kbd>Esc</kbd> or the button again leaves.</li>
-                        <li><strong>The layers button</strong> under the map's zoom buttons opens the basemap: pick one, or <em>No basemap</em>. Editors also get <strong>Manage basemaps&hellip;</strong>.</li>
-                        <li><strong>Manage basemaps&hellip;</strong> (editors) has one box for both kinds of service, an optional <strong>Name</strong>, and <strong>Add</strong>. Paste the link you use in other tools:
+                        <li><strong>The layers button</strong> under the map's zoom buttons switches the basemap: pick one, or <em>No basemap</em>. Editors add and change basemaps in <strong>Manage &rarr; Map</strong>; the button's menu has a link there.</li>
+                        <li><strong>Drones</strong>: the drone button under the layers button lists the drones with their grids. <strong>Show on the map</strong> draws each one, in orange with its name; <strong>Show its view of the newest report</strong> draws a cone from the drone to the newest report on the map, wide at the drone and narrowing to the report, with the sightline down its middle, a box round the report and the distance and direction. It points at what the drone is watching; it isn't the camera's footprint. It moves to each newer report, and follows the time slider and the filters. Both switches are kept in your browser. <strong>Zoom</strong> beside a drone zooms the map in on it. Editors add a drone with a name (e.g. <em>GE 1</em>) and its grid, move it by typing a new grid and pressing <kbd>Enter</kbd> (digits alone take MGRS Lock's zone and square), and remove it with &times;. The drones are shared with everyone; hover one for when it was put there.</li>
+                        <li><strong>Grab a grid</strong>: the crosshair button under the drone button. While it's on, the grid under the pointer shows beside it, and a click copies that grid, ten digits, to paste anywhere; dragging still moves the map. <kbd>Esc</kbd> or the button again turns it off.</li>
+                        <li><strong>Basemaps</strong> (editors, in <strong>Manage &rarr; Map</strong>): one box for both kinds of service, an optional <strong>Name</strong>, and <strong>Add</strong>. Paste the link you use in other tools:
                             <ul>
                                 <li>A <strong>WMS</strong> (for ArcGIS, the address ending in <code>WMSServer</code>): its layers are looked up and listed (with a filter when there are many); tick the ones you want and <strong>Add</strong> puts them in as one basemap, named after the service unless you gave a name. It asks the service in its own terms: its WMS version, its image format, and Web Mercator when it offers it, otherwise latitude / longitude, stretched to fit. A layer it can't show (only in some other projection) says so.</li>
                                 <li>A <strong>tile address</strong> (WMTS, ArcGIS, or XYZ, in Web Mercator): anything with <code>{z}</code>, <code>{x}</code>, <code>{y}</code>, or <code>{TileMatrix}</code>, <code>{TileRow}</code>, <code>{TileCol}</code> is added as it is.</li>
                             </ul></li>
                         <li>Many services won't let a web page read their layer list; then the sync server reads it for you (the list says <em>read by the server</em>). If neither can reach the service, the message says so, and you can still type layer names to try.</li>
-                        <li><strong>Check</strong> beside a service asks it for a little of the map and says what came back: a map image (the message goes after a few seconds), or the service's own error (a wrong layer name, a projection it doesn't offer, a login it wants), which stays until you check again or close the panel. The list is shared with everyone.</li>
+                        <li><strong>Check</strong> beside a service asks it for a little of the map and says what came back: a map image (the message goes after a few seconds), or the service's own error (a wrong layer name, a projection it doesn't offer, a login it wants), which stays until you check again. The list is shared with everyone.</li>
                         <li><strong>Layers</strong> beside a WMS opens it again: its layers are looked up afresh with the ones in use ticked (one the service no longer lists says <em>not listed</em>); tick or untick, rename it if you like, and <strong>Save</strong>. <strong>Edit</strong> beside a tile service changes its address or name. <strong>Remove</strong>, at the bottom of either, takes the service out for everyone; it asks once first.</li>
-                        <li>The picker behind the layers button switches between them, or to <em>No basemap</em>; each person's pick is kept in their browser. Only the area of the map is requested, never the whole world. Each browser fetches it straight from the service, so a computer that can't reach a service shows the map without it, and says so in a note under the map's controls (editors: <em>Check</em> says why).</li>
-                        <li>Viewers have the map too, with everything but Edit and Manage basemaps&hellip; (the same list as the editors; they can't add to it).</li>
+                        <li>The picker behind the layers button switches between them, or to <em>No basemap</em>; each person's pick is kept in their browser. Only the area of the map is requested, never the whole world. Each browser fetches it straight from the service, so a computer that can't reach a service shows the map without it, and says so in a note under the map's controls (editors: <em>Check</em>, in Manage &rarr; Map, says why).</li>
+                        <li>Viewers have the map too, with everything but Edit, adding basemaps and moving drones (the same basemaps and drones as the editors; they can switch and zoom, and grab grids).</li>
                     </ul>
                     <p class="manual-modes"><strong>Locally:</strong> The basemaps are kept in this browser, and the map works the same way.</p>
-                    <p class="manual-modes"><strong>With sync server:</strong> The list of basemaps syncs to every editor and viewer and is restored on server restart; each browser picks which one it shows. Your layers, Latest grids / All reports, the sidebar and <em>Only what's on the map</em> are kept in your browser.</p>
+                    <p class="manual-modes"><strong>With sync server:</strong> The basemaps and the drones sync to every editor and viewer and are restored on server restart; each browser picks which basemap it shows, and whether the drones and their view show. Your layers, Latest grids / All reports, the sidebar and <em>Only what's on the map</em> are kept in your browser.</p>
                 </section>
 
                 <section class="manual-section">
@@ -439,7 +441,8 @@
                                     <br>Each judgment uses the doctrine of the army whose equipment is in its reports (else the period's): a <em>Doctrine</em> line says what that army typically does, and the judgment uses its terms where they differ (a Russian forward detachment, a PLA vanguard; DRG or special-operations teams; a reconnaissance-fire complex or reconnaissance-strike). The ten strongest are shown, and how many more there were. Each judgment says how likely it is in the intelligence community's terms (ICD 203: <em>almost no chance</em>, <em>very unlikely</em>, <em>unlikely</em>, <em>roughly even chance</em>, <em>likely</em>, <em>very likely</em>, <em>almost certain</em>), lists the reports behind it, gives its confidence (high, moderate, or low, from how many reports and observers support it) in a sentence of its own, and what to watch for that would make it firmer. Rules never go past <em>very likely</em>.</li>
                                 <li><strong>Gaps</strong>: reports without a grid, equipment not in the catalogue, and (in a window of 12 hours or more) places with no reports for the last 6 hours or more.</li>
                             </ul>
-                            The equipment catalogue holds about 780 Russian and Chinese systems with their variants, other designations and names (about 1,700 in all), from tanks to drones, radars, EW, chemical-defense and engineer vehicles: T-72B3M, BMP-2M, 2S19, Tornado-S, Lancet, Krasukha-4, Type 99A, ZBL-09, PCL-191, HQ-9B, CH-901, and more; and plain words (tank, truck, PAX, FPV, ambulance). A variant written after a hyphen and a digit (Kornet-D 9P163-3) is listed too. A type it doesn't know is listed under Gaps.</li>
+                            The equipment catalogue holds about 790 Russian and Chinese systems with their variants, other designations and names (about 1,700 in all), from tanks to drones, radars, EW (SPN-2 and SPN-4 radar jammers, Krasukha, Volnorez), chemical-defense and engineer vehicles: T-72B3M, BMP-2M, 2S19, Tornado-S, Lancet, Krasukha-4, Type 99A, ZBL-09, PCL-191, HQ-9B, CH-901, and more; and plain words (tank, truck, PAX, FPV, ambulance, support, fueler, engineer). A vic, vehicle, tracked or wheeled with nothing more said is counted as <em>other vehicles</em>; the more specific word wins (<em>engineer vic</em> is engineers, <em>wheeled APC</em> an APC). A variant written after a hyphen and a digit (Kornet-D 9P163-3) is listed too. A type it doesn't know is listed under Gaps.
+                            <br>Sizes are read the way they're written: <em>2x T-72 and 4 BMP-2</em>, <em>vics 10x</em>, <em>approx 6 trucks</em>. A total with its breakdown, after a colon or in brackets (<em>Total of vics 10x: 5x tanks and 5x APC</em>), counts the breakdown only, so nothing is counted twice; what the breakdown leaves of the total counts as that many of the total's kind (<em>12 vics (5 tanks)</em>: 5 tanks and 7 vics). Brackets that aren't a breakdown (<em>3x T-72 (one damaged)</em>) are a note.</li>
                         <li><strong>Narrative settings</strong>, in a column of their own to the right of the Narrative, the full height of the view; the report updates as you change them:
                             <ul>
                                 <li><strong>Call them</strong>: what the narrative calls them when no unit fits, e.g. <em>OPFOR</em>. Empty: <em>enemy forces</em>.</li>
@@ -514,7 +517,7 @@
                         <li>Other editors see the modal with an empty <strong>Access Code</strong> field. They type what the host shared with them; the server validates on submit and rejects with a red inline error if wrong.</li>
                         <li>Once entered correctly, the code is cached per-browser; refreshing the page doesn&rsquo;t re-prompt. Restarting the server <strong>rotates the code</strong>, so on the next visit the modal reappears for re-confirmation.</li>
                         <li><strong>Local mode</strong> (opening the HTML file directly, no server): the access-code field is hidden entirely and never required. There is no server to gate.</li>
-                        <li>To re-share the code mid-session, open the <strong>Identity tab</strong> in the Workspaces panel. It&rsquo;s shown there with a Copy button.</li>
+                        <li>To re-share the code mid-session, open the <strong>Identity tab</strong> in Manage. It&rsquo;s shown there with a Copy button.</li>
                     </ul>
                 </section>
 
@@ -535,7 +538,7 @@
                             Hover either indicator for its full label. The <strong>A slot is always reserved</strong> on every row (invisible where the workspace isn&rsquo;t active), so the <strong>S</strong> indicator lands at the same horizontal coordinate on every row instead of shifting position.</li>
                         <li>The right side of each row shows <strong>unique reports</strong> and <strong>total reports</strong> counts in the same language the report-log header uses, so the numbers correspond when you switch between views.</li>
                         <li>The <strong>source filename</strong> (e.g. <code>XG_TEST.txt</code>, <code>Uploaded backup</code>, <code>In-session</code>) is hidden in the viewer sidebar. It&rsquo;s editor-only metadata about where a workspace came from, irrelevant to observers. The editor&rsquo;s Workspaces tab in the main report log still shows it.</li>
-                        <li>The editor-only Settings items (Horizontal Layout, MGRS Lock, Select All / Deselect All, Clear Workspace) are hidden, the Workspaces panel has only its Import / Export tab, and that only exports. Export still works: viewers can download backups and CSVs of what they&rsquo;re seeing.</li>
+                        <li>The editor-only Settings items (Horizontal Layout, MGRS Lock, Select All / Deselect All, Clear Workspace) are hidden, Manage has only its Import / Export tab, and that only exports. Export still works: viewers can download backups and CSVs of what they&rsquo;re seeing.</li>
                         <li>Live updates flow normally: any edit by an editor appears in the viewer&rsquo;s table within a fraction of a second, and switching the active workspace on the editor side updates the A indicator on every viewer in real time.</li>
                         <li>The page is stamped read-only by the server before it even loads in the browser, so the editor UI never flashes on a viewer&rsquo;s refresh.</li>
                         <li>Viewers keep <strong>no copy of the reports</strong> in browser storage. The page itself comes from the server, so a cached copy would be of no use without it, and it would leave every report at rest on a machine that only watches. Display settings (time mode, title separator) are still remembered.</li>
@@ -651,7 +654,7 @@
                      view's icon is highlighted; clicking it again goes back to the Report Log
                      (as a list or as the map, whichever was showing). -->
                 <div class="view-switcher" role="toolbar" aria-label="Views">
-                    <button type="button" id="exportViewToggleBtn" class="view-icon" title="Workspaces" aria-label="Workspaces" aria-pressed="false">
+                    <button type="button" id="exportViewToggleBtn" class="view-icon" title="Manage" aria-label="Manage" aria-pressed="false">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h9A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>
                     </button>
                     <button type="button" id="statsViewToggleBtn" class="view-icon" title="Statistics" aria-label="Statistics" aria-pressed="false">
@@ -775,7 +778,7 @@
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
                                         <span id="connected-users-count-export">1</span>
                                     </span>
-                                    <span>Workspaces</span>
+                                    <span>Manage</span>
                                 </div>
                             </div>
                         </div>
@@ -785,7 +788,7 @@
                             <button type="button" class="ws-tab active" data-tab="export" role="tab" aria-selected="true">Import / Export</button>
                             <button type="button" class="ws-tab" data-tab="workspaces" role="tab" aria-selected="false">Workspaces</button>
                             <button type="button" class="ws-tab" data-tab="builder" role="tab" aria-selected="false">Builder</button>
-                            <button type="button" class="ws-tab" data-tab="overlays" role="tab" aria-selected="false">Overlays</button>
+                            <button type="button" class="ws-tab" data-tab="overlays" role="tab" aria-selected="false">Map</button>
                             <button type="button" class="ws-tab ws-tab-icon" data-tab="identity" role="tab" aria-selected="false" title="Identity" aria-label="Identity">
                                 <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 12C14.2091 12 16 10.2091 16 8C16 5.79086 14.2091 4 12 4C9.79086 4 8 5.79086 8 8C8 10.2091 9.79086 12 12 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 21V19C20 16.7909 18.2091 15 16 15H8C5.79086 15 4 16.7909 4 19V21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                             </button>
@@ -872,11 +875,16 @@
                         </div>
 
                         <!-- Tab: Overlays — NAI / OBJ / PL shapes for the workspace (rendered by app/45-overlays.js). -->
+                        <!-- Tab: Map: the ops graphics (NAIs, OBJs, phase lines) and the basemaps, shared by every workspace. -->
                         <div class="ws-tab-panel" data-tab-panel="overlays" style="display:none;">
                             <div class="export-block">
-                                <div class="export-block-label">Overlays <span id="overlaysScopeNote"></span></div>
+                                <div class="export-block-label">Ops graphics <span id="overlaysScopeNote"></span></div>
                                 <div id="overlaysBody" class="overlays-body"></div>
                                 <input type="file" id="overlaysFileInput" class="file-input-wrapper" accept=".kml,.kmz,.geojson,.json,.zip,.shp,.shx,.dbf,.prj,.cpg" multiple>
+                            </div>
+                            <div class="export-block editor-only">
+                                <div class="export-block-label">Basemaps <span class="overlays-muted">switch between them with the map's basemap button</span></div>
+                                <div id="mapBaseFormSlot"></div>
                             </div>
                         </div>
 

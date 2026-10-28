@@ -56,8 +56,10 @@ Restore offer a ten-second Undo.
 The map button beside the Report Log heading opens the map under it. It shows your overlays with the reports as a
 heat map, tracks, or dots, over a WMS or tile basemap you add. A sidebar lists
 activities and the busiest places, and a slider shows how things stood earlier.
+Put a drone (a Gray Eagle, say) on it by its grid, and a cone points from the drone
+to the newest report. A grab button copies the grid of any spot you click.
 
-![The map: NAIs, objectives and phase lines with a heat map and report dots, the activity sidebar on the left, and counts above](docs/screenshots/map.png)
+![The map: NAIs, objectives and phase lines with a heat map, the activity sidebar on the left, and a drone (GE 1) with a cone pointing to the newest report, 8.2 km NE](docs/screenshots/map.png)
 
 ### Statistics
 
@@ -73,8 +75,9 @@ editable charts.
 One click writes a Rollup, Most Trafficked, Place Activity, Shift Brief, or
 Narrative for any time window. The Narrative lists what was observed, then
 assessments from 55 rules based on open-source Russian and Chinese tactics, in
-ICD 203 terms, each citing the reports behind it. It recognizes about 780 Russian
-and Chinese equipment types. Everything comes from fixed rules and templates, not
+ICD 203 terms, each citing the reports behind it. It recognizes about 790 Russian
+and Chinese equipment types and general terms such as vic, tracked, wheeled and
+support, and counts a total with its breakdown once. Everything comes from fixed rules and templates, not
 AI, so nothing is made up. Reword any report before you copy, save, or print it.
 
 ![The Narrative summary report with its Observed and Assessment sections, and its settings column on the right](docs/screenshots/narrative.png)
@@ -170,9 +173,9 @@ cover is in [SECURITY.md](SECURITY.md).
 
 3. **Click a row** to change it. *Update* keeps the old version in history;
    *Edit* overwrites it.
-4. **Open the other views** with the icons at the top right: workspaces and
-   import/export (folder), Statistics (chart), Summary Reports (page), and
-   Settings (gear).
+4. **Open the other views** with the icons at the top right: Manage (folder:
+   import and export, workspaces, the report format, the map's graphics and
+   basemaps), Statistics (chart), Summary Reports (page), and Settings (gear).
 
 The full manual is built into the app: **gear → User Manual**.
 

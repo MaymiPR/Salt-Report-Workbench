@@ -106,7 +106,7 @@ const el = {
         mtiToggle:      document.getElementById('exportMtiToggle'),
         allAtosToggle:  document.getElementById('exportAllAtosToggle'),
     },
-    // Workspaces panel: tab strip + Loaded-Workspaces list (in two
+    // Manage panel: tab strip + Loaded-Workspaces list (in two
     // containers — the panel's tab and the viewer-mode sidebar).
     workspaces: {
         list:        document.getElementById('workspacesList'),
@@ -213,7 +213,7 @@ let localConfig   = readStored('salt_offline_config', { ato: '', title: '' });
 let userProfile   = null;
 // ato → source descriptor ("alpha01.txt" | "Uploaded backup" | "In-session").
 let workspaceSources = {};
-// Deduped initials list for the Workspaces panel (no IPs).
+// Deduped initials list for the Manage panel (no IPs).
 let connectedInitials = [];
 // Editor-port access code: cached in localStorage + carried via cookie so
 // fetch + EventSource include it automatically. Cleared on 401 → re-prompts.
@@ -342,7 +342,7 @@ const formatsFor = (atos) => Object.fromEntries(atos.map(a => [a, currentFormat(
 
 // --- Overlays ---
 // NAI / OBJ / PL features, one set shared by every workspace: imported in the
-// Overlays tab and synced. Viewers keep none locally. Browsers from before
+// Map tab and synced. Viewers keep none locally. Browsers from before
 // they were shared kept them per workspace ('salt_ws_overlays'); those are
 // folded into one set once.
 if (viewerAtLoad) { try { localStorage.removeItem('salt_ws_overlays'); localStorage.removeItem('salt_overlays'); } catch (e) {} }
@@ -359,6 +359,9 @@ const currentOverlays = () => sharedOverlays;
 // overlays; each browser picks which one it shows.
 let sharedBasemaps = viewerAtLoad ? [] : (Array.isArray(readStored('salt_basemaps', [])) ? readStored('salt_basemaps', []) : []);
 const storeBasemaps = () => { if (!isReadOnly && !viewerAtLoad) writeStored('salt_basemaps', JSON.stringify(sharedBasemaps)); };
+// Drones on the map ([{ name, grid, at }]): shared like the basemaps.
+let sharedDrones = viewerAtLoad ? [] : (Array.isArray(readStored('salt_drones', [])) ? readStored('salt_drones', []) : []);
+const storeDrones = () => { if (!isReadOnly && !viewerAtLoad) writeStored('salt_drones', JSON.stringify(sharedDrones)); };
 // The narrative's settings (app/48-narrative.js), shared the same way.
 const asNarrative = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 let sharedNarrative = viewerAtLoad ? {} : asNarrative(readStored('salt_narrative', {}));

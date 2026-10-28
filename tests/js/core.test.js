@@ -1022,7 +1022,7 @@ test('the equipment catalogue knows Russian and Chinese systems, and plain words
     assert.equal(kit('TRUCK'), 'logistics  truck');
     assert.equal(kit('PAX'), 'infantry  PAX');
     // Every entry has a known role, and Russian, Chinese, or any army.
-    const roles = new Set(['armor', 'mech', 'recon', 'fires', 'ad', 'atgm', 'engineer', 'logistics', 'c2', 'ew', 'air', 'infantry', 'light']);
+    const roles = new Set(['armor', 'mech', 'recon', 'fires', 'ad', 'atgm', 'engineer', 'logistics', 'c2', 'ew', 'air', 'infantry', 'light', 'vehicle']);
     core.EQUIPMENT_CATALOGUE.forEach(([role, origin, name]) => {
         assert.ok(roles.has(role), `${name}: ${role}`);
         assert.ok(['RU', 'CN', ''].includes(origin), `${name}: ${origin}`);
@@ -1059,7 +1059,7 @@ test('the narrative says what was observed, apart from what is assessed', () => 
     assert.ok(observed.includes('Equipment reported: armor (2x T-72); mechanized infantry (3x BMP-2); reconnaissance (2x BRDM-2); engineers (1x MTU-20); dismounted personnel (6x PAX).'), observed);
     assert.ok(observed.includes('armor and mechanized approximately platoon size (2x T-72, 3x BMP-2; ALPHA012 252200Z, NAI 1)'), observed);
     assert.ok(observed.includes('dismounted approximately squad size (6x PAX; ALPHA013 252300Z, NAI 1)'), observed);
-    assert.ok(!/(likely|unlikely|roughly even|almost certain|chance)/i.test(observed), 'no judgment in OBSERVED');
+    assert.ok(!/\b(likely|unlikely|roughly even|almost certain|chance)\b/i.test(observed), 'no judgment in OBSERVED');
     assert.ok(observed.includes('Identified equipment is of Russian design (8 vehicles and systems), so the assessment uses Russian doctrine.'), observed);
 });
 
@@ -1252,4 +1252,54 @@ test('the new rules: fires, maneuver, defense and support, each from its own sig
     // Fire support and a firing position are not contact.
     const t = said(atPlaces([['2x T-72', 'moving to a fire support position', NAI1], ['2x T-72', 'in firing positions', NAI1]]));
     assert.ok(!t.includes('probing friendly positions'), t);
+});
+
+test('a point becomes the MGRS grid it is in, and back', () => {
+    // Round trips across zones, hemispheres and the Norway and Svalbard exceptions.
+    ['11S NV 39697 06762', '38S MB 44880 82000', '32V NM 12345 67890', '33X VC 12345 12345', '55H FA 12345 67890', '18S UJ 23487 06483'].forEach(g => {
+        const [zb, sq, e, n] = g.split(' ');
+        const ll = core.gridToLatLon(Number(zb.slice(0, -1)), zb.slice(-1), sq[0], sq[1], e + n);
+        assert.equal(core.latLonToMgrs(ll.lat, ll.lon), g);
+    });
+    const full = core.latLonToMgrs(35.2934, -116.6).split(' ');
+    assert.equal(core.latLonToMgrs(35.2934, -116.6, 3), `${full[0]} ${full[1]} ${full[2].slice(0, 3)} ${full[3].slice(0, 3)}`);
+    assert.equal(core.latLonToMgrs(85, 10), null, 'past 84°N is UPS, not MGRS');
+});
+
+test('a total with its breakdown is counted once, and counts can follow the type', () => {
+    const els = s => core.sizeElements(s).map(e => `${e.count} ${e.type}`);
+    assert.deepEqual(els('Total of vics 10x: 5x tanks and 5x apc'), ['5 TANK', '5 APC']);
+    assert.deepEqual(els('12x vics (5x tanks)'), ['5 TANK', '7 VIC'], 'what the breakdown leaves');
+    assert.deepEqual(els('10x tracked: 4x T-72, 4x BMP-2'), ['4 T-72', '4 BMP-2', '2 TRACKED']);
+    assert.deepEqual(els('3x T-72 (one damaged)'), ['3 T-72'], 'brackets that are a note');
+    assert.deepEqual(els('Total 10 vics, 5x tanks, 5x APC'), ['5 TANK', '5 APC'], 'a total named as one');
+    assert.deepEqual(els('10x vics, 5x tanks'), ['10 VIC', '5 TANK'], 'without "total", ten more vehicles');
+    assert.deepEqual(els('vics 10x'), ['10 VIC']);
+    assert.deepEqual(els('approx 6x support vics & 2 fuelers'), ['6 SUPPORT VIC', '2 FUELER']);
+    assert.deepEqual(els('2x T-72 w/ 1x mine plow'), ['2 T-72', '1 MINE PLOW']);
+});
+
+test('general words: vic, tracked, wheeled, support, fueler, engineer, and their mixes', () => {
+    const kit = t => { const k = core.lookupEquipment(t); return k && `${k.role} ${k.name}`; };
+    assert.equal(kit('VIC'), 'vehicle vehicle');
+    assert.equal(kit('VICS'), 'vehicle vehicle', 'a plural in capitals');
+    assert.equal(kit('TANKS'), 'armor tank');
+    assert.equal(kit('TRACKED'), 'vehicle tracked vehicle');
+    assert.equal(kit('WHEELED VIC'), 'vehicle wheeled vehicle');
+    assert.equal(kit('ENGINEER VIC'), 'engineer engineer', 'the longer word wins');
+    assert.equal(kit('ENGINEERING VEHICLE'), 'engineer engineer');
+    assert.equal(kit('SUPPORT VIC'), 'logistics truck');
+    assert.equal(kit('TRACKED SUPPORT VIC'), 'logistics truck');
+    assert.equal(kit('FUELER'), 'logistics truck');
+    assert.equal(kit('WHEELED APC'), 'mech IFV');
+    // More EW: radar jammers, and the jammers on vehicles.
+    assert.equal(kit('SPN-2'), 'ew SPN-2');
+    assert.equal(kit('1RL248-4'), 'ew SPN-4');
+    assert.equal(kit('SPN-30'), 'ew SPN-30');
+    assert.equal(kit('Mi-8MTPR-1'), 'ew Mi-8MTPR-1');
+    assert.equal(kit('J-15D'), 'ew J-15D');
+    assert.equal(kit('J-15'), 'air J-15');
+    const t = said([{ id: 'v1', displayId: 'ALPHA001', ato: 'ALPHA', title: 'P', size: 'Total of vics 10x: 5x tanks and 5x apc',
+        activity: 'moving N', location: '38SMB4500082000', time: '2026-10-26T01:00:00.000Z', history: [], bda: [] }]);
+    assert.ok(t.includes('Equipment reported: armor (5x tanks); mechanized infantry (5x APC).'), t);
 });

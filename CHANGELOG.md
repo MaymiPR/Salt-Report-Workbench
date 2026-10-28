@@ -6,6 +6,44 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Drones on the map.** A drone button under the basemap button: add a drone
+  (a Gray Eagle, say) by name and grid, move it by typing a new grid, remove it.
+  Each is drawn in orange with its name. **Its view** is a cone from the drone,
+  wide at the drone and narrowing to the newest report on the map, with the
+  sightline down its middle, a box round the report, and the distance and
+  direction; it follows newer reports, the time slider and the filters.
+  **Zoom** centres the map on a drone. The drones are shared with everyone;
+  showing them and their view is each browser's choice.
+- **Grab a grid.** A crosshair button: the grid under the pointer shows beside
+  it, and a click copies that ten-digit grid. Esc stops.
+- **General terms in the narrative**: vic, vehicle, tracked, wheeled, support,
+  fueler, engineer and their mixes. A vehicle of no given type is counted as
+  *other vehicles*; the more specific word wins.
+- More EW in the catalogue: SPN-2, SPN-3, SPN-4 and SPN-30 radar jammers,
+  Tobol, Divnomorye, Samarkand, the Mi-8MTPR-1 helicopter, the Khibiny pod, the
+  Volnorez and Saniya vehicle jammers, the Pishchal drone gun, and the J-15D.
+
+### Changed
+
+- **Workspaces is now Manage**, as it holds more than workspaces. Its Overlays
+  tab is now **Map**: the ops graphics and the basemaps (added, checked,
+  changed and removed there). The map's basemap button only switches between
+  them, with a link to Manage.
+- The NAI, OBJ and phase-line lists fold away, closed to start with.
+- The map's sidebar box reaches up round its button.
+- Sizes: "and", "&" and "with" separate elements, a count can follow its type
+  ("vics 10x"), and "total of", "approx" and the like are left out.
+
+### Fixed
+
+- A total with its breakdown was misread: "Total of vics 10x: 5x tanks and 5x
+  APC" was one unknown type, and "Total 10 vics, 5x tanks, 5x APC" counted 20.
+  Now the breakdown is counted, and what it leaves of the total.
+- MGRS Lock's zone and square disappeared from beside Location after each
+  report, though the lock still applied.
+
 ## [2.16.0] - 2026-10-27
 
 ### Added

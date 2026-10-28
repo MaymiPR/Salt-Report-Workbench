@@ -284,8 +284,9 @@ const finishOverlayImport = async () => {
     }
 };
 
-// --- The Overlays tab ---
+// --- The Map tab: the ops graphics ---
 
+const overlayGroupsOpen = new Set();   // the groups opened, by type
 const renderOverlays = () => {
     const box = document.getElementById('overlaysBody');
     if (!box) return;
@@ -343,17 +344,18 @@ const renderOverlays = () => {
     const groups = GROUPS.map(([type, title]) => {
         const members = list.map((o, i) => ({ o, i })).filter(x => x.o.type === type).sort(byName);
         if (!members.length) return '';
-        return `<section class="overlay-group" data-overlay-group="${type}">
-            <div class="overlay-group-head">
+        return `<details class="overlay-group" data-overlay-group="${type}"${overlayGroupsOpen.has(type) ? ' open' : ''}>
+            <summary class="overlay-group-head">
+                <span class="overlay-group-chevron" aria-hidden="true"></span>
                 <span class="overlay-group-title"><span class="overlay-type overlay-${type.toLowerCase()}">${type}</span> ${title}</span>
                 <span class="overlay-group-count">${members.length}</span>
                 <button type="button" class="overlay-group-unload editor-only" data-unload-group="${type}">Unload ${type === 'OBJ' ? 'OBJs' : type === 'PL' ? 'PLs' : 'NAIs'}</button>
-            </div>
+            </summary>
             <table class="overlays-table">
                 <thead><tr><th>Name</th><th>Shape</th><th>Reports${shownAto() ? ` in ${escapeHtml(shownAto())}` : ''}</th><th></th></tr></thead>
                 <tbody>${members.map(row).join('')}</tbody>
             </table>
-        </section>`;
+        </details>`;
     }).join('');
     box.innerHTML = `${header}
         ${list.length ? `
@@ -375,6 +377,7 @@ if (overlaysBody && overlaysFileInput) {
         }
         const group = e.target.closest('[data-unload-group]');
         if (group) {
+            e.preventDefault();   // in the group's header: unload, without folding it
             const type = group.dataset.unloadGroup;
             const n = currentOverlays().filter(o => o.type === type).length;
             showConfirmation(`Unload all ${n} ${type} overlay${n === 1 ? '' : 's'}? Reports are not changed.`,
@@ -388,6 +391,11 @@ if (overlaysBody && overlaysFileInput) {
             if (victim) saveOverlays(list.filter(o => o !== victim));
         }
     });
+    // Opened or closed: remembered, so a redraw keeps it.
+    overlaysBody.addEventListener('toggle', e => {
+        const g = e.target.closest('[data-overlay-group]');
+        if (g) g.open ? overlayGroupsOpen.add(g.dataset.overlayGroup) : overlayGroupsOpen.delete(g.dataset.overlayGroup);
+    }, true);
     overlaysBody.addEventListener('change', e => {
         const sel = e.target.closest('[data-review-idx]');
         if (sel && overlayReview) { overlayReview.rows[+sel.dataset.reviewIdx].type = sel.value; renderOverlays(); }

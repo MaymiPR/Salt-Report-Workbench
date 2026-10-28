@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Workspaces panel, builder, export, backup and CSV import.
+// Manage panel, builder, export, backup and CSV import.
 // One of the ordered scripts that make up the page (see src/app/); they
 // share one top-level scope, so names declared earlier are visible here.
 
@@ -170,7 +170,7 @@ const clearExportFilter = () => {
     renderExportPreview();
 };
 
-// Workspaces panel tabs: 'export' (default) | 'workspaces' | 'builder' | 'overlays' | 'identity'.
+// Manage panel tabs: 'export' (default) | 'workspaces' | 'builder' | 'overlays' | 'identity'.
 // Persisted in localStorage. Viewers get 'export' only: the workspaces list
 // lives in their sidebar, the map is the Map view, and the rest change things.
 const VALID_TABS = ['export', 'workspaces', 'identity', 'builder', 'overlays'];
@@ -191,7 +191,7 @@ const switchWorkspacesTab = (tabName) => {
     if (tabName === 'export')          renderExportPreview();
     else if (tabName === 'workspaces') renderWorkspacesList();
     else if (tabName === 'builder')    renderBuilder();
-    else if (tabName === 'overlays')   renderOverlays();
+    else if (tabName === 'overlays')   { renderOverlays(); renderBasemapManager(); }
 };
 
 // ─── Report Builder ──────────────────────────────────────────────────────
@@ -415,7 +415,7 @@ const openExportView = () => {
     isExportViewActive = true;
     el.exp.panel.style.display = 'flex';
     setViewIcon('exportViewToggleBtn', true);
-    setTopBar('export', 'Workspaces');
+    setTopBar('export', 'Manage');
     animateIn(el.exp.panel);
     el.menu.panel.style.display = 'none';
     writeStored('salt_view', 'export');

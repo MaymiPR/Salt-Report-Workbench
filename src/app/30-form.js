@@ -172,6 +172,9 @@ const resetForm = () => {
     el.form.cancelBtn.style.visibility = 'hidden';
     el.form.nowBtn.disabled = true;
     el.form.startNum.value = '';
+    // The reset empties every box in the form, MGRS Lock's zone and square too.
+    const lockBox = document.getElementById('mgrsPrefix');
+    if (lockBox) lockBox.value = mgrsLockPrefix;
     document.querySelectorAll('.selected-row').forEach(r => r.classList.remove('selected-row'));
     renderLocationHints();
 };

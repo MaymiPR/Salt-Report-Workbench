@@ -61,6 +61,7 @@ def reset_state() -> None:
             "format": {},
             "overlays": [],
             "basemaps": [],
+            "drones": [],
             "narrative": {},
         }
     )
@@ -311,6 +312,27 @@ class ValidatorTests(unittest.TestCase):
     # --------------------------------------------------------------------------- #
     # Rate limiting and access control
     # --------------------------------------------------------------------------- #
+    def test_drones_are_checked(self):
+        v = srv._v_save_drones
+        ge = {"name": "GE 1", "grid": "11S NV 39697 06762", "at": 1793018940000}
+        self.assertIsNone(v({"drones": []}))
+        self.assertIsNone(v({"drones": [ge, {**ge, "name": "GE 2", "grid": "11S NV 39 06"}]}))
+        self.assertRejects(v, {"drones": ge}, "list")
+        self.assertRejects(v, {"drones": [ge, {**ge, "name": " ge 1 "}]}, "used twice")
+        self.assertRejects(v, {"drones": [{**ge, "name": ""}]}, "name")
+        self.assertRejects(v, {"drones": [{**ge, "grid": "near the bridge"}]}, "MGRS")
+        self.assertRejects(v, {"drones": [{**ge, "grid": "11SNV3969706762"}]}, "MGRS")
+        self.assertRejects(v, {"drones": [{**ge, "at": "now"}]}, "milliseconds")
+        many = [{**ge, "name": f"GE {i}"} for i in range(11)]
+        self.assertRejects(v, {"drones": many}, "too many")
+
+    def test_the_server_knows_every_kind_of_equipment_the_page_has(self):
+        import re
+
+        core = (ROOT / "src" / "core.js").read_text(encoding="utf-8")
+        block = core[core.index("const EQUIPMENT_ROLES = [") : core.index("const eqp = ")]
+        self.assertEqual(set(re.findall(r"\['([a-z0-9]+)', '", block)), set(srv._EQUIPMENT_ROLES))
+
     def test_the_server_knows_every_rule_the_page_has(self):
         import re
 
@@ -1125,6 +1147,22 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(self.sync()["basemaps"], [])
         status, _ = self.post("/api/save_basemaps", {"basemaps": clean}, base=self.viewer_base)
         self.assertEqual(status, 405, "viewers cannot change them")
+
+    def test_drones_sync_and_survive_a_restart(self):
+        shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        sent = {"name": " GE 1 ", "grid": "11S NV 39697 06762", "at": 1793018940000, "x": 1}
+        self.assertEqual(self.post("/api/save_drones", {"drones": [sent]})[0], 200)
+        clean = [{"name": "GE 1", "grid": "11S NV 39697 06762", "at": 1793018940000}]
+        self.assertEqual(self.sync()["drones"], clean, "trimmed, known fields only")
+        srv.flush_pending_save()
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(self.sync()["drones"], clean)
+        status, _ = self.post("/api/save_drones", {"drones": []}, base=self.viewer_base)
+        self.assertEqual(status, 405, "viewers cannot move them")
+        self.assertEqual(self.post("/api/save_drones", {"drones": []})[0], 200)
+        self.assertEqual(self.sync()["drones"], [])
 
     def test_narrative_settings_sync_and_survive_a_restart(self):
         shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
