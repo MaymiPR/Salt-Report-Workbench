@@ -1133,7 +1133,7 @@ test("the team's own equipment, rules switched off, and rules of their own", () 
     } }).join(' ').replace(/\s+/g, ' ');
     assert.ok(!text.includes('Not in the equipment catalogue'), text);
     assert.ok(text.includes('air defense (1x XYZ-9)'), text);
-    assert.ok(text.includes('logistics (2x trucks)'), 'a plain word: lower case, plural');
+    assert.ok(text.includes('logistics and support (2x trucks)'), 'a plain word: lower case, plural');
     assert.ok(!text.includes('scouting a route'), 'switched off');
     assert.ok(text.includes('ROUGHLY EVEN CHANCE (45-55%) that enemy forces are preparing a river crossing in NAI 1.'), text);
     assert.ok(text.includes('Basis: reports of bridging, ferry within 12 hrs (ALPHA016 260300Z, ALPHA017 260400Z).'), text);
@@ -1277,6 +1277,19 @@ test('a total with its breakdown is counted once, and counts can follow the type
     assert.deepEqual(els('vics 10x'), ['10 VIC']);
     assert.deepEqual(els('approx 6x support vics & 2 fuelers'), ['6 SUPPORT VIC', '2 FUELER']);
     assert.deepEqual(els('2x T-72 w/ 1x mine plow'), ['2 T-72', '1 MINE PLOW']);
+});
+
+test('plurals in any case are one type with their singular', () => {
+    const els = s => core.sizeElements(s).map(e => `${e.count} ${e.type}`);
+    assert.deepEqual(els('4x VICS, 3x Cars, 2X TRUCKS, 5x APCs, 6X TANKS'), ['4 VIC', '3 CAR', '2 TRUCK', '5 APC', '6 TANK']);
+    assert.deepEqual(els('2x lorries, 2X BUSES, 2X RADIO RELAYS, 2X BRIDGE LAYERS, 2X TRACKED VICS'),
+        ['2 LORRY', '2 BUS', '2 RADIO RELAY', '2 BRIDGE LAYER', '2 TRACKED VIC'], '"ies", "es", and two words');
+    assert.deepEqual(els('2x MANPADS, 2x manpads, 2x T-72S, 2x T-72s, 2X TANK GLASS'),
+        ['2 MANPADS', '2 MANPADS', '2 T-72S', '2 T-72', '2 TANK GLASS'], 'a name ending in S, a variant, and a word the catalogue lacks');
+    assert.deepEqual(els('TOTAL 10 VICS: 5X TANKS, 5X APCS'), ['5 TANK', '5 APC']);
+    const t = said([{ id: 'p1', displayId: 'ALPHA001', ato: 'ALPHA', title: 'P', size: '4X TANKS, 2x tank, 3X TRUCKS',
+        activity: 'moving N', location: '38SMB4500082000', time: '2026-10-26T01:00:00.000Z', history: [], bda: [] }]);
+    assert.ok(t.includes('Equipment reported: armor (6x tanks); logistics and support (3x trucks).'), t);
 });
 
 test('general words: vic, tracked, wheeled, support, fueler, engineer, and their mixes', () => {
