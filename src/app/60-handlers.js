@@ -468,6 +468,19 @@ if (el.profile.accessCopy) {
     });
 }
 
+if (el.profile.accessShow) {
+    el.profile.accessShow.addEventListener('click', () => {
+        identityCodeShown = !identityCodeShown;
+        renderIdentityAccessCode();
+    });
+}
+if (el.startup.accessShow) {
+    el.startup.accessShow.addEventListener('click', () => {
+        setStartupCodeShown(el.startup.accessCode.classList.contains('access-masked'));
+        el.startup.accessCode.focus();
+    });
+}
+
 // ─── First-run setup modal handlers ──────────────────────────────────────
 
 // Known profiles = server-synced (live) merged over the last session's cache,
@@ -563,6 +576,7 @@ const openStartupModal = () => {
     // via the server-injected <meta>, or a previously-typed value cached
     // in localStorage). Empty for fresh non-host editors — they type it.
     if (el.startup.accessCode) el.startup.accessCode.value = accessCode || '';
+    setStartupCodeShown(false);
     if (el.startup.accessError) {
         el.startup.accessError.classList.remove('show');
         el.startup.accessError.textContent = '';

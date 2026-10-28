@@ -61,6 +61,7 @@ const el = {
         name:        document.getElementById('profile-preview-name'),
         accessCode:  document.getElementById('identityAccessCode'),
         accessCopy:  document.getElementById('identityAccessCopyBtn'),
+        accessShow:  document.getElementById('identityAccessShowBtn'),
     },
     manual: {
         modal:    document.getElementById('manualModal'),
@@ -136,6 +137,7 @@ const el = {
         ato:         document.getElementById('startup-ato'),
         title:       document.getElementById('startup-title'),
         accessCode:  document.getElementById('startup-access-code'),
+        accessShow:  document.getElementById('startupAccessShowBtn'),
         accessError: document.getElementById('startup-access-error'),
         continueBtn: document.getElementById('startupContinueBtn'),
         presets:     document.getElementById('startup-presets'),
@@ -231,10 +233,34 @@ const setAccessCookie = (code) => {
 const clearAccessCookie = () => {
     document.cookie = `${_ACCESS_COOKIE}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
 };
+// The access code stays hidden as dots wherever the page shows it, so it
+// can't be read over a shoulder; Show reveals it until that screen is left.
+let identityCodeShown = false;
+const setShowBtn = (btn, shown) => {
+    btn.textContent = shown ? 'Hide' : 'Show';
+    btn.setAttribute('aria-pressed', shown ? 'true' : 'false');
+    btn.title = shown ? 'Hide the access code' : 'Show the access code';
+};
 // Sync the read-only access-code row in the Identity tab.
 const renderIdentityAccessCode = () => {
-    el.profile.accessCode.textContent = accessCode || '—';
+    const shown = identityCodeShown && !!accessCode;
+    el.profile.accessCode.textContent = !accessCode ? '—' : shown ? accessCode : '•'.repeat(accessCode.length);
+    el.profile.accessCode.classList.toggle('masked', !!accessCode && !shown);
     el.profile.accessCopy.disabled = !accessCode;
+    el.profile.accessShow.disabled = !accessCode;
+    setShowBtn(el.profile.accessShow, shown);
+};
+const hideIdentityAccessCode = () => { identityCodeShown = false; renderIdentityAccessCode(); };
+// The startup field: masked with text-security where the browser has it (not
+// a password field, so the browser doesn't offer to save the code as a
+// password); a password field elsewhere.
+const _TEXT_SECURITY = !!(window.CSS && CSS.supports && CSS.supports('-webkit-text-security', 'disc'));
+const setStartupCodeShown = (shown) => {
+    const input = el.startup.accessCode;
+    if (!input || !el.startup.accessShow) return;
+    input.classList.toggle('access-masked', !shown);
+    if (!_TEXT_SECURITY) input.type = shown ? 'text' : 'password';
+    setShowBtn(el.startup.accessShow, shown);
 };
 const setAccessCode = (code) => {
     accessCode = (code || '').trim().toUpperCase();

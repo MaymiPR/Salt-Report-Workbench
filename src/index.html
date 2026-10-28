@@ -40,7 +40,10 @@
                 <div class="startup-section-label">Access Code</div>
                 <div class="startup-field">
                     <label class="startup-field-label" for="startup-access-code">From the server console</label>
-                    <input type="text" id="startup-access-code" placeholder="e.g. K7M2X9PQR3" maxlength="64" autocomplete="off" spellcheck="false">
+                    <div class="access-input-wrap">
+                        <input type="text" id="startup-access-code" class="access-masked" placeholder="e.g. K7M2X9PQR3" maxlength="64" autocomplete="off" spellcheck="false">
+                        <button type="button" id="startupAccessShowBtn" class="copy-btn access-show-btn" aria-pressed="false" aria-controls="startup-access-code">Show</button>
+                    </div>
                     <div id="startup-access-error" class="startup-access-error" role="alert"></div>
                 </div>
             </div>
@@ -130,7 +133,7 @@
                         <li>Set your <strong>Initials</strong> and <strong>Tag Color</strong> on first launch via the startup modal.</li>
                         <li>The startup modal opens with a compact <strong>Quick Start</strong> strip listing what it already knows as one-click presets, in three rows: <strong>Operator</strong> (known initials with their tag color), <strong>ATO</strong> (loaded workspaces), and <strong>Title</strong> (report titles seen before). The rows are independent, so you can pick a known operator and ATO but type a brand-new title. Picking an ATO also fills its usual title if you haven&rsquo;t typed one. Each row shows up to five entries, and the whole strip hides on a first-ever run when there&rsquo;s nothing to offer.</li>
                         <li>To change them later: click the <strong>Workspaces</strong> icon (the folder, top right of the report panel), then click the <strong>person icon</strong> tab. Edit and press <em>Set Initials</em>.</li>
-                        <li>The Identity tab also shows the current <strong>Access Code</strong> with a one-click Copy button (handy for sharing with a teammate joining the session).</li>
+                        <li>The Identity tab also shows the current <strong>Access Code</strong>, hidden as dots until you press <em>Show</em>, with a one-click Copy button (handy for sharing with a teammate joining the session).</li>
                         <li>Each device or operator has its own identity stored per-browser.</li>
                     </ul>
                     <p class="manual-modes"><strong>Locally:</strong> Identity stays in your browser only. Your initials and color appear on the reports you log.</p>
@@ -291,7 +294,7 @@
                     <p class="manual-step">Identity tab (person icon)</p>
                     <ul>
                         <li>Same identity form as the startup modal: initials, tag color, Save.</li>
-                        <li>Shows the current <strong>Access Code</strong> at the top with a <em>Copy</em> button for sharing with another editor (display-only: you can&rsquo;t edit it here; that path is the startup modal).</li>
+                        <li>Shows the current <strong>Access Code</strong> at the top, hidden as dots until you press <em>Show</em>, with a <em>Copy</em> button that copies it without showing it, for sharing with another editor (display-only: you can&rsquo;t edit it here; that path is the startup modal).</li>
                     </ul>
 
                     <p class="manual-modes"><strong>Locally:</strong> Exports generate files from your browser&rsquo;s current state and download to your machine. Backup and CSV imports merge incoming data into your local workspace.</p>
@@ -507,6 +510,7 @@
                     <ul>
                         <li>The code uses only characters that are unambiguous to share verbally over a radio (no <code>0</code>/<code>O</code>, no <code>1</code>/<code>I</code>/<code>l</code>, no <code>5</code>/<code>S</code>).</li>
                         <li>The host&rsquo;s own browser <strong>auto-fills</strong> the code on the startup modal. They review identity/ATO/title and click Continue.</li>
+                        <li>The code is <strong>hidden as dots</strong> wherever the page shows it, so nobody can read it over your shoulder. <em>Show</em> beside it reveals it until you leave that screen.</li>
                         <li>Other editors see the modal with an empty <strong>Access Code</strong> field. They type what the host shared with them; the server validates on submit and rejects with a red inline error if wrong.</li>
                         <li>Once entered correctly, the code is cached per-browser; refreshing the page doesn&rsquo;t re-prompt. Restarting the server <strong>rotates the code</strong>, so on the next visit the modal reappears for re-confirmation.</li>
                         <li><strong>Local mode</strong> (opening the HTML file directly, no server): the access-code field is hidden entirely and never required. There is no server to gate.</li>
@@ -813,6 +817,7 @@
                                         <label class="profile-field-label">Access Code <span class="profile-field-hint">share with other editors</span></label>
                                         <div class="access-code-display">
                                             <code id="identityAccessCode" class="access-code-text">&mdash;</code>
+                                            <button type="button" id="identityAccessShowBtn" class="copy-btn access-show-btn" aria-pressed="false" aria-controls="identityAccessCode">Show</button>
                                             <button type="button" id="identityAccessCopyBtn" class="copy-btn" title="Copy access code to clipboard">Copy</button>
                                         </div>
                                     </div>

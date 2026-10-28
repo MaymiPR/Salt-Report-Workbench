@@ -176,6 +176,7 @@ const clearExportFilter = () => {
 const VALID_TABS = ['export', 'workspaces', 'identity', 'builder', 'overlays'];
 const switchWorkspacesTab = (tabName) => {
     if (!VALID_TABS.includes(tabName)) tabName = 'export';
+    hideIdentityAccessCode();
     if (isReadOnly) tabName = 'export';
     el.workspaces.tabs.forEach(btn => {
         const isActive = btn.dataset.tab === tabName;
@@ -427,6 +428,7 @@ const openExportView = () => {
 
 const closeExportView = () => {
     isExportViewActive = false;
+    hideIdentityAccessCode();
     el.exp.panel.style.display = 'none';
     setViewIcon('exportViewToggleBtn', false);
     showHomeView();

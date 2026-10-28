@@ -1216,6 +1216,48 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.get_attribute("[data-map-layer='heat']", "aria-pressed"), "false")
         self.assertEqual(page.get_attribute("[data-map-grids='all']", "aria-pressed"), "true")
 
+    def test_the_access_code_is_hidden_until_show_is_pressed(self):
+        self.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=self.editor)
+        page = self.context.new_page()
+        page.on("pageerror", lambda exc: self.errors.append(str(exc)))
+        page.goto(self.editor + "/")
+        page.wait_for_selector("#startupModal.show")
+        # The startup field holds the code but draws it as dots.
+        field = page.locator("#startup-access-code")
+        self.assertEqual(field.input_value(), CODE)
+        self.assertEqual(field.evaluate("e => getComputedStyle(e).webkitTextSecurity"), "disc")
+        # Not a password field, which the browser would offer to save.
+        self.assertEqual(field.get_attribute("type"), "text")
+        page.click("#startupAccessShowBtn")
+        self.assertEqual(field.evaluate("e => getComputedStyle(e).webkitTextSecurity"), "none")
+        self.assertEqual(page.inner_text("#startupAccessShowBtn"), "Hide")
+        page.fill("#startup-initials", "AB")
+        page.fill("#startup-ato", "CODEMASK")
+        page.fill("#startup-title", "Patrol")
+        page.click("#startupContinueBtn")
+        page.wait_for_selector("#startupModal.show", state="hidden")
+
+        # The Identity tab: dots, Show, Hide again on leaving the tab; Copy copies the code.
+        page.click("#exportViewToggleBtn")
+        page.click("#exportPanel .ws-tab[data-tab='identity']")
+        code = page.locator("#identityAccessCode")
+        self.assertEqual(code.inner_text(), "\u2022" * len(CODE))
+        page.click("#identityAccessCopyBtn")
+        self.assertEqual(page.evaluate("navigator.clipboard.readText()"), CODE)
+        self.assertEqual(code.inner_text(), "\u2022" * len(CODE))
+        width = code.bounding_box()["width"]
+        page.click("#identityAccessShowBtn")
+        self.assertEqual(code.inner_text(), CODE)
+        self.assertEqual(code.bounding_box()["width"], width)  # nothing moves
+        page.click("#exportPanel .ws-tab[data-tab='export']")
+        page.click("#exportPanel .ws-tab[data-tab='identity']")
+        self.assertEqual(code.inner_text(), "\u2022" * len(CODE))
+        page.click("#identityAccessShowBtn")
+        page.click("#exportViewToggleBtn")
+        page.click("#exportViewToggleBtn")
+        page.click("#exportPanel .ws-tab[data-tab='identity']")
+        self.assertEqual(code.inner_text(), "\u2022" * len(CODE))
+
     def test_the_basemap_notice_sits_under_the_controls_however_they_wrap(self):
         page = self.open_editor()
         self.import_overlays(page)

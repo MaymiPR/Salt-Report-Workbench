@@ -31,6 +31,10 @@ a determined attacker on that network.
 - Observers editing data: the viewer port refuses every write.
 - Casual access to the editor port: a per-launch access code, compared in
   constant time, from an alphabet built to be read aloud.
+- Reading the code over a shoulder: the page shows it as dots until you
+  press Show, and hides it again when you leave that screen. Copy copies it
+  without showing it. The server console still prints it, since the host
+  reads it there.
 - Spoofed attribution: edits are stamped with the operator the server already
   associates with the connection, not the identity a client claims.
 - Malformed or oversized input: per-endpoint schema validation, a 16 MB body
