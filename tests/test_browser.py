@@ -1287,6 +1287,63 @@ class BrowserTests(unittest.TestCase):
         viewer.wait_for_selector("#mapCard:not([hidden])")
         self.assertFalse(viewer.locator("[data-card-act='edit']").is_visible())
 
+    def test_escape_and_the_keyboard_on_the_map(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
+        self.log(page, "1x truck", activity="parked", location="38SMB5500082000")
+        self.open_map(page)
+        page.wait_for_selector("#mapTableBody tr[data-map-row] >> nth=1")
+        # A row takes the keyboard's focus, and Enter does what a click does.
+        row = "#mapTableBody tr[data-map-row]:has-text('1x truck')"
+        self.assertEqual(page.get_attribute(row, "tabindex"), "0")
+        page.focus(row)
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#mapCard:not([hidden])")
+        self.assertIn("1x truck", page.text_content("#mapCard"))
+        # The table is redrawn after the map moves; the row keeps the focus.
+        page.wait_for_timeout(300)
+        self.assertIn("1x truck", page.evaluate("document.activeElement.textContent"))
+        # With a report being edited, Escape closes the card, back to its row,
+        # and leaves the edit alone.
+        page.click("[data-card-act='edit']")
+        self.assertTrue(page.locator("#cancelButton").is_visible())
+        page.focus(row)
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#mapCard:not([hidden])")
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#mapCard", state="hidden")
+        self.assertIn("1x truck", page.evaluate("document.activeElement.textContent"))
+        self.assertTrue(page.locator("#cancelButton").is_visible(), "still editing")
+        # The basemap and drone menus close on Escape too, back to their buttons.
+        for btn, pop in (("#mapBaseBtn", "#mapBasePop"), ("#mapDroneBtn", "#mapDronePop")):
+            page.click(btn)
+            page.wait_for_selector(pop, state="visible")
+            page.keyboard.press("Escape")
+            page.wait_for_selector(pop, state="hidden")
+            self.assertEqual(page.evaluate("'#' + document.activeElement.id"), btn)
+            self.assertEqual(page.get_attribute(btn, "aria-expanded"), "false")
+        self.assertTrue(page.locator("#cancelButton").is_visible(), "still editing")
+        # With nothing of the map's open, Escape is the page's again.
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#toast-notification:has-text('Editing cancelled')")
+        # The map itself: arrow keys pan, + and - zoom, 0 shows all.
+        page.focus("#mapBox")
+        before = page.evaluate("mapView.mpp")
+        page.keyboard.press("+")
+        page.wait_for_function(f"() => mapView.mpp < {before}")
+        cx = page.evaluate("mapView.cx")
+        page.keyboard.press("ArrowRight")
+        page.wait_for_function(f"() => mapView.cx > {cx}")
+        cy = page.evaluate("mapView.cy")
+        page.keyboard.press("ArrowUp")
+        page.wait_for_function(f"() => mapView.cy > {cy}")
+        page.keyboard.press("0")
+        page.wait_for_function("() => mapView.mpp >= mapFitMpp * 0.99")
+        page.keyboard.press("+")
+        page.keyboard.press("-")
+        page.wait_for_function("() => mapView.mpp >= mapFitMpp * 0.99")
+
     def test_map_layers_together_all_reports_and_activity(self):
         page = self.open_editor()
         self.import_overlays(page)
@@ -2121,6 +2178,25 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("2. ASSESSMENT", page.inner_text("#summaryText"))
         self.assertFalse(page.locator("#summaryEdited").is_visible())
         page.evaluate("saveNarrative({ enemy: '', units: [], equipment: [], off: [], custom: [] })")
+
+    def test_escape_in_the_narrative_settings_leaves_an_edit_alone(self):
+        # Regression: Escape closed the settings' form and cancelled the edit too.
+        page = self.open_editor()
+        self.log(page, "2x BMP")
+        page.click("#reportLogBody tr[data-id] .col-size:has-text('2x BMP')")
+        self.assertTrue(page.locator("#cancelButton").is_visible())
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        page.click("[data-narr-add]")
+        page.click("[data-narr-dd='kind'] .narr-dd-btn")
+        page.keyboard.press("Escape")
+        self.assertFalse(page.locator("[data-narr-kind='infantry']").is_visible())
+        self.assertEqual(
+            page.evaluate("document.activeElement.closest('[data-narr-dd]').dataset.narrDd"), "kind"
+        )
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#narrUnitName", state="detached")
+        self.assertTrue(page.locator("#cancelButton").is_visible(), "still editing")
 
     def test_the_welcome_screen_hides_the_page_whichever_view_was_last(self):
         # The map's panes set their own visibility to slide; none may show through.

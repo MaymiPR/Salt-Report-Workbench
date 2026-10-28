@@ -101,12 +101,16 @@ const renderMapTable = (reps) => {
     s.only.checked = mapOnlyInView;
     s.chip.innerHTML = mapPlace
         ? `<button type="button" class="map-place-chip" data-map-place="${escapeHtml(mapPlace)}" title="Show every place again">${escapeHtml(mapPlace)} <span aria-hidden="true">&times;</span></button>` : '';
+    // Rebuilt after every drawing: a row with the keyboard's focus keeps it.
+    const focused = s.body.contains(document.activeElement) ? document.activeElement.dataset.mapRow : null;
     s.body.innerHTML = reps.length ? reps.map(r => `
-        <tr data-map-row="${escapeHtml(r.id)}"${r.id === mapSelected ? ' class="selected-row"' : ''}>
+        <tr data-map-row="${escapeHtml(r.id)}" tabindex="0"${r.id === mapSelected ? ' class="selected-row"' : ''}>
             <td>${escapeHtml(formatFullId(r))}</td><td>${escapeHtml(r.size || '')}</td><td>${escapeHtml(r.activity || '')}</td>
             <td>${escapeHtml(r.location || '')}</td><td>${escapeHtml(mapTimeFmt(r.time))}</td>
         </tr>`).join('')
         : `<tr class="map-table-empty"><td colspan="5">${mapOnlyInView ? 'No reports on this part of the map. Zoom out, or untick “Only what’s on the map”.' : 'No reports in this window.'}</td></tr>`;
+    const again = focused && s.body.querySelector(`[data-map-row="${CSS.escape(focused)}"]`);
+    if (again) again.focus({ preventScroll: true });
 };
 
 // After each drawing (panning redraws often), once it settles.
@@ -124,6 +128,7 @@ mapDrawnHook = () => {
 // --- The report card ---
 
 let mapCardAt = null;   // [x, y] in the map box, where it was opened
+let mapCardFrom = null; // the table row it was opened from (by id), for Escape to go back to; null: the map
 
 const renderMapCard = () => {
     const card = document.getElementById('mapCard');
@@ -181,7 +186,7 @@ const centreMapOn = (id) => {
 // A click on the map: a report opens its card; an NAI, OBJ, or phase line
 // narrows the table to it (again to widen it); anywhere else closes the card.
 mapClickHook = ({ item, at, lonLat: [lon, lat], mpp }) => {
-    if (item && item.t) { selectMapReport(item.t.report.id, at); return; }
+    if (item && item.t) { mapCardFrom = null; selectMapReport(item.t.report.id, at); return; }
     const near = mpp * Math.cos(lat * Math.PI / 180) * 10;   // ten pixels, on the ground
     const lines = currentOverlays().filter(o => o.type === 'PL' && SaltCore.metresToGeometry(o.geometry, lon, lat) <= near);
     const areas = currentOverlays().filter(o => o.type !== 'PL' && /Polygon|LineString/.test((o.geometry || {}).type || '')
@@ -316,6 +321,7 @@ const hideHomeViews = () => {
             const id = tr.dataset.mapRow;
             const centred = centreMapOn(id);
             mapSelected = id;
+            mapCardFrom = id;
             // Drawn now, so the card can open beside where the report landed
             // (at the middle, unless the edge of the area held the map back).
             drawMap();
@@ -323,6 +329,27 @@ const hideHomeViews = () => {
             mapCardAt = centred && box && ring ? [+ring.getAttribute('cx'), +ring.getAttribute('cy')] : null;
             renderMapCard();
         }
+    });
+    // A row with the keyboard's focus: Enter or Space does what a click does.
+    s.body.addEventListener('keydown', e => {
+        const tr = (e.key === 'Enter' || e.key === ' ') && e.target.closest && e.target.closest('[data-map-row]');
+        if (!tr || e.target !== tr) return;
+        e.preventDefault();
+        tr.click();
+    });
+    // Escape closes the report's card, back to the row (or the map) it was
+    // opened from, and goes no further (the page's own Escape would cancel an
+    // edit in the form). Only from the map view, or from nowhere in particular.
+    document.addEventListener('keydown', e => {
+        const card = document.getElementById('mapCard'), at = document.activeElement;
+        if (e.key !== 'Escape' || !isMapViewActive || !card || card.hidden) return;
+        if (at && at !== document.body && !s.panel.contains(at)) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const from = mapCardFrom;
+        selectMapReport('', null);
+        const back = (from && s.body.querySelector(`[data-map-row="${CSS.escape(from)}"]`)) || document.getElementById('mapBox');
+        if (back) back.focus({ preventScroll: true });
     });
     s.panel.addEventListener('change', e => {
         if (e.target === s.only) {

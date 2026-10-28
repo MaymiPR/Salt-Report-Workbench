@@ -941,7 +941,8 @@ const renderOverlayMap = (box) => {
         const hours = [[0, 'All'], [24, '24h'], [12, '12h'], [6, '6h']];
         box.innerHTML = `
             <div class="map-pane" id="mapPane">
-            <div class="map-box" id="mapBox">
+            <div class="map-box" id="mapBox" tabindex="0" role="region" aria-label="Map" aria-describedby="mapKeys">
+                <span id="mapKeys" class="visually-hidden">Arrow keys move the map, plus and minus zoom, 0 shows all, and Escape closes a report's card.</span>
                 <svg class="map-base" aria-hidden="true"><g id="mapBase"></g></svg>
                 <svg id="mapSvg" class="map-svg" role="img" aria-label="Map of the overlays and reports"></svg>
                 <!-- Pinned to the corner, open or closed, for an easy click either way. -->
@@ -1312,6 +1313,20 @@ const togglePop = (popId, btnId) => (open) => {
 };
 const toggleBasePop = togglePop('mapBasePop', 'mapBaseBtn');
 const toggleDronePop = togglePop('mapDronePop', 'mapDroneBtn');
+// Escape closes an open menu, back to its button, and goes no further (the
+// page's own Escape would cancel an edit in the form). Only from the map, or
+// from nowhere in particular.
+document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    const open = [['mapBasePop', 'mapBaseBtn', toggleBasePop], ['mapDronePop', 'mapDroneBtn', toggleDronePop]]
+        .find(([popId]) => { const pop = document.getElementById(popId); return pop && !pop.hidden; });
+    const pane = document.getElementById('mapPane'), at = document.activeElement;
+    if (!open || (at && at !== document.body && !(pane && pane.contains(at)))) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    open[2](false);
+    document.getElementById(open[1]).focus();
+});
 document.addEventListener('click', e => {
     const path = e.composedPath();
     if (!path.some(n => n.id === 'mapBasePop' || n.id === 'mapBaseBtn')) toggleBasePop(false);
@@ -1356,6 +1371,19 @@ const wireMapBox = () => {
         m.hint.hidden = true;
         zoomAt(e, e.deltaY < 0 ? 0.8 : 1.25);
     }, { passive: false });
+    // With the map itself focused: arrow keys pan, + and - zoom, 0 shows all.
+    m.box.addEventListener('keydown', e => {
+        if (e.target !== m.box || !mapView || e.ctrlKey || e.metaKey || e.altKey) return;
+        const step = 80 * mapView.mpp;
+        const pan = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] }[e.key];
+        if (pan) { mapView.cx += pan[0]; mapView.cy += pan[1]; }
+        else if (e.key === '+' || e.key === '=') mapView.mpp *= 0.5;
+        else if (e.key === '-' || e.key === '_') mapView.mpp *= 2;
+        else if (e.key === '0') mapView.mpp = Infinity;
+        else return;
+        e.preventDefault();
+        redrawMap();
+    });
     m.box.addEventListener('dblclick', e => { if (!e.target.closest('.map-zoom, .map-card, .map-bottom, .map-base-pop, .map-tools, .map-side-btn')) zoomAt(e, 0.5); });
     let drag = null;
     m.box.addEventListener('pointerdown', e => {

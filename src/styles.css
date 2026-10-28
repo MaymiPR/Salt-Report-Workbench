@@ -1280,6 +1280,11 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-form-row button { margin: 0; width: auto; padding: 9px 18px; }
 .map-box { position: relative; height: max(380px, calc(100vh - 380px)); border-radius: 12px; overflow: hidden; background: #2a2b2e; border: 1px solid var(--divider); touch-action: none; cursor: grab; user-select: none; }
 .map-box.dragging { cursor: grabbing; }
+/* Focused from the keyboard (arrow keys pan, + and - zoom). */
+.map-box:focus { outline: none; }
+.map-box:focus-visible { outline: 2px solid var(--system-blue); outline-offset: -2px; }
+/* Read out, not shown. */
+.visually-hidden { position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 /* Shift held over the map: a crosshair over everything drawn, and the grid beside it. */
 .map-box.grabbing, .map-box.grabbing [data-map-item] { cursor: crosshair; }
 .map-grid-readout { position: absolute; z-index: 3; padding: 4px 8px; border-radius: 8px; background: rgba(0, 0, 0, 0.75); color: #fff; font: 600 12px ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; white-space: nowrap; pointer-events: none; }
@@ -1456,6 +1461,8 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .map-table td { padding: 7px 8px; border-bottom: 1px solid var(--divider); color: var(--text-primary); vertical-align: top; overflow-wrap: anywhere; }
 .map-table tr[data-map-row] { cursor: pointer; }
 .map-table tr[data-map-row]:hover td { background: var(--input-bg); }
+.map-table tr[data-map-row]:focus { outline: none; }
+.map-table tr[data-map-row]:focus-visible { outline: 2px solid var(--system-blue); outline-offset: -2px; }
 .map-table tr.selected-row td { background: rgba(10, 132, 255, 0.16); }
 .map-table tr.flash td { animation: map-row-flash 1.5s ease; }
 @keyframes map-row-flash { 0%, 40% { background: rgba(10, 132, 255, 0.4); } }
