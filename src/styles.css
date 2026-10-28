@@ -1288,6 +1288,10 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 /* Full screen: the controls on top, the map filling the rest, the key below. */
 .map-pane:fullscreen { display: flex; flex-direction: column; padding: 20px; background: var(--panel-bg); box-sizing: border-box; }
 .map-pane:fullscreen .map-box { flex: 1 1 auto; height: auto; min-height: 0; }
+/* The sidebar stays behind (it isn't in the pane), so nothing makes room for it. */
+.map-pane:fullscreen { --side-room: 10px; --tools-left: 10px; }
+.map-pane:fullscreen .map-side-btn { display: none; }
+.map-pane:fullscreen .map-bottom .map-legend { max-width: calc(100cqw - 20px); }
 .map-box .map-zoom svg { position: static; display: block; width: 14px; height: 14px; margin: auto; }
 /* Viewers see the Overlays tab as the map. */
 .for-viewers { display: none; }

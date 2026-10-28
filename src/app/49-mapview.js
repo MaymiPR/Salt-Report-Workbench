@@ -147,13 +147,15 @@ const renderMapCard = () => {
     card.hidden = false;
     positionMapCard();
 };
-// Beside the report, kept inside the map.
+// Beside the report, kept inside the map (and clear of the sidebar, when
+// it's there: full screen leaves it behind).
 const positionMapCard = () => {
     const card = document.getElementById('mapCard'), box = document.getElementById('mapBox');
     if (!card || card.hidden || !box || !mapCardAt) return;
     const [x, y] = mapCardAt, w = box.clientWidth, h = box.clientHeight;
     const cw = card.offsetWidth, ch = card.offsetHeight;
-    const left = mapSideShown ? 210 : 8;
+    const room = parseFloat(getComputedStyle(box).getPropertyValue('--side-room')) || 0;
+    const left = room > 10 ? room : 8;
     card.style.left = `${Math.max(left, Math.min(x + 16 + cw > w - 8 ? x - 16 - cw : x + 16, w - cw - 8))}px`;
     card.style.top = `${Math.max(8, Math.min(y - ch / 2, h - ch - 8))}px`;
 };

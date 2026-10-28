@@ -1695,6 +1695,7 @@ class BrowserTests(unittest.TestCase):
     def test_map_full_screen_and_names_on_screen_when_zoomed(self):
         page = self.open_editor()
         self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
         self.open_map(page)
         labels = lambda: page.locator("#mapSvg .map-labels text").all_text_contents()  # noqa: E731
         self.assertIn("NAI 1", labels())
@@ -1713,8 +1714,26 @@ class BrowserTests(unittest.TestCase):
         )
         # The button changes when the browser says full screen began.
         page.wait_for_selector("#mapFullBtn[title='Leave full screen (Esc)']")
+        # The sidebar stays behind, so nothing keeps room for it: the key, the
+        # controls and the card go to the left edge, and its button goes.
+        room = "getComputedStyle(document.getElementById('mapBox')).getPropertyValue('--side-room').trim()"
+        self.assertEqual(page.evaluate(room), "10px")
+        self.assertTrue(page.locator("#mapSideBtn").is_hidden())
+        page.wait_for_function(
+            "() => Math.abs(document.querySelector('#mapBox .map-tools').getBoundingClientRect().left - document.getElementById('mapBox').getBoundingClientRect().left - 10) < 2"
+        )
+        page.evaluate("selectMapReport(localReports[0].id, [20, 100])")
+        page.wait_for_selector("#mapCard:not([hidden])")
+        self.assertLess(
+            page.evaluate("parseFloat(document.getElementById('mapCard').style.left)"), 60
+        )
         page.evaluate("document.exitFullscreen()")
         page.wait_for_function("() => !document.fullscreenElement")
+        self.assertEqual(page.evaluate(room), "210px")
+        self.assertTrue(page.locator("#mapSideBtn").is_visible())
+        page.wait_for_function(
+            "() => parseFloat(document.getElementById('mapCard').style.left) >= 210"
+        )
 
     def test_the_format_stays_when_switching_workspaces(self):
         page = self.open_editor(ato="FORMATA")
