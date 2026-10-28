@@ -252,11 +252,14 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
     keepBdaDrafts();
     // A row control with keyboard focus gets it back after the redraw (the
     // checklist's boxes are put back by keepBdaDrafts' own record).
+    // Found again by what names it (its report, its version); one named by
+    // nothing of the kind is left, rather than focusing the wrong one.
     const had = document.activeElement;
-    const refocus = had && had !== document.body && el.log.body.contains(had) && !bdaFocus
-        ? [had.tagName.toLowerCase(), ...['data-id', 'data-lm', 'data-history-id', 'data-bda-id', 'data-edit-id', 'data-restore-id', 'data-discard-id']
-            .filter(a => had.hasAttribute(a)).map(a => `[${a}="${CSS.escape(had.getAttribute(a))}"]`)].join('') + (had.classList[0] ? `.${CSS.escape(had.classList[0])}` : '')
-        : null;
+    const names = had && had !== document.body && el.log.body.contains(had) && !bdaFocus
+        ? ['data-id', 'data-lm', 'data-history-id', 'data-bda-id', 'data-edit-id', 'data-restore-id', 'data-discard-id', 'data-bda-del', 'data-fix-loc']
+            .filter(a => had.hasAttribute(a)).map(a => `[${a}="${CSS.escape(had.getAttribute(a))}"]`)
+        : [];
+    const refocus = names.length ? had.tagName.toLowerCase() + names.join('') + (had.classList[0] ? `.${CSS.escape(had.classList[0])}` : '') : null;
     let rows = localReports.filter(r => !r.deleted);
     pruneTableState(rows);
     el.log.count.textContent = `${rows.length} unique reports`;

@@ -380,7 +380,14 @@ if (overlaysBody && overlaysFileInput) {
             const victim = list[+rm.dataset.removeOverlay];
             if (!victim) return;
             // The first press asks; the second (on the same one) removes it.
-            if (overlayRemoving !== overlayKey(victim)) { overlayRemoving = overlayKey(victim); renderOverlays(); return; }
+            if (overlayRemoving !== overlayKey(victim)) {
+                overlayRemoving = overlayKey(victim);
+                renderOverlays();
+                // Redrawn: the same × keeps focus, for a second press from the keyboard.
+                const again = overlaysBody.querySelector(`[data-remove-overlay="${rm.dataset.removeOverlay}"]`);
+                if (again) again.focus({ preventScroll: true });
+                return;
+            }
             overlayRemoving = null;
             saveOverlays(list.filter(o => o !== victim));
             return;

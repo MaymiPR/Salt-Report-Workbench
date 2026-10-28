@@ -492,7 +492,7 @@ function processJsonImport(rawText) {
     const effects = ['Merge the backup file into the log? A report in both keeps whichever version is newer.'];
     if (switchTo && (switchTo.ato !== activeAto || switchTo.title !== localConfig.title)) effects.push(`${switchTo.ato} becomes the active workspace for everyone.`);
     if (operators.length) effects.push(`The tag colors of ${operators.slice(0, 5).join(', ')}${operators.length > 5 ? ` and ${operators.length - 5} more` : ''} are set from it for everyone.`);
-    if (impOverlays.length) effects.push(`Its ${impOverlays.length} overlay${impOverlays.length === 1 ? '' : 's'} replace any with the same type and name.`);
+    if (impOverlays.length) effects.push(impOverlays.length === 1 ? 'Its overlay replaces any with the same type and name.' : `Its ${impOverlays.length} overlays replace any with the same type and name.`);
     if (takesFormat) effects.push('Its report format replaces the stock one.');
 
     showConfirmation(effects.join(' '), async () => {
