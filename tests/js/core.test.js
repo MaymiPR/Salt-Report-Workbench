@@ -1053,6 +1053,9 @@ test('WMS: capabilities link, projection and format choices', () => {
     assert.equal(core.pickWmsFormat(['image/jpeg', 'image/png8', 'image/png']), 'image/png');
     assert.equal(core.pickWmsFormat(['image/gif', 'image/jpeg']), 'image/jpeg');
     assert.equal(core.pickWmsFormat([]), 'image/png');
+    // A "?" inside a value is kept: only the first one starts the parameters.
+    assert.equal(core.wmsCapabilitiesUrl('http://s/wms?map=/maps/a.map&next=b?c=1'),
+        'http://s/wms?map=/maps/a.map&next=b?c=1&SERVICE=WMS&REQUEST=GetCapabilities');
 });
 
 test('a zip of stored files reads back, with the right CRCs', () => {
@@ -1174,6 +1177,8 @@ test('the Statistics workbook: its parts, the tables its charts are drawn from, 
     const table = files['xl/tables/table1.xml'];
     assert.match(table, /ref="A1:C3"/);
     assert.match(table, /name="Identifier 2"/, 'repeated names made unique');
+    const thrice = unzipStored(core.statsXlsx({ reports: { header: ['Identifier', 'Identifier', 'identifier'], rows: [['a', 'b', 'c']] } }, NOW));
+    assert.match(thrice['xl/tables/table1.xml'], /name="Identifier"\/><tableColumn id="2" name="Identifier 2"\/><tableColumn id="3" name="identifier 3"/);
     assert.match(files['xl/worksheets/sheet2.xml'], /<c r="B2" s="4"><v>46319.25<\/v><\/c>/);
     assert.match(files['xl/worksheets/sheet2.xml'], /state="frozen"/);
     assert.match(files['xl/sharedStrings.xml'], /<t xml:space="preserve">ALPHA · all reports<\/t>/);
@@ -1512,6 +1517,11 @@ test('a point becomes the MGRS grid it is in, and back', () => {
     const full = core.latLonToMgrs(35.2934, -116.6).split(' ');
     assert.equal(core.latLonToMgrs(35.2934, -116.6, 3), `${full[0]} ${full[1]} ${full[2].slice(0, 3)} ${full[3].slice(0, 3)}`);
     assert.equal(core.latLonToMgrs(85, 10), null, 'past 84°N is UPS, not MGRS');
+    // Digits outside 1-5 are brought into it.
+    const [zb, sq, e, n] = full;
+    assert.equal(core.latLonToMgrs(35.2934, -116.6, 0), `${zb} ${sq} ${e[0]} ${n[0]}`);
+    assert.equal(core.latLonToMgrs(35.2934, -116.6, 9), full.join(' '));
+    assert.equal(core.latLonToMgrs(35.2934, -116.6, 'x'), full.join(' '));
 });
 
 test('a total with its breakdown is counted once, and counts can follow the type', () => {

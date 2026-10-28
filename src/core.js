@@ -671,6 +671,7 @@ const gridToLatLon = (zone, band, col, row, digits) => {
 // Svalbard only zones 31, 33, 35 and 37 are used.
 const latLonToMgrs = (lat, lon, digits = 5) => {
     if (!(lat >= -80 && lat <= 84) || !Number.isFinite(lon)) return null;
+    digits = Number.isFinite(Number(digits)) ? Math.max(1, Math.min(5, Math.round(Number(digits)))) : 5;
     lon = ((lon + 180) % 360 + 360) % 360 - 180;
     let zone = Math.min(60, Math.floor((lon + 180) / 6) + 1);
     if (lat >= 56 && lat < 64 && lon >= 3 && lon < 12) zone = 32;
@@ -1234,8 +1235,10 @@ const pickWmsFormat = (formats) => {
 };
 
 // A service address's parameters, split off: [path, [[key, value], ...]].
+// Only the first "?" starts them; a later one is part of a value.
 const splitQuery = (url) => {
-    const [path, query = ''] = String(url).trim().split('?');
+    const s = String(url).trim(), q = s.indexOf('?');
+    const [path, query] = q < 0 ? [s, ''] : [s.slice(0, q), s.slice(q + 1)];
     return [path, query.split('&').filter(Boolean).map(kv => { const i = kv.indexOf('='); return i < 0 ? [kv, ''] : [kv.slice(0, i), kv.slice(i + 1)]; })];
 };
 const WMS_KEYS = new Set(['SERVICE', 'VERSION', 'REQUEST', 'LAYERS', 'STYLES', 'CRS', 'SRS', 'BBOX', 'WIDTH', 'HEIGHT', 'FORMAT', 'TRANSPARENT']);
@@ -1937,7 +1940,14 @@ const statsXlsx = ({ title = 'Statistics', context = '', kpis = [], charts = [],
     const { header, rows: repRows } = reports;
     // Table column names must be unique and non-empty.
     const seen = new Set();
-    const heads = header.map((h, i) => { let n = String(h).trim() || `Column ${i + 1}`; while (seen.has(n.toLowerCase())) n += ' 2'; seen.add(n.toLowerCase()); return n; });
+    // A repeated name is numbered: Identifier, Identifier 2, Identifier 3.
+    const heads = header.map((h, i) => {
+        const base = String(h).trim() || `Column ${i + 1}`;
+        let n = base;
+        for (let k = 2; seen.has(n.toLowerCase()); k++) n = `${base} ${k}`;
+        seen.add(n.toLowerCase());
+        return n;
+    });
     const lastCol = colName(Math.max(heads.length, 1) - 1);
     const hasTable = heads.length > 0 && repRows.length > 0;
     const tableRef = `A1:${lastCol}${repRows.length + 1}`;
