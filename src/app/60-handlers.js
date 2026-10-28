@@ -585,6 +585,7 @@ if (el.startup.presets) el.startup.presets.addEventListener('click', e => {
         el.startup.swatches.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('selected', s.dataset.color === c));
     } else if (chip.dataset.preset === 'ato') {
         el.startup.ato.value = chip.dataset.ato;
+        el.startup.ato.dataset.touched = '1';
         // Offer that workspace's known title unless the user typed one already.
         if (!el.startup.title.value) {
             const rep = (reportsByAto[chip.dataset.ato] || []).find(r => r.title && !r.deleted);
@@ -592,6 +593,7 @@ if (el.startup.presets) el.startup.presets.addEventListener('click', e => {
         }
     } else if (chip.dataset.preset === 'title') {
         el.startup.title.value = chip.dataset.title;
+        el.startup.title.dataset.touched = '1';
     }
     // Mark the active choice in each row.
     const row = chip.closest('.startup-preset-row');
@@ -620,6 +622,9 @@ const openStartupModal = () => {
     renderStartupPresets();
     el.startup.ato.value   = activeAto || (localConfig && localConfig.ato) || '';
     el.startup.title.value = (localConfig && localConfig.title) || '';
+    delete el.startup.ato.dataset.touched;
+    delete el.startup.title.dataset.touched;
+    refreshStartupWorkspace();
     // Access code: pre-fill from whatever's already known (host auto-fill
     // via the server-injected <meta>, or a previously-typed value cached
     // in localStorage). Empty for fresh non-host editors — they type it.
@@ -655,6 +660,16 @@ const closeStartupModal = () => {
     // app body becomes visible behind the closing modal.
     document.documentElement.classList.remove('salt-ready-gate');
 };
+
+// The modal opens before the first sync, with this browser's last workspace.
+// When the server says which is active, the fields not typed in follow it,
+// so Get Started doesn't switch everyone back to an old one.
+const refreshStartupWorkspace = () => {
+    if (!serverConfig || !serverConfig.ato) return;
+    if (!el.startup.ato.dataset.touched)   el.startup.ato.value   = serverConfig.ato;
+    if (!el.startup.title.dataset.touched) el.startup.title.value = serverConfig.title;
+};
+[el.startup.ato, el.startup.title].forEach(box => box.addEventListener('input', () => { box.dataset.touched = '1'; }));
 
 // Live preview: avatar tracks the initials as the user types.
 el.startup.initials.addEventListener('input', () => {
@@ -706,6 +721,8 @@ el.startup.continueBtn.addEventListener('click', async () => {
     // Validate the access code by attempting a sync. The server returns
     // 401 if the cookie's code doesn't match; on success we save the
     // code and proceed to save identity + workspace.
+    // The same answer says which workspace the server has active.
+    let current = serverConfig;
     if (!isReadOnly && !isLocalFile) {
         setAccessCode(code);
         try {
@@ -718,6 +735,8 @@ el.startup.continueBtn.addEventListener('click', async () => {
                 }
                 return;
             }
+            const state = probe.ok ? await probe.json().catch(() => null) : null;
+            if (state) current = state.config || {};
         } catch (e) {
             // Network error — let the user proceed; the offline path will
             // catch up when the server is reachable.
@@ -738,10 +757,12 @@ el.startup.continueBtn.addEventListener('click', async () => {
         updateProfilePreview();
 
         // 2. Save the workspace config via the same path the Set button uses,
-        //    so all clients adopt the new ATO/Title on their next sync.
+        //    so all clients adopt the new ATO/Title on their next sync. Only
+        //    when it differs from the server's: the same one needn't be sent.
         el.config.ato.value   = ato;
         el.config.title.value = title;
-        await applyAtoConfig();
+        const unchanged = !!current && String(current.ato || '').toUpperCase() === ato && (current.title || '') === title;
+        await applyAtoConfig({ post: !unchanged });
         // Said last, so the workspace's toast doesn't cover it.
         if (!saved.ok && saved.status !== 0 && saved.status !== 401) showToast(`Identity not saved: ${saved.message}`, true);
     } finally {

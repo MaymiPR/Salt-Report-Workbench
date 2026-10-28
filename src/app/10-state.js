@@ -221,6 +221,9 @@ let localProfiles = {};
 // sync of a later session (or offline).
 const _PROFILES_CACHE_KEY = 'salt_profiles_cache';
 let localConfig   = readStored('salt_offline_config', { ato: '', title: '' });
+// The active workspace as the server last said ({ ato, title }, empty when it
+// has none), or null before the first sync. The startup modal goes by it.
+let serverConfig  = null;
 let userProfile   = null;
 // ato → source descriptor ("alpha01.txt" | "Uploaded backup" | "In-session").
 let workspaceSources = {};

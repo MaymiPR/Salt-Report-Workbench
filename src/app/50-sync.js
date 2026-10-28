@@ -195,6 +195,7 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     // ATO/Title sync. Editors: server config is authoritative.
     // Viewers: `activeAto` mirrors the editor's choice (server config);
     // `viewerShowingAto` is the viewer's local override. Reports come from showing.
+    serverConfig = config && config.ato && config.title ? { ato: config.ato, title: config.title } : { ato: '', title: '' };
     if (isReadOnly) {
         const prevActive = activeAto;
         // Track the editor's active workspace from server config.
@@ -236,8 +237,9 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     // in real time on every viewer's sidebar.
     renderWorkspacesList();
     // If the startup modal is open, refresh its chips with the fresh
-    // profiles + workspaces that just synced in.
-    if (el.startup.overlay.classList.contains('show')) renderStartupPresets();
+    // profiles + workspaces that just synced in, and the workspace fields
+    // not yet typed in with the server's: they opened with this browser's.
+    if (el.startup.overlay.classList.contains('show')) { renderStartupPresets(); refreshStartupWorkspace(); }
     // If the Builder tab is on screen, reflect format changes from peers.
     const builderPanel = document.querySelector('[data-tab-panel="builder"]');
     if (builderPanel && builderPanel.style.display !== 'none') renderBuilder();
