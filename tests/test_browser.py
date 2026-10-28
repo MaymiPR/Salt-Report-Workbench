@@ -1897,7 +1897,7 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#summaryText:has-text('2. ASSESSMENT')")
         flat = lambda: " ".join(page.inner_text("#summaryText").split())  # noqa: E731
         self.assertIn("that enemy forces are preparing a defense in NAI 1.", flat())
-        self.assertIn("logistics (2x trucks)", flat())
+        self.assertIn("logistics and support (2x trucks)", flat())
         # The settings: always there on the Narrative, a column beside the
         # report the full height of the view; no other report has them.
         side = page.locator("#narrSettings").bounding_box()

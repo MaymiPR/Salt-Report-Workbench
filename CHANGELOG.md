@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **"Logistics" is now "logistics and support"** wherever the kinds of
+  equipment are named: the narrative's equipment line and the narrative
+  settings. It is the same kind as before, so saved settings carry over.
+- **Plurals in any case are one type with their singular.** "4X VICS",
+  "2X TRUCKS", "5X APCS" and "6X TANKS" typed in capitals now count with
+  "vic", "truck", "APC" and "tank" (the narrative said "4x tanks, 2x tanks"
+  for "4X TANKS, 2x tank"), and so do "lorries", "buses", and two-word types
+  such as "RADIO RELAYS" and "BRIDGE LAYERS". A name that ends in S stays as
+  it is (MANPADS), and so does a variant (T-72S). "Bus" joins the light
+  vehicles.
+
 ## [2.17.1] - 2026-10-28
 
 ### Changed

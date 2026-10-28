@@ -1471,15 +1471,32 @@ const sizePart = (part) => {
     else if ((m = /^(.+?)\s+(?:(\d+)\s*x|x\s*(\d+))$/i.exec(text) || /^(.+?)\s*\((\d+)\)$/.exec(text))) {
         count = Number(m[2] || m[3]); type = m[1]; counted = true;
     }
-    type = type.replace(/^of\s+/i, '').trim();
-    if (/[^su]s$/.test(type) && !/ss$/i.test(type)) type = type.slice(0, -1);
+    type = singularType(type.replace(/^of\s+/i, '').trim());
     return { count, type: type.toUpperCase(), counted };
+};
+// A plural made singular, so "TANKS" and "tank" are one type. The last word
+// loses its "s" (or "es", or "ies" for "y": buses, lorries) when the
+// catalogue knows the singular and not the word as written (MANPADS stays),
+// or knows more of the whole singular than of the whole as written (RADIO
+// RELAYS, BRIDGE LAYERS; not TANK GLASS), in any case; otherwise only a
+// lower-case "s" goes ("T-72s", where "T-72S" is a variant).
+const singularType = (type) => {
+    const m = /^(.*?)\b([A-Za-z]{2,})$/.exec(type);
+    if (m && knownType(m[2])) return type;
+    if (m && /s$/i.test(m[2])) {
+        const whole = knownType(type);
+        for (const one of [m[2].slice(0, -1), m[2].replace(/es$/i, ''), m[2].replace(/ies$/i, 'y')]) {
+            if (one.length > 1 && one !== m[2] && (knownType(one) || knownType(m[1] + one) > whole)) return m[1] + one;
+        }
+    }
+    return /[^su]s$/.test(type) && !/ss$/i.test(type) ? type.slice(0, -1) : type;
 };
 const sizeList = (text) => text.split(/\s*(?:[,;+&]|\band\b|\bwith\b|\bw\/)\s*/i).filter(Boolean).map(sizePart)
     .filter(e => e.type && e.count > 0);
 // The elements of a Size line with their counts: "2x T-72, 4 BMP-2; truck"
-// -> T-72 x2, BMP-2 x4, TRUCK x1. Types are upper-cased, and a plural "s" is
-// dropped ("T-72s", "trucks") so the same vehicle is counted as one type.
+// -> T-72 x2, BMP-2 x4, TRUCK x1. Types are upper-cased, and a plural is made
+// singular ("T-72s", "trucks", "TANKS", "lorries") so the same vehicle is
+// counted as one type.
 // "and", "&" and "with" part elements too. A total with its breakdown after
 // a colon or in brackets ("Total of vics 10x: 5x tanks and 5x APC") counts
 // the breakdown and only what it leaves of the total ("12 vics (5 tanks)":
@@ -1995,7 +2012,7 @@ const summaryPlaces = (reps, overlays) => {
 const EQUIPMENT_ROLES = [
     ['armor', 'armor'], ['mech', 'mechanized infantry'], ['recon', 'reconnaissance'],
     ['fires', 'artillery and rockets'], ['ad', 'air defense'], ['atgm', 'antitank'],
-    ['engineer', 'engineers'], ['logistics', 'logistics'], ['c2', 'command and control'],
+    ['engineer', 'engineers'], ['logistics', 'logistics and support'], ['c2', 'command and control'],
     ['ew', 'electronic warfare'], ['air', 'aviation'], ['infantry', 'dismounted personnel'],
     ['light', 'light vehicles'], ['vehicle', 'other vehicles'],
 ];
@@ -2190,7 +2207,7 @@ const EQUIPMENT_CATALOGUE = [
     ...eqp('infantry', '', [['PAX', 'PAX', 'PERSONNEL', 'PERSON', 'PEOPLE', 'TROOP', 'SOLDIER', 'INFANTRY', 'DISMOUNT', 'MAN', 'MEN',
         'FIGHTER', 'SQUAD', 'TEAM', 'INDIVIDUAL']]),
     ...eqp('light', '', [['light vehicle', 'LIGHT VEHICLE', 'CAR', 'JEEP', 'PICKUP', 'SUV', 'TECHNICAL', 'MOTORCYCLE', 'MOTORBIKE', 'ATV', 'UTV', 'VAN', 'SEDAN',
-        'BUGGY', 'QUAD BIKE']]),
+        'BUGGY', 'QUAD BIKE', 'BUS']]),
     // A vehicle with no type given, as in MTI reports ("4x tracked"). The
     // longest word wins, so "engineer vic" is engineers and "support vic"
     // logistics; a vic, tracked or wheeled, with nothing more, comes here.
@@ -2209,23 +2226,35 @@ const equipmentKeysOf = (entries) => entries.flatMap(([role, origin, name, ...mo
     // their length: "wheeled APC" is an APC, and only a bare vic is just a vehicle.
     })).filter(k => k.len).sort((a, b) => (a.role === 'vehicle') - (b.role === 'vehicle') || b.len - a.len);
 let equipmentIndex = null;
+const equipmentKeys = () => equipmentIndex || (equipmentIndex = equipmentKeysOf(EQUIPMENT_CATALOGUE));
 const equipmentSeen = new Map();
 const findKey = (keys, w) => {
     const hit = keys.find(k => k.test(w, w.replace(/ /g, '')));
     return hit ? { role: hit.role, origin: hit.origin, name: hit.name } : null;
+};
+// How much of a type as written the catalogue knows: the length of the
+// name it matches (TANK, MANPADS, RADIO RELAY), or 0.
+const typesKnown = new Map();
+const knownType = (text) => {
+    const w = normType(text);
+    if (!typesKnown.has(w)) {
+        const hit = equipmentKeys().find(k => k.test(w, w.replace(/ /g, '')));
+        typesKnown.set(w, hit ? hit.len : 0);
+    }
+    return typesKnown.get(w);
 };
 // { role, origin, name } for a type (T-72B3, 2S19 MSTA-S, trucks), or null.
 // `team` is the team's own entries (teamEquipment), which win over the
 // built-in ones: a type added, or a built-in one put right.
 const lookupEquipment = (type, team = null) => {
     const w = normType(type);
-    // "TANKS", "VICS": a plural typed in capitals isn't folded by sizeElements,
-    // so its last word is tried without the S when the whole doesn't match.
+    // "TANKS", "VICS": a plural in capitals that reaches here as it is (a
+    // team's type, a BDA line) is tried without the S when the whole doesn't match.
     const bare = /[^SU]S$/.test(w) ? w.slice(0, -1) : null;
     const find = (keys) => findKey(keys, w) || (bare ? findKey(keys, bare) : null);
     const own = team && team.length ? find(team) : null;
     if (own) return own;
-    if (!equipmentSeen.has(w)) equipmentSeen.set(w, find(equipmentIndex || (equipmentIndex = equipmentKeysOf(EQUIPMENT_CATALOGUE))));
+    if (!equipmentSeen.has(w)) equipmentSeen.set(w, find(equipmentKeys()));
     return equipmentSeen.get(w);
 };
 // The team's entries ({ type, role, origin }), ready for lookupEquipment.
