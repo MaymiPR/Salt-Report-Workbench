@@ -1265,12 +1265,12 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-layer-row input { margin: 0; flex: 0 0 auto; }
 .map-layer-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-layer-name { flex: 0 1 auto; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 0.9em; }
-.map-layer-warn { flex: 0 0 auto; color: var(--system-orange, #ff9f0a); font-size: 0.85em; }
+.map-layer-warn { flex: 0 0 auto; color: var(--system-orange); font-size: 0.85em; }
 .map-find-foot { margin-bottom: 4px; }
 .map-base-name { font-weight: 600; }
 /* Remove on each row; pressed once, the name asks "for everyone?" in its place. */
-.map-base-row .map-base-del { color: var(--system-red, #ff453a); }
-.map-base-ask { color: var(--system-red, #ff453a); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-base-row .map-base-del { color: var(--system-red); }
+.map-base-ask { color: var(--system-red); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-base-kind { color: var(--text-secondary); }
 .map-basemap-form { background: var(--input-bg); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
 .map-form-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
@@ -1557,7 +1557,7 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .narr-tabs .ws-tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; position: relative; padding: 6px 8px; }
 .narr-count { min-width: 16px; padding: 0 5px; border-radius: 8px; background: var(--input-bg); color: var(--text-secondary); font-size: 0.82em; font-weight: 600; line-height: 16px; }
 .narr-tabs .ws-tab.active .narr-count { background: var(--system-blue); color: #fff; }
-.narr-dot { position: absolute; top: 5px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--system-orange, #ff9f0a); }
+.narr-dot { position: absolute; top: 5px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--system-orange); }
 .narr-body { display: flex; flex-direction: column; gap: 8px; }
 .narr-list { display: flex; flex-direction: column; border-radius: 10px; background: var(--panel-bg); overflow: hidden; }
 .narr-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 10px; align-items: center; width: 100%; margin: 0; padding: 8px 12px; border: none; border-bottom: 1px solid var(--divider); border-radius: 0; background: none; color: var(--text-primary); text-align: left; font: inherit; cursor: default; }
@@ -1610,9 +1610,9 @@ button.narr-row:hover { background: var(--input-bg-hover); }
 .narr-switch-row > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .narr-switch-row small { font-size: 0.84em; color: var(--text-secondary); line-height: 1.35; }
 /* An on/off switch: a track with a knob, blue when on. */
-input[type="checkbox"].narr-switch { flex: 0 0 auto; position: relative; width: 38px; height: 22px; margin: 0; border: none; border-radius: 11px; background: var(--system-gray, #8e8e93); background-image: none; cursor: pointer; transition: background-color 0.2s; }
+input[type="checkbox"].narr-switch { flex: 0 0 auto; position: relative; width: 38px; height: 22px; margin: 0; border: none; border-radius: 11px; background: var(--system-gray); background-image: none; cursor: pointer; transition: background-color 0.2s; }
 .narr-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); transition: transform 0.2s cubic-bezier(0.32, 0.72, 0, 1); }
-input[type="checkbox"].narr-switch:checked { background: var(--system-green, #30d158); background-image: none; }
+input[type="checkbox"].narr-switch:checked { background: var(--system-green); background-image: none; }
 .narr-switch:checked::after { transform: translateX(16px); }
 .narr-switch:disabled { opacity: 0.6; cursor: default; }
 .narr-hint { font-size: 0.8em; color: var(--text-secondary); line-height: 1.4; }
