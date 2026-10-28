@@ -807,6 +807,47 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-map-zoom='out']")
         page.click("[data-map-zoom='out']")
         page.wait_for_function(f"() => Math.abs(mapView.mpp - {before}) < 1e-6")
+        # The heat drawn on the map has colour in it.
+        self.assertGreater(
+            page.evaluate(
+                """async () => {
+                    const img = new Image();
+                    img.src = document.querySelector('#mapSvg image.map-heat').getAttribute('href');
+                    await img.decode();
+                    const c = document.createElement('canvas');
+                    c.width = img.width; c.height = img.height;
+                    const ctx = c.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    return ctx.getImageData(0, 0, c.width, c.height).data.filter((v, i) => i % 4 === 3 && v > 0).length;
+                }"""
+            ),
+            100,
+        )
+
+    def test_the_heat_map_keeps_counting_past_three_reports_in_one_place(self):
+        # Regression: each report added to an 8-bit canvas, which stopped at
+        # about three in one place, so 3 and 10 there looked the same and a
+        # lone report beside them didn't fade as the busy place grew.
+        page = self.open_editor()
+        alpha = """async (n) => {
+            const pts = [{ lon: 40, lat: 50, w: 1 }, ...Array.from({ length: n }, () => ({ lon: 140, lat: 50, w: 1 }))];
+            const svg = heatLayer(pts, (lon, lat) => [lon, lat], 200, 100);
+            const img = new Image();
+            img.src = svg.match(/href="([^"]+)"/)[1];
+            await img.decode();
+            const c = document.createElement('canvas');
+            c.width = 200; c.height = 100;
+            const ctx = c.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            return [ctx.getImageData(40, 50, 1, 1).data[3], ctx.getImageData(140, 50, 1, 1).data[3]];
+        }"""
+        lone3, busy3 = page.evaluate(alpha, 3)
+        lone10, busy10 = page.evaluate(alpha, 10)
+        self.assertGreater(busy3, 220)
+        self.assertGreater(busy10, 220)
+        self.assertGreater(lone3, lone10 + 40, (lone3, lone10))
+        # A lone report on its own is the top of the ramp, as before.
+        self.assertEqual(page.evaluate(alpha, 0)[0], busy3)
 
     @staticmethod
     def pick_basemap(page, value):
@@ -1021,6 +1062,55 @@ class BrowserTests(unittest.TestCase):
             page.locator("#mapBaseSelect option").all_text_contents(),
             ["No basemap", "basemap.test"],
         )
+        page.evaluate("saveBasemaps([])")
+
+    def test_a_malformed_basemap_address_is_said_to_be_invalid(self):
+        # Regression: new URL() threw on it, with nothing said.
+        page = self.open_editor()
+        self.open_basemaps(page)
+        for text in ("https://[bad/{z}/{x}/{y}.png", "https://[bad/wms"):
+            page.fill("#mapBaseInput", text)
+            page.click("#mapBaseAddBtn")
+            page.wait_for_selector("#toast-notification:has-text(\"That address isn't valid.\")")
+        page.wait_for_timeout(300)
+        self.assertEqual(page.locator(".map-find-head, .map-find-error, .map-find-msg").count(), 0)
+
+    def test_switching_basemaps_leaves_no_stale_wms_image(self):
+        # Regression: a WMS asked for just before No basemap (or tiles) was
+        # picked still turned up, and one landing late wiped the tiles.
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.context.route(
+            "https://race.test/**",
+            lambda route: route.fulfill(status=200, content_type="image/png", body=self.PNG_1PX),
+        )
+        self.open_map(page)
+        page.evaluate(
+            """saveBasemaps([
+                { name: 'Race WMS', kind: 'wms', url: 'https://race.test/wms', layers: 'a', version: '1.3.0', crs: 'EPSG:3857', format: 'image/png' },
+                { name: 'Race tiles', kind: 'tiles', url: 'https://race.test/t/{z}/{x}/{y}.png' },
+            ])"""
+        )
+        images = "[...document.querySelectorAll('#mapBase image')].map(i => i.dataset.url)"
+        # The WMS is asked for once the view settles (300 ms): picked, then No
+        # basemap before that, nothing turns up later.
+        self.pick_basemap(page, "Race WMS")
+        page.wait_for_timeout(100)
+        self.pick_basemap(page, "off")
+        page.wait_for_timeout(800)
+        self.assertEqual(page.evaluate(images), [])
+        # Tiles picked before that: they stay, and no WMS lands on them.
+        self.pick_basemap(page, "Race WMS")
+        page.wait_for_timeout(100)
+        self.pick_basemap(page, "Race tiles")
+        page.wait_for_function(
+            "() => { const i = [...document.querySelectorAll('#mapBase image')]; return i.length && i.every(e => e.dataset.state === 'ok'); }"
+        )
+        tiles = len(page.evaluate(images))
+        page.wait_for_timeout(800)
+        urls = page.evaluate(images)
+        self.assertEqual(len(urls), tiles, urls)
+        self.assertTrue(all("/t/" in u for u in urls), urls)
         page.evaluate("saveBasemaps([])")
 
     def test_a_wms_linked_over_https_is_asked_over_https(self):
@@ -1292,6 +1382,63 @@ class BrowserTests(unittest.TestCase):
         viewer.locator("#mapTableBody tr[data-map-row]").first.click()
         viewer.wait_for_selector("#mapCard:not([hidden])")
         self.assertFalse(viewer.locator("[data-card-act='edit']").is_visible())
+
+    def test_escape_and_the_keyboard_on_the_map(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
+        self.log(page, "1x truck", activity="parked", location="38SMB5500082000")
+        self.open_map(page)
+        page.wait_for_selector("#mapTableBody tr[data-map-row] >> nth=1")
+        # A row takes the keyboard's focus, and Enter does what a click does.
+        row = "#mapTableBody tr[data-map-row]:has-text('1x truck')"
+        self.assertEqual(page.get_attribute(row, "tabindex"), "0")
+        page.focus(row)
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#mapCard:not([hidden])")
+        self.assertIn("1x truck", page.text_content("#mapCard"))
+        # The table is redrawn after the map moves; the row keeps the focus.
+        page.wait_for_timeout(300)
+        self.assertIn("1x truck", page.evaluate("document.activeElement.textContent"))
+        # With a report being edited, Escape closes the card, back to its row,
+        # and leaves the edit alone.
+        page.click("[data-card-act='edit']")
+        self.assertTrue(page.locator("#cancelButton").is_visible())
+        page.focus(row)
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#mapCard:not([hidden])")
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#mapCard", state="hidden")
+        self.assertIn("1x truck", page.evaluate("document.activeElement.textContent"))
+        self.assertTrue(page.locator("#cancelButton").is_visible(), "still editing")
+        # The basemap and drone menus close on Escape too, back to their buttons.
+        for btn, pop in (("#mapBaseBtn", "#mapBasePop"), ("#mapDroneBtn", "#mapDronePop")):
+            page.click(btn)
+            page.wait_for_selector(pop, state="visible")
+            page.keyboard.press("Escape")
+            page.wait_for_selector(pop, state="hidden")
+            self.assertEqual(page.evaluate("'#' + document.activeElement.id"), btn)
+            self.assertEqual(page.get_attribute(btn, "aria-expanded"), "false")
+        self.assertTrue(page.locator("#cancelButton").is_visible(), "still editing")
+        # With nothing of the map's open, Escape is the page's again.
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#toast-notification:has-text('Editing cancelled')")
+        # The map itself: arrow keys pan, + and - zoom, 0 shows all.
+        page.focus("#mapBox")
+        before = page.evaluate("mapView.mpp")
+        page.keyboard.press("+")
+        page.wait_for_function(f"() => mapView.mpp < {before}")
+        cx = page.evaluate("mapView.cx")
+        page.keyboard.press("ArrowRight")
+        page.wait_for_function(f"() => mapView.cx > {cx}")
+        cy = page.evaluate("mapView.cy")
+        page.keyboard.press("ArrowUp")
+        page.wait_for_function(f"() => mapView.cy > {cy}")
+        page.keyboard.press("0")
+        page.wait_for_function("() => mapView.mpp >= mapFitMpp * 0.99")
+        page.keyboard.press("+")
+        page.keyboard.press("-")
+        page.wait_for_function("() => mapView.mpp >= mapFitMpp * 0.99")
 
     def test_map_layers_together_all_reports_and_activity(self):
         page = self.open_editor()
@@ -1576,6 +1723,80 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(viewer.locator("#mapDroneLook0").count(), 0, "viewers can't change it")
         page.evaluate("saveDrones([])")
 
+    def test_a_refused_save_puts_the_shared_lists_back(self):
+        # Regression: the basemaps, drones and narrative settings were changed
+        # here first, and stayed changed when the server refused them.
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        asked = []
+
+        def refuse(route):
+            asked.append(route.request.url)
+            route.fulfill(status=400, content_type="application/json", body='{"message": "no"}')
+
+        for api in ("save_basemaps", "save_drones", "save_narrative"):
+            page.route(f"**/api/{api}", refuse)
+        basemaps = page.evaluate("JSON.stringify(sharedBasemaps)")
+        page.evaluate(
+            "saveBasemaps([...sharedBasemaps, { name: 'Refused', kind: 'tiles', url: 'https://refused.test/{z}/{x}/{y}.png' }])"
+        )
+        page.wait_for_selector("#toast-notification:has-text('The server refused the basemaps')")
+        self.assertEqual(page.evaluate("JSON.stringify(sharedBasemaps)"), basemaps)
+        self.assertEqual(page.evaluate("localStorage.getItem('salt_basemaps')"), basemaps)
+        self.assertNotIn("Refused", page.text_content("#mapBaseSelect"))
+        page.click("#mapDroneBtn")
+        page.fill("#mapDroneName", "GE 9")
+        page.fill("#mapDroneGridNew", "38SMB4000078000")
+        page.click("#mapDroneAdd")
+        page.wait_for_selector("#toast-notification:has-text('The server refused the drones')")
+        self.assertEqual(page.evaluate("sharedDrones.length"), 0)
+        self.assertEqual(page.locator("#mapSvg .map-drone").count(), 0)
+        enemy = page.evaluate("sharedNarrative.enemy || ''")
+        page.evaluate("saveNarrative({ enemy: 'NOPE' })")
+        page.wait_for_selector("#toast-notification:has-text('The server refused the narrative')")
+        self.assertEqual(page.evaluate("sharedNarrative.enemy || ''"), enemy)
+        # Past the server's limits: said at once, without asking it.
+        asked.clear()
+        page.evaluate("""() => {
+            sharedDrones = Array.from({ length: 10 }, (_, i) => ({ name: 'D' + i, grid: '38S MB 40000 78000', at: i }));
+            document.getElementById('mapDroneName').value = 'GE 10';
+            document.getElementById('mapDroneGridNew').value = '38SMB4000078000';
+            document.getElementById('mapDroneAdd').click();
+        }""")
+        page.wait_for_selector("#toast-notification:has-text('10 drones at most')")
+        page.evaluate("""() => {
+            sharedBasemaps = Array.from({ length: 20 }, (_, i) => ({ name: 'B' + i, kind: 'tiles', url: 'https://b.test/{z}/{x}/{y}.png' }));
+            addBasemap({ name: 'One more', kind: 'tiles', url: 'https://b.test/{z}/{x}/{y}.png' });
+        }""")
+        page.wait_for_selector("#toast-notification:has-text('20 basemaps at most')")
+        self.assertEqual(asked, [])
+        page.evaluate("sharedDrones = []; sharedBasemaps = []; renderMapView()")
+
+    def test_removing_a_drone_removes_that_drone_whatever_synced_meanwhile(self):
+        # Regression: Remove matched the drone object, so a sync while it
+        # asked "for everyone?" left it in place yet said it was removed.
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        page.evaluate(
+            "saveDrones([{ name: 'GE 1', grid: '38S MB 40000 78000', at: 1 }, { name: 'GE 2', grid: '38S MB 41000 78000', at: 2 }])"
+        )
+        page.click("#mapDroneBtn")
+        page.click("[data-drone-remove='0']")
+        page.wait_for_selector("#confirmation-message:has-text('Remove GE 1')")
+        page.evaluate("sharedDrones = sharedDrones.map(d => ({ ...d })).reverse()")
+        page.click("#confirmActionBtn")
+        page.wait_for_selector("#toast-notification:has-text('GE 1 removed')")
+        self.assertEqual(page.evaluate("sharedDrones.map(d => d.name)"), ["GE 2"])
+        # Gone already: it says so, rather than that it removed it.
+        page.click("[data-drone-remove='0']")
+        page.wait_for_selector("#confirmation-message:has-text('Remove GE 2')")
+        page.evaluate("sharedDrones = []")
+        page.click("#confirmActionBtn")
+        page.wait_for_selector("#toast-notification:has-text('GE 2 is no longer on the map')")
+        page.evaluate("saveDrones([])")
+
     def test_shift_click_copies_the_grid_under_it(self):
         self.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=self.editor)
         page = self.open_editor()
@@ -1701,6 +1922,7 @@ class BrowserTests(unittest.TestCase):
     def test_map_full_screen_and_names_on_screen_when_zoomed(self):
         page = self.open_editor()
         self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
         self.open_map(page)
         labels = lambda: page.locator("#mapSvg .map-labels text").all_text_contents()  # noqa: E731
         self.assertIn("NAI 1", labels())
@@ -1719,8 +1941,26 @@ class BrowserTests(unittest.TestCase):
         )
         # The button changes when the browser says full screen began.
         page.wait_for_selector("#mapFullBtn[title='Leave full screen (Esc)']")
+        # The sidebar stays behind, so nothing keeps room for it: the key, the
+        # controls and the card go to the left edge, and its button goes.
+        room = "getComputedStyle(document.getElementById('mapBox')).getPropertyValue('--side-room').trim()"
+        self.assertEqual(page.evaluate(room), "10px")
+        self.assertTrue(page.locator("#mapSideBtn").is_hidden())
+        page.wait_for_function(
+            "() => Math.abs(document.querySelector('#mapBox .map-tools').getBoundingClientRect().left - document.getElementById('mapBox').getBoundingClientRect().left - 10) < 2"
+        )
+        page.evaluate("selectMapReport(localReports[0].id, [20, 100])")
+        page.wait_for_selector("#mapCard:not([hidden])")
+        self.assertLess(
+            page.evaluate("parseFloat(document.getElementById('mapCard').style.left)"), 60
+        )
         page.evaluate("document.exitFullscreen()")
         page.wait_for_function("() => !document.fullscreenElement")
+        self.assertEqual(page.evaluate(room), "210px")
+        self.assertTrue(page.locator("#mapSideBtn").is_visible())
+        page.wait_for_function(
+            "() => parseFloat(document.getElementById('mapCard').style.left) >= 210"
+        )
 
     def test_the_format_stays_when_switching_workspaces(self):
         page = self.open_editor(ato="FORMATA")
@@ -1931,6 +2171,46 @@ class BrowserTests(unittest.TestCase):
         page.click("#statsViewToggleBtn")
         page.wait_for_selector(".stats-tile:has-text('Reports') .stats-tile-value:text-is('3')")
 
+    def test_statistics_keep_an_open_table_through_a_sync(self):
+        # Regression: every sync rebuilt the panel, closing the tables opened.
+        page = self.open_editor()
+        self.log(page, "2x T-72", activity="moving N", location="38SMB4500082000")
+        page.click("#statsViewToggleBtn")
+        card = ".stats-card[data-chart='equipment']"
+        table = f"{card} [data-stats-act='table']"
+        page.click(table)
+        self.assertTrue(page.locator(f"{card} .stats-table").is_visible())
+        # A sync that changes nothing leaves the panel as it is.
+        page.evaluate("document.querySelector('.stats-grid').dataset.mark = 'same'")
+        page.evaluate("renderStats()")
+        self.assertEqual(page.get_attribute(".stats-grid", "data-mark"), "same")
+        # One that does redraws it, the open table still open.
+        page.fill("#size", "1x BMP-2")
+        page.fill("#activity", "parked")
+        page.fill("#location", "38SMB4500082100")
+        page.click("#logButton")
+        page.wait_for_selector(".stats-tile:has-text('Reports') .stats-tile-value:text-is('2')")
+        self.assertIsNone(page.get_attribute(".stats-grid", "data-mark"))
+        self.assertTrue(page.locator(f"{card} .stats-table").is_visible())
+        self.assertEqual(page.get_attribute(table, "aria-pressed"), "true")
+        self.assertIn("BMP-2", page.text_content(f"{card} .stats-table"))
+        # And the focus where it was.
+        page.focus(table)
+        page.evaluate("statsBuilt = null; renderStats()")
+        self.assertEqual(
+            page.evaluate(
+                "[document.activeElement.dataset.statsAct, document.activeElement.closest('.stats-card').dataset.chart]"
+            ),
+            ["table", "equipment"],
+        )
+        # The table is the chart's accessible version: reachable, labelled, and
+        # the bars aren't tab stops of their own.
+        self.assertEqual(page.locator(".stats-hit[tabindex]").count(), 0)
+        self.assertEqual(
+            page.get_attribute(table, "aria-label"), "Table of Reported by type, from Size"
+        )
+        self.assertEqual(page.locator(".stats-tip[role]").count(), 0)
+
     def test_summary_reports_write_copy_save_and_print(self):
         page = self.open_editor()
         self.import_overlays(page)
@@ -1969,6 +2249,74 @@ class BrowserTests(unittest.TestCase):
             self.assertIn(part, text)
         self.assertLess(text.index("1. OBSERVED"), text.index("2. ASSESSMENT"))
         self.assertEqual(page.evaluate("summaryCharts().map(c => c.id)"), ["nai", "tags"])
+
+    def test_summary_charts_count_what_statistics_counts(self):
+        # Regression: the Summary's charts always left out a report with no
+        # time; Statistics only when the window has a bound.
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x T-72", activity="moving N", location="38SMB4500082000")
+        page.click("#summaryViewToggleBtn")
+        # Both over every report, one of them with no time (in one go, so no
+        # sync replaces the reports between).
+        counts = page.evaluate("""() => {
+            localReports.push({ ...localReports[0], id: 'no-time', time: '' });
+            fillWindow(summaryEls(), 0);
+            fillWindow(statsEls(), 0);
+            const nai = items => items.find(i => i.label === 'NAI 1').value;
+            const summary = nai(summaryCharts().find(c => c.id === 'nai').items);
+            const stats = nai(SaltCore.statsData(statsWindow().reps, currentOverlays(), {}).nai);
+            localReports.pop();
+            return [summary, stats];
+        }""")
+        self.assertEqual(counts, [2, 2])
+        # Straight from one view to another: the Report Log isn't drawn and
+        # animated in between.
+        page.evaluate("document.getElementById('homeView').classList.remove('view-in')")
+        page.click("#statsViewToggleBtn")
+        page.wait_for_selector("#statsPanel", state="visible")
+        page.click("#summaryViewToggleBtn")
+        self.assertFalse(
+            page.evaluate("document.getElementById('homeView').classList.contains('view-in')")
+        )
+        # Closed, it's the Report Log again.
+        page.click("#summaryViewToggleBtn")
+        page.wait_for_selector("#reportLogTable")
+        self.assertTrue(
+            page.evaluate("document.getElementById('homeView').classList.contains('view-in')")
+        )
+
+    def test_summary_edge_cases_and_the_narrative_edited_unwrapped(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        long = "moving north along the main supply route toward the river crossing site by the old bridge"
+        self.log(page, "2x T-72", activity=long, location="38SMB4500082000")
+        self.log(page, "3x BMP-2", activity=long, location="38SMB4600082000")
+        page.click("#summaryViewToggleBtn")
+        # An unknown kind (from another version) or a one-line text: no charts, no error.
+        self.assertEqual(
+            page.evaluate("""() => {
+                const kind = summaryKind, text = summaryText;
+                summaryKind = 'bogus'; const a = summaryCharts().length;
+                summaryKind = kind; summaryText = 'ONE LINE'; const b = summaryCharts().length >= 0;
+                summaryText = text;
+                return [a, b];
+            }"""),
+            [0, True],
+        )
+        # Edit on the Narrative starts from its paragraphs unwrapped: the box
+        # wraps them to its width, so no line breaks twice.
+        page.click("[data-summary-kind='narrative']")
+        page.wait_for_selector("#summaryText:has-text('2. ASSESSMENT')")
+        shown = page.inner_text("#summaryText")
+        page.click("#summaryEditBtn")
+        edited = page.input_value("#summaryEditor")
+        self.assertEqual(" ".join(edited.split()), " ".join(shown.split()))
+        self.assertLess(len(edited.splitlines()), len(shown.splitlines()))
+        self.assertGreater(max(len(line) for line in edited.splitlines()), 100)
+        # Opened and closed without a change: not an edit.
+        page.click("#summaryEditBtn")
+        self.assertFalse(page.locator("#summaryEdited").is_visible())
 
     def test_the_narrative_names_units_takes_your_equipment_and_rules_and_can_be_edited(self):
         page = self.open_editor()
@@ -2108,6 +2456,111 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("2. ASSESSMENT", page.inner_text("#summaryText"))
         self.assertFalse(page.locator("#summaryEdited").is_visible())
         page.evaluate("saveNarrative({ enemy: '', units: [], equipment: [], off: [], custom: [] })")
+
+    def test_narrative_settings_save_and_remove_the_entry_opened(self):
+        # Regression: an open entry was known by its place in the list, so an
+        # entry added or removed by someone else meanwhile made Save overwrite,
+        # and Remove delete, the wrong one.
+        page = self.open_editor()
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        unit = "u => ({ name: u, places: [], kinds: [] })"
+        page.evaluate(f"saveNarrative({{ units: ['A-1', 'B-2'].map({unit}) }})")
+        page.wait_for_selector("[data-narr-id='b-2']")
+        page.click("[data-narr-id='b-2']")
+        # Someone else removes A-1 (a sync), under the open form.
+        page.evaluate(
+            f"sharedNarrative = {{ ...sharedNarrative, units: ['B-2'].map({unit}) }}; renderSummary()"
+        )
+        page.fill("#narrUnitName", "B-3")
+        page.click("[data-narr-save]")
+        page.wait_for_selector("#toast-notification:has-text('B-3 saved')")
+        self.assertEqual(page.evaluate("sharedNarrative.units.map(u => u.name)"), ["B-3"])
+        # And removes B-3 while it's open here: Remove says so and changes nothing.
+        page.click("[data-narr-id='b-3']")
+        page.evaluate(
+            f"sharedNarrative = {{ ...sharedNarrative, units: ['C-4'].map({unit}) }}; renderSummary()"
+        )
+        page.click("[data-narr-remove]")
+        page.click("[data-narr-remove]")
+        page.wait_for_selector("#toast-notification:has-text('Someone else removed B-3')")
+        self.assertEqual(page.evaluate("sharedNarrative.units.map(u => u.name)"), ["C-4"])
+        page.wait_for_selector("#narrUnitName", state="detached")
+        page.evaluate("saveNarrative({ enemy: '', units: [], equipment: [], off: [], custom: [] })")
+
+    def test_the_narrative_settings_and_map_controls_say_what_they_are(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "1x XYZ-9", location="38SMB4500082000")
+        self.open_map(page)
+        # Labelled groups, the slider read as the time it shows, switches as switches.
+        self.assertEqual(page.get_attribute("#mapBox .map-tools", "role"), "group")
+        self.assertEqual(page.get_attribute("#mapBox .filter-presets", "role"), "group")
+        self.assertEqual(page.get_attribute("#mapEndRange", "aria-valuetext"), "Now")
+        page.fill("#mapEndRange", "0")
+        page.dispatch_event("#mapEndRange", "input")
+        self.assertEqual(
+            page.get_attribute("#mapEndRange", "aria-valuetext"), page.text_content("#mapEndLabel")
+        )
+        page.click("#mapEndNow")
+        page.click("#mapDroneBtn")
+        self.assertEqual(page.locator("#mapDronePop input[role='switch']").count(), 2)
+        page.click("#mapDroneBtn")
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        # The dot on Equipment is said, not only shown.
+        self.assertIn("catalogue doesn't know", page.text_content("[data-narr-tab='equipment']"))
+        # A dropdown's menu is a group of toggle buttons, its button named by its question.
+        page.click("[data-narr-add]")
+        page.click("[data-narr-dd='kind'] .narr-dd-btn")
+        self.assertEqual(page.get_attribute("[data-narr-dd='kind'] .narr-dd-menu", "role"), "group")
+        page.click("[data-narr-kind='infantry']")
+        self.assertEqual(page.get_attribute("[data-narr-kind='infantry']", "aria-pressed"), "true")
+        self.assertEqual(
+            page.locator(".narr-panel [role='option'], .narr-panel [role='listbox']").count(), 0
+        )
+        self.assertEqual(
+            page.get_by_role("button", name="What it has dismounted personnel").count(), 1
+        )
+        page.click("[data-narr-back]")
+        # One choice of several: radios, one tab stop, the arrow keys move the choice.
+        page.click("[data-narr-tab='equipment']")
+        page.click("[data-narr-fill='XYZ-9']")
+        radio = "[role='radiogroup'][aria-label='What it is'] [role='radio']"
+        self.assertEqual(
+            page.locator(radio).evaluate_all("rs => rs.filter(r => r.tabIndex === 0).length"), 1
+        )
+        page.focus(f"{radio} >> nth=0")
+        page.keyboard.press("ArrowRight")
+        self.assertEqual(page.get_attribute(f"{radio} >> nth=1", "aria-checked"), "true")
+        self.assertEqual(page.get_attribute(f"{radio} >> nth=0", "aria-checked"), "false")
+        self.assertEqual(
+            page.evaluate("document.activeElement.getAttribute('aria-checked')"), "true"
+        )
+        page.click("[data-narr-back]")
+        page.click("[data-narr-tab='rules']")
+        self.assertEqual(
+            page.locator("input.narr-switch:not([role='switch'])").count(), 0, "every one a switch"
+        )
+
+    def test_escape_in_the_narrative_settings_leaves_an_edit_alone(self):
+        # Regression: Escape closed the settings' form and cancelled the edit too.
+        page = self.open_editor()
+        self.log(page, "2x BMP")
+        page.click("#reportLogBody tr[data-id] .col-size:has-text('2x BMP')")
+        self.assertTrue(page.locator("#cancelButton").is_visible())
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        page.click("[data-narr-add]")
+        page.click("[data-narr-dd='kind'] .narr-dd-btn")
+        page.keyboard.press("Escape")
+        self.assertFalse(page.locator("[data-narr-kind='infantry']").is_visible())
+        self.assertEqual(
+            page.evaluate("document.activeElement.closest('[data-narr-dd]').dataset.narrDd"), "kind"
+        )
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#narrUnitName", state="detached")
+        self.assertTrue(page.locator("#cancelButton").is_visible(), "still editing")
 
     def test_the_welcome_screen_hides_the_page_whichever_view_was_last(self):
         # The map's panes set their own visibility to slide; none may show through.

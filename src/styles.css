@@ -7,7 +7,7 @@
     --input-bg: #2c2c2e;
     --input-bg-hover: #3a3a3c;
     --text-primary: #f5f5f7;
-    --text-secondary: #8e8e93;
+    --text-secondary: #a4a4a9;
     --system-blue: #0a84ff;
     --system-green: #32d74b;
     --system-red: #ff453a;
@@ -68,7 +68,7 @@ select { -webkit-appearance: none; appearance: none; background-image: url('data
    that aren't text at all, like the map's time slider. */
 input:read-only:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]) { opacity: 0.5; cursor: not-allowed; }
 input[type="checkbox"] { -webkit-appearance: none; appearance: none; width: 17px; height: 17px; border-radius: 5px; border: 1.5px solid var(--system-gray); background-color: var(--input-bg); background-repeat: no-repeat; background-position: center; cursor: pointer; flex-shrink: 0; transition: background-color 0.15s, border-color 0.15s; vertical-align: middle; }
-input[type="checkbox"]:checked { background-color: #60cdff; border-color: #60cdff; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 8'%3E%3Cpath fill='none' stroke='%23ffffff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' d='M1 4l3 3 5-6'/%3E%3C/svg%3E"); background-size: 70%; }
+input[type="checkbox"]:checked { background-color: var(--system-blue); border-color: var(--system-blue); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 8'%3E%3Cpath fill='none' stroke='%23ffffff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' d='M1 4l3 3 5-6'/%3E%3C/svg%3E"); background-size: 70%; }
 input[type="checkbox"]:hover { border-color: var(--text-secondary); }
 
 button { color: white; padding: 12px 20px; border: none; border-radius: 12px; cursor: pointer; font-size: 0.95em; font-weight: 600; transition: transform 0.1s ease, opacity 0.2s ease; }
@@ -115,7 +115,7 @@ button:hover { opacity: 0.85; }
 #report-count { font-size: 0.78em; color: var(--text-secondary); white-space: nowrap; font-weight: 400; }
 /* Stacked metrics — active count over total-including-history. */
 .report-metrics { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; line-height: 1.25; flex-shrink: 0; }
-#report-total-count { font-size: 0.72em; color: var(--text-secondary); white-space: nowrap; font-weight: 400; opacity: 0.7; }
+#report-total-count { font-size: 0.72em; color: var(--text-secondary); white-space: nowrap; font-weight: 400; opacity: 0.85; }
 
 .form-header-row { display: flex; justify-content: flex-start; align-items: center; margin-bottom: 20px; margin-top: 0; padding-top: 15px; border-top: 1px solid var(--divider); gap: 10px; }
 #form-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -415,7 +415,11 @@ body.local-mode .startup-access-divider { display: none; }
 /* A view coming in: a quick fade and rise, nothing that jumps. */
 .view-in { animation: view-in 0.28s cubic-bezier(0.32, 0.72, 0, 1); }
 @keyframes view-in { from { opacity: 0; transform: translateY(8px); } }
-@media (prefers-reduced-motion: reduce) { .view-in, .home-title.swap { animation: none; } }
+/* Reduced motion, everywhere: every animation and transition all but
+   instant, with no delays, so what waits on one still happens, at once. */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; transition-delay: 0s !important; scroll-behavior: auto !important; }
+}
 .home-title.swap { animation: home-title-in 0.35s ease-out; }
 @keyframes home-title-in { from { opacity: 0; transform: translateY(4px); } }
 .home-pager { position: relative; flex: 1; min-height: 0; overflow: hidden; }
@@ -424,7 +428,6 @@ body.local-mode .startup-access-divider { display: none; }
 .home-pager.on-map #logView { transform: translateY(-100%); visibility: hidden; transition: transform 0.55s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s linear 0.55s; }
 .home-pager.on-map #mapPanel { transform: translateY(0); visibility: visible; transition: transform 0.55s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s linear 0s; }
 .home-pager.instant .home-pane { transition: none !important; }
-@media (prefers-reduced-motion: reduce) { .home-pane { transition: none !important; } }
 /* The button by a heading: to the map, or back to the Report Log. */
 .home-arrow { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; margin: 0 0 0 6px; padding: 0; border: none; border-radius: 8px; background: var(--input-bg); color: var(--text-secondary); cursor: pointer; vertical-align: middle; transition: color 0.15s, background-color 0.15s; }
 .home-arrow svg { width: 17px; height: 17px; display: block; }
@@ -688,7 +691,7 @@ body.local-mode .startup-access-divider { display: none; }
 .export-panel-heading { display: flex; align-items: baseline; gap: 10px; }
 .export-block { margin-bottom: 18px; }
 .export-block-label { margin-bottom: 10px; }
-.export-block-label span { text-transform: none; font-size: 1em; letter-spacing: 0; color: var(--system-gray); font-weight: 400; margin-left: 6px; }
+.export-block-label span { text-transform: none; font-size: 1em; letter-spacing: 0; color: var(--text-secondary); font-weight: 400; margin-left: 6px; }
 /* Export Filter — date/time range picker */
 .filter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px; }
 @media (max-width: 600px) { .filter-grid { grid-template-columns: 1fr; } }
@@ -1133,7 +1136,7 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .cell-clamp.clampable:hover { color: var(--system-blue); }
 
 /* --- Report Builder --- */
-#builderScopeNote { text-transform: none; letter-spacing: 0; font-size: 1em; color: var(--system-gray); font-weight: 400; margin-left: 6px; }
+#builderScopeNote { text-transform: none; letter-spacing: 0; font-size: 1em; color: var(--text-secondary); font-weight: 400; margin-left: 6px; }
 .builder-presets { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; }
 .builder-lines { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
 .builder-line {
@@ -1251,14 +1254,14 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-base-row.open { border-bottom-color: transparent; }
 .map-base-detail { padding: 6px 2px 10px; border-bottom: 1px solid var(--divider); }
 .map-base-detail .map-find-foot { align-items: center; }
-.map-form-row .map-base-remove { margin-left: auto; color: var(--system-red, #ff453a); }
 .map-base-remove.sure { font-weight: 600; }
-@media (prefers-reduced-motion: reduce) { .map-base-check.fading { transition: none; } }
 .map-find-msg { margin: 0 0 8px; font-size: 0.85em; }
 .map-find-error { padding: 7px 10px; border-radius: 8px; background: rgba(255, 69, 58, 0.12); border: 1px solid rgba(255, 69, 58, 0.35); color: var(--text-primary); line-height: 1.4; }
 .map-find-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; font-size: 0.85em; }
 .map-find-name { font-size: 1.05em; color: var(--text-primary); }
 .map-layer-filter { margin: 0 0 6px; padding: 7px 12px; font-size: 0.85em; background: var(--panel-bg); border: 1px solid var(--divider) !important; }
+/* Its border is the focus ring (inputs have no outline), so it turns blue as theirs do. */
+.map-layer-filter:focus { border-color: var(--system-blue) !important; }
 .map-layer-list { max-height: 220px; overflow-y: auto; border-radius: 10px; background: var(--panel-bg); padding: 4px; margin-bottom: 8px; }
 .map-layer-row { display: flex; align-items: center; gap: 8px; margin: 0; padding: 5px 8px; border-radius: 7px; font-size: 0.85em; font-weight: 400; color: var(--text-primary); cursor: pointer; }
 .map-layer-row[hidden] { display: none; }
@@ -1266,12 +1269,12 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-layer-row input { margin: 0; flex: 0 0 auto; }
 .map-layer-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-layer-name { flex: 0 1 auto; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 0.9em; }
-.map-layer-warn { flex: 0 0 auto; color: var(--system-orange, #ff9f0a); font-size: 0.85em; }
+.map-layer-warn { flex: 0 0 auto; color: var(--system-orange); font-size: 0.85em; }
 .map-find-foot { margin-bottom: 4px; }
 .map-base-name { font-weight: 600; }
 /* Remove on each row; pressed once, the name asks "for everyone?" in its place. */
-.map-base-row .map-base-del { color: var(--system-red, #ff453a); }
-.map-base-ask { color: var(--system-red, #ff453a); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-base-row .map-base-del { color: var(--system-red); }
+.map-base-ask { color: var(--system-red); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-base-kind { color: var(--text-secondary); }
 .map-basemap-form { background: var(--input-bg); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
 .map-form-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
@@ -1280,6 +1283,11 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-form-row button { margin: 0; width: auto; padding: 9px 18px; }
 .map-box { position: relative; height: max(380px, calc(100vh - 380px)); border-radius: 12px; overflow: hidden; background: #2a2b2e; border: 1px solid var(--divider); touch-action: none; cursor: grab; user-select: none; }
 .map-box.dragging { cursor: grabbing; }
+/* Focused from the keyboard (arrow keys pan, + and - zoom). */
+.map-box:focus { outline: none; }
+.map-box:focus-visible { outline: 2px solid var(--system-blue); outline-offset: -2px; }
+/* Read out, not shown. */
+.visually-hidden { position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 /* Shift held over the map: a crosshair over everything drawn, and the grid beside it. */
 .map-box.grabbing, .map-box.grabbing [data-map-item] { cursor: crosshair; }
 .map-grid-readout { position: absolute; z-index: 3; padding: 4px 8px; border-radius: 8px; background: rgba(0, 0, 0, 0.75); color: #fff; font: 600 12px ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; white-space: nowrap; pointer-events: none; }
@@ -1288,6 +1296,10 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 /* Full screen: the controls on top, the map filling the rest, the key below. */
 .map-pane:fullscreen { display: flex; flex-direction: column; padding: 20px; background: var(--panel-bg); box-sizing: border-box; }
 .map-pane:fullscreen .map-box { flex: 1 1 auto; height: auto; min-height: 0; }
+/* The sidebar stays behind (it isn't in the pane), so nothing makes room for it. */
+.map-pane:fullscreen { --side-room: 10px; --tools-left: 10px; }
+.map-pane:fullscreen .map-side-btn { display: none; }
+.map-pane:fullscreen .map-bottom .map-legend { max-width: calc(100cqw - 20px); }
 .map-box .map-zoom svg { position: static; display: block; width: 14px; height: 14px; margin: auto; }
 /* Viewers see the Overlays tab as the map. */
 .for-viewers { display: none; }
@@ -1323,7 +1335,6 @@ circle.map-hit { pointer-events: all; }
 .overlay-group:not([open]) > summary { margin-bottom: 0; }
 .overlay-group-chevron { flex: none; width: 7px; height: 7px; margin: 0 3px 0 2px; border-right: 2px solid var(--text-secondary); border-bottom: 2px solid var(--text-secondary); transform: rotate(-45deg); transition: transform 0.2s ease; }
 .overlay-group[open] .overlay-group-chevron { transform: rotate(45deg); }
-@media (prefers-reduced-motion: reduce) { .overlay-group-chevron { transition: none; } }
 .overlay-group-title { font-weight: 600; font-size: 0.92em; }
 .overlay-group-count { font-size: 0.78em; font-weight: 600; color: var(--text-secondary); background: rgba(255, 255, 255, 0.08); border-radius: 100px; padding: 1px 8px; }
 .overlay-group-unload { margin: 0 0 0 auto; width: auto; padding: 5px 12px; font-size: 0.8em; font-weight: 600; border: none; border-radius: 8px; background: rgba(255, 255, 255, 0.08); color: var(--text-primary); cursor: pointer; }
@@ -1422,7 +1433,6 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .map-side-btn:hover { color: var(--text-primary); }
 .map-side-btn:active { transform: none; }
 .map-side-btn[aria-pressed="true"] { color: var(--system-blue); }
-@media (prefers-reduced-motion: reduce) { .map-main *, .map-main .map-side { transition: none !important; } }
 /* Its box reaches up round the sidebar button (which stays put); the contents keep their place. */
 .map-side { position: absolute; left: 4px; top: 4px; bottom: 50px; z-index: 3; width: 196px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; box-sizing: border-box; padding: 56px 10px 12px 16px; border-radius: 15px; background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); transform: translateX(0); opacity: 1; visibility: visible; transition: transform var(--slide), opacity 0.3s ease, visibility 0s linear 0s; will-change: transform; }
 /* Two halves, as tall as each other; each scrolls its own list when it's long. */
@@ -1452,6 +1462,8 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .map-table td { padding: 7px 8px; border-bottom: 1px solid var(--divider); color: var(--text-primary); vertical-align: top; overflow-wrap: anywhere; }
 .map-table tr[data-map-row] { cursor: pointer; }
 .map-table tr[data-map-row]:hover td { background: var(--input-bg); }
+.map-table tr[data-map-row]:focus { outline: none; }
+.map-table tr[data-map-row]:focus-visible { outline: 2px solid var(--system-blue); outline-offset: -2px; }
 .map-table tr.selected-row td { background: rgba(10, 132, 255, 0.16); }
 .map-table tr.flash td { animation: map-row-flash 1.5s ease; }
 @keyframes map-row-flash { 0%, 40% { background: rgba(10, 132, 255, 0.4); } }
@@ -1503,9 +1515,8 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .stats-card-actions button:disabled { opacity: 0.35; cursor: not-allowed; }
 .stats-chart { position: relative; }
 .stats-chart svg { display: block; width: 100%; height: auto; }
-.stats-row:hover .stats-mark, .stats-row:focus-within .stats-mark { filter: brightness(1.25); }
-.stats-hit { cursor: default; outline: none; }
-.stats-hit:focus-visible { stroke: var(--system-blue); stroke-width: 1; }
+.stats-row:hover .stats-mark { filter: brightness(1.25); }
+.stats-hit { cursor: default; }
 .stats-tip { position: absolute; pointer-events: none; background: var(--input-bg-hover); border: 1px solid var(--glass-border); border-radius: 8px; padding: 4px 9px; font-size: 0.8em; white-space: nowrap; display: flex; gap: 8px; align-items: baseline; z-index: 2; }
 .stats-tip[hidden] { display: none; }
 .stats-tip strong { color: var(--text-primary); }
@@ -1548,7 +1559,7 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .narr-tabs .ws-tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; position: relative; padding: 6px 8px; }
 .narr-count { min-width: 16px; padding: 0 5px; border-radius: 8px; background: var(--input-bg); color: var(--text-secondary); font-size: 0.82em; font-weight: 600; line-height: 16px; }
 .narr-tabs .ws-tab.active .narr-count { background: var(--system-blue); color: #fff; }
-.narr-dot { position: absolute; top: 5px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--system-orange, #ff9f0a); }
+.narr-dot { position: absolute; top: 5px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--system-orange); }
 .narr-body { display: flex; flex-direction: column; gap: 8px; }
 .narr-list { display: flex; flex-direction: column; border-radius: 10px; background: var(--panel-bg); overflow: hidden; }
 .narr-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 10px; align-items: center; width: 100%; margin: 0; padding: 8px 12px; border: none; border-bottom: 1px solid var(--divider); border-radius: 0; background: none; color: var(--text-primary); text-align: left; font: inherit; cursor: default; }
@@ -1566,7 +1577,7 @@ button.narr-row:hover { background: var(--input-bg-hover); }
 .narr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .narr-chip { margin: 0; width: auto; padding: 5px 11px; border: 1px solid var(--divider); border-radius: 999px; background: var(--panel-bg); color: var(--text-primary); font: inherit; font-size: 0.88em; cursor: pointer; transition: background-color 0.15s, border-color 0.15s, color 0.15s; }
 .narr-chip:hover { border-color: var(--text-secondary); }
-.narr-chip[aria-pressed="true"] { background: var(--system-blue); border-color: var(--system-blue); color: #fff; }
+.narr-chip[aria-checked="true"] { background: var(--system-blue); border-color: var(--system-blue); color: #fff; }
 /* A dropdown that picks several: a field-like button, and a menu of ticks under it. */
 .narr-dd { position: relative; }
 .narr-dd-btn { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; margin: 0; padding: 8px 12px; border: 1px solid transparent; border-radius: 10px; background: var(--panel-bg); color: var(--text-primary); font: inherit; font-size: 0.95em; text-align: left; cursor: pointer; }
@@ -1576,9 +1587,9 @@ button.narr-row:hover { background: var(--input-bg-hover); }
 .narr-dd-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .narr-dd-menu { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5; display: flex; flex-direction: column; max-height: 240px; overflow-y: auto; padding: 4px; border-radius: 10px; background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); }
 .narr-dd-menu[hidden] { display: none; }
-.narr-dd-menu [role="option"] { display: flex; align-items: center; gap: 8px; margin: 0; padding: 7px 10px 7px 28px; border: none; border-radius: 7px; background: none; color: var(--text-primary); font: inherit; font-size: 0.92em; text-align: left; cursor: pointer; position: relative; }
-.narr-dd-menu [role="option"]:hover { background: var(--input-bg-hover); }
-.narr-dd-menu [role="option"][aria-selected="true"]::before { content: ''; position: absolute; left: 10px; top: 50%; width: 10px; height: 6px; margin-top: -5px; border-left: 2px solid var(--system-blue); border-bottom: 2px solid var(--system-blue); transform: rotate(-45deg); }
+.narr-dd-menu .narr-dd-opt { display: flex; align-items: center; gap: 8px; margin: 0; padding: 7px 10px 7px 28px; border: none; border-radius: 7px; background: none; color: var(--text-primary); font: inherit; font-size: 0.92em; text-align: left; cursor: pointer; position: relative; }
+.narr-dd-menu .narr-dd-opt:hover { background: var(--input-bg-hover); }
+.narr-dd-menu .narr-dd-opt[aria-pressed="true"]::before { content: ''; position: absolute; left: 10px; top: 50%; width: 10px; height: 6px; margin-top: -5px; border-left: 2px solid var(--system-blue); border-bottom: 2px solid var(--system-blue); transform: rotate(-45deg); }
 .narr-dd-menu [data-narr-place=""] { border-top: 1px solid var(--divider); border-radius: 0 0 7px 7px; margin-top: 2px; }
 .narr-form input[hidden] { display: none; }
 .narr-chip.narr-new { border-color: rgba(255, 159, 10, 0.5); }
@@ -1589,7 +1600,8 @@ button.narr-row:hover { background: var(--input-bg-hover); }
 .narr-find { display: flex; flex-direction: column; gap: 4px; }
 .narr-foot { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
 .narr-foot .set-btn { margin: 0; width: auto; padding: 8px 20px; }
-.narr-foot .map-base-remove { margin-left: auto; }
+/* Red, as Remove on a basemap's row, and when it asks "for everyone?". */
+.narr-foot .map-base-remove { margin-left: auto; color: var(--system-red); }
 .narr-back { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 2px 0; border: none; background: none; color: var(--system-blue); font: inherit; cursor: pointer; }
 .narr-drill-title { font-size: 1.05em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .narr-sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-secondary); }
@@ -1599,10 +1611,11 @@ button.narr-row:hover { background: var(--input-bg-hover); }
 .narr-switch-row:last-child { border-bottom: none; }
 .narr-switch-row > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .narr-switch-row small { font-size: 0.84em; color: var(--text-secondary); line-height: 1.35; }
-/* An on/off switch: a track with a knob, blue when on. */
-input[type="checkbox"].narr-switch { flex: 0 0 auto; position: relative; width: 38px; height: 22px; margin: 0; border: none; border-radius: 11px; background: var(--system-gray, #8e8e93); background-image: none; cursor: pointer; transition: background-color 0.2s; }
+/* An on/off switch: a track with a knob, green when on. Off, the track is a
+   gray light enough to stand out from the panels (3:1 or more). */
+input[type="checkbox"].narr-switch { flex: 0 0 auto; position: relative; width: 38px; height: 22px; margin: 0; border: none; border-radius: 11px; background: #76767a; background-image: none; cursor: pointer; transition: background-color 0.2s; }
 .narr-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); transition: transform 0.2s cubic-bezier(0.32, 0.72, 0, 1); }
-input[type="checkbox"].narr-switch:checked { background: var(--system-green, #30d158); background-image: none; }
+input[type="checkbox"].narr-switch:checked { background: var(--system-green); background-image: none; }
 .narr-switch:checked::after { transform: translateX(16px); }
 .narr-switch:disabled { opacity: 0.6; cursor: default; }
 .narr-hint { font-size: 0.8em; color: var(--text-secondary); line-height: 1.4; }
@@ -1612,7 +1625,6 @@ input[type="checkbox"].narr-switch:checked { background: var(--system-green, #30
 .narr-builtin strong { color: var(--text-primary); font-weight: 600; }
 .narr-cat { margin-top: 8px; }
 .narr-cat em { font-style: normal; color: var(--text-primary); }
-@media (prefers-reduced-motion: reduce) { .narr-switch, .narr-switch::after { transition: none; } }
 .summary-actions button { margin: 0; width: auto; padding: 8px 16px; font-size: 0.85em; }
 #summaryPlaceRow[hidden] { display: none; }
 #summaryPlace { width: auto; margin: 0; padding: 6px 30px 6px 10px; font-size: 0.85em; background-position: right 10px center; }

@@ -8,19 +8,22 @@
 // One of the ordered scripts that make up the page (see src/app/); they
 // share one top-level scope, so names declared earlier are visible here.
 
+// A setting this browser keeps as plain text (not JSON, so not readStored's),
+// or null when there is none or storage is blocked. Used by the map, its
+// view and Statistics; writes go through writeStored.
+const storedText = (key) => { try { return localStorage.getItem(key); } catch (e) { return null; } };
+
 const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', track: '#ff3b30', edge: '#000000' };
 // The layers on, in any mix (per browser); the heat map alone to start with.
 const MAP_LAYERS = [['heat', 'Heat map'], ['tracks', 'Tracks'], ['reports', 'Reports']];
 const mapLayers = (() => {
-    try {
-        const v = JSON.parse(localStorage.getItem('salt_map_layers') || 'null');
-        if (v && typeof v === 'object') return { heat: !!v.heat, tracks: !!v.tracks, reports: !!v.reports };
-    } catch (e) { /* unreadable: the default */ }
+    const v = readStored('salt_map_layers', null);
+    if (v && typeof v === 'object') return { heat: !!v.heat, tracks: !!v.tracks, reports: !!v.reports };
     return { heat: true, tracks: false, reports: false };
 })();
 // The heat map and the dots: each report at its latest grids, or every saved
 // report (its updates too) at its grids. Per browser.
-let mapAllGrids = localStorage.getItem('salt_map_grids') === 'all';
+let mapAllGrids = storedText('salt_map_grids') === 'all';
 let mapActivity = new Set();   // the activity tags picked; none for every report
 let mapHours = 0;              // the window, in hours back from its end; 0 for all
 let mapEnd = null;             // the window's end (ms), set by the time slider; null for now
@@ -34,11 +37,12 @@ let mapDrawnHook = () => {};
 let mapClickHook = () => {};
 let mapView = null;            // { cx, cy, mpp }: centre (Web Mercator metres) and metres per pixel
 // The basemap this browser shows, by name: 'off' for none, '' for the first.
-let mapBaseChoice = localStorage.getItem('salt_map_base') || '';
+let mapBaseChoice = storedText('salt_map_base') || '';
 const activeBasemap = () => (mapBaseChoice === 'off' ? null
     : sharedBasemaps.find(b => b.name === mapBaseChoice) || sharedBasemaps[0] || null);
 let mapBaseFailed = false;
 let mapWmsTimer = null;
+let mapWmsGen = 0;             // the WMS request whose image may still go on screen
 let mapFrame = 0;
 let mapItems = [];             // what the pointer can hover: [{ kind, ...}] by index
 let mapLastWant = null;        // the Web Mercator box the basemap was last asked for
@@ -106,9 +110,11 @@ const svgEsc = escapeHtml;
 
 // Where each drone was last put (shared; editors move it). Whether they show,
 // and whether their view does, is each browser's own choice.
-let droneShow = localStorage.getItem('salt_drone_show') !== 'off';
-let droneView = localStorage.getItem('salt_drone_view') !== 'off';
+let droneShow = storedText('salt_drone_show') !== 'off';
+let droneView = storedText('salt_drone_view') !== 'off';
 const DRONE_COLOR = '#ff9f0a';
+// The sync server's limits (MAX_DRONES, MAX_DRONE_RANGE_KM in server/salt_sync_server.py).
+const MAX_DRONES = 10, MAX_DRONE_RANGE_KM = 1000;
 const dronePoint = (d) => { const g = SaltCore.findGrids(d.grid)[0]; return g ? { lon: g.lon, lat: g.lat } : null; };
 const shownDrones = () => (droneShow ? sharedDrones.map(d => ({ d, p: dronePoint(d) })).filter(x => x.p) : []);
 // A grid as the drones keep it ("11S NV 39697 06762"), from what was typed:
@@ -136,7 +142,7 @@ const drawMap = () => {
     const ext = mapExtent(tracks);
     if (!ext) {
         m.svg.innerHTML = '';
-        m.base.innerHTML = '';
+        clearBasemap(m);
         m.note.textContent = 'Import overlays, or log reports with grids, to see the map.';
         m.note.hidden = false;
         m.legend.innerHTML = '';
@@ -154,19 +160,22 @@ const drawMap = () => {
 
     const out = [];
     mapItems = [];
-    if (mapLayers.heat) out.push(heatLayer(reps, px, w, h));
+    // Worked out once a drawing, for the layer and its count in the key.
+    const heat = mapLayers.heat ? SaltCore.heatPoints(reps, mapAllGrids) : [];
+    const positions = mapLayers.reports ? SaltCore.reportPositions(reps, mapAllGrids) : [];
+    if (mapLayers.heat) out.push(heatLayer(heat, px, w, h));
     const drones = droneLayer(tracks, px);
     out.push(drones.view);
     out.push(overlayLayer(px, w, h));
     if (mapLayers.tracks) out.push(trackLayer(tracks, px));
-    if (mapLayers.reports) out.push(reportLayer(reps, tracks, px));
+    if (mapLayers.reports) out.push(reportLayer(positions, tracks, px));
     out.push(selectionLayer(tracks, px));
     out.push(drones.marks);
     m.svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
     m.svg.innerHTML = out.join('');
     m.note.hidden = !mapBaseFailed;
     if (mapBaseFailed) m.note.textContent = `The basemap service didn't answer. It may not be reachable from this computer.${isReadOnly ? '' : ' Check, in Manage > Map, says why.'}`;
-    m.legend.innerHTML = mapLegend(reps, tracks);
+    m.legend.innerHTML = mapLegend(heat, positions, tracks);
     mapLastDraw = { view, tracks, reps };
     mapDrawnHook();
 };
@@ -179,8 +188,9 @@ const pathOf = (coords, px, close) => coords.map((c, i) => { const [x, y] = px(c
 // of its longest stretch in view. Null when none of it is in view.
 const LABEL_MARGIN = 28;
 const areaLabelAt = (pts, w, h) => {
-    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-    const box = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    // A loop, not Math.min(...), which runs out of stack on a shape with very many points.
+    const box = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const [x, y] of pts) { box[0] = Math.min(box[0], x); box[1] = Math.min(box[1], y); box[2] = Math.max(box[2], x); box[3] = Math.max(box[3], y); }
     const mid = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2];
     const m = LABEL_MARGIN;
     if (mid[0] >= m && mid[0] <= w - m && mid[1] >= m && mid[1] <= h - m) return mid;
@@ -247,37 +257,63 @@ const HEAT_RADIUS = 28;
 // clear, so a lone report doesn't read as an OBJ, and it grows more opaque as
 // it rises, so the busiest places stand out over imagery or the plain background.
 const HEAT_STOPS = [[0, [10, 132, 255, 0]], [0.15, [10, 132, 255, 90]], [0.4, [48, 209, 88, 165]], [0.65, [255, 214, 10, 205]], [1, [255, 59, 48, 235]]];
-const heatColor = (t) => {
-    if (t < 0.03) return [0, 0, 0, 0];
-    const k = HEAT_STOPS.findIndex(([s]) => s >= t);
-    const [s1, c1] = HEAT_STOPS[Math.max(1, k)], [s0, c0] = HEAT_STOPS[Math.max(0, k - 1)];
-    const f = s1 === s0 ? 1 : (t - s0) / (s1 - s0);
-    return c0.map((v, j) => Math.round(v + (c1[j] - v) * f));
-};
-const heatLayer = (reps, px, w, h) => {
-    const pts = SaltCore.heatPoints(reps, mapAllGrids).map(p => ({ xy: px(p.lon, p.lat), w: p.w }))
-        .filter(p => p.xy[0] > -HEAT_RADIUS && p.xy[0] < w + HEAT_RADIUS && p.xy[1] > -HEAT_RADIUS && p.xy[1] < h + HEAT_RADIUS);
+// The ramp, worked out once: 256 colours (RGBA) from fewest to most.
+const HEAT_LUT = (() => {
+    const lut = new Uint8ClampedArray(256 * 4);
+    for (let i = 0; i < 256; i++) {
+        const t = i / 255;
+        if (t < 0.03) continue;
+        const k = HEAT_STOPS.findIndex(([s]) => s >= t);
+        const [s1, c1] = HEAT_STOPS[Math.max(1, k)], [s0, c0] = HEAT_STOPS[Math.max(0, k - 1)];
+        const f = s1 === s0 ? 1 : (t - s0) / (s1 - s0);
+        for (let j = 0; j < 4; j++) lut[i * 4 + j] = Math.round(c0[j] + (c1[j] - c0[j]) * f);
+    }
+    return lut;
+})();
+// How many reports are near each pixel: each adds a cone, its weight at its
+// grid falling to nothing at the radius, summed without limit (an 8-bit
+// canvas stopped counting at about three in one place), then scaled so the
+// busiest place is the top of the ramp. Kept between drawings.
+let heatGrid = new Float32Array(0);
+const heatLayer = (points, px, w, h) => {
+    const R = HEAT_RADIUS;
+    const pts = points.map(p => ({ xy: px(p.lon, p.lat), w: p.w }))
+        .filter(p => p.xy[0] > -R && p.xy[0] < w + R && p.xy[1] > -R && p.xy[1] < h + R);
     if (!pts.length) return '';
+    if (heatGrid.length < w * h) heatGrid = new Float32Array(w * h);
+    const grid = heatGrid;
+    // Only the part the reports touch is filled, coloured and cleared.
+    let bx0 = w, by0 = h, bx1 = 0, by1 = 0;
+    pts.forEach(({ xy: [x, y], w: wt }) => {
+        const x0 = Math.max(0, Math.floor(x - R)), x1 = Math.min(w - 1, Math.ceil(x + R));
+        const y0 = Math.max(0, Math.floor(y - R)), y1 = Math.min(h - 1, Math.ceil(y + R));
+        if (x0 > x1 || y0 > y1) return;
+        bx0 = Math.min(bx0, x0); by0 = Math.min(by0, y0); bx1 = Math.max(bx1, x1); by1 = Math.max(by1, y1);
+        for (let j = y0; j <= y1; j++) {
+            const dy = j + 0.5 - y, row = j * w;
+            for (let i = x0; i <= x1; i++) {
+                const dx = i + 0.5 - x, d = Math.sqrt(dx * dx + dy * dy);
+                if (d < R) grid[row + i] += wt * (1 - d / R);
+            }
+        }
+    });
+    if (bx0 > bx1) return '';
+    let max = 0;
+    for (let j = by0; j <= by1; j++) for (let i = bx0, k = j * w + bx0; i <= bx1; i++, k++) if (grid[k] > max) max = grid[k];
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const ctx = c.getContext('2d');
-    ctx.globalCompositeOperation = 'lighter';
-    pts.forEach(({ xy: [x, y], w: wt }) => {
-        const g = ctx.createRadialGradient(x, y, 0, x, y, HEAT_RADIUS);
-        g.addColorStop(0, `rgba(0,0,0,${0.35 * wt})`);
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g;
-        ctx.fillRect(x - HEAT_RADIUS, y - HEAT_RADIUS, HEAT_RADIUS * 2, HEAT_RADIUS * 2);
-    });
-    const img = ctx.getImageData(0, 0, w, h), d = img.data;
-    let max = 0;
-    for (let i = 3; i < d.length; i += 4) max = Math.max(max, d[i]);
-    if (!max) return '';
-    for (let i = 0; i < d.length; i += 4) {
-        const [r, g, b, a] = heatColor(d[i + 3] / max);
-        d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = a;
+    const img = ctx.createImageData(w, h), d = img.data;
+    for (let j = by0; j <= by1; j++) {
+        for (let i = bx0, k = j * w + bx0; i <= bx1; i++, k++) {
+            const v = grid[k];
+            if (!v) continue;
+            grid[k] = 0;
+            const at = Math.min(255, Math.round(v / max * 255)) * 4, o = k * 4;
+            d[o] = HEAT_LUT[at]; d[o + 1] = HEAT_LUT[at + 1]; d[o + 2] = HEAT_LUT[at + 2]; d[o + 3] = HEAT_LUT[at + 3];
+        }
     }
-    ctx.globalCompositeOperation = 'source-over';
+    if (!max) return '';
     ctx.putImageData(img, 0, 0);
     return `<image href="${c.toDataURL('image/png')}" x="0" y="0" width="${w}" height="${h}" class="map-heat"/>`;
 };
@@ -334,9 +370,9 @@ const trackLayer = (tracks, px) => {
 
 // Each report as a dot at its latest grids, to click; with every saved report,
 // its earlier positions too, smaller and fainter, under the latest.
-const reportLayer = (reps, tracks, px) => {
+const reportLayer = (positions, tracks, px) => {
     const byId = new Map(tracks.map(t => [t.report.id, t]));
-    const pts = SaltCore.reportPositions(reps, mapAllGrids).filter(p => byId.has(p.report.id))
+    const pts = positions.filter(p => byId.has(p.report.id))
         .sort((a, b) => a.latest - b.latest);
     return `<g class="map-reports">${pts.map(p => {
         const i = mapItems.push({ kind: 'report', t: byId.get(p.report.id) }) - 1;
@@ -434,14 +470,14 @@ const selectionLayer = (tracks, px) => {
 };
 
 // The key: what each colour is, and what each layer that's on counts.
-const mapLegend = (reps, tracks) => {
+const mapLegend = (heatPts, positions, tracks) => {
     const swatch = (color, line) => `<svg width="18" height="10" aria-hidden="true">${line
         ? `<line x1="1" y1="5" x2="17" y2="5" stroke="#fff" stroke-width="4"/><line x1="1" y1="5" x2="17" y2="5" stroke="${color}" stroke-width="2"/>`
         : `<rect x="1" y="1" width="16" height="8" rx="2" fill="${color}" fill-opacity="0.3" stroke="${color}" stroke-width="1.5"/>`}</svg>`;
     const key = (inner, text) => `<span class="map-key">${inner}${text}</span>`;
     const dot = `<svg width="18" height="10" aria-hidden="true"><circle cx="9" cy="5" r="4" fill="${MAP_COLORS.track}" stroke="${MAP_COLORS.edge}" stroke-width="1.2"/></svg>`;
     const trackLine = `<svg width="18" height="10" aria-hidden="true"><line x1="1" y1="5" x2="17" y2="5" stroke="${MAP_COLORS.edge}" stroke-width="4.5"/><line x1="1" y1="5" x2="17" y2="5" stroke="${MAP_COLORS.track}" stroke-width="2.2"/></svg>`;
-    const heat = Math.round(SaltCore.heatPoints(reps, mapAllGrids).reduce((s, p) => s + p.w, 0));
+    const heat = Math.round(heatPts.reduce((s, p) => s + p.w, 0));
     const what = [
         mapLayers.heat && key('<span class="map-ramp"></span>', mapAllGrids
             ? `Fewer to more reports (${heat}, every saved report, updates included)`
@@ -450,7 +486,7 @@ const mapLegend = (reps, tracks) => {
         shownDrones().length && key('<svg width="18" height="10" aria-hidden="true"><path d="M9,0.5 L10.2,3.6 L14.5,5.3 L14.5,6.4 L10.2,5.8 L9.9,8.4 L11.3,9.5 L6.7,9.5 L8.1,8.4 L7.8,5.8 L3.5,6.4 L3.5,5.3 L7.8,3.6 Z" fill="#ff9f0a" stroke="#000" stroke-width="0.8"/></svg>',
             droneView ? 'Drone, and its view' : 'Drone'),
         mapLayers.reports && key(dot, mapAllGrids
-            ? `Report, every saved one (${SaltCore.reportPositions(reps, true).length} positions; earlier ones smaller)`
+            ? `Report, every saved one (${positions.length} positions; earlier ones smaller)`
             : `Report, at its latest grid (${tracks.length})`),
     ].filter(Boolean);
     return key(swatch(MAP_COLORS.NAI), 'NAI') + key(swatch(MAP_COLORS.OBJ), 'OBJ') + key(swatch(MAP_COLORS.PL, true), 'PL')
@@ -459,11 +495,21 @@ const mapLegend = (reps, tracks) => {
 
 // --- Basemap ---
 
+// Nothing of a basemap on screen, and no WMS request still to come or to land.
+const clearBasemap = (m) => {
+    clearTimeout(mapWmsTimer);
+    mapWmsGen++;
+    m.base.innerHTML = '';
+};
+
 // Images are kept by address and only moved as the view changes, so panning
 // doesn't fetch again. Only the part of the view inside the extent is asked for.
 const drawBasemap = (m, ext, view, w, h) => {
     const b = activeBasemap();
-    if (!b) { m.base.innerHTML = ''; return; }
+    if (!b) { clearBasemap(m); return; }
+    // Another service (or the same one changed): what the last one drew goes.
+    const key = [b.kind, b.url, b.layers || ''].join(' ');
+    [...m.base.children].forEach(el => { if (el.dataset.base !== key) el.remove(); });
     const { cx, cy, mpp } = mapView;
     const place = (img, box) => {
         img.setAttribute('x', ((box[0] - cx) / mpp + w / 2).toFixed(1));
@@ -472,7 +518,7 @@ const drawBasemap = (m, ext, view, w, h) => {
         img.setAttribute('height', ((box[3] - box[1]) / mpp + 0.6).toFixed(1));
     };
     const want = [Math.max(ext[0], view[0]), Math.max(ext[1], view[1]), Math.min(ext[2], view[2]), Math.min(ext[3], view[3])];
-    if (want[0] >= want[2] || want[1] >= want[3]) { m.base.innerHTML = ''; return; }
+    if (want[0] >= want[2] || want[1] >= want[3]) { clearBasemap(m); return; }
     mapLastWant = want;
     // An HTTPS page can't load images from an http:// basemap, so those come
     // through the sync server, which fetches them from that saved host.
@@ -493,6 +539,7 @@ const drawBasemap = (m, ext, view, w, h) => {
             img = document.createElementNS('http://www.w3.org/2000/svg', 'image');
             img.dataset.url = url;
             img.dataset.box = box.join(',');
+            img.dataset.base = key;
             img.setAttribute('preserveAspectRatio', 'none');
             img.addEventListener('error', () => settle(img, false));
             img.addEventListener('load', () => settle(img, true));
@@ -504,6 +551,8 @@ const drawBasemap = (m, ext, view, w, h) => {
         return img;
     };
     if (b.kind === 'tiles') {
+        clearTimeout(mapWmsTimer);
+        mapWmsGen++;
         const tiles = SaltCore.tilesFor(want, SaltCore.tileZoom(mpp), 400) || [];
         tiles.forEach(t => add(SaltCore.tileUrl(b.url, t), t.box));
         have.forEach(el => el.remove());
@@ -511,6 +560,8 @@ const drawBasemap = (m, ext, view, w, h) => {
     }
     // WMS: one image for what's in view, asked for once the view settles; the
     // one on screen stays (moved with the view) until the new one arrives.
+    // Each request is numbered: one that lands after a newer one was asked
+    // for, or after the basemap changed, is dropped.
     have.forEach(el => place(el, el.dataset.box.split(',').map(Number)));
     clearTimeout(mapWmsTimer);
     mapWmsTimer = setTimeout(() => {
@@ -518,17 +569,22 @@ const drawBasemap = (m, ext, view, w, h) => {
         if (pw < 8 || ph < 8) return;
         const url = SaltCore.wmsUrl(b.url, b.layers, want, pw, ph, b);
         if (m.base.querySelector(`[data-url="${CSS.escape(url)}"]`)) return;
+        const gen = ++mapWmsGen;
         const img = document.createElementNS('http://www.w3.org/2000/svg', 'image');
         img.dataset.url = url;
         img.dataset.box = want.join(',');
+        img.dataset.base = key;
         img.setAttribute('preserveAspectRatio', 'none');
         img.addEventListener('load', () => {
-            [...m.base.children].forEach(el => { if (el !== img) el.remove(); });
+            if (gen !== mapWmsGen || img.parentNode !== m.base) { img.remove(); return; }
+            // The view it replaces goes; nothing else does.
+            [...m.base.children].forEach(el => { if (el !== img && el.dataset.base === key) el.remove(); });
             settle(img, true);
         });
         // A view that didn't come back leaves the last one on screen: a failure
         // only when there's nothing else to show.
         img.addEventListener('error', () => {
+            if (gen !== mapWmsGen || img.parentNode !== m.base) { img.remove(); return; }
             if ([...m.base.children].some(el => el !== img && el.dataset.state === 'ok')) img.remove();
             else settle(img, false);
         });
@@ -627,6 +683,10 @@ const findWmsLayers = async (link, name = '', edit = null) => {
     basemapsChanged();
 };
 
+// An address's host, or null when it isn't an address at all.
+const hostOf = (url) => { try { return new URL(url).hostname || null; } catch (e) { return null; } };
+const BAD_ADDRESS = "That address isn't valid.";
+
 // A name not used yet: the service's own, then "(2)", "(3)"...
 const freeBasemapName = (want) => {
     const base = (want || 'Basemap').trim().slice(0, 54) || 'Basemap';
@@ -636,11 +696,22 @@ const freeBasemapName = (want) => {
     return name;
 };
 
+// The sync server's limits on the basemaps (MAX_BASEMAPS, MAX_BASEMAP_URL in
+// server/salt_sync_server.py), checked here first so the reason is said at once.
+const MAX_BASEMAPS = 20, MAX_BASEMAP_URL = 2000;
+const basemapTooLong = (entry) => {
+    if (String(entry.url || '').length <= MAX_BASEMAP_URL) return false;
+    showToast(`That address is too long: ${MAX_BASEMAP_URL.toLocaleString('en-US')} characters at most.`, true);
+    return true;
+};
+
 const addBasemap = (entry) => {
     if (sharedBasemaps.some(b => b.name.toLowerCase() === entry.name.toLowerCase())) { showToast(`There is already a service called ${entry.name}.`, true); return false; }
+    if (sharedBasemaps.length >= MAX_BASEMAPS) { showToast(`${MAX_BASEMAPS} basemaps at most. Remove one to add another.`, true); return false; }
+    if (basemapTooLong(entry)) return false;
     // The new one is shown here at once.
     mapBaseChoice = entry.name;
-    try { localStorage.setItem('salt_map_base', entry.name); } catch (err) { /* this session only */ }
+    writeStored('salt_map_base', entry.name);
     saveBasemaps([...sharedBasemaps, entry], `${entry.name} added for everyone.`);
     return true;
 };
@@ -648,10 +719,11 @@ const addBasemap = (entry) => {
 // A saved service changed (its layers, name or address), in its place in the list.
 const replaceBasemap = (oldName, entry) => {
     if (sharedBasemaps.some(b => b.name !== oldName && b.name.toLowerCase() === entry.name.toLowerCase())) { showToast(`There is already a service called ${entry.name}.`, true); return false; }
+    if (basemapTooLong(entry)) return false;
     // Renamed: still the one shown here.
     if (mapBaseChoice === oldName && entry.name !== oldName) {
         mapBaseChoice = entry.name;
-        try { localStorage.setItem('salt_map_base', entry.name); } catch (err) { /* this session only */ }
+        writeStored('salt_map_base', entry.name);
     }
     if (baseCheck && baseCheck.name === oldName) baseCheck = null;
     wmsFind = null; baseOpen = null; baseRemoving = null;
@@ -694,7 +766,7 @@ const addFoundLayers = () => {
     const layers = picked.map(l => l.name).join(',');
     if (layers.length > 2000) { showToast('Too many layers for one service; tick fewer.', true); return; }
     // Named for itself: the service's title (else the one layer's, or its host); a saved one keeps its name.
-    const name = f.edit || freeBasemapName(f.title || (picked.length === 1 ? picked[0].title : new URL(f.link).hostname));
+    const name = f.edit || freeBasemapName(f.title || (picked.length === 1 ? picked[0].title : hostOf(f.link)));
     const entry = { name, kind: 'wms', url: wmsGetMapUrl(f), layers, version: f.version, crs, format: SaltCore.pickWmsFormat(f.formats) };
     if (!(f.edit ? replaceBasemap(f.edit, entry) : addBasemap(entry))) return false;
     wmsFind = null;
@@ -755,7 +827,7 @@ const wmsFindHtml = () => {
         </div>${saved ? baseEditFoot('') : ''}`;
     const n = f.picked.size;
     return `<div class="map-find-head">
-            <strong class="map-find-name">${escapeHtml(f.edit || freeBasemapName(f.title || new URL(f.link).hostname))}</strong>
+            <strong class="map-find-name">${escapeHtml(f.edit || freeBasemapName(f.title || hostOf(f.link)))}</strong>
             <span class="overlays-muted">${f.layers.length} layer${f.layers.length === 1 ? '' : 's'} &middot; WMS ${f.version} &middot; read by ${escapeHtml(f.via)}</span>
         </div>
         ${f.layers.length > 10 ? '<input type="text" id="mapWmsFilter" class="map-layer-filter" placeholder="Filter layers" spellcheck="false">' : ''}
@@ -841,7 +913,11 @@ const renderBasemapManager = () => {
 };
 const basemapsChanged = () => { renderBasemapManager(); renderMapView(); };
 
+// Shown here at once; refused by the server, the list goes back to what it
+// was (unless a sync has replaced it since). A server that can't be reached
+// leaves the change in this browser.
 const saveBasemaps = async (list, said) => {
+    const before = sharedBasemaps;
     sharedBasemaps = list;
     mapBaseFailed = false;
     storeBasemaps();
@@ -852,6 +928,7 @@ const saveBasemaps = async (list, said) => {
         if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) {
             const body = await res.json().catch(() => ({}));
+            if (sharedBasemaps === list) { sharedBasemaps = before; storeBasemaps(); basemapsChanged(); }
             showToast(`The server refused the basemaps: ${body.message || res.status}`, true, { ms: 8000 });
         } else if (said) showToast(said);
     } catch (e) { showToast('Saved in this browser only: the server could not be reached.', true); }
@@ -891,16 +968,17 @@ const renderOverlayMap = (box) => {
         const hours = [[0, 'All'], [24, '24h'], [12, '12h'], [6, '6h']];
         box.innerHTML = `
             <div class="map-pane" id="mapPane">
-            <div class="map-box" id="mapBox">
+            <div class="map-box" id="mapBox" tabindex="0" role="region" aria-label="Map" aria-describedby="mapKeys">
+                <span id="mapKeys" class="visually-hidden">Arrow keys move the map, plus and minus zoom, 0 shows all, and Escape closes a report's card.</span>
                 <svg class="map-base" aria-hidden="true"><g id="mapBase"></g></svg>
                 <svg id="mapSvg" class="map-svg" role="img" aria-label="Map of the overlays and reports"></svg>
                 <!-- Pinned to the corner, open or closed, for an easy click either way. -->
                 <button type="button" id="mapSideBtn" class="map-side-btn" title="Hide the sidebar" aria-label="Sidebar" aria-pressed="true"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M6 2.75v10.5"/></svg></button>
-                <div class="map-tools" aria-label="Map controls">
+                <div class="map-tools" role="group" aria-label="Map controls">
                     <div class="map-layers" role="group" aria-label="Layers">
                         ${MAP_LAYERS.map(([k, t]) => `<button type="button" class="map-layer-btn" data-map-layer="${k}" aria-pressed="false"><span class="map-layer-check" aria-hidden="true"></span>${t}</button>`).join('')}
                     </div>
-                    <div class="filter-presets" aria-label="Time window">
+                    <div class="filter-presets" role="group" aria-label="Time window">
                         <span class="filter-presets-label">Window</span>
                         ${hours.map(([v, t]) => `<button type="button" class="filter-preset-btn" data-map-hours="${v}">${t}</button>`).join('')}
                     </div>
@@ -930,7 +1008,7 @@ const renderOverlayMap = (box) => {
                 <!-- Drones: where each is, shown or not, its view, and (editors) moving them. -->
                 <div id="mapDronePop" class="map-base-pop map-drone-pop" hidden></div>
                 <div id="mapGridReadout" class="map-grid-readout" hidden></div>
-                <div id="mapTip" class="map-tip" role="status" hidden></div>
+                <div id="mapTip" class="map-tip" hidden></div>
                 <div id="mapHint" class="map-hint" hidden>${/Mac/i.test(navigator.platform) ? '&#8984;' : 'Ctrl'} + scroll to zoom the map</div>
                 <div id="mapCard" class="map-card" hidden></div>
                 <div class="map-bottom">
@@ -970,7 +1048,7 @@ const renderDronePop = () => {
     const pop = document.getElementById('mapDronePop');
     if (!pop) return;
     const typed = [...pop.querySelectorAll('input[type="text"][id]')].map(i => [i.id, i.value, document.activeElement === i]);
-    const toggle = (id, on, label) => `<label class="map-drone-switch"><span>${label}</span><input type="checkbox" class="narr-switch" id="${id}"${on ? ' checked' : ''}></label>`;
+    const toggle = (id, on, label) => `<label class="map-drone-switch"><span>${label}</span><input type="checkbox" role="switch" class="narr-switch" id="${id}"${on ? ' checked' : ''}></label>`;
     pop.innerHTML = `<div class="map-base-pop-head">Drones</div>
         ${toggle('mapDroneShow', droneShow, 'Show on the map')}
         ${toggle('mapDroneView', droneView, 'Show its view')}
@@ -1005,7 +1083,9 @@ const renderDronePop = () => {
     });
 };
 
+// As the basemaps: refused, the list goes back to what it was.
 const saveDrones = async (list, said) => {
+    const before = sharedDrones;
     sharedDrones = list;
     storeDrones();
     renderMapView();
@@ -1015,6 +1095,7 @@ const saveDrones = async (list, said) => {
         if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) {
             const body = await res.json().catch(() => ({}));
+            if (sharedDrones === list) { sharedDrones = before; storeDrones(); renderMapView(); }
             showToast(`The server refused the drones: ${body.message || res.status}`, true, { ms: 8000 });
         } else if (said) showToast(said);
     } catch (e) { showToast('Saved in this browser only: the server could not be reached.', true); }
@@ -1024,7 +1105,7 @@ const saveDrones = async (list, said) => {
 const zoomToDrone = (d) => {
     const p = dronePoint(d);
     if (!p || !mapView) return;
-    if (!droneShow) { droneShow = true; try { localStorage.setItem('salt_drone_show', 'on'); } catch (err) { /* this session only */ } }
+    if (!droneShow) { droneShow = true; writeStored('salt_drone_show', 'on'); }
     const [x, y] = SaltCore.lonLatToMerc(p.lon, p.lat);
     mapView.cx = x; mapView.cy = y;
     mapView.mpp = Math.min(mapView.mpp, 4);
@@ -1080,14 +1161,14 @@ if (mapBody) {
         const layer = e.target.closest('[data-map-layer]');
         if (layer) {
             mapLayers[layer.dataset.mapLayer] = !mapLayers[layer.dataset.mapLayer];
-            try { localStorage.setItem('salt_map_layers', JSON.stringify(mapLayers)); } catch (err) { /* this session only */ }
+            writeStored('salt_map_layers', JSON.stringify(mapLayers));
             renderMapView();
             return;
         }
         const grids = e.target.closest('[data-map-grids]');
         if (grids) {
             mapAllGrids = grids.dataset.mapGrids === 'all';
-            try { localStorage.setItem('salt_map_grids', mapAllGrids ? 'all' : 'latest'); } catch (err) { /* this session only */ }
+            writeStored('salt_map_grids', mapAllGrids ? 'all' : 'latest');
             renderMapView();
             return;
         }
@@ -1109,7 +1190,14 @@ if (mapBody) {
         const gone = e.target.closest('[data-drone-remove]');
         if (gone) {
             const d = sharedDrones[+gone.dataset.droneRemove];
-            if (d) showConfirmation(`Remove ${d.name} from the map, for everyone?`, () => saveDrones(sharedDrones.filter(x => x !== d), `${d.name} removed.`));
+            // By its name when confirmed: a sync may have changed the list meanwhile.
+            if (d) {
+                showConfirmation(`Remove ${d.name} from the map, for everyone?`, () => {
+                    const left = sharedDrones.filter(x => x.name !== d.name);
+                    if (left.length === sharedDrones.length) { showToast(`${d.name} is no longer on the map.`, true); return; }
+                    saveDrones(left, `${d.name} removed.`);
+                });
+            }
             return;
         }
         if (e.target.closest('#mapDroneAdd')) {
@@ -1118,7 +1206,7 @@ if (mapBody) {
             if (!name) { showToast('Name the drone (e.g. GE 1).', true); return; }
             if (sharedDrones.some(d => d.name.toLowerCase() === name.toLowerCase())) { showToast(`There is already a drone called ${name}.`, true); return; }
             if (!grid) { showToast('Type its grid, e.g. 11S NV 39697 06762.', true); return; }
-            if (sharedDrones.length >= 10) { showToast('Ten drones at most.', true); return; }
+            if (sharedDrones.length >= MAX_DRONES) { showToast(`${MAX_DRONES} drones at most.`, true); return; }
             document.getElementById('mapDroneName').value = '';
             document.getElementById('mapDroneGridNew').value = '';
             saveDrones([...sharedDrones, { name, grid, at: Date.now() }], `${name} added at ${grid}.`);
@@ -1153,7 +1241,7 @@ if (mapBody) {
             e.preventDefault();
             const d = sharedDrones[+ranged.dataset.droneRange], text = ranged.value.trim().replace(/\s*km$/i, ''), km = Number(text);
             if (!d) return;
-            if (text && !(km > 0 && km <= 1000)) { showToast('Type its range in km (up to 1,000), or leave it empty for none.', true); return; }
+            if (text && !(km > 0 && km <= MAX_DRONE_RANGE_KM)) { showToast(`Type its range in km (up to ${MAX_DRONE_RANGE_KM.toLocaleString('en-US')}), or leave it empty for none.`, true); return; }
             ranged.blur();
             const { range: _, ...rest } = d;
             saveDrones(sharedDrones.map(x => (x === d ? (text ? { ...d, range: km } : rest) : x)),
@@ -1165,14 +1253,14 @@ if (mapBody) {
         if (e.target.id === 'mapDroneShow' || e.target.id === 'mapDroneView') {
             const on = e.target.checked;
             if (e.target.id === 'mapDroneShow') droneShow = on; else droneView = on;
-            try { localStorage.setItem(e.target.id === 'mapDroneShow' ? 'salt_drone_show' : 'salt_drone_view', on ? 'on' : 'off'); } catch (err) { /* this session only */ }
+            writeStored(e.target.id === 'mapDroneShow' ? 'salt_drone_show' : 'salt_drone_view', on ? 'on' : 'off');
             redrawMap();
             return;
         }
         if (e.target.id === 'mapBaseSelect') {
             mapBaseChoice = e.target.value;
             mapBaseFailed = false;
-            try { localStorage.setItem('salt_map_base', mapBaseChoice); } catch (err) { /* this session only */ }
+            writeStored('salt_map_base', mapBaseChoice);
             redrawMap();
         }
     });
@@ -1204,6 +1292,7 @@ if (baseHost) {
             const url = document.getElementById('mapTileUrl').value.trim();
             if (!b) return;
             if (!/^https?:\/\//i.test(url) || !/\{(z|TileMatrix)\}/i.test(url)) { showToast('A tile address starts with http:// or https:// and has {z}, {x} and {y}.', true); return; }
+            if (!hostOf(url.replace(/[{}]/g, ''))) { showToast(BAD_ADDRESS, true); return; }
             replaceBasemap(b.name, { ...b, url });
             return;
         }
@@ -1215,8 +1304,9 @@ if (baseHost) {
             if (baseOpen) { baseOpen = null; if (wmsFind && wmsFind.edit) wmsFind = null; }
             const text = document.getElementById('mapBaseInput').value.trim();
             if (!/^https?:\/\//i.test(text)) { showToast('Paste an address that starts with http:// or https://.', true); return; }
+            const host = hostOf(text.replace(/[{}]/g, ''));
+            if (!host) { showToast(BAD_ADDRESS, true); return; }
             if (/\{(z|TileMatrix)\}/i.test(text)) {
-                const host = new URL(text.replace(/[{}]/g, '')).hostname;
                 if (addBasemap({ name: freeBasemapName(host), kind: 'tiles', url: text })) clearBaseInputs();
                 else basemapsChanged();
             } else findWmsLayers(text);
@@ -1228,7 +1318,7 @@ if (baseHost) {
             const layers = document.getElementById('mapWmsManualLayers').value.trim();
             if (!layers) { showToast('Type the layer names to try.', true); return; }
             const saved = wmsFind.edit && sharedBasemaps.find(b => b.name === wmsFind.edit);
-            const name = saved ? saved.name : freeBasemapName(new URL(wmsFind.link).hostname);
+            const name = saved ? saved.name : freeBasemapName(hostOf(wmsFind.link));
             if (saved) replaceBasemap(saved.name, { ...saved, name, layers });
             else if (addBasemap({ name, kind: 'wms', url: wmsFind.link, layers })) { wmsFind = null; clearBaseInputs(); }
             return;
@@ -1262,6 +1352,20 @@ const togglePop = (popId, btnId) => (open) => {
 };
 const toggleBasePop = togglePop('mapBasePop', 'mapBaseBtn');
 const toggleDronePop = togglePop('mapDronePop', 'mapDroneBtn');
+// Escape closes an open menu, back to its button, and goes no further (the
+// page's own Escape would cancel an edit in the form). Only from the map, or
+// from nowhere in particular.
+document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    const open = [['mapBasePop', 'mapBaseBtn', toggleBasePop], ['mapDronePop', 'mapDroneBtn', toggleDronePop]]
+        .find(([popId]) => { const pop = document.getElementById(popId); return pop && !pop.hidden; });
+    const pane = document.getElementById('mapPane'), at = document.activeElement;
+    if (!open || (at && at !== document.body && !(pane && pane.contains(at)))) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    open[2](false);
+    document.getElementById(open[1]).focus();
+});
 document.addEventListener('click', e => {
     const path = e.composedPath();
     if (!path.some(n => n.id === 'mapBasePop' || n.id === 'mapBaseBtn')) toggleBasePop(false);
@@ -1306,6 +1410,19 @@ const wireMapBox = () => {
         m.hint.hidden = true;
         zoomAt(e, e.deltaY < 0 ? 0.8 : 1.25);
     }, { passive: false });
+    // With the map itself focused: arrow keys pan, + and - zoom, 0 shows all.
+    m.box.addEventListener('keydown', e => {
+        if (e.target !== m.box || !mapView || e.ctrlKey || e.metaKey || e.altKey) return;
+        const step = 80 * mapView.mpp;
+        const pan = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] }[e.key];
+        if (pan) { mapView.cx += pan[0]; mapView.cy += pan[1]; }
+        else if (e.key === '+' || e.key === '=') mapView.mpp *= 0.5;
+        else if (e.key === '-' || e.key === '_') mapView.mpp *= 2;
+        else if (e.key === '0') mapView.mpp = Infinity;
+        else return;
+        e.preventDefault();
+        redrawMap();
+    });
     m.box.addEventListener('dblclick', e => { if (!e.target.closest('.map-zoom, .map-card, .map-bottom, .map-base-pop, .map-tools, .map-side-btn')) zoomAt(e, 0.5); });
     let drag = null;
     m.box.addEventListener('pointerdown', e => {
