@@ -68,6 +68,7 @@ def reset_state() -> None:
     srv.workspace_sources.clear()
     srv.client_initials.clear()
     srv._rate_buckets.clear()
+    srv._basemap_buckets.clear()
     srv.invalidate_sync_cache()
     srv._dirty_atos = None
     srv._shared_dirty = True
@@ -640,6 +641,54 @@ class HttpsTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def raw_exchange(self, data: bytes) -> bytes:
+        import socket
+
+        with socket.create_connection(("127.0.0.1", self.port), timeout=5) as s:
+            s.sendall(data)
+            reply = b""
+            while chunk := s.recv(4096):
+                reply += chunk
+        return reply
+
+    def test_the_redirect_location_carries_only_url_characters(self):
+        # Regression: a bare LF in the request path went into the Location header.
+        reply = self.raw_exchange(
+            b"GET /a\nSet-Cookie:x=1/\xff HTTP/1.1\r\nHost: 127.0.0.1:"
+            + str(self.port).encode()
+            + b"\r\n\r\n"
+        )
+        head = reply.split(b"\r\n\r\n", 1)[0].split(b"\r\n")
+        self.assertEqual(head[0], b"HTTP/1.1 307 Temporary Redirect")
+        location = [h for h in head if h.startswith(b"Location:")]
+        self.assertEqual(
+            location, [f"Location: https://127.0.0.1:{self.port}/a%0ASet-Cookie:x=1/%FF".encode()]
+        )
+        self.assertFalse([h for h in head if h.lower().startswith(b"set-cookie")])
+
+    def test_a_trickling_plain_request_gets_a_bounded_wait(self):
+        # Regression: each read got the full timeout again, so a byte every few
+        # seconds held the thread for as long as the client liked.
+        import socket
+        import time
+
+        got = []
+        with (
+            mock.patch.object(srv, "TLS_HANDSHAKE_TIMEOUT", 0.5),
+            socket.create_connection(("127.0.0.1", self.port), timeout=5) as s,
+        ):
+            s.sendall(b"GET / HTTP/1.1\r\n")
+            reader = threading.Thread(target=lambda: got.append((s.recv(4096), time.monotonic())))
+            start = time.monotonic()
+            reader.start()
+            while reader.is_alive() and time.monotonic() - start < 5:
+                with contextlib.suppress(OSError):
+                    s.sendall(b"X-Slow: 1\r\n")
+                time.sleep(0.1)
+            reader.join(5)
+        self.assertTrue(got and got[0][0].startswith(b"HTTP/1.1 307"), got)
+        self.assertLess(got[0][1] - start, 3)
+
     def test_a_browser_turning_down_the_certificate_leaves_the_server_serving(self):
         with mock.patch.object(srv, "safe_print") as printed:
             with self.assertRaises(urllib.error.URLError):  # not signed by anyone it trusts
@@ -904,6 +953,137 @@ class HttpApiTests(unittest.TestCase):
             "/api/save_config", {"Content-Length": "0", "Cookie": "salt_access=é"}
         )
         self.assertEqual(status, 401)
+
+    def test_posts_must_be_json(self):
+        # A form on another site can POST text/plain without asking first;
+        # the page always sends application/json.
+        body = json.dumps({"config": {"ato": "A", "title": "T"}}).encode()
+        for ctype, expected in (
+            ("text/plain", 415),
+            ("application/x-www-form-urlencoded", 415),
+            ("multipart/form-data; boundary=x", 415),
+            ("application/json; charset=utf-8", 200),
+            ("Application/JSON", 200),
+        ):
+            status, reply = self.request(
+                "/api/save_config", raw=body, headers={"Content-Type": ctype}
+            )
+            self.assertEqual(status, expected, ctype)
+            if status == 415:
+                self.assertIn(b"must be application/json", reply)
+
+    def test_cross_site_posts_are_refused(self):
+        port = self.editor.server_address[1]
+        body = {"config": {"ato": "A", "title": "T"}}
+        for headers, expected in (
+            ({"Sec-Fetch-Site": "cross-site"}, 403),
+            ({"Origin": "https://evil.example"}, 403),
+            ({"Origin": f"http://127.0.0.1:{port + 1}"}, 403),
+            ({"Origin": "null"}, 403),
+            ({"Origin": f"http://127.0.0.1:{port}"}, 200),
+            ({"Origin": f"http://127.0.0.1:{port}", "Sec-Fetch-Site": "same-origin"}, 200),
+            ({}, 200),  # no Origin: not a browser's cross-site request
+        ):
+            status, reply = self.post("/api/save_config", body, headers=headers)
+            self.assertEqual(status, expected, headers)
+            if expected == 403:
+                self.assertEqual(reply["message"], "Cross-site request refused.")
+        self.assertTrue(srv._same_origin("https://host", "host:443", True))
+        self.assertTrue(srv._same_origin("http://[::1]:8080", "[::1]:8080", False))
+        self.assertFalse(srv._same_origin("https://host", "host:8080", True))
+        self.assertFalse(srv._same_origin("https://host:x", "host", True))
+
+    def test_every_reply_forbids_framing_and_sniffing(self):
+        def headers_of(path, **kw):
+            req = urllib.request.Request(
+                self.base + path, headers={"Cookie": f"salt_access={CODE}"}, **kw
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    return resp.headers
+            except urllib.error.HTTPError as exc:
+                with exc:
+                    return exc.headers
+
+        for path in ("/", "/api/sync", "/nowhere"):
+            h = headers_of(path)
+            self.assertEqual(h["X-Frame-Options"], "DENY", path)
+            self.assertEqual(h["Content-Security-Policy"], "frame-ancestors 'none'", path)
+            self.assertEqual(h["X-Content-Type-Options"], "nosniff", path)
+        h = headers_of("/api/save_config", data=b"{}", method="POST")
+        self.assertEqual(h["X-Frame-Options"], "DENY")
+
+    def test_deeply_nested_json_is_just_invalid(self):
+        # Regression: RecursionError got past the handler and the connection dropped.
+        status, raw = self.request("/api/save_reports", raw=b"[" * 100_000)
+        self.assertEqual((status, json.loads(raw)["message"]), (400, "Invalid JSON."))
+
+    def test_wrong_codes_are_throttled_on_gets_too(self):
+        # Regression: only POSTs were rate limited, so the code could be guessed over GET.
+        with (
+            mock.patch.object(srv, "RATE_BUCKET_CAPACITY", 2),
+            mock.patch.object(srv, "RATE_REFILL_PER_SECOND", 0.0),
+        ):
+            self.assertEqual(self.request("/api/sync")[0], 200, "a right code costs nothing")
+            self.assertEqual(self.request("/api/sync", code="WRONGCODE2")[0], 401)
+            self.assertEqual(self.request("/api/events", code="WRONGCODE2")[0], 401)
+            # Out of tokens: refused before the code is even looked at, the right one too.
+            self.assertEqual(self.request("/api/basemap?u=x", code=CODE)[0], 429)
+            self.assertEqual(self.request("/api/sync")[0], 429)
+            # The viewer port needs no code, so it isn't held up.
+            self.assertEqual(self.request("/api/sync", base=self.viewer_base, code=None)[0], 200)
+
+    def test_map_images_are_rate_limited_on_both_ports(self):
+        with (
+            mock.patch.object(srv, "BASEMAP_BUCKET_CAPACITY", 2),
+            mock.patch.object(srv, "BASEMAP_REFILL_PER_SECOND", 0.0),
+        ):
+            codes = [
+                self.request(
+                    "/api/basemap?u=http%3A%2F%2Fx%2F1.png", base=self.viewer_base, code=None
+                )[0]
+                for _ in range(3)
+            ]
+        self.assertEqual(codes, [403, 403, 429])
+        self.assertGreaterEqual(srv.BASEMAP_BUCKET_CAPACITY, 400, "a whole map view at once")
+
+    def test_one_machine_holds_a_limited_number_of_event_streams(self):
+        with mock.patch.object(srv, "MAX_SSE_PER_MACHINE", 2):
+            streams = [self.open_events() for _ in range(3)]
+            try:
+                for s in streams:
+                    s.readline()
+                self.assertTrue(self.wait_until(lambda: len(srv.sse_clients) == 2))
+                streams[0].readline()  # the blank line ending the bootstrap update
+                self.assertEqual(streams[0].readline(), b"", "the oldest was closed")
+                self.post("/api/save_config", {"config": {"ato": "A", "title": "T"}})
+                for s in streams[1:]:
+                    s.readline()
+                    self.assertEqual(s.readline(), b"data: update\n", "the newer ones still flow")
+            finally:
+                for s in streams:
+                    s.close()
+        self.assertTrue(self.wait_until(lambda: not srv.sse_clients))
+
+    def test_a_stalled_client_is_dropped_but_an_event_stream_stays_open(self):
+        import socket
+        import time
+
+        with mock.patch.object(srv.SaltSyncHandler, "timeout", 0.3):
+            stalled = socket.create_connection(self.editor.server_address, timeout=5)
+            try:
+                stalled.sendall(b"GET /api/sync HTTP/1.1\r\n")  # and nothing more
+                start = time.monotonic()
+                self.assertEqual(stalled.recv(1024), b"", "closed by the server")
+                self.assertLess(time.monotonic() - start, 3)
+            finally:
+                stalled.close()
+            with contextlib.closing(self.open_events()) as resp:
+                resp.readline()
+                resp.readline()
+                time.sleep(0.6)  # twice the idle timeout
+                self.post("/api/save_config", {"config": {"ato": "A", "title": "T"}})
+                self.assertEqual(resp.readline(), b"data: update\n")
 
     def test_files_beside_the_server_are_not_exposed(self):
         # Regression: the handler inherited SimpleHTTPRequestHandler, whose HEAD

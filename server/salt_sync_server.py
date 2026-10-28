@@ -189,14 +189,23 @@ _workbench_html_lock = threading.Lock()
 
 
 class SSEClient:
-    """Thread-safe SSE writer; carries client IP for attribution lookups."""
+    """Thread-safe SSE writer. ``ip`` is the machine key (see _machine), not the
+    raw address: every address of the host is one machine. ``sock``, when
+    given, lets the stream be closed from another thread."""
 
-    __slots__ = ('_lock', 'ip', 'wfile')
+    __slots__ = ('_lock', 'ip', 'sock', 'wfile')
 
-    def __init__(self, wfile, ip: str = ''):
+    def __init__(self, wfile, ip: str = '', sock=None):
         self.wfile = wfile
         self._lock = threading.Lock()
         self.ip = ip
+        self.sock = sock
+
+    def close(self) -> None:
+        """End the stream: its thread sees the connection close and cleans up."""
+        if self.sock is not None:
+            with contextlib.suppress(OSError):
+                self.sock.shutdown(socket.SHUT_RDWR)
 
     def send(self, payload: bytes) -> bool:
         """Write to SSE stream; False on disconnect."""
@@ -569,6 +578,17 @@ TLS_DIR_NAME = 'tls'
 TLS_CERT_DAYS = 825
 TLS_RENEW_DAYS = 30
 TLS_HANDSHAKE_TIMEOUT = 10
+# Seconds a connection may sit idle mid-request before it is closed. Not the
+# event stream, which stays open; see SaltSyncHandler.timeout.
+REQUEST_IDLE_TIMEOUT = 30
+# Event streams one machine may hold open at once (a tab each); a new one past
+# this closes that machine's oldest, which is most likely a tab long gone.
+MAX_SSE_PER_MACHINE = 10
+_SECURITY_HEADERS = (
+    ('X-Frame-Options', 'DENY'),
+    ('Content-Security-Policy', "frame-ancestors 'none'"),
+    ('X-Content-Type-Options', 'nosniff'),
+)
 MAX_OVERLAY_POINTS = 200_000  # coordinate pairs per workspace, all features together
 _FORMAT_LINE_TYPES = {'id', 'size', 'activity', 'location', 'time', 'analysis', 'custom'}
 # Report fields /api/edit_report may overwrite. History and BDA change through
@@ -1185,34 +1205,53 @@ _VALIDATORS = {
 }
 
 
-# --- Rate limiting (token bucket per IP): 1 token/POST; GETs unlimited; 429 when empty. ---
+# --- Rate limiting (token bucket per IP): 1 token per POST and per wrong access
+# code on a GET; 429 when empty. GETs with the right code (or none needed) are free. ---
 RATE_BUCKET_CAPACITY = 60
 RATE_REFILL_PER_SECOND = 5.0
 RATE_BUCKET_PRUNE_AFTER = 600.0  # drop buckets inactive longer than this
+# /api/basemap has its own, roomier bucket: a map view on a tiled basemap asks
+# for up to 400 tiles at once (core.js tilesFor), and panning asks for more.
+BASEMAP_BUCKET_CAPACITY = 600
+BASEMAP_REFILL_PER_SECOND = 10.0
 
 _rate_buckets: dict = {}  # ip -> (tokens: float, last_seen: float)
+_basemap_buckets: dict = {}  # the same, for /api/basemap
 _rate_lock = threading.Lock()
 
 
-def rate_limit_check(ip: str) -> bool:
-    """Token-bucket consume; True allowed, False rate-limited. Lazy refill on access."""
+def _take_token(buckets: dict, ip: str, capacity: float, refill: float, take: bool) -> bool:
+    """Token-bucket consume (or with ``take`` False, just look); True allowed,
+    False rate-limited. Lazy refill on access."""
     now = time.monotonic()  # immune to wall-clock changes
     with _rate_lock:
         # Lazy prune fires only on first contact for a new IP — keeps dict bounded without a thread.
-        if ip not in _rate_buckets:
+        if ip not in buckets:
             cutoff = now - RATE_BUCKET_PRUNE_AFTER
-            stale = [k for k, (_, t) in _rate_buckets.items() if t < cutoff]
+            stale = [k for k, (_, t) in buckets.items() if t < cutoff]
             for k in stale:
-                del _rate_buckets[k]
-        tokens, last = _rate_buckets.get(ip, (float(RATE_BUCKET_CAPACITY), now))
+                del buckets[k]
+        tokens, last = buckets.get(ip, (float(capacity), now))
         # Refill based on elapsed; cap at capacity.
         elapsed = max(0.0, now - last)
-        tokens = min(float(RATE_BUCKET_CAPACITY), tokens + elapsed * RATE_REFILL_PER_SECOND)
+        tokens = min(float(capacity), tokens + elapsed * refill)
         if tokens < 1.0:
-            _rate_buckets[ip] = (tokens, now)
+            buckets[ip] = (tokens, now)
             return False
-        _rate_buckets[ip] = (tokens - 1.0, now)
+        buckets[ip] = (tokens - (1.0 if take else 0.0), now)
         return True
+
+
+def rate_limit_check(ip: str, take: bool = True) -> bool:
+    """The POST and access-code bucket: True allowed, False rate-limited."""
+    return _take_token(_rate_buckets, ip, RATE_BUCKET_CAPACITY, RATE_REFILL_PER_SECOND, take)
+
+
+def basemap_rate_check(ip: str) -> bool:
+    """The /api/basemap bucket: True allowed, False rate-limited."""
+    return _take_token(
+        _basemap_buckets, ip, BASEMAP_BUCKET_CAPACITY, BASEMAP_REFILL_PER_SECOND, True
+    )
 
 
 # =============================================================================
@@ -1954,9 +1993,37 @@ def save_data_to_disk() -> None:
 # =============================================================================
 
 
+def _same_origin(origin: str, host: str, tls: bool) -> bool:
+    """True when an ``Origin`` header names the host and port the request was
+    sent to (its ``Host`` header), default ports filled in."""
+    try:
+        o = urllib.parse.urlsplit(origin)
+        h = urllib.parse.urlsplit('//' + host)
+        if o.scheme not in ('http', 'https') or not o.hostname:
+            return False
+        return o.hostname == h.hostname and (o.port or (443 if o.scheme == 'https' else 80)) == (
+            h.port or (443 if tls else 80)
+        )
+    except ValueError:  # a port that isn't a number
+        return False
+
+
 class SaltSyncHandler(server.BaseHTTPRequestHandler):
+    # A connection that sends nothing for this long is closed (StreamRequestHandler
+    # applies it in setup()), so a client that stalls can't hold a thread forever.
+    # The event stream clears it: it is meant to stay open.
+    timeout = REQUEST_IDLE_TIMEOUT
+
     def log_message(self, format, *args):
         return  # suppress per-request console noise
+
+    def end_headers(self):
+        # On every reply, error pages included: no framing by other sites
+        # (clickjacking), and no guessing a type the server didn't send. No
+        # script or style rules: the page's own are inline.
+        for name, value in _SECURITY_HEADERS:
+            self.send_header(name, value)
+        super().end_headers()
 
     def _send_body(
         self, body: bytes, content_type: str, status: int = 200, headers: tuple = ()
@@ -1988,7 +2055,13 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             if self._authorized():
                 self._handle_sse()
         elif path == '/api/basemap':
-            if self._authorized():
+            # Each one can make the server fetch and hold up to 16 MB, and the
+            # viewer port needs no code, so it is limited on both ports.
+            if not basemap_rate_check(self.client_address[0]):
+                self._send_body(
+                    b'Too many map images. Retry shortly.', 'text/plain; charset=utf-8', 429
+                )
+            elif self._authorized():
                 self._handle_basemap()
         elif path in (
             '/',
@@ -2019,10 +2092,24 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _authorized(self, body_length: int = 0) -> bool:
-        """Editor-port code check; sends 401 + False if denied. Viewer/localhost always pass."""
+        """Editor-port code check; sends 401 (or 429) + False if denied. Viewer/localhost always pass.
+
+        Wrong codes are throttled with the POST bucket whatever the method: a
+        POST has paid its token already, a GET pays one per wrong code, and
+        while the bucket is empty a GET is refused before its code is looked
+        at, so guessing over GET is no faster than over POST.
+        """
         view_only = getattr(self.server, 'view_only', False)
-        if _check_access_code(self.headers, view_only, self.client_address[0]):
+        ip = self.client_address[0]
+        get = self.command != 'POST'
+        gated = not view_only and _access_code is not None and not _is_localhost(ip)
+        if gated and get and not rate_limit_check(ip, take=False):
+            self._refuse(429, 'Rate limit exceeded. Retry shortly.', body_length)
+            return False
+        if _check_access_code(self.headers, view_only, ip):
             return True
+        if get:
+            rate_limit_check(ip)
         self._refuse(
             401, 'Access denied. Enter the access code from the server console.', body_length
         )
@@ -2112,14 +2199,22 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-cache')
         self.send_header('Connection', 'keep-alive')
         self.end_headers()
+        sock = self.request  # underlying TCP socket
+        sock.settimeout(None)  # the stream stays open: no idle timeout
 
-        client = SSEClient(self.wfile, _machine(self.client_address[0]))
+        client = SSEClient(self.wfile, _machine(self.client_address[0]), sock)
         with sse_lock:
+            # Past the cap, the machine's oldest streams make way (a tab long
+            # gone, most likely), so no one machine can hold threads without end.
+            mine = [c for c in sse_clients if c.ip == client.ip]
+            oldest = mine[: max(0, len(mine) + 1 - MAX_SSE_PER_MACHINE)]
+            sse_clients[:] = [c for c in sse_clients if c not in oldest]
             sse_clients.append(client)
+        for c in oldest:
+            c.close()
 
         client.send(b'data: update\n\n')  # bootstrap the connecting client
 
-        sock = self.request  # underlying TCP socket
         try:
             while True:
                 ready, _, _ = select.select([sock], [], [], SSE_HEARTBEAT_SECONDS)
@@ -2190,18 +2285,36 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         if getattr(self.server, 'view_only', False):
             self._refuse(405, 'This server is read-only.', length)
             return
+        # Another site's page can make a browser send a POST here (the host's
+        # own browser needs no code). Browsers say where a request comes from;
+        # anything not from the server's own page is refused.
+        origin = self.headers.get('Origin')
+        if self.headers.get('Sec-Fetch-Site', '').lower() == 'cross-site' or (
+            origin is not None
+            and not _same_origin(
+                origin, self.headers.get('Host', ''), getattr(self.server, 'tls', None) is not None
+            )
+        ):
+            self._refuse(403, 'Cross-site request refused.', length)
+            return
         # Rate-limit before auth/body so wrong-code floods are throttled too.
         if not rate_limit_check(self.client_address[0]):
             self._refuse(429, 'Rate limit exceeded. Retry shortly.', length)
             return
         if not self._authorized(length):
             return
+        # The page always sends JSON. A form on another site can't (only a
+        # script, which the browser then asks the server about first).
+        ctype = self.headers.get('Content-Type', '').split(';', 1)[0].strip().lower()
+        if path.startswith('/api/') and ctype != 'application/json':
+            self._refuse(415, 'Content-Type must be application/json.', length)
+            return
         if length > MAX_BODY_BYTES:
             self._refuse(413, 'Payload too large.', length)
             return
         try:
             data = json.loads(self.rfile.read(length))
-        except (ValueError, KeyError):
+        except (ValueError, RecursionError):  # RecursionError: nesting too deep
             self._send_json({'status': 'error', 'message': 'Invalid JSON.'}, 400)
             return
         if not isinstance(data, dict):
@@ -2719,15 +2832,28 @@ def _redirect_to_https(sock: socket.socket) -> None:
     """Answer a plain-HTTP request on an HTTPS port (an old bookmark, a typed
     address) with a redirect to the same address over https://."""
     head = b''
+    # TLS_HANDSHAKE_TIMEOUT for the whole head, not per read: a client sending
+    # a byte at a time must not hold the thread for long.
+    deadline = time.monotonic() + TLS_HANDSHAKE_TIMEOUT
     with contextlib.suppress(OSError):
         while b'\r\n\r\n' not in head and len(head) < 16384:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            sock.settimeout(left)
             chunk = sock.recv(4096)
             if not chunk:
                 break
             head += chunk
     lines = head.split(b'\r\n')
     parts = lines[0].split(b' ')
-    path = parts[1].decode('latin-1') if len(parts) > 1 and parts[1].startswith(b'/') else '/'
+    # Percent-encoded byte for byte, so nothing but URL characters (no CR, LF
+    # or space) can reach the Location header; an encoded path stays as it is.
+    path = (
+        urllib.parse.quote_from_bytes(parts[1], safe="/?#[]@!$&'()*+,;=:%~")
+        if len(parts) > 1 and parts[1].startswith(b'/')
+        else '/'
+    )
     host = next(
         (
             line.split(b':', 1)[1].strip().decode('latin-1')
@@ -2783,7 +2909,7 @@ class SaltSyncServer(socketserver.ThreadingTCPServer):
         except OSError:  # a browser turning the certificate down, or a client gone
             return
         try:
-            conn.settimeout(None)  # event streams stay open
+            # The handler sets its idle timeout in setup(); event streams clear it.
             super().finish_request(conn, client_address)
         finally:
             with contextlib.suppress(OSError):
