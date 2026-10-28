@@ -38,66 +38,112 @@ ROOT = Path(__file__).resolve().parent.parent
 CODE = "TESTCODE23"
 
 
-def free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+def free_ports(n: int = 2) -> list[int]:
+    """``n`` distinct ports free right now. Another process can still take one
+    before the server binds it, so the server is started with retries."""
+    socks = [socket.socket() for _ in range(n)]
+    try:
+        for s in socks:
+            s.bind(("127.0.0.1", 0))
+        return [s.getsockname()[1] for s in socks]
+    finally:
+        for s in socks:
+            s.close()
+
+
+def log_tail(path: Path, lines: int = 30) -> str:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "(no server log)"
+    return "\n".join(text.splitlines()[-lines:]) or "(the server printed nothing)"
 
 
 @unittest.skipUnless(sync_playwright, "playwright is not installed")
 class BrowserTests(unittest.TestCase):
     """One built server and one browser for the class; a fresh browser context per test."""
 
-    @classmethod
-    def setUpClass(cls):
-        subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / "build.py")], check=True, capture_output=True
-        )
-        cls.tmp = Path(tempfile.mkdtemp(prefix="salt-browser-"))
-        cls.port, cls.viewer_port = free_port(), free_port()
-        cls.server = subprocess.Popen(
-            [
-                sys.executable,
-                str(ROOT / "dist" / "salt_sync_server.py"),
-                "--host",
-                "127.0.0.1",
-                "--port",
-                str(cls.port),
-                "--viewer-port",
-                str(cls.viewer_port),
-                "--access-code",
-                CODE,
-                "--backup-dir",
-                str(cls.tmp / "backups"),
-                "--no-browser",
-                "--no-minimize",
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        # HTTPS, as the server starts by default, with its self-signed certificate.
-        cls.editor = f"https://127.0.0.1:{cls.port}"
-        cls.viewer = f"https://127.0.0.1:{cls.viewer_port}"
-        unverified = ssl._create_unverified_context()
-        deadline = time.monotonic() + 15
-        while True:
-            try:
-                urllib.request.urlopen(cls.editor + "/", timeout=1, context=unverified).close()
-                break
-            except OSError:
-                if time.monotonic() > deadline:
-                    raise RuntimeError("the server did not come up") from None
-                time.sleep(0.1)
-        cls.pw = sync_playwright().start()
-        cls.browser = cls.pw.chromium.launch()
+    START_ATTEMPTS = 3
+    START_SECONDS = 15
 
     @classmethod
-    def tearDownClass(cls):
-        cls.browser.close()
-        cls.pw.stop()
-        cls.server.terminate()
-        cls.server.wait(timeout=10)
-        shutil.rmtree(cls.tmp, ignore_errors=True)
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="salt-browser-"))
+        cls.addClassCleanup(shutil.rmtree, cls.tmp, ignore_errors=True)
+        # Built into the temp folder, so a developer's own dist/ is left alone.
+        build = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "build.py"), "--dist", str(cls.tmp / "dist")],
+            capture_output=True,
+            text=True,
+        )
+        if build.returncode != 0:
+            raise RuntimeError(f"the build failed:\n{build.stdout}{build.stderr}")
+        cls.start_server()
+        cls.pw = sync_playwright().start()
+        cls.addClassCleanup(cls.pw.stop)
+        cls.browser = cls.pw.chromium.launch()
+        cls.addClassCleanup(cls.browser.close)
+
+    @classmethod
+    def start_server(cls):
+        """Start the built server on free ports and wait until both answer.
+        A port taken in the meantime makes the server exit (or skip its
+        viewer), so that is retried on fresh ports. Its output goes to a log
+        file, whose tail is in the error if it never comes up."""
+        unverified = ssl._create_unverified_context()
+        for attempt in range(1, cls.START_ATTEMPTS + 1):
+            cls.port, cls.viewer_port = free_ports()
+            cls.log_path = cls.tmp / f"server-{attempt}.log"
+            with open(cls.log_path, "wb") as log:
+                cls.server = subprocess.Popen(
+                    [
+                        sys.executable,
+                        str(cls.tmp / "dist" / "salt_sync_server.py"),
+                        "--host",
+                        "127.0.0.1",
+                        "--port",
+                        str(cls.port),
+                        "--viewer-port",
+                        str(cls.viewer_port),
+                        "--access-code",
+                        CODE,
+                        "--backup-dir",
+                        str(cls.tmp / "backups"),
+                        "--no-browser",
+                        "--no-minimize",
+                    ],
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                )
+            # HTTPS, as the server starts by default, with its self-signed certificate.
+            cls.editor = f"https://127.0.0.1:{cls.port}"
+            cls.viewer = f"https://127.0.0.1:{cls.viewer_port}"
+            deadline = time.monotonic() + cls.START_SECONDS
+            waiting = [cls.editor, cls.viewer]
+            while waiting and cls.server.poll() is None and time.monotonic() < deadline:
+                try:
+                    urllib.request.urlopen(waiting[0] + "/", timeout=1, context=unverified).close()
+                    waiting.pop(0)
+                except OSError:
+                    time.sleep(0.1)
+            if not waiting:
+                cls.addClassCleanup(cls.stop_server)
+                return
+            cls.stop_server()
+        raise RuntimeError(
+            f"the server did not come up in {cls.START_ATTEMPTS} attempts; "
+            f"the last one's output ({cls.log_path}):\n{log_tail(cls.log_path)}"
+        )
+
+    @classmethod
+    def stop_server(cls):
+        if cls.server.poll() is None:
+            cls.server.terminate()
+            try:
+                cls.server.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                cls.server.kill()
+                cls.server.wait(timeout=10)
 
     def setUp(self):
         # A fresh context has empty storage, so every test starts at the first-run modal.
@@ -109,6 +155,38 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(self.errors, [], "the page threw")
 
     # -- helpers ------------------------------------------------------------- #
+    def wait_until(self, condition, message, page=None, timeout=5.0):
+        """Poll ``condition`` until it is true, or fail with ``message``. With
+        ``page``, wait through it, so Playwright keeps running route handlers."""
+        deadline = time.monotonic() + timeout
+        while not condition():
+            if time.monotonic() > deadline:
+                self.fail(f"{message} (waited {timeout:g} s)")
+            if page is None:
+                time.sleep(0.05)
+            else:
+                page.wait_for_timeout(50)
+
+    @staticmethod
+    def next_frames(page, n=2):
+        """Wait for ``n`` rendering frames: whatever an event scheduled has run."""
+        page.evaluate(
+            "n => new Promise(done => { const tick = k => k ? requestAnimationFrame(() => tick(k - 1)) : done(); tick(n); })",
+            n,
+        )
+
+    @classmethod
+    def settle(cls, page, condition="true"):
+        """Instead of sleeping through a slide or a fade: wait until every
+        finite CSS transition and animation on the page has finished, and
+        the JavaScript expression ``condition`` holds."""
+        cls.next_frames(page)  # let a transition the last action triggered start
+        page.wait_for_function(
+            "() => !document.getAnimations().some(a => a.playState === 'running'"
+            " && a.effect && a.effect.getComputedTiming().iterations !== Infinity)"
+            f" && ({condition})"
+        )
+
     def open_editor(self, initials="AB", ato=None, title="Patrol"):
         """The editor page past its first-run modal. The server trusts
         127.0.0.1, so the code is auto-filled; identity and workspace are not.
@@ -212,13 +290,20 @@ class BrowserTests(unittest.TestCase):
             "#reportLogBody tr[data-id]:has(.col-size:has-text('4x T-72, 2x BMP-2')) .bda-btn"
         )
         page.click(".bda-check-row[data-row='0'] .bda-eff-btn[data-bda-eff='Destroyed']")
+        # Note when a pull brings the assessment back from the server.
+        page.evaluate(
+            """() => { const apply = applyServerUpdate; window.bdaPulled = false;
+                applyServerUpdate = (...args) => { apply(...args);
+                    if (Object.values(args[0] || {}).flat().some(r => (r.bda || []).length === 1)) window.bdaPulled = true; }; }"""
+        )
         page.click(".bda-commit-btn")
         page.wait_for_selector("#bdaRollup:has-text('BDA 4 / 7')")
         # Let that save settle: the server has it and this page has pulled it back.
         page.wait_for_function(
             "() => fetch('/api/sync').then(r => r.json()).then(s => Object.values(s.workspaces).flat().some(r => (r.bda || []).length === 1))"
         )
-        page.wait_for_timeout(500)
+        page.wait_for_function("() => window.bdaPulled && pushesInFlight === 0 && !pullDeferred")
+        self.next_frames(page)  # and redrawn
         # One of the two BMP-2s damaged: the other stays on the checklist.
         self.assertEqual(page.input_value(".bda-check-row[data-row='0'] .bda-ck-target"), "BMP-2")
         page.fill(".bda-check-row[data-row='0'] .bda-ck-qty", "1")
@@ -245,8 +330,8 @@ class BrowserTests(unittest.TestCase):
         page = self.open_editor()
         page.click("#size")
         page.keyboard.type("2x B")
-        page.evaluate("() => syncWithServer()")
-        page.wait_for_timeout(200)
+        page.evaluate("() => syncWithServer()")  # resolves once the pull is applied
+        self.next_frames(page)  # and the redraw it scheduled has run
         page.keyboard.type("MP")
         self.assertEqual(page.input_value("#size"), "2x BMP")
 
@@ -819,10 +904,8 @@ class BrowserTests(unittest.TestCase):
         self.open_map(page)
         self.add_wms(page, "https://basemap.test/wms", [])  # its one layer comes ticked
         page.wait_for_function("() => document.querySelectorAll('#mapBase image').length === 1")
-        for _ in range(50):  # the image is on the page before its request is logged
-            if asked:
-                break
-            page.wait_for_timeout(100)
+        # The image is on the page before its request is logged.
+        self.wait_until(lambda: asked, "the map asked the WMS for no image", page)
         url = asked[-1]
         for part in ("REQUEST=GetMap", "LAYERS=imagery", "CRS=EPSG:3857", "map=ops"):
             self.assertIn(part, url)
@@ -836,10 +919,7 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_function(
             "() => [...document.querySelectorAll('#mapBase image')].some(i => i.dataset.url.includes('/tiles/'))"
         )
-        for _ in range(50):
-            if asked:
-                break
-            page.wait_for_timeout(100)
+        self.wait_until(lambda: asked, "the map asked the tile service for no tile", page)
         self.assertTrue(asked and len(asked) < 100, len(asked))
         self.assertTrue(all("/tiles/" in u for u in asked))
         options = page.locator("#mapBaseSelect option").all_text_contents()
@@ -1048,10 +1128,9 @@ class BrowserTests(unittest.TestCase):
             page.get_attribute("#mapBase image", "href").startswith("/api/basemap?u=http")
         )
         # The image is on the page before the fake service has logged its request.
-        for _ in range(50):
-            if any("GetMap" in p for p in seen):
-                break
-            time.sleep(0.1)
+        self.wait_until(
+            lambda: any("GetMap" in p for p in seen), "the fake WMS got no GetMap request"
+        )
         get_map = next(p for p in reversed(seen) if "GetMap" in p)
         self.assertIn("SRS=EPSG:4326", get_map)
         self.assertIn("VERSION=1.1.1", get_map)
@@ -1064,11 +1143,14 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector(".map-base-check.ok")
         self.assertIn("map image", page.text_content(".map-base-check"))
         page.wait_for_selector(".map-base-check", state="detached", timeout=8000)
+        # A fake clock (still running) lets the test skip past the moment an
+        # OK message would fold away, instead of waiting it out.
+        page.clock.install()
         page.evaluate(
             f"checkBasemap({{ name: 'Range Maps', kind: 'wms', url: '{base}', layers: 'bad' }})"
         )
         page.wait_for_selector(".map-base-check:has-text('not defined')")
-        page.wait_for_timeout(4600)
+        page.clock.run_for(page.evaluate("BASE_CHECK_MS") + 600)
         self.assertTrue(page.locator(".map-base-check:has-text('not defined')").is_visible())
         # Back to the same service for its layers: looked up again, those in use
         # ticked; one the service has dropped is still there, marked.
@@ -1147,7 +1229,10 @@ class BrowserTests(unittest.TestCase):
         # Clicking inside NAI 1 narrows the table to it; its chip widens it again.
         page.click("[data-map-zoom='fit']")
         page.evaluate("document.querySelector('.map-view').scrollTop = 0")
-        page.wait_for_timeout(300)
+        self.settle(
+            page,
+            "document.querySelector('.map-view').scrollTop === 0 && mapView.mpp >= mapFitMpp * 0.99",
+        )
         xy = page.evaluate("""() => {
             const r = document.getElementById('mapBox').getBoundingClientRect();
             const [x, y] = SaltCore.lonLatToMerc(44.36, 33.34);
@@ -1358,7 +1443,7 @@ class BrowserTests(unittest.TestCase):
         # Enter sets it and goes on to Location; it doesn't try to log the report.
         page.press("#mgrsPrefix", "Enter")
         self.assertEqual(page.evaluate("document.activeElement.id"), "location")
-        page.wait_for_timeout(300)
+        self.settle(page)  # a wrong toast would have shown by now
         self.assertNotIn("Please fill in", page.text_content("#toast-notification") or "")
         self.log(page, "2x BMP", location="45000 82000")
         self.assertEqual(page.input_value("#mgrsPrefix"), "38S MB")
@@ -1368,7 +1453,7 @@ class BrowserTests(unittest.TestCase):
         page = self.open_editor()
         self.import_overlays(page)
         self.open_map(page)
-        page.wait_for_timeout(500)
+        self.settle(page)  # the slide to the map and the sidebar's own
         side, btn = (
             page.locator("#mapSide").bounding_box(),
             page.locator("#mapSideBtn").bounding_box(),
@@ -1557,7 +1642,7 @@ class BrowserTests(unittest.TestCase):
             page.set_viewport_size({"width": width, "height": 900})
             page.evaluate("mapBaseFailed = true; redrawMap()")
             page.wait_for_selector("#mapNote", state="visible")
-            page.wait_for_timeout(500)  # the sidebar's slide
+            self.settle(page)  # the sidebar's slide
             note = page.locator("#mapNote").bounding_box()
             lowest = page.evaluate(
                 "Math.max(...[...document.querySelectorAll('#mapBox .map-tools > :not(#mapNote):not(.map-tools-break)')]"
@@ -1697,7 +1782,7 @@ class BrowserTests(unittest.TestCase):
                 page.click(btn)
             widths.append(round(page.locator(".report-section").bounding_box()["width"]))
             # One top bar for every view: the name in the same spot, saying which.
-            page.wait_for_timeout(400)
+            self.settle(page)  # the title's own fade-in
             box = page.locator("#homeTitle").bounding_box()
             spots.append((round(box["x"]), round(box["y"])))
             names.append(page.text_content("#homeTitle"))
@@ -1714,7 +1799,7 @@ class BrowserTests(unittest.TestCase):
         # The button by each heading slides between the two; the heading doesn't scroll.
         page.hover(".report-header h2")
         page.mouse.wheel(0, 120)
-        page.wait_for_timeout(700)
+        self.settle(page)  # a slide the wheel set off would be over
         self.assertTrue(page.locator("#logView").is_visible())
         self.assertEqual(page.text_content("#homeTitle"), "Report Log")
         page.click("[data-home-go='map']")
@@ -2031,7 +2116,7 @@ class BrowserTests(unittest.TestCase):
         page.on("pageerror", lambda exc: self.errors.append(str(exc)))
         page.goto(self.editor + "/")
         page.wait_for_selector("#startupModal.show")
-        page.wait_for_timeout(800)  # past the panes' own transitions
+        self.settle(page)  # past the panes' own transitions
         shown = page.evaluate(
             """[...document.querySelectorAll('.app-wrapper *')]
                 .filter(e => getComputedStyle(e).visibility === 'visible' && e.getClientRects().length)
