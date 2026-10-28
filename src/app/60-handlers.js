@@ -117,28 +117,27 @@ async function handleFormSubmit(mode) {
     // Edit mode also hits the dedicated server route so the server can apply a
     // surgical overwrite (no history mutation) and broadcast SSE to peers. The
     // subsequent saveLocalAndSync push still runs as a safety net via merge.
+    // Unreachable or refused, the save_reports push below reconciles or says why.
     if (editTargetId && finalReport) {
-        try {
-            await postJson('/api/edit_report', {
-                ato:      activeAto,
-                reportId: editTargetId,
-                fields: {
-                    size:         finalReport.size,
-                    activity:     finalReport.activity,
-                    location:     finalReport.location,
-                    time:         finalReport.time,
-                    yourAnalysis: finalReport.yourAnalysis,
-                    displayId:    finalReport.displayId,
-                    fullId:       finalReport.fullId,
-                    ato:          finalReport.ato,
-                    title:        finalReport.title,
-                    updated:      finalReport.updated,
-                    custom:       finalReport.custom || {},
-                    user:         userProfile,
-                    lastModified: now
-                }
-            });
-        } catch (err) { /* offline — save_reports below will reconcile on next push */ }
+        await apiPost('/api/edit_report', {
+            ato:      activeAto,
+            reportId: editTargetId,
+            fields: {
+                size:         finalReport.size,
+                activity:     finalReport.activity,
+                location:     finalReport.location,
+                time:         finalReport.time,
+                yourAnalysis: finalReport.yourAnalysis,
+                displayId:    finalReport.displayId,
+                fullId:       finalReport.fullId,
+                ato:          finalReport.ato,
+                title:        finalReport.title,
+                updated:      finalReport.updated,
+                custom:       finalReport.custom || {},
+                user:         userProfile,
+                lastModified: now
+            }
+        });
     }
 
     // Await the push so a stale broadcast from another client can't clobber the
@@ -320,17 +319,17 @@ el.log.deleteBtn.addEventListener('click', () => {
                 }
             });
             reportsByAto[activeAto] = localReports;
-            // Tell the server to remove the same entries server-side and broadcast SSE.
-            try {
-                await postJson('/api/delete_history', { ato: activeAto, deletions: histSel });
-            } catch (err) { /* offline — local change persists, server reconciles on next push */ }
+            // Tell the server to remove the same entries server-side and broadcast
+            // SSE. Unreachable or refused, the push below carries the same change.
+            await apiPost('/api/delete_history', { ato: activeAto, deletions: histSel });
         }
         // Persist locally + push (save_reports merges by lastModified, which we bumped above).
-        await saveLocalAndSync(reportsByAto);
+        const saved = await saveLocalAndSync(reportsByAto);
         resetForm();
         el.log.deleteBtn.style.display = 'none';
         const canUndo = undone.ids.length || Object.keys(undone.history).length;
-        showToast(`${total} item(s) deleted.`, false, canUndo ? { ms: UNDO_MS, undo: () => undoDeletion(ato, undone) } : {});
+        showToast(saved || isLocalFile ? `${total} item(s) deleted.` : `${total} item(s) deleted here; the server can't be reached.`,
+            false, canUndo ? { ms: UNDO_MS, undo: () => undoDeletion(ato, undone) } : {});
     });
 });
 
@@ -389,8 +388,9 @@ el.log.sortHeaders.forEach(th => th.addEventListener('click', () => {
     writeStored('salt_sort_mode', currentSortMode); updateSortIcons(); renderLog(el.log.search.value.toLowerCase());
 }));
 
-// Config / ATO — shared logic for Set button and history dropdown
-async function applyAtoConfig() {
+// Config / ATO — shared logic for Set button and history dropdown. `post`
+// false keeps it here only (it is already the server's).
+async function applyAtoConfig({ post = true } = {}) {
     const newAto   = el.config.ato.value.trim().toUpperCase();
     const newTitle = el.config.title.value.trim();
     if (!newAto || !newTitle) { showToast('Enter both an ATO Designator and a Report Title.', true); return; }
@@ -402,8 +402,7 @@ async function applyAtoConfig() {
     writeStored('salt_last_active_ato', activeAto);
     writeStored('salt_offline_config', JSON.stringify(localConfig));
     setAtoState(true); renderLog();
-    try { await postJson('/api/save_config', { config: newConfig }); showToast('Configuration Synced.'); }
-    catch(e) { showToast('Configuration Saved Locally.'); }
+    if (post) saveToast(await apiPost('/api/save_config', { config: newConfig }), isLocalFile ? 'Configuration saved.' : 'Configuration synced.');
     // If a sync ran during the await and clobbered anything, restore the intended state.
     activeAto    = newAto;
     localConfig  = newConfig;
@@ -451,8 +450,8 @@ el.profile.setBtn.addEventListener('click', async () => {
     if (!initials) { showToast('Enter your initials.', true); return; }
     userProfile = { initials, color };
     writeStored('salt_user_profile_local', JSON.stringify(userProfile));
-    try { await postJson('/api/save_profile', { profile:userProfile }); } catch(e){}
-    showToast('Profile saved!'); updateProfilePreview(); syncWithServer();
+    saveToast(await apiPost('/api/save_profile', { profile:userProfile }), 'Profile saved.');
+    updateProfilePreview(); syncWithServer();
 });
 // Scope this to the profile menu's swatches so the startup-modal swatches
 // (same class, different container) don't trigger the profile-side update.
@@ -683,7 +682,7 @@ el.startup.continueBtn.addEventListener('click', async () => {
         // 1. Save the user's identity locally + to the server.
         userProfile = { initials, color: el.startup.color.value || '#0a84ff' };
         writeStored('salt_user_profile_local', JSON.stringify(userProfile));
-        try { await postJson('/api/save_profile', { profile: userProfile }); } catch(e){}
+        const saved = isLocalFile ? { ok: true } : await apiPost('/api/save_profile', { profile: userProfile });
         // Sync the profile preview in the header.
         el.profile.initials.value = initials;
         el.profile.color.value    = userProfile.color;
@@ -695,6 +694,8 @@ el.startup.continueBtn.addEventListener('click', async () => {
         el.config.ato.value   = ato;
         el.config.title.value = title;
         await applyAtoConfig();
+        // Said last, so the workspace's toast doesn't cover it.
+        if (!saved.ok && saved.status !== 0 && saved.status !== 401) showToast(`Identity not saved: ${saved.message}`, true);
     } finally {
         el.startup.continueBtn.disabled = false;
     }

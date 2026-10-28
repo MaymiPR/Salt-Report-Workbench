@@ -42,19 +42,14 @@ const markRefused = (ato, report, reason) => {
 // find exactly which reports it refuses, so one bad report can't hold back
 // the rest. Returns { queued, refused: [reasons] }.
 async function sendBatch(ato, batch, source) {
-    let res;
-    try {
-        res = await postJson('/api/save_reports', source ? { ato, reports: batch, source } : { ato, reports: batch });
-    } catch (err) {
-        return { queued: true, refused: [] };
-    }
+    const res = await apiPost('/api/save_reports', source ? { ato, reports: batch, source } : { ato, reports: batch });
     if (res.ok) { markSaved(ato, batch); return { queued: false, refused: [] }; }
-    if (res.status === 401) { handleUnauthorized(); return { queued: true, refused: [] }; }
-    if (res.status === 429 || res.status >= 500) return { queued: true, refused: [] };
+    // Unreachable, code rejected (apiPost re-prompts), rate limited, or a
+    // server error: sent again later.
+    if (res.status === 0 || res.status === 401 || res.status === 429 || res.status >= 500) return { queued: true, refused: [] };
     if (batch.length === 1) {
-        const message = await res.json().then(j => j.message).catch(() => '') || `HTTP ${res.status}`;
         // The batch index ("reports[0].size ...") means nothing to an operator.
-        const reason = message.replace(/^Validation failed: reports\[\d+\]\./, 'Validation failed: ').replace(/\.?$/, '.');
+        const reason = res.message.replace(/^Validation failed: reports\[\d+\]\./, 'Validation failed: ');
         markRefused(ato, batch[0], reason);
         return { queued: false, refused: [reason] };
     }
@@ -72,13 +67,11 @@ async function sendBatch(ato, batch, source) {
 // as "Not saved" and the user is told why.
 async function pushWorkspace(ato, reports, source) {
     if (!reports.length) {
-        try {
-            const res = await postJson('/api/unload_ato', { ato });
-            if (res.status === 401) { handleUnauthorized(); return 'queued'; }
-            return res.status === 429 || res.status >= 500 ? 'queued' : 'ok';
-        } catch (err) {
-            return 'queued';
-        }
+        const res = await apiPost('/api/unload_ato', { ato });
+        if (res.ok) return 'ok';
+        if (res.status === 0 || res.status === 401 || res.status === 429 || res.status >= 500) return 'queued';
+        showToast(`The server did not unload ${ato}: ${res.message}`, true);
+        return 'rejected';
     }
     const batch = SaltCore.changedReports(reports, serverVersions[ato]).filter(r => {
         const u = unsavedEntry(ato, r);
@@ -139,7 +132,7 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
         if (isFormat(format)) {
             if (JSON.stringify(format) !== JSON.stringify(sharedFormat)) adoptFormat(format);
         } else if (sharedFormat && !readOnly && !isStockFormat()) {
-            postJson('/api/save_format', { format: sharedFormat }).catch(() => {});
+            apiPost('/api/save_format', { format: sharedFormat });
         }
     }
     // The shared overlays: the server's set wins. An unchanged set keeps its
@@ -162,7 +155,7 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     // is given this browser's, like the format.
     if (narrative && typeof narrative === 'object' && !Array.isArray(narrative)) {
         if (!Object.keys(narrative).length && Object.keys(sharedNarrative).length && !readOnly) {
-            postJson('/api/save_narrative', { narrative: sharedNarrative }).catch(() => {});
+            apiPost('/api/save_narrative', { narrative: sharedNarrative });
         } else if (JSON.stringify(narrative) !== JSON.stringify(sharedNarrative)) {
             sharedNarrative = narrative;
             if (!readOnly) storeNarrative();

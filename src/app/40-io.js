@@ -133,13 +133,20 @@ const renderWorkspacesList = () => {
 };
 
 // Unload a workspace: server POST + local state clear. Active-workspace
-// unload clears `activeAto` and the local config too.
+// unload clears `activeAto` and the local config too. Only once the server
+// has unloaded it: a pull would bring back one it still holds.
 async function unloadWorkspace(ato) {
     if (isReadOnly) { showToast('View-only mode. Unload is disabled here.', true); return; }
     if (!ato || !reportsByAto[ato]) return;
-    const wasActive = (ato === activeAto);
     showConfirmation(`Unload workspace "${ato}" from view? (Backup file on disk is preserved.)`, async () => {
-        try { await postJson('/api/unload_ato', { ato }); } catch(e){}
+        const res = isLocalFile ? { ok: true } : await apiPost('/api/unload_ato', { ato });
+        if (!res.ok) {
+            if (res.status !== 401) showToast(`Not unloaded: ${res.message}`, true);
+            return;
+        }
+        // Whether it is the active one now, not when the prompt opened: a
+        // sync while it was open may have switched workspaces.
+        const wasActive = (ato === activeAto);
         delete reportsByAto[ato];
         delete workspaceSources[ato];
         saveReportsByAtoToLocal();
@@ -494,14 +501,22 @@ function processJsonImport(rawText) {
             }
             closeExportView();
             loadConfig();
-            if (imp.profiles) { for (const key in imp.profiles) { try { await postJson('/api/save_profile', { profile: imp.profiles[key] }); } catch(e){} } }
-            if (imp.config && imp.config.ato) { try { await postJson('/api/save_config', { config: imp.config }); } catch(e){} }
+            // The rest goes to the server as it is; what it refuses is said.
+            const refusals = [];
+            const send = async (path, body) => {
+                if (isLocalFile) return;
+                const r = await apiPost(path, body);
+                if (!r.ok && r.status !== 0 && r.status !== 401) refusals.push(r.message);
+            };
+            if (imp.profiles) { for (const key in imp.profiles) await send('/api/save_profile', { profile: imp.profiles[key] }); }
+            if (imp.config && imp.config.ato) await send('/api/save_config', { config: imp.config });
             if (unsent) {
                 // Don't sync: it would drop the workspaces the server never got.
                 showToast(`${unsent} workspace(s) couldn't reach the server. Import the file again once it's back.`, true);
                 return;
             }
-            showToast('Import successful. Syncing...');
+            if (refusals.length) showToast(`Imported, but not all of it was saved: ${refusals[0]}`, true);
+            else showToast('Import successful. Syncing...');
             syncWithServer();
         } catch (err) { showToast('Import failed: ' + (err && err.message ? err.message : 'invalid file'), true); }
     });

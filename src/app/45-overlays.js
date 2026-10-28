@@ -254,19 +254,12 @@ const saveOverlays = async (list) => {
     renderLog();
     renderLocationHints();
     if (isLocalFile) return true;
-    try {
-        const res = await postJson('/api/save_overlays', { overlays: list });
-        if (res.status === 401) { handleUnauthorized(); return false; }
-        if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            showToast(`The server refused the overlays: ${body.message || res.status}`, true, { ms: 8000 });
-            return false;
-        }
-        return true;
-    } catch (e) {
-        showToast('Saved in this browser only: the server could not be reached. Import again once it is back.', true, { ms: 8000 });
-        return false;
-    }
+    const res = await apiPost('/api/save_overlays', { overlays: list });
+    if (res.ok || res.status === 401) return res.ok;   // 401: asked for the code again
+    showToast(res.status === 0
+        ? 'Saved in this browser only: the server could not be reached. Import again once it is back.'
+        : `The server refused the overlays: ${res.message}`, true, { ms: 8000 });
+    return false;
 };
 
 const finishOverlayImport = async () => {

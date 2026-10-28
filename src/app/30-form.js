@@ -98,7 +98,12 @@ const saveWorkspaceFormat = (format) => {
     applyFormFieldOrder();
     // Custom fields own table columns now, so the log has to repaint too.
     renderLog();
-    postJson('/api/save_format', { format }).catch(() => {});
+    // The server's format wins on the next sync, so one it didn't take is lost:
+    // say so, whatever the toast that called this said.
+    return apiPost('/api/save_format', { format }).then(r => {
+        if (!r.ok && r.status !== 401 && !isLocalFile) showToast(`Format not saved: ${r.message}`, true);
+        return r.ok;
+    });
 };
 
 // --- Location against the overlays ---

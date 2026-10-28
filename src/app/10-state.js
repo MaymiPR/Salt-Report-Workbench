@@ -475,6 +475,31 @@ const copyToClipboard = (text) => {
 const postJson = (path, body) => fetch(path, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });
+// POST and say how it went: { ok, status, message }, where message is the
+// server's reason when it gives one. Never throws: a server that can't be
+// reached is status 0. A rejected access code (401) re-prompts for it.
+const apiPost = async (path, body) => {
+    let res;
+    try {
+        res = await postJson(path, body);
+    } catch (e) {
+        return { ok: false, status: 0, message: 'The server can\'t be reached.' };
+    }
+    const json = await res.json().catch(() => null);
+    const said = json && typeof json.message === 'string' ? json.message.trim() : '';
+    let message = said || (res.ok ? '' : `The server answered ${res.status}`);
+    if (message && !/[.!?]$/.test(message)) message += '.';
+    if (res.status === 401) handleUnauthorized();
+    return { ok: res.ok, status: res.status, message };
+};
+// The toast for a save: `okText` when the server took it (or there is no
+// server, opened from a file), else why not. Unreachable is not an error: the
+// change is kept here.
+const saveToast = (r, okText) => {
+    if (r.ok || isLocalFile) showToast(okText);
+    else if (r.status === 0) showToast('Saved here; the server can\'t be reached.');
+    else showToast(`Not saved: ${r.message}`, true);
+};
 // A dropdown never runs past the bottom of the window or of the panel that
 // holds it (which clips it): it gets the room below its button, and scrolls
 // inside that if it needs more.
