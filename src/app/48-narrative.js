@@ -349,8 +349,14 @@ const saveNarrForm = () => {
     // A click anywhere but in a dropdown closes it.
     document.addEventListener('click', e => { if (!e.target.closest('.narr-dd')) closeDropdowns(); });
     box.addEventListener('keydown', e => {
-        if (e.key === 'Escape' && box.querySelector('.narr-dd-menu:not([hidden])')) { closeDropdowns(); return; }
-        if (e.key === 'Escape' && narrOpen) { go(null); return; }
+        // Escape handled here goes no further (the page's would cancel an edit in the form).
+        const open = box.querySelector('.narr-dd-menu:not([hidden])');
+        if (e.key === 'Escape' && (open || narrOpen)) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (open) { closeDropdowns(); open.closest('.narr-dd').querySelector('.narr-dd-btn').focus(); } else go(null);
+            return;
+        }
         if (e.key !== 'Enter' || e.target.tagName !== 'INPUT') return;
         e.preventDefault();
         if (e.target.id === 'narrEnemy') e.target.blur();
