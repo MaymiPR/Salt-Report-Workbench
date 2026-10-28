@@ -159,13 +159,23 @@ SSE_HEARTBEAT_SECONDS: float = 15.0
 # Per-workspace provenance (ato -> source label). Rides on /api/sync. Protected by data_lock.
 workspace_sources: dict = {}
 
+# Workspaces unloaded since the server started, until someone works in one
+# again. Each editor keeps their own workspace, so an editor in one of these is
+# told to leave it by this list, not by the config. Rides on /api/sync.
+# Protected by data_lock.
+unloaded_workspaces: set = set()
+
 # --- SSE client registry ---
 sse_lock = threading.Lock()
 sse_clients: list = []
 
 # Machine (see _machine) -> initials. Powers the deduped /api/sync connected list
-# and server-stamped attribution on /api/edit_report. Pruned on SSE disconnect. Protected by sse_lock.
+# and server-stamped attribution on report saves. Pruned on SSE disconnect. Protected by sse_lock.
 client_initials: dict = {}
+# Machine -> the workspace its editor is in, from their switches and saves:
+# each editor has their own, and /api/sync says who is where. Pruned with
+# client_initials. Protected by sse_lock.
+client_workspace: dict = {}
 
 # --- Debounced disk-write state ---
 _save_timer: threading.Timer | None = None
@@ -177,8 +187,9 @@ _save_timer_lock = threading.Lock()
 # No look-alikes (0/O, 1/I/l, 5/S), so the code can be read aloud over a radio.
 ACCESS_CODE_ALPHABET = '2346789ABCDEFGHJKLMNPQRTUVWXYZ'
 ACCESS_CODE_LENGTH = 10
-# --access-code overrides: characters a browser cookie carries unchanged.
-ACCESS_CODE_OVERRIDE_RE = re.compile(r'[A-Za-z0-9_-]{1,64}')
+# --access-code overrides: characters a browser cookie carries unchanged, and
+# at least six of them, so a chosen code is not guessed in a few tries.
+ACCESS_CODE_OVERRIDE_RE = re.compile(r'[A-Za-z0-9_-]{6,64}')
 # Set at boot (parse_cli_args). None means access-code auth is disabled.
 _access_code: str | None = None
 
@@ -1385,6 +1396,38 @@ def _report_key(r: dict) -> str | None:
     return str(key) if key and isinstance(key, (str, int, float)) else None
 
 
+# What a report says, as against who saved it and when: a change to any of
+# these makes the operator who sent it the report's author.
+_CONTENT_FIELDS = tuple(f for f in _EDITABLE_FIELDS if f not in ('updated', 'user', 'lastModified'))
+
+
+def _says_more(old: dict | None, r: dict) -> bool:
+    """Whether ``r`` is a new report, or says something else than ``old``."""
+    return old is None or any(r.get(f) != old.get(f) for f in _CONTENT_FIELDS)
+
+
+def _written(existing_list: list, incoming_list: list) -> list:
+    """The reports in ``incoming_list`` that are new or changed."""
+    have = {k: r for r in existing_list if (k := _report_key(r))}
+    return [r for r in incoming_list if _says_more(have.get(_report_key(r)), r)]
+
+
+def _stamp_operator(existing_list: list, incoming_list: list, operator: dict) -> list:
+    """``incoming_list`` with ``user`` set to ``operator`` on every report that
+    is new or says something else than the server's copy. A report only
+    deleted, put back or assessed (BDA) keeps the author it has."""
+    have = {k: r for r in existing_list if (k := _report_key(r))}
+    out = []
+    for r in incoming_list:
+        old = have.get(_report_key(r))
+        if _says_more(old, r):
+            r = {**r, 'user': operator}
+        elif 'user' in old and r.get('user') != old['user']:
+            r = {**r, 'user': old['user']}
+        out.append(r)
+    return out
+
+
 def _merge_reports(existing_list: list, incoming_list: list) -> list:
     """Merge by id (or legacy displayId); higher lastModified wins."""
     by_id: dict = {}
@@ -2189,6 +2232,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                     'drones': DATA_STORE.get('drones', []),
                     'narrative': DATA_STORE.get('narrative', {}),
                     'sources': workspace_sources,
+                    'unloaded': sorted(unloaded_workspaces),
                 }
                 full = json.dumps(data, separators=(',', ':'))
                 _sync_cache_prefix = full[:-1].encode('utf-8')
@@ -2200,12 +2244,16 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             connected = len({c.ip for c in sse_clients})
             seen: set = set()
             initials_list: list = []
+            where: dict = {}
             for c in sse_clients:
                 ini = client_initials.get(c.ip, '')
                 if ini and ini not in seen:
                     seen.add(ini)
                     initials_list.append(ini)
+                    if ato := client_workspace.get(c.ip):
+                        where[ini] = ato
         initials_json = json.dumps(initials_list, ensure_ascii=False).encode('utf-8')
+        where_json = json.dumps(where, ensure_ascii=False).encode('utf-8')
         # `read_only` is per-listener — lives in the dynamic tail, not the shared prefix.
         ro = b'true' if getattr(self.server, 'view_only', False) else b'false'
         body = (
@@ -2214,6 +2262,8 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             + str(connected).encode('ascii')
             + b',"connected_initials":'
             + initials_json
+            + b',"connected_where":'
+            + where_json
             + b',"read_only":'
             + ro
             + b'}'
@@ -2278,6 +2328,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 still_here = any(c.ip == client.ip for c in sse_clients)
                 if not still_here:
                     client_initials.pop(client.ip, None)
+                    client_workspace.pop(client.ip, None)
 
     def _serve_workbench(self) -> None:
         content = _get_workbench_html()
@@ -2379,6 +2430,26 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             ini = client_initials.get(machine, '')
         return f'{ini}@{ip}' if ini else ip
 
+    def _operator(self) -> dict | None:
+        """The profile of the operator at this machine, as the server knows it
+        (from their profile and their saves), or None while it doesn't."""
+        machine = _machine(self.client_address[0])
+        with sse_lock:
+            ini = client_initials.get(machine, '')
+        if not ini:
+            return None
+        with data_lock:
+            return DATA_STORE['profiles'].get(ini)
+
+    def _now_in(self, ato: str) -> bool:
+        """Note that this machine's editor is working in ``ato``. True when
+        that is news, so the others are told who is where."""
+        machine = _machine(self.client_address[0])
+        with sse_lock:
+            changed = client_workspace.get(machine) != ato
+            client_workspace[machine] = ato
+        return changed
+
     def _commit(self, what: str, **extra) -> None:
         """The end of every successful write: log it, persist, notify clients, confirm."""
         audit(self._actor(), what)
@@ -2413,10 +2484,35 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             return
         incoming = data.get('reports', [])
         source = (data.get('source') or '').strip().lower()
+        imported = source in ('backup', 'csv')
+        if not imported:
+            # Learn this connection's operator from the reports it wrote, for
+            # IP attribution: the new and changed ones (a report only deleted
+            # still names its author). Not from imports: a backup or CSV
+            # carries other people's reports, and the importer would take on
+            # their identity.
+            with data_lock:
+                written = _written(DATA_STORE['workspaces'].get(ato, []), incoming)
+            for r in written:
+                ini = ((r.get('user') or {}).get('initials') or '').strip()
+                if ini:
+                    machine = _machine(self.client_address[0])
+                    with sse_lock:
+                        client_initials[machine] = ini
+                    break
+        # Whoever is here wrote what they send, whatever the reports say. An
+        # import keeps its reports' own authors.
+        operator = None if imported else self._operator()
+        # A backup sends every workspace in it; the importer is in only one.
+        if source != 'backup':
+            self._now_in(ato)
         with data_lock:
             is_new = ato not in DATA_STORE['workspaces']
             existing = DATA_STORE['workspaces'].get(ato, [])
+            if operator:
+                incoming = _stamp_operator(existing, incoming, operator)
             DATA_STORE['workspaces'][ato] = _merge_reports(existing, incoming)
+            unloaded_workspaces.discard(ato)
             # Provenance label; routine edits don't touch source.
             if source == 'backup':
                 workspace_sources[ato] = 'Uploaded backup (.txt)'
@@ -2426,23 +2522,12 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 workspace_sources[ato] = 'In-session'
             invalidate_sync_cache()
             mark_dirty(ato)
-        if source in ('backup', 'csv'):
+        if imported:
             # Console bulk-import notification (browser shows full state).
             label = 'Backup (.txt)' if source == 'backup' else 'CSV (.csv)'
             safe_print('\n' + '─' * 64)
             safe_print(f"[+] Loaded {label}: {len(incoming)} report(s) merged into ATO '{ato}'.")
             safe_print('─' * 64)
-        else:
-            # Learn this connection's operator from the reports it logs, for IP
-            # attribution. Not from imports: a backup or CSV carries other
-            # people's reports, and the importer would take on their identity.
-            for r in incoming:
-                ini = ((r.get('user') or {}).get('initials') or '').strip()
-                if ini:
-                    machine = _machine(self.client_address[0])
-                    with sse_lock:
-                        client_initials[machine] = ini
-                    break
         deleted = sum(1 for r in incoming if r.get('deleted'))
         what = f'save_reports {ato}: {len(incoming)} report(s)'
         if deleted:
@@ -2456,8 +2541,13 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         if not ato:
             self._bad_request('Missing ATO.')
             return
+        with sse_lock:
+            for machine in [m for m, a in client_workspace.items() if a == ato]:
+                del client_workspace[machine]
         with data_lock:
             changed = DATA_STORE['workspaces'].pop(ato, None) is not None
+            if changed:
+                unloaded_workspaces.add(ato)
             workspace_sources.pop(ato, None)
             # Its files now hold the only copy of it: none is let go as superseded.
             _merged_files.pop(ato, None)
@@ -2486,14 +2576,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             return
         # Server-stamped attribution: override client `user` with our IP->initials->profile lookup.
         # Falls back to client claim for brand-new IPs.
-        machine = _machine(self.client_address[0])
-        with sse_lock:
-            known_initials = client_initials.get(machine, '')
-        if known_initials:
-            with data_lock:
-                known_profile = DATA_STORE['profiles'].get(known_initials)
-            if known_profile:
-                fields['user'] = known_profile
+        if operator := self._operator():
+            fields['user'] = operator
+        self._now_in(ato)
         found = stale = False
         with data_lock:
             for r in DATA_STORE['workspaces'].get(ato, []):
@@ -2575,7 +2660,17 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         # every client on every sync, so arbitrary extra keys would
         # bloat everyone's payload and the backup file.
         clean = {'ato': cfg.get('ato', ''), 'title': cfg.get('title', '')}
+        # Each editor has their own workspace: this is the one viewers are
+        # shown, and where this editor now is.
+        moved = self._now_in((clean['ato'] or '').strip().upper())
+        with data_lock:
+            revived = clean['ato'] in unloaded_workspaces
+            unloaded_workspaces.discard(clean['ato'])
+            if revived:
+                invalidate_sync_cache()
         if not self._store_shared('config', clean):  # the config rides in every file
+            if moved or revived:
+                broadcast_update()
             self._unchanged()
             return
         self._commit(f'save_config {clean["ato"]} / {clean["title"]}')
@@ -3138,7 +3233,7 @@ def parse_cli_args() -> argparse.Namespace:
     if args.access_code is not None and not ACCESS_CODE_OVERRIDE_RE.fullmatch(
         args.access_code.strip()
     ):
-        p.error('--access-code must be 1-64 letters, digits, "-" or "_"')
+        p.error('--access-code must be 6-64 letters, digits, "-" or "_"')
     return args
 
 

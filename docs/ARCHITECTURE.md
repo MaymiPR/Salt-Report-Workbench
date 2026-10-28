@@ -124,14 +124,14 @@ handler's `_POST_ROUTES` table, paired with a schema validator in
 | --- | --- | --- |
 | `/`, `/index.html` | GET | The bundled page. On the viewer port it is stamped `read-only` before any script runs; for the host's own browser the access code is injected into a `<meta>` tag. |
 | `/Salt%20Report%20Workbench.html` | GET | The same page, under its old single-file name, so old bookmarks still open it. |
-| `/api/sync` | GET | Full state: workspaces, config, profiles, the report format, overlays, basemaps, drones, the narrative's settings, sources, connected users. |
+| `/api/sync` | GET | Full state: workspaces, config (the workspace viewers are shown), profiles, the report format, overlays, basemaps, drones, the narrative's settings, sources, the workspaces unloaded since the server started (`unloaded`), connected users, and which workspace each connected editor is in (`connected_where`, initials to ATO). |
 | `/api/events` | GET | Server-Sent Events stream. Each message just says "something changed"; clients then call `/api/sync`. |
 | `/api/basemap?u=` | GET | An image from an `http://` basemap, for an HTTPS page that can't load it itself. Only from the host of a saved basemap; a redirect followed only on that host (to https, say); images only, up to 16 MB. |
-| `/api/save_reports` | POST | Merge a batch of reports into a workspace. |
-| `/api/edit_report` | POST | Overwrite fields of one report in place, without touching its history. |
+| `/api/save_reports` | POST | Merge a batch of reports into a workspace. A report that is new or says something new is stamped with the sender's profile as its author; one only deleted or put back keeps the author it has; an import (`source` `backup` or `csv`) keeps its reports' own. |
+| `/api/edit_report` | POST | Overwrite fields of one report in place, without touching its history, stamped with the sender's profile. The page's Edit sends only this; `save_reports` carries it when the server can't be reached. |
 | `/api/delete_history` | POST | Remove individual history entries. |
 | `/api/unload_ato` | POST | Drop a workspace from memory. |
-| `/api/save_config` | POST | Set the active ATO and title. |
+| `/api/save_config` | POST | Say which ATO and title this editor is in, and make it the one viewers are shown. Each editor keeps their own workspace; no other editor moves. |
 | `/api/save_profile` | POST | Register an operator's initials and color. |
 | `/api/save_format` | POST | Save the report format (Builder): one for every workspace. An `ato` from an older page is ignored. |
 | `/api/save_overlays` | POST | Replace the shared NAI / OBJ / PL overlays (GeoJSON geometries, longitude/latitude). An empty list clears them. |
@@ -366,9 +366,9 @@ against.
 
 | Lock | Guards |
 | --- | --- |
-| `data_lock` | `DATA_STORE`, `workspace_sources`, the sync cache |
+| `data_lock` | `DATA_STORE`, `workspace_sources`, `unloaded_workspaces`, the sync cache |
 | `_sync_gz_lock` | the last `/api/sync` body and its gzip form |
-| `sse_lock` | `sse_clients`, `client_initials` |
+| `sse_lock` | `sse_clients`, `client_initials`, `client_workspace` |
 | `SSEClient._lock` | one per SSE connection: whole writes to that client's stream |
 | `_disk_lock` | ordering of backup writes |
 | `_save_timer_lock` | the debounce timer |

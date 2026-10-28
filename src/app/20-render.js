@@ -256,7 +256,7 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
     // nothing of the kind is left, rather than focusing the wrong one.
     const had = document.activeElement;
     const names = had && had !== document.body && el.log.body.contains(had) && !bdaFocus
-        ? ['data-id', 'data-lm', 'data-history-id', 'data-bda-id', 'data-edit-id', 'data-restore-id', 'data-discard-id', 'data-bda-del', 'data-fix-loc']
+        ? ['data-id', 'data-lm', 'data-history-id', 'data-bda-id', 'data-edit-id', 'data-restore-id', 'data-discard-id', 'data-renumber-id', 'data-bda-del', 'data-fix-loc']
             .filter(a => had.hasAttribute(a)).map(a => `[${a}="${CSS.escape(had.getAttribute(a))}"]`)
         : [];
     const refocus = names.length ? had.tagName.toLowerCase() + names.join('') + (had.classList[0] ? `.${CSS.escape(had.classList[0])}` : '') : null;
@@ -301,6 +301,9 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
     const cusCells = (obj, key) => cusCols.map(l =>
         `<td class="col-custom">${clampCell((obj || {})[l.label] || '', `${key}|custom:${l.label}`)}</td>`).join('');
     const editingId = el.form.reportId.value;
+    // Numbers two live reports share, in the whole workspace (not only the
+    // rows a search leaves).
+    const dupes = SaltCore.duplicateIds(localReports);
 
     // Build into a fragment — one reflow on attach instead of N.
     const frag = document.createDocumentFragment();
@@ -317,16 +320,18 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
             ? `<button class="history-btn ${isOpen ? 'open' : ''}" data-history-id="${escapeHtml(report.id)}" title="View past versions" aria-label="Past versions of ${escapeHtml(shownId)}" aria-expanded="${isOpen}">&#8250;</button>`
             : `<button class="history-btn" style="visibility:hidden;" disabled aria-hidden="true">&#8250;</button>`;
         const refused     = isReadOnly ? null : unsavedEntry(activeAto, report);
-        let statusText    = (report.updated || refused)
-            ? `<span class="id-cell-wrap">${escapeHtml(shownId)}${report.updated ? '<span class="id-updated-badge">(Updated)</span>' : ''}${refused ? `<span class="unsaved-badge" title="${escapeHtml(refused.reason)}">Not saved</span>` : ''}</span>`
+        const dupe        = dupes.has(report.displayId);
+        let statusText    = (report.updated || refused || dupe)
+            ? `<span class="id-cell-wrap">${escapeHtml(shownId)}${report.updated ? '<span class="id-updated-badge">(Updated)</span>' : ''}${refused ? `<span class="unsaved-badge" title="${escapeHtml(refused.reason)}">Not saved</span>` : ''}${dupe ? '<span class="dupe-badge" title="Another report has this number">Duplicate</span>' : ''}</span>`
             : escapeHtml(shownId);
         // Editors load a report into the form from its row; the Identifier is
         // a button so the keyboard can too (it looks as the text did).
         if (!isReadOnly) {
-            const said = `Edit ${shownId}${report.updated ? ', updated' : ''}${refused ? `, not saved: ${refused.reason}` : ''}`;
+            const said = `Edit ${shownId}${report.updated ? ', updated' : ''}${refused ? `, not saved: ${refused.reason}` : ''}${dupe ? ', another report has this number' : ''}`;
             statusText = `<button type="button" class="id-edit-btn" data-edit-id="${escapeHtml(report.id)}" aria-label="${escapeHtml(said)}">${statusText}</button>`;
         }
         const discardBtn  = refused ? `<button class="discard-btn" data-discard-id="${escapeHtml(report.id)}" title="Drop this unsaved change">Discard</button>` : '';
+        const renumberBtn = dupe && !isReadOnly ? `<button class="renumber-btn" data-renumber-id="${escapeHtml(report.id)}" title="Give this report the next free number" aria-label="Renumber ${escapeHtml(shownId)}">Renumber</button>` : '';
         // Use the user recorded on the report itself (avoids color collisions
         // when two operators share initials).
         const reporter    = report.user || null;
@@ -350,7 +355,7 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
                         : `All ${done} assessed`;
             bdaBtn = `<button class="bda-btn ${state}${worstCls ? ' bda-worst-' + worstCls : ''}${openBdaRows.has(report.id) ? ' open' : ''}" data-bda-id="${escapeHtml(report.id)}" title="${tip}" aria-expanded="${openBdaRows.has(report.id)}">${label}</button>`;
         }
-        row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${escapeHtml(report.id)}" title="Select" aria-label="Select ${escapeHtml(shownId)}"${selectedRows.has(rid) ? ' checked' : ''}> ${histBtn} <button class="copy-btn" data-id="${escapeHtml(report.id)}" aria-label="Copy ${escapeHtml(shownId)}">Copy</button>${discardBtn}${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${clampCell(report.size, `${rid}|size`)}</td><td class="col-activity">${clampCell(report.activity, `${rid}|activity`)}</td><td class="col-location">${clampCell(report.location, `${rid}|location`)}${locationTags(report.location, report.id)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}</td><td class="col-analysis">${clampCell(report.yourAnalysis, `${rid}|analysis`)}</td>${cusCells(report.custom, rid)}`;
+        row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${escapeHtml(report.id)}" title="Select" aria-label="Select ${escapeHtml(shownId)}"${selectedRows.has(rid) ? ' checked' : ''}> ${histBtn} <button class="copy-btn" data-id="${escapeHtml(report.id)}" aria-label="Copy ${escapeHtml(shownId)}">Copy</button>${discardBtn}${renumberBtn}${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${clampCell(report.size, `${rid}|size`)}</td><td class="col-activity">${clampCell(report.activity, `${rid}|activity`)}</td><td class="col-location">${clampCell(report.location, `${rid}|location`)}${locationTags(report.location, report.id)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}</td><td class="col-analysis">${clampCell(report.yourAnalysis, `${rid}|analysis`)}</td>${cusCells(report.custom, rid)}`;
         frag.appendChild(row);
 
         if (bdaMode && openBdaRows.has(report.id)) frag.appendChild(buildBdaRow(report));

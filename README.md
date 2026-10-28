@@ -100,8 +100,8 @@ write is refused.
 
 ### And also
 
-- **Workspaces:** separate ATOs, each with its own reports. Switch, and the team
-  switches with you.
+- **Workspaces:** separate ATOs, each with its own reports. Each editor works in
+  their own, and the Workspaces list shows who is where.
 - **Report builder:** reorder the lines, switch between SALT and SALT-U, or add
   your own fields such as `W: Weather`.
 - **Overlays:** import NAIs, objectives and phase lines from KML, KMZ, GeoJSON or a
@@ -208,7 +208,7 @@ environment variables.
 | `--viewer-port PORT` | `8081` | Read-only port. `0` turns it off. |
 | `--host HOST` | `0.0.0.0` | Interface to listen on. `127.0.0.1` keeps it to this machine. |
 | `--backup-dir DIR` | `Auto Backups/` beside the server | Where backups are written and loaded from. |
-| `--access-code CODE` | random each launch | Use a fixed editor code. |
+| `--access-code CODE` | random each launch | Use a fixed editor code: 6 to 64 letters, digits, `-` or `_`. |
 | `--no-access-code` | off | Let anyone on the network edit. **Only on a fully trusted network.** |
 | `--cert FILE`, `--key FILE` | the server's own | Use your own TLS certificate and key (PEM), and browsers that trust it don't warn. |
 | `--no-https` | off | Plain HTTP. The code and reports cross the network unencrypted. |

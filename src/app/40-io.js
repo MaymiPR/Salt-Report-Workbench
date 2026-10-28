@@ -109,6 +109,11 @@ const renderWorkspacesList = () => {
             const sourceHtml = source
                 ? `<span class="workspace-source">${escapeHtml(source)}</span>`
                 : `<span class="workspace-source empty">source unknown</span>`;
+            // The editors working in it (each editor has their own workspace).
+            const here = Object.keys(connectedWhere).filter(ini => connectedWhere[ini] === ato).sort();
+            const hereHtml = here.length
+                ? `<span class="workspace-here" title="Editors in this workspace">${here.map(escapeHtml).join(', ')}</span>`
+                : '';
             // `data-switch-ato` is used by viewer mode (whole row clickable).
             // ACTIVE dot is a flex sibling of the ATO text so it stays pinned
             // beside the title even when long titles ellipsize. SHOWING dot
@@ -120,7 +125,7 @@ const renderWorkspacesList = () => {
                         ${activeTag}
                         ${showingTag ? `<div class="workspace-row-tags">${showingTag}</div>` : ''}
                     </div>
-                    <div class="workspace-row-meta">${sourceHtml}</div>
+                    <div class="workspace-row-meta">${sourceHtml}${hereHtml}</div>
                 </div>
                 <div class="workspace-row-counts"><strong>${live.length}</strong> unique reports<br>${live.length + histTotal} total reports</div>
                 <button type="button" class="workspace-row-unload" data-unload-ato="${escapeHtml(ato)}">Unload</button>
@@ -131,6 +136,28 @@ const renderWorkspacesList = () => {
     if (el.workspaces.list)        el.workspaces.list.innerHTML        = html;
     if (el.workspaces.sidebarList) el.workspaces.sidebarList.innerHTML = html;
 };
+
+// This editor is in no workspace now (theirs was unloaded): they set one
+// to log again.
+function leaveWorkspace() {
+    if (activeAto) markPending(activeAto, false);
+    activeAto    = '';
+    localReports = [];
+    localConfig  = { ato:'', title:'' };
+    writeStored('salt_offline_config', JSON.stringify(localConfig));
+    removeStored('salt_last_active_ato');
+    offlinePendingPush = false;
+    writeStored('salt_offline_push', 'false');
+    loadConfig();
+    resetForm();
+}
+
+// Who is in which workspace, on the connected-operators chips: "AB in ALPHA".
+function renderWhoIsWhere() {
+    const where = Object.entries(connectedWhere).sort(([a], [b]) => a.localeCompare(b));
+    const label = where.length ? where.map(([ini, ato]) => `${ini} in ${ato}`).join(', ') : 'Users connected';
+    document.querySelectorAll('.connected-users-chip').forEach(chip => { chip.title = label; });
+}
 
 // Unload a workspace: server POST + local state clear. Active-workspace
 // unload clears `activeAto` and the local config too. Only once the server
@@ -144,24 +171,11 @@ async function unloadWorkspace(ato) {
             if (res.status !== 401) showToast(`Not unloaded: ${res.message}`, true);
             return;
         }
-        // Whether it is the active one now, not when the prompt opened: a
-        // sync while it was open may have switched workspaces.
-        const wasActive = (ato === activeAto);
         markPending(ato, false);
         delete reportsByAto[ato];
         delete workspaceSources[ato];
         saveReportsByAtoToLocal();
-        if (wasActive) {
-            activeAto    = '';
-            localReports = [];
-            localConfig  = { ato:'', title:'' };
-            writeStored('salt_offline_config', JSON.stringify(localConfig));
-            removeStored('salt_last_active_ato');
-            offlinePendingPush = false;
-            writeStored('salt_offline_push', 'false');
-            loadConfig();
-            resetForm();
-        }
+        if (ato === activeAto) leaveWorkspace();
         renderLog();
         populateAtoHistory();
         renderWorkspacesList();
@@ -491,7 +505,7 @@ function processJsonImport(rawText) {
     const impOverlays = SaltCore.foldOverlays(imp.overlays);
     const takesFormat = !!(imp.formats && typeof imp.formats === 'object' && isStockFormat() && Object.values(imp.formats).some(isFormat));
     const effects = ['Merge the backup file into the log? A report in both keeps whichever version is newer.'];
-    if (switchTo && (switchTo.ato !== activeAto || switchTo.title !== localConfig.title)) effects.push(`${switchTo.ato} becomes the active workspace for everyone.`);
+    if (switchTo && (switchTo.ato !== activeAto || switchTo.title !== localConfig.title)) effects.push(`It switches you to ${switchTo.ato}; nobody else moves.`);
     if (operators.length) effects.push(`The tag colors of ${operators.slice(0, 5).join(', ')}${operators.length > 5 ? ` and ${operators.length - 5} more` : ''} are set from it for everyone.`);
     if (impOverlays.length) effects.push(impOverlays.length === 1 ? 'Its overlay replaces any with the same type and name.' : `Its ${impOverlays.length} overlays replace any with the same type and name.`);
     if (takesFormat) effects.push('Its report format replaces the stock one.');
@@ -736,17 +750,9 @@ const confirmCsvImport = async () => {
     // Now push to the server and wait for the response. By awaiting here, any
     // SSE-triggered sync that fires afterwards is guaranteed to see our reports
     // already in the server's state — eliminating the race where a stale sync
-    // could overwrite the freshly-imported data.
-    const intendedAto = activeAto;
+    // could overwrite the freshly-imported data. The import moves only this
+    // editor: a sync leaves each editor in their own workspace.
     await pushToServer('csv');
-    // If a concurrent sync arrived during the await and demoted activeAto, restore it
-    // and re-anchor localReports to the destination we imported into.
-    if (activeAto !== intendedAto) {
-        activeAto = intendedAto;
-        writeStored('salt_last_active_ato', intendedAto);
-    }
-    localReports = reportsByAto[activeAto] || [];
-    renderLog();
     } catch (err) {
         showToast('Import error: ' + (err && err.message ? err.message : String(err)), true);
         console.error('CSV import failed:', err);

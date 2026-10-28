@@ -154,12 +154,12 @@ async function handleFormSubmit(mode) {
         if (toastsShown === toastsBefore) showToast(ok ? `${shownId} ${verb} and copied.` : `${shownId} ${verb}. It couldn't be copied: use Copy on its row.`);
     });
 
-    // Edit mode also hits the dedicated server route so the server can apply a
-    // surgical overwrite (no history mutation) and broadcast SSE to peers. The
-    // subsequent saveLocalAndSync push still runs as a safety net via merge.
-    // Unreachable or refused, the save_reports push below reconciles or says
-    // why. A 409 is the server holding a newer version than the one edited:
-    // fetch it and ask, as when the change is seen before submitting.
+    // Edit mode saves through the dedicated server route, a surgical
+    // overwrite (no history mutation) that the server stamps with who made it
+    // and broadcasts to peers. That is the one save: taken, the push below
+    // finds nothing left to send. Unreachable or refused, the push below sends
+    // it or says why. A 409 is the server holding a newer version than the one
+    // edited: fetch it and ask, as when the change is seen before submitting.
     if (editTargetId && finalReport) {
         const res = await apiPost('/api/edit_report', {
             ato:      activeAto,
@@ -180,7 +180,8 @@ async function handleFormSubmit(mode) {
                 lastModified: now
             }
         });
-        if (res.status === 409) {
+        if (res.ok) markSaved(activeAto, [finalReport]);
+        else if (res.status === 409) {
             await syncWithServer();
             const theirs = localReports.find(r => r.id === editTargetId && !r.deleted);
             if (!theirs) { showToast('That report no longer exists. Another operator may have deleted it.', true); return; }
@@ -243,6 +244,12 @@ el.log.body.addEventListener('click', e => {
     if (discardBtn) {
         e.stopPropagation();
         discardUnsaved([discardBtn.dataset.discardId]);
+        return;
+    }
+    const renumberBtn = e.target.closest('[data-renumber-id]');
+    if (renumberBtn) {
+        e.stopPropagation();
+        renumberReport(renumberBtn.dataset.renumberId);
         return;
     }
     const restoreBtn = e.target.closest('[data-restore-id]');
@@ -478,9 +485,8 @@ el.log.sortHeaders.forEach(th => th.addEventListener('click', () => {
     writeStored('salt_sort_mode', currentSortMode); updateSortIcons(); renderLog(el.log.search.value.toLowerCase());
 }));
 
-// Config / ATO — shared logic for Set button and history dropdown. `post`
-// false keeps it here only (it is already the server's).
-async function applyAtoConfig({ post = true } = {}) {
+// Config / ATO — shared logic for Set button and history dropdown.
+async function applyAtoConfig() {
     const newAto   = el.config.ato.value.trim().toUpperCase();
     const newTitle = el.config.title.value.trim();
     if (!newAto || !newTitle) { showToast('Enter both an ATO Designator and a Report Title.', true); return; }
@@ -493,28 +499,10 @@ async function applyAtoConfig({ post = true } = {}) {
     writeStored('salt_last_active_ato', activeAto);
     writeStored('salt_offline_config', JSON.stringify(localConfig));
     setAtoState(true); renderLog();
-    // While it's being sent, a sync carrying the server's old workspace keeps
-    // this one (applyServerUpdate reads switchingTo), and a pull asked for
-    // before now is asked for again (syncWithServer reads configEpoch).
-    configEpoch++;
-    switchingTo = newConfig;
-    try {
-        if (post) saveToast(await apiPost('/api/save_config', { config: newConfig }), isLocalFile ? 'Configuration saved.' : 'Configuration synced.');
-    } finally {
-        if (switchingTo === newConfig) switchingTo = null;
-    }
-    // If a sync ran during the await and clobbered anything, restore the
-    // intended state, the reports with it: left as the old workspace's, the
-    // next report logged would have copied them all into this one.
-    activeAto    = newAto;
-    localConfig  = newConfig;
-    localReports = reportsByAto[activeAto] || [];
-    writeStored('salt_last_active_ato', activeAto);
-    writeStored('salt_offline_config', JSON.stringify(localConfig));
-    renderLog();
-    // The fields too (an earlier sync's empty config may have landed), unless
-    // the user has started changing them again.
-    if (!configChanging) { el.config.ato.value = newAto; el.config.title.value = newTitle; setAtoState(true); }
+    renderWorkspacesList();
+    // The switch moves only this editor. The server is told so viewers are
+    // shown this workspace, and the others see who is where.
+    saveToast(await apiPost('/api/save_config', { config: newConfig }), isLocalFile ? 'Configuration saved.' : 'Configuration synced.');
 }
 
 // Typed in: a sync leaves the fields alone until Set.
@@ -788,8 +776,6 @@ el.startup.continueBtn.addEventListener('click', async () => {
     // Validate the access code by attempting a sync. The server returns
     // 401 if the cookie's code doesn't match; on success we save the
     // code and proceed to save identity + workspace.
-    // The same answer says which workspace the server has active.
-    let current = serverConfig;
     if (!isReadOnly && !isLocalFile) {
         setAccessCode(code);
         try {
@@ -802,8 +788,6 @@ el.startup.continueBtn.addEventListener('click', async () => {
                 }
                 return;
             }
-            const state = probe.ok ? await probe.json().catch(() => null) : null;
-            if (state) current = state.config || {};
         } catch (e) {
             // Network error — let the user proceed; the offline path will
             // catch up when the server is reachable.
@@ -823,13 +807,12 @@ el.startup.continueBtn.addEventListener('click', async () => {
         selectSwatch(userProfile.color);
         updateProfilePreview();
 
-        // 2. Save the workspace config via the same path the Set button uses,
-        //    so all clients adopt the new ATO/Title on their next sync. Only
-        //    when it differs from the server's: the same one needn't be sent.
+        // 2. Set the workspace the way the Set button does. It moves only this
+        //    editor; the server is told where they are, even when it's the
+        //    one viewers are already shown.
         el.config.ato.value   = ato;
         el.config.title.value = title;
-        const unchanged = !!current && String(current.ato || '').toUpperCase() === ato && (current.title || '') === title;
-        await applyAtoConfig({ post: !unchanged });
+        await applyAtoConfig();
         // Said last, so the workspace's toast doesn't cover it.
         if (!saved.ok && saved.status !== 0 && saved.status !== 401) showToast(`Identity not saved: ${saved.message}`, true);
     } finally {

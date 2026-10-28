@@ -124,6 +124,9 @@ async function pushPending() {
     return true;
 }
 
+// Pulls can overlap, and their answers arrive in any order: one asked for
+// before another that has already been applied is older, and is dropped.
+let pullsAsked = 0, pullApplied = 0;
 async function syncWithServer() {
     if (pushesInFlight > 0) { pullDeferred = true; return; }
     try {
@@ -131,24 +134,24 @@ async function syncWithServer() {
         // pull replaces local state, so they would be lost.
         if (offlinePendingPush && activeAto && !(await pushToServer())) return;
         if (!(await pushPending())) { setConnectionStatus(false); return; }
-        // A switch of workspace started, or still being saved, when this pull
-        // was asked for: the server may answer with the old workspace. Once
-        // the switch is saved, that answer is stale and is asked for again;
-        // while it is still being saved, applyServerUpdate keeps the new one.
-        const epoch = configEpoch, duringSwitch = !!switchingTo;
+        const pull = ++pullsAsked;
         const res = await fetch('/api/sync');
         if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) throw new Error('Server unreachable');
         const state = await res.json();
-        if ((epoch !== configEpoch || duringSwitch) && !switchingTo) { setConnectionStatus(true); syncWithServer(); return; }
-        applyServerUpdate(state.workspaces, state.config, state.profiles, state.connected_users, state.sources, state.connected_initials, state.read_only, state.format, state.overlays, state.basemaps, state.narrative, state.drones);
+        if (pull < pullApplied) return;
+        pullApplied = pull;
+        applyServerUpdate(state);
         setConnectionStatus(true);
     } catch (err) {
         setConnectionStatus(false);
     }
 }
 
-function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources, connInitials, readOnly, format, overlays, basemaps, narrative, drones) {
+// `state` is the server's /api/sync answer.
+function applyServerUpdate(state) {
+    const { workspaces, config, profiles, sources, format, overlays, basemaps, narrative, drones } = state;
+    const readOnly = state.read_only, connectedUsers = state.connected_users;
     // The report format: the server's wins. A server that has none yet (a new
     // one, or one upgraded from per-workspace formats) is given this browser's.
     if (format && typeof format === 'object') {
@@ -196,10 +199,16 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
         writeStored(_PROFILES_CACHE_KEY, JSON.stringify(profiles));
     }
     workspaceSources  = sources       || {};
-    connectedInitials = Array.isArray(connInitials) ? connInitials : [];
+    connectedWhere    = state.connected_where && typeof state.connected_where === 'object' ? state.connected_where : {};
+    renderWhoIsWhere();
     // Viewer mode flag — CSS hides mutation UI; JS guards also check it.
     isReadOnly = !!readOnly;
     document.body.classList.toggle('read-only', isReadOnly);
+    // This editor's workspace, unloaded by someone: it's left. One the
+    // server didn't have at the last pull wasn't (it has no reports yet, or
+    // was switched to while it was listed).
+    const unloadedMine = !readOnly && activeAto && reportsByAto[activeAto] && !(workspaces || {})[activeAto]
+        && Array.isArray(state.unloaded) && state.unloaded.includes(activeAto);
     reportsByAto = workspaces || {};
     serverVersions = {};
     Object.entries(reportsByAto).forEach(([ato, reps]) => { serverVersions[ato] = SaltCore.knownVersions(reps); });
@@ -216,9 +225,10 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     if (droppedUnsaved) saveUnsaved();
     saveReportsByAtoToLocal();
 
-    // ATO/Title sync. Editors: server config is authoritative.
-    // Viewers: `activeAto` mirrors the editor's choice (server config);
-    // `viewerShowingAto` is the viewer's local override. Reports come from showing.
+    // ATO/Title sync. Editors: each keeps their own; the server's is only what
+    // the startup modal offers. Viewers: `activeAto` mirrors the workspace
+    // viewers are shown (server config); `viewerShowingAto` is the viewer's
+    // local override. Reports come from showing.
     serverConfig = config && config.ato && config.title ? { ato: config.ato, title: config.title } : { ato: '', title: '' };
     if (isReadOnly) {
         const prevActive = activeAto;
@@ -235,25 +245,12 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
                 || null;
         }
         localReports = viewerShowingAto ? (reportsByAto[viewerShowingAto] || []) : [];
-    } else if (switchingTo) {
-        // This editor is switching workspace and the server hasn't been told
-        // yet: its old one must not come back in the meantime.
-        activeAto = switchingTo.ato;
-        localConfig = { ...switchingTo };
-        localReports = reportsByAto[activeAto] || [];
-    } else if (config && config.ato && config.title) {
-        activeAto = config.ato;
-        localConfig = { ato: config.ato, title: config.title };
-        writeStored('salt_offline_config', JSON.stringify(localConfig));
-        writeStored('salt_last_active_ato', activeAto);
-        localReports = reportsByAto[activeAto] || [];
+    } else if (unloadedMine) {
+        const gone = activeAto;
+        leaveWorkspace();
+        showToast(`Workspace "${gone}" was unloaded by another operator. Set a workspace to keep logging.`, true);
     } else {
-        // Server config empty (e.g., another client just unloaded the active ATO).
-        activeAto = null;
-        localReports = [];
-        localConfig = { ato: '', title: '' };
-        writeStored('salt_offline_config', JSON.stringify(localConfig));
-        removeStored('salt_last_active_ato');
+        localReports = activeAto ? (reportsByAto[activeAto] || []) : [];
     }
 
     loadConfig({ fromSync: true });

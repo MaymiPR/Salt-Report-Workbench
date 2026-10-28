@@ -198,6 +198,20 @@ const reportNum = (r) => {
     return m ? parseInt(m[1], 10) : 0;
 };
 
+// The report numbers (displayIds) two or more live reports share: logged at
+// once on two machines, one of them offline, say.
+const duplicateIds = (reports) => {
+    const seen = new Set(), twice = new Set();
+    (reports || []).forEach(r => {
+        if (!r || r.deleted || !r.displayId) return;
+        (seen.has(r.displayId) ? twice : seen).add(r.displayId);
+    });
+    return twice;
+};
+
+// The number after the highest a workspace's live reports use.
+const nextNum = (reports) => (reports || []).filter(r => r && !r.deleted).reduce((m, r) => Math.max(m, reportNum(r)), 0) + 1;
+
 // Display form of a report's identifier: Title <separator> ATO###, where the
 // separator is 'dash' (" - ") or 'space'. Legacy reports without title or
 // displayId fall back to the stored, concatenated fullId.
@@ -3799,7 +3813,7 @@ const withUnsaved = (serverReps, unsavedReps) => {
 const SaltCore = {
     pad2, dateFields, clockValue, fileStamp, toTimeString, autoColon, parseFilterTime, typedTime, submittedTime, parseCsvTime,
     escapeHtml, safeColor, safeFilename,
-    atoPrefix, reportNum, formatFullId, reportText, normalizeLocation, mgrsPrefix, applyMgrsPrefix,
+    atoPrefix, reportNum, duplicateIds, nextNum, formatFullId, reportText, normalizeLocation, mgrsPrefix, applyMgrsPrefix,
     BDA_EFFECTS, bdaElements, bdaSummary, bdaRollup, bdaCount, bdaPending,
     backupFilename, foldOverlays, overlayKey, backupText, allWorkspacesBackupText, parseBackup,
     parseCsv, reportsCsv, mtiCsvs,

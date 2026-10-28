@@ -209,9 +209,10 @@ if (viewerAtLoad) ['salt_reports_by_ato', 'salt_unsaved'].forEach(removeStored);
 let reportsByAto  = viewerAtLoad ? {} : readStored('salt_reports_by_ato', {});
 let activeAto     = null;
 // Viewer-only: the workspace the viewer has clicked to look at locally.
-// `activeAto` always tracks the server's config.ato (the editor's choice);
-// `viewerShowingAto` overrides which workspace's reports populate the log.
-// When null or equal to activeAto, the viewer is following the editor.
+// A viewer's `activeAto` tracks the server's config.ato (the workspace
+// viewers are shown: the last one an editor switched to); `viewerShowingAto`
+// overrides which workspace's reports populate the log. When null or equal
+// to activeAto, the viewer is following the editors.
 let viewerShowingAto = null;
 let localReports  = [];
 // Mirror of the server's profile dict; embedded in backup exports so
@@ -221,20 +222,15 @@ let localProfiles = {};
 // sync of a later session (or offline).
 const _PROFILES_CACHE_KEY = 'salt_profiles_cache';
 let localConfig   = readStored('salt_offline_config', { ato: '', title: '' });
-// The active workspace as the server last said ({ ato, title }, empty when it
-// has none), or null before the first sync. The startup modal goes by it.
+// The workspace viewers are shown, as the server last said ({ ato, title },
+// empty when it has none), or null before the first sync. Each editor has
+// their own workspace: this one is only what the startup modal offers.
 let serverConfig  = null;
-// The workspace this editor is switching to while save_config is on its way
-// ({ ato, title }), so a sync in between can't switch it back. Null otherwise.
-let switchingTo   = null;
-// Counts this editor's workspace switches, so a pull asked for before one
-// can tell its answer is out of date (syncWithServer).
-let configEpoch   = 0;
 let userProfile   = null;
 // ato → source descriptor ("alpha01.txt" | "Uploaded backup" | "In-session").
 let workspaceSources = {};
-// Deduped initials list for the Manage panel (no IPs).
-let connectedInitials = [];
+// Initials -> workspace of each connected editor who is in one (no IPs).
+let connectedWhere = {};
 // Editor-port access code: cached in localStorage + carried via cookie so
 // fetch + EventSource include it automatically. Cleared on 401 → re-prompts.
 let accessCode = '';
