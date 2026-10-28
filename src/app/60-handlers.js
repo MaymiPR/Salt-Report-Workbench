@@ -691,13 +691,17 @@ const openStartupModal = () => {
     el.startup.overlay.classList.add('show');
     el.startup.overlay.setAttribute('aria-hidden', 'false');
 
-    // Focus the first empty field for a smooth flow.
+    // Focus the first empty field for a smooth flow, unless someone is
+    // already in one of the fields: moved mid-word, the rest of what they
+    // type lands in the next box (a sync filling the ATO in meanwhile makes
+    // the first empty one the Title).
     const opener = document.activeElement;
     setTimeout(() => {
         if (!el.startup.overlay.classList.contains('show')) return;
         if (!dialogOpeners.has(el.startup.overlay)) dialogOpeners.set(el.startup.overlay, opener);
-        enterDialog(el.startup.overlay, !el.startup.initials.value ? el.startup.initials
-            : !el.startup.ato.value ? el.startup.ato : el.startup.title);
+        const typing = el.startup.overlay.contains(document.activeElement) ? document.activeElement : null;
+        enterDialog(el.startup.overlay, typing || (!el.startup.initials.value ? el.startup.initials
+            : !el.startup.ato.value ? el.startup.ato : el.startup.title));
     }, 50);
 };
 

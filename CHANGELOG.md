@@ -29,6 +29,14 @@ All notable changes to this project are documented here. The format follows
 - **A chosen `--access-code` must be at least 6 characters** (the generated
   one is 10).
 
+### Fixed
+
+- **The welcome screen no longer moves the cursor out of a box being typed
+  in.** A moment after opening it puts the cursor in the first empty box; when
+  a sync had filled in the ATO by then, the rest of an ATO being typed went
+  into the Title box, and the editor started in the workspace viewers are
+  shown instead of the one typed.
+
 ## [2.18.0] - 2026-10-28
 
 ### Added
