@@ -99,6 +99,9 @@ DATA_STORE: dict = {
     # Shared like the overlays; each browser picks one to show and fetches it
     # straight from that service.
     'basemaps': [],
+    # Drones shown on the map: [{name, grid, at}], where they were last put
+    # (an MGRS grid) and when (ms). Shared like the basemaps.
+    'drones': [],
     # The narrative's settings (Summary Reports > Narrative): what the enemy
     # is called, the known units and where they operate, equipment added to
     # the catalogue, rules switched off, and the team's own rules.
@@ -423,6 +426,9 @@ MAX_BDA_TARGET = 200
 MAX_BDA_EFFECT = 30
 MAX_BDA_NOTE = 500
 MAX_OVERLAYS = 500  # NAI / OBJ / PL features per workspace
+MAX_DRONES = 10  # drones on the map
+MAX_DRONE_NAME = 40
+MAX_DRONE_RANGE_KM = 1000  # how far a drone can see, at most
 MAX_OVERLAY_NAME = 40
 MAX_OVERLAY_LABEL = 100
 MAX_BASEMAPS = 20
@@ -457,6 +463,7 @@ _EQUIPMENT_ROLES = frozenset(
         'air',
         'infantry',
         'light',
+        'vehicle',  # added in 2.17: a vehicle of no given type
     }
 )
 _EQUIPMENT_ORIGINS = frozenset({'RU', 'CN', ''})
@@ -866,6 +873,48 @@ def _v_save_basemaps(data: dict) -> str | None:
     return None
 
 
+# An MGRS grid as the page writes it ("11S NV 39697 06762"); the page checks
+# that its letters belong together.
+_DRONE_GRID_RE = re.compile(r'\d{1,2}[C-HJ-NP-X] [A-HJ-NP-Z][A-HJ-NP-V] \d{1,5} \d{1,5}')
+
+
+def _v_save_drones(data: dict) -> str | None:
+    drones = data.get('drones')
+    if not isinstance(drones, list):
+        return 'drones must be a list'
+    if len(drones) > MAX_DRONES:
+        return f'too many drones (max {MAX_DRONES})'
+    names = set()
+    for i, d in enumerate(drones):
+        if not isinstance(d, dict):
+            return f'drones[{i}] must be an object'
+        name = d.get('name')
+        if not _is_str(name, MAX_DRONE_NAME) or not name.strip():
+            return f'drones[{i}].name must be a non-empty string ≤{MAX_DRONE_NAME} chars'
+        if name.strip().lower() in names:
+            return f'drones[{i}].name is used twice'
+        names.add(name.strip().lower())
+        grid = d.get('grid')
+        if not isinstance(grid, str) or not _DRONE_GRID_RE.fullmatch(grid):
+            return f'drones[{i}].grid must be an MGRS grid like "11S NV 39697 06762"'
+        if not _is_int(d.get('at')):
+            return f'drones[{i}].at must be a time in milliseconds'
+        # Optional: where it's looking (a grid), and how far it can see (km).
+        look = d.get('look')
+        if look is not None and (not isinstance(look, str) or not _DRONE_GRID_RE.fullmatch(look)):
+            return f'drones[{i}].look must be an MGRS grid like "11S NV 39697 06762"'
+        rng = d.get('range')
+        if rng is not None and (
+            isinstance(rng, bool)
+            or not isinstance(rng, (int, float))
+            or not 0 < rng <= MAX_DRONE_RANGE_KM
+        ):
+            return (
+                f'drones[{i}].range must be a number of km, more than 0 and ≤{MAX_DRONE_RANGE_KM}'
+            )
+    return None
+
+
 def _v_save_narrative(data: dict) -> str | None:
     n = data.get('narrative')
     if not isinstance(n, dict):
@@ -1025,14 +1074,24 @@ def basemap_proxy_allowed(url: str) -> bool:
     return False
 
 
-class _NoRedirects(urllib.request.HTTPRedirectHandler):
-    """A redirect could lead off the saved host, so none are followed."""
+class _SameHostRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows a redirect only on the saved host: to another path, or from
+    http:// to https:// (as many services now send every http request). One to
+    any other host could reach past the saved basemaps, so it isn't followed."""
+
+    max_redirections = 3
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
+        old, new = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
+        same = (
+            new.scheme in ('http', 'https')
+            and (new.hostname or '').lower() == (old.hostname or '').lower()
+            and (new.port == old.port or (new.scheme == 'https' and new.port in (None, 443)))
+        )
+        return super().redirect_request(req, fp, code, msg, headers, newurl) if same else None
 
 
-_basemap_opener = urllib.request.build_opener(_NoRedirects)
+_basemap_opener = urllib.request.build_opener(_SameHostRedirects)
 
 
 def basemap_fetch(url: str) -> tuple[int, str, bytes]:
@@ -1066,6 +1125,7 @@ _VALIDATORS = {
     '/api/save_format': _v_save_format,
     '/api/save_overlays': _v_save_overlays,
     '/api/save_basemaps': _v_save_basemaps,
+    '/api/save_drones': _v_save_drones,
     '/api/save_narrative': _v_save_narrative,
     '/api/wms_fetch': _v_wms_fetch,
 }
@@ -1124,6 +1184,7 @@ def _extract_json_from_file(raw_text: str) -> dict | None:
                     # None when the file has no overlays at all (older than 2.5).
                     'overlays': d.get('overlays'),
                     'basemaps': d.get('basemaps'),
+                    'drones': d.get('drones'),
                     'narrative': d.get('narrative'),
                 }
             # Legacy marker format: single ATO inferred from config
@@ -1136,6 +1197,7 @@ def _extract_json_from_file(raw_text: str) -> dict | None:
                 'formats': {},
                 'overlays': None,
                 'basemaps': None,
+                'drones': None,
                 'narrative': None,
             }
         except (ValueError, KeyError):
@@ -1191,6 +1253,7 @@ def load_data_from_disk() -> None:
         shared_overlays: list | None = None
         legacy_overlays: dict = {}
         basemaps: list = []
+        drones: list = []
         narrative: dict = {}
 
         for filepath in candidates:
@@ -1217,6 +1280,8 @@ def load_data_from_disk() -> None:
                         shared_format = fmt
                     if isinstance(result.get('basemaps'), list):
                         basemaps = result['basemaps']  # the newest file's
+                    if isinstance(result.get('drones'), list):
+                        drones = result['drones']  # the newest file's
                     if isinstance(result.get('narrative'), dict):
                         narrative = result['narrative']  # the newest file's
                     ovs = result.get('overlays')
@@ -1240,6 +1305,7 @@ def load_data_from_disk() -> None:
                 shared_overlays if shared_overlays is not None else list(legacy_overlays.values())
             )
             DATA_STORE['basemaps'] = basemaps
+            DATA_STORE['drones'] = drones
             DATA_STORE['narrative'] = narrative
             workspace_sources.clear()
             workspace_sources.update(source_by_ato)
@@ -1279,6 +1345,7 @@ def render_backup(
     overlays: list | None = None,
     basemaps: list | None = None,
     narrative: dict | None = None,
+    drones: list | None = None,
 ) -> tuple[str, str] | None:
     """Return ``(filename, text)`` for a backup of the given state, or None if empty.
 
@@ -1385,6 +1452,7 @@ def render_backup(
             'formats': formats,
             'overlays': overlays or [],
             'basemaps': basemaps or [],
+            'drones': drones or [],
             'narrative': narrative or {},
         },
         separators=(',', ':'),
@@ -1429,6 +1497,7 @@ def render_workspace_backups(
     overlays: list | None = None,
     basemaps: list | None = None,
     narrative: dict | None = None,
+    drones: list | None = None,
 ) -> list[tuple[str, str, str]]:
     """One ``(ato, filename, text)`` per workspace, for those in ``only`` (None: all).
 
@@ -1450,6 +1519,7 @@ def render_workspace_backups(
             overlays=overlays or [],
             basemaps=basemaps or [],
             narrative=narrative or {},
+            drones=drones or [],
         )
         if rendered is not None:
             out.append((ato, *rendered))
@@ -1527,6 +1597,7 @@ def save_data_to_disk() -> None:
                 DATA_STORE.get('overlays', []),
                 DATA_STORE.get('basemaps', []),
                 DATA_STORE.get('narrative', {}),
+                DATA_STORE.get('drones', []),
             )
         if not files:
             return
@@ -1663,6 +1734,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                     'format': DATA_STORE.get('format', {}),
                     'overlays': DATA_STORE.get('overlays', []),
                     'basemaps': DATA_STORE.get('basemaps', []),
+                    'drones': DATA_STORE.get('drones', []),
                     'narrative': DATA_STORE.get('narrative', {}),
                     'sources': workspace_sources,
                 }
@@ -2033,6 +2105,23 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             mark_dirty()  # every workspace's backup carries them
         self._commit(f'save_basemaps: {len(clean)} service(s)')
 
+    def _post_save_drones(self, data: dict) -> None:
+        clean = [
+            {
+                'name': d['name'].strip(),
+                'grid': d['grid'],
+                'at': d['at'],
+                **({'look': d['look']} if d.get('look') else {}),
+                **({'range': d['range']} if d.get('range') is not None else {}),
+            }
+            for d in data.get('drones') or []
+        ]
+        with data_lock:
+            DATA_STORE['drones'] = clean
+            invalidate_sync_cache()
+            mark_dirty()  # every workspace's backup carries them
+        self._commit(f'save_drones: {len(clean)} drone(s)')
+
     def _post_save_narrative(self, data: dict) -> None:
         clean = clean_narrative(data['narrative'])
         with data_lock:
@@ -2079,6 +2168,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         '/api/save_format': _post_save_format,
         '/api/save_overlays': _post_save_overlays,
         '/api/save_basemaps': _post_save_basemaps,
+        '/api/save_drones': _post_save_drones,
         '/api/save_narrative': _post_save_narrative,
         '/api/wms_fetch': _post_wms_fetch,
         '/api/save_profile': _post_save_profile,

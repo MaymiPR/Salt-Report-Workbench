@@ -61,6 +61,7 @@ def reset_state() -> None:
             "format": {},
             "overlays": [],
             "basemaps": [],
+            "drones": [],
             "narrative": {},
         }
     )
@@ -311,6 +312,32 @@ class ValidatorTests(unittest.TestCase):
     # --------------------------------------------------------------------------- #
     # Rate limiting and access control
     # --------------------------------------------------------------------------- #
+    def test_drones_are_checked(self):
+        v = srv._v_save_drones
+        ge = {"name": "GE 1", "grid": "11S NV 39697 06762", "at": 1793018940000}
+        self.assertIsNone(v({"drones": []}))
+        self.assertIsNone(v({"drones": [ge, {**ge, "name": "GE 2", "grid": "11S NV 39 06"}]}))
+        self.assertRejects(v, {"drones": ge}, "list")
+        self.assertRejects(v, {"drones": [ge, {**ge, "name": " ge 1 "}]}, "used twice")
+        self.assertRejects(v, {"drones": [{**ge, "name": ""}]}, "name")
+        self.assertRejects(v, {"drones": [{**ge, "grid": "near the bridge"}]}, "MGRS")
+        self.assertRejects(v, {"drones": [{**ge, "grid": "11SNV3969706762"}]}, "MGRS")
+        self.assertRejects(v, {"drones": [{**ge, "at": "now"}]}, "milliseconds")
+        many = [{**ge, "name": f"GE {i}"} for i in range(11)]
+        self.assertRejects(v, {"drones": many}, "too many")
+        # Where it's looking and how far it sees: both optional.
+        self.assertIsNone(v({"drones": [{**ge, "look": "11S NV 44000 07000", "range": 12.5}]}))
+        self.assertRejects(v, {"drones": [{**ge, "look": "the bridge"}]}, "look")
+        for bad in (0, -3, 5000, "10", True):
+            self.assertRejects(v, {"drones": [{**ge, "range": bad}]}, "range")
+
+    def test_the_server_knows_every_kind_of_equipment_the_page_has(self):
+        import re
+
+        core = (ROOT / "src" / "core.js").read_text(encoding="utf-8")
+        block = core[core.index("const EQUIPMENT_ROLES = [") : core.index("const eqp = ")]
+        self.assertEqual(set(re.findall(r"\['([a-z0-9]+)', '", block)), set(srv._EQUIPMENT_ROLES))
+
     def test_the_server_knows_every_rule_the_page_has(self):
         import re
 
@@ -1049,9 +1076,18 @@ class HttpApiTests(unittest.TestCase):
             def do_GET(self):
                 if self.path.startswith("/tiles/"):
                     body, ctype = b"\x89PNG fake", "image/png"
-                elif self.path.startswith("/moved"):
+                elif self.path.startswith(("/moved", "/hop", "/away")):
+                    # Off to another port, on to a tile on this host, or to another host.
+                    port = self.server.server_address[1]
                     self.send_response(302)
-                    self.send_header("Location", "http://127.0.0.1:1/elsewhere")
+                    self.send_header(
+                        "Location",
+                        {
+                            "/moved": "http://127.0.0.1:1/elsewhere",
+                            "/hop": f"http://127.0.0.1:{port}/tiles/9/9/9.png",
+                            "/away": "http://example.invalid/tiles/1.png",
+                        }[self.path],
+                    )
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
@@ -1085,11 +1121,15 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(self.request(proxied, code=None)[0], 401, "the editor port wants the code")
         for url, why in (
             (host + "/page", "not an image"),
-            (host + "/moved", "a redirect could lead anywhere"),
+            (host + "/moved", "a redirect to another port isn't followed"),
+            (host + "/away", "nor one to another host"),
         ):
             self.assertEqual(
                 self.request("/api/basemap?u=" + urllib.parse.quote(url, safe=""))[0], 502, why
             )
+        # A redirect on the same host (a service sending http on to https, say) is followed.
+        status, body = self.request("/api/basemap?u=" + urllib.parse.quote(host + "/hop", safe=""))
+        self.assertEqual((status, body), (200, b"\x89PNG fake"))
         for url in ("http://127.0.0.1:1/tiles/1.png", "file:///c:/windows/win.ini", ""):
             self.assertEqual(
                 self.request("/api/basemap?u=" + urllib.parse.quote(url, safe=""))[0], 403, url
@@ -1125,6 +1165,37 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(self.sync()["basemaps"], [])
         status, _ = self.post("/api/save_basemaps", {"basemaps": clean}, base=self.viewer_base)
         self.assertEqual(status, 405, "viewers cannot change them")
+
+    def test_drones_sync_and_survive_a_restart(self):
+        shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        sent = {
+            "name": " GE 1 ",
+            "grid": "11S NV 39697 06762",
+            "at": 1793018940000,
+            "x": 1,
+            "look": "11S NV 44000 07000",
+            "range": 12.5,
+        }
+        self.assertEqual(self.post("/api/save_drones", {"drones": [sent]})[0], 200)
+        clean = [
+            {
+                "name": "GE 1",
+                "grid": "11S NV 39697 06762",
+                "at": 1793018940000,
+                "look": "11S NV 44000 07000",
+                "range": 12.5,
+            }
+        ]
+        self.assertEqual(self.sync()["drones"], clean, "trimmed, known fields only")
+        srv.flush_pending_save()
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(self.sync()["drones"], clean)
+        status, _ = self.post("/api/save_drones", {"drones": []}, base=self.viewer_base)
+        self.assertEqual(status, 405, "viewers cannot move them")
+        self.assertEqual(self.post("/api/save_drones", {"drones": []})[0], 200)
+        self.assertEqual(self.sync()["drones"], [])
 
     def test_narrative_settings_sync_and_survive_a_restart(self):
         shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)

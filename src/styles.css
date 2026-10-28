@@ -1202,6 +1202,10 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 /* List | Map, with the import buttons beside it. */
 .overlays-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 12px; }
 .overlays-head .overlays-actions { margin: 0; }
+/* Expand all and collapse all: two small icon buttons at the row's end. */
+.overlay-fold { display: flex; gap: 4px; margin-left: auto; }
+.overlay-fold-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; margin: 0; padding: 0; border: none; border-radius: 8px; background: var(--input-bg); color: var(--text-secondary); cursor: pointer; }
+.overlay-fold-btn:hover { color: var(--text-primary); }
 
 /* --- The overlay map --- */
 .map-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 10px; }
@@ -1213,11 +1217,28 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-base-select { width: 100%; margin: 0; padding: 7px 34px 7px 12px; font-size: 0.85em; border-radius: 10px; }
 .map-base-none { font-size: 0.82em; color: var(--text-secondary); }
 .map-base-pop > .text-btn { align-self: flex-start; }
-.map-base-pop.managing { width: min(420px, calc(100% - 70px)); max-height: calc(100% - 20px); overflow-y: auto; }
-.map-base-pop .map-basemap-form { margin: 0; padding: 8px 0 0; border-top: 1px solid var(--divider); border-radius: 0; background: none; }
+/* The drone menu: two switches, the drones (Zoom; editors: grid, remove), and the add row. */
+.map-drone-pop { width: min(380px, calc(100% - 70px)); max-height: calc(100% - 20px); overflow-y: auto; }
+#mapDroneBtn[hidden] { display: none; }
+#mapDroneBtn.active { color: var(--system-blue); }
+.map-drone-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; font-size: 0.84em; font-weight: 400; color: var(--text-primary); cursor: pointer; }
+.map-drone-list { display: flex; flex-direction: column; gap: 2px; }
+.map-drone-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 4px 2px; border-bottom: 1px solid var(--divider); font-size: 0.84em; }
+.map-drone-name { font-weight: 600; color: #ff9f0a; white-space: nowrap; }
+.map-drone-grid, .map-drone-grid-in { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+.map-drone-grid { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.map-drone-grid-in { margin: 0; padding: 5px 8px; font-size: 0.95em; }
+/* Under each drone: where it's looking and its range. */
+.map-drone-sub { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 64px; align-items: center; gap: 8px; padding: 2px 2px 6px; border-bottom: 1px solid var(--divider); font-size: 0.84em; }
+.map-drone-row:has(+ .map-drone-sub) { border-bottom: none; }
+.map-drone-sub-label { color: var(--text-secondary); white-space: nowrap; }
+.map-drone-range-in { margin: 0; padding: 5px 8px; font-size: 0.95em; text-align: right; }
+.map-drone-add input { padding: 7px 10px; font-size: 0.84em; }
+.map-drone-add #mapDroneName { flex: 0 1 120px; }
+.map-drone-add #mapDroneGridNew { flex: 1 1 150px; }
+.map-drone-add button { padding: 7px 14px; font-size: 0.84em; }
 .map-base-add input { padding: 7px 10px; font-size: 0.84em; }
 .map-base-add #mapBaseInput { flex: 1 1 170px; }
-.map-base-add #mapBaseNameIn { flex: 0 1 100px; }
 .map-base-add button { padding: 7px 14px; font-size: 0.84em; }
 .map-base-hint { font-size: 0.75em; color: var(--text-secondary); }
 #mapBaseBtn.active { color: var(--system-blue); }
@@ -1236,7 +1257,7 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-find-msg { margin: 0 0 8px; font-size: 0.85em; }
 .map-find-error { padding: 7px 10px; border-radius: 8px; background: rgba(255, 69, 58, 0.12); border: 1px solid rgba(255, 69, 58, 0.35); color: var(--text-primary); line-height: 1.4; }
 .map-find-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; font-size: 0.85em; }
-.map-find-head input { flex: 0 1 260px; margin: 0; padding: 8px 12px; font-size: 0.95em; background: var(--panel-bg); }
+.map-find-name { font-size: 1.05em; color: var(--text-primary); }
 .map-layer-filter { margin: 0 0 6px; padding: 7px 12px; font-size: 0.85em; background: var(--panel-bg); border: 1px solid var(--divider) !important; }
 .map-layer-list { max-height: 220px; overflow-y: auto; border-radius: 10px; background: var(--panel-bg); padding: 4px; margin-bottom: 8px; }
 .map-layer-row { display: flex; align-items: center; gap: 8px; margin: 0; padding: 5px 8px; border-radius: 7px; font-size: 0.85em; font-weight: 400; color: var(--text-primary); cursor: pointer; }
@@ -1249,7 +1270,6 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-find-foot { margin-bottom: 4px; }
 .map-base-name { font-weight: 600; }
 .map-base-kind { color: var(--text-secondary); }
-.map-form-row #mapWmsManualName { flex: 0 1 170px; }
 .map-basemap-form { background: var(--input-bg); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
 .map-form-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .map-form-row select { width: auto; min-width: 150px; margin: 0; padding: 9px 34px 9px 12px; font-size: 0.88em; }
@@ -1257,6 +1277,11 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-form-row button { margin: 0; width: auto; padding: 9px 18px; }
 .map-box { position: relative; height: max(380px, calc(100vh - 380px)); border-radius: 12px; overflow: hidden; background: #2a2b2e; border: 1px solid var(--divider); touch-action: none; cursor: grab; user-select: none; }
 .map-box.dragging { cursor: grabbing; }
+/* Shift held over the map: a crosshair over everything drawn, and the grid beside it. */
+.map-box.grabbing, .map-box.grabbing [data-map-item] { cursor: crosshair; }
+.map-grid-readout { position: absolute; z-index: 3; padding: 4px 8px; border-radius: 8px; background: rgba(0, 0, 0, 0.75); color: #fff; font: 600 12px ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; white-space: nowrap; pointer-events: none; }
+.map-grid-readout[hidden] { display: none; }
+.map-drone { cursor: default; }
 /* Full screen: the controls on top, the map filling the rest, the key below. */
 .map-pane:fullscreen { display: flex; flex-direction: column; padding: 20px; background: var(--panel-bg); box-sizing: border-box; }
 .map-pane:fullscreen .map-box { flex: 1 1 auto; height: auto; min-height: 0; }
@@ -1289,6 +1314,13 @@ circle.map-hit { pointer-events: all; }
 
 .overlay-group { background: var(--input-bg); border-radius: 12px; padding: 10px 12px 2px; margin-bottom: 12px; }
 .overlay-group-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.overlay-group > summary { list-style: none; cursor: pointer; }
+.overlay-group > summary::-webkit-details-marker { display: none; }
+.overlay-group:not([open]) { padding-bottom: 10px; }
+.overlay-group:not([open]) > summary { margin-bottom: 0; }
+.overlay-group-chevron { flex: none; width: 7px; height: 7px; margin: 0 3px 0 2px; border-right: 2px solid var(--text-secondary); border-bottom: 2px solid var(--text-secondary); transform: rotate(-45deg); transition: transform 0.2s ease; }
+.overlay-group[open] .overlay-group-chevron { transform: rotate(45deg); }
+@media (prefers-reduced-motion: reduce) { .overlay-group-chevron { transition: none; } }
 .overlay-group-title { font-weight: 600; font-size: 0.92em; }
 .overlay-group-count { font-size: 0.78em; font-weight: 600; color: var(--text-secondary); background: rgba(255, 255, 255, 0.08); border-radius: 100px; padding: 1px 8px; }
 .overlay-group-unload { margin: 0 0 0 auto; width: auto; padding: 5px 12px; font-size: 0.8em; font-weight: 600; border: none; border-radius: 8px; background: rgba(255, 255, 255, 0.08); color: var(--text-primary); cursor: pointer; }
@@ -1365,6 +1397,10 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .map-layer-btn[aria-pressed="true"] .map-layer-check { border: none; background: var(--system-blue) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M3.5 7.2l2.3 2.3 4.7-4.9' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 14px no-repeat; }
 .map-grids .io-mode:disabled { opacity: 0.4; cursor: default; }
 .map-label-time { font-weight: 500; font-size: 10px; fill: #ffd60a; }
+.map-label-drone { fill: #ffcc80; }
+.map-label-out { fill: #ff8a80; }
+/* A faint dark edge round the drone's view, so it reads on any background without shouting. */
+.map-drone-view { filter: drop-shadow(0 0 1.2px rgba(0, 0, 0, 0.85)); }
 .map-selected.flash circle { animation: map-ring 0.8s ease-out 2; }
 @keyframes map-ring { 50% { r: 20px; } }
 .map-view .map-box { height: var(--map-h); }
@@ -1384,7 +1420,8 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .map-side-btn:active { transform: none; }
 .map-side-btn[aria-pressed="true"] { color: var(--system-blue); }
 @media (prefers-reduced-motion: reduce) { .map-main *, .map-main .map-side { transition: none !important; } }
-.map-side { position: absolute; left: 10px; top: 48px; bottom: 50px; z-index: 3; width: 190px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; box-sizing: border-box; padding: 12px 10px; border-radius: 12px; background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); transform: translateX(0); opacity: 1; visibility: visible; transition: transform var(--slide), opacity 0.3s ease, visibility 0s linear 0s; will-change: transform; }
+/* Its box reaches up round the sidebar button (which stays put); the contents keep their place. */
+.map-side { position: absolute; left: 4px; top: 4px; bottom: 50px; z-index: 3; width: 196px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; box-sizing: border-box; padding: 56px 10px 12px 16px; border-radius: 15px; background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); transform: translateX(0); opacity: 1; visibility: visible; transition: transform var(--slide), opacity 0.3s ease, visibility 0s linear 0s; will-change: transform; }
 /* Two halves, as tall as each other; each scrolls its own list when it's long. */
 .map-side-block { flex: 1 1 0; min-width: 0; min-height: 0; box-sizing: border-box; display: flex; flex-direction: column; }
 .map-side-block .map-chips { flex: 1 1 auto; min-height: 0; overflow-y: auto; }

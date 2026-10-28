@@ -125,14 +125,14 @@ async function syncWithServer() {
         if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) throw new Error('Server unreachable');
         const state = await res.json();
-        applyServerUpdate(state.workspaces, state.config, state.profiles, state.connected_users, state.sources, state.connected_initials, state.read_only, state.format, state.overlays, state.basemaps, state.narrative);
+        applyServerUpdate(state.workspaces, state.config, state.profiles, state.connected_users, state.sources, state.connected_initials, state.read_only, state.format, state.overlays, state.basemaps, state.narrative, state.drones);
         setConnectionStatus(true);
     } catch (err) {
         setConnectionStatus(false);
     }
 }
 
-function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources, connInitials, readOnly, format, overlays, basemaps, narrative) {
+function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources, connInitials, readOnly, format, overlays, basemaps, narrative, drones) {
     // The report format: the server's wins. A server that has none yet (a new
     // one, or one upgraded from per-workspace formats) is given this browser's.
     if (format && typeof format === 'object') {
@@ -152,6 +152,11 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     if (Array.isArray(basemaps) && JSON.stringify(basemaps) !== JSON.stringify(sharedBasemaps)) {
         sharedBasemaps = basemaps;
         if (!readOnly) storeBasemaps();
+        renderBasemapManager();
+    }
+    if (Array.isArray(drones) && JSON.stringify(drones) !== JSON.stringify(sharedDrones)) {
+        sharedDrones = drones;
+        if (!readOnly) storeDrones();
     }
     // The narrative's settings: the server's win. A server that has none yet
     // is given this browser's, like the format.
@@ -240,7 +245,7 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
     // If the Builder tab is on screen, reflect format changes from peers.
     const builderPanel = document.querySelector('[data-tab-panel="builder"]');
     if (builderPanel && builderPanel.style.display !== 'none') renderBuilder();
-    // Same for the Overlays tab (a review in progress is kept).
+    // Same for the Map tab (a review in progress is kept).
     const overlaysPanel = document.querySelector('[data-tab-panel="overlays"]');
     if (overlaysPanel && overlaysPanel.style.display !== 'none') renderOverlays();
     // And the Statistics and Summary Reports panels, so they follow the log.

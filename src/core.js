@@ -541,6 +541,32 @@ const utmToLatLon = (zone, south, easting, northing) => {
     };
 };
 
+// Latitude/longitude to UTM on WGS84, Krüger's series forward (Karney 2011).
+const KRUGER_ALPHA = (() => {
+    const n = WGS84_F / (2 - WGS84_F), n2 = n*n, n3 = n2*n, n4 = n3*n, n5 = n4*n, n6 = n5*n;
+    return [
+        n/2 - 2*n2/3 + 5*n3/16 + 41*n4/180 - 127*n5/288 + 7891*n6/37800,
+        13*n2/48 - 3*n3/5 + 557*n4/1440 + 281*n5/630 - 1983433*n6/1935360,
+        61*n3/240 - 103*n4/140 + 15061*n5/26880 + 167603*n6/181440,
+        49561*n4/161280 - 179*n5/168 + 6601661*n6/7257600,
+        34729*n5/80640 - 3418889*n6/1995840,
+        212378941*n6/319334400,
+    ];
+})();
+const latLonToUtm = (lat, lon, zone) => {
+    const e = Math.sqrt(WGS84_F * (2 - WGS84_F)), rad = Math.PI / 180;
+    const phi = lat * rad, dl = (lon - ((zone - 1) * 6 - 177)) * rad;
+    const t = Math.sinh(Math.atanh(Math.sin(phi)) - e * Math.atanh(e * Math.sin(phi)));
+    const xi1 = Math.atan2(t, Math.cos(dl)), eta1 = Math.atanh(Math.sin(dl) / Math.sqrt(1 + t*t));
+    let xi = xi1, eta = eta1;
+    KRUGER_ALPHA.forEach((a, i) => {
+        const j = 2 * (i + 1);
+        xi  += a * Math.sin(j*xi1) * Math.cosh(j*eta1);
+        eta += a * Math.cos(j*xi1) * Math.sinh(j*eta1);
+    });
+    return { easting: 500000 + UTM_K0 * KRUGER.A * eta, northing: UTM_K0 * KRUGER.A * xi + (lat < 0 ? 10000000 : 0) };
+};
+
 const MGRS_BANDS = 'CDEFGHJKLMNPQRSTUVWX';
 const MGRS_COLS  = ['ABCDEFGH', 'JKLMNPQR', 'STUVWXYZ'];
 const MGRS_ROWS  = 'ABCDEFGHJKLMNPQRSTUV';
@@ -573,6 +599,31 @@ const gridToLatLon = (zone, band, col, row, digits) => {
     if (!best) return null;
     const e = digits.slice(0, p), n = digits.slice(p);
     return { lat: best.lat, lon: best.lon, precision: cell, mgrs: `${zone}${band} ${col}${row} ${e} ${n}` };
+};
+
+// A point as an MGRS grid, "11S NV 39697 06762" (`digits` per half, 1-5),
+// or null outside MGRS (beyond 80°S and 84°N, where UPS applies). The zone
+// follows the standard's exceptions: 32V is widened over Norway, and around
+// Svalbard only zones 31, 33, 35 and 37 are used.
+const latLonToMgrs = (lat, lon, digits = 5) => {
+    if (!(lat >= -80 && lat <= 84) || !Number.isFinite(lon)) return null;
+    lon = ((lon + 180) % 360 + 360) % 360 - 180;
+    let zone = Math.min(60, Math.floor((lon + 180) / 6) + 1);
+    if (lat >= 56 && lat < 64 && lon >= 3 && lon < 12) zone = 32;
+    if (lat >= 72) {
+        if (lon >= 0 && lon < 9) zone = 31;
+        else if (lon >= 9 && lon < 21) zone = 33;
+        else if (lon >= 21 && lon < 33) zone = 35;
+        else if (lon >= 33 && lon < 42) zone = 37;
+    }
+    const band = MGRS_BANDS[Math.min(19, Math.floor((lat + 80) / 8))];
+    const { easting, northing } = latLonToUtm(lat, lon, zone);
+    const set = zone % 6 || 6;
+    const col = MGRS_COLS[(set - 1) % 3][Math.floor(easting / 100000) - 1];
+    const row = MGRS_ROWS[(Math.floor(northing / 100000) + (set % 2 ? 0 : 5)) % 20];
+    if (!col || !row) return null;
+    const half = (v) => String(Math.floor(v % 100000)).padStart(5, '0').slice(0, digits);
+    return `${zone}${band} ${col}${row} ${half(easting)} ${half(northing)}`;
 };
 
 // Every MGRS grid in a piece of text, with where it sits in the text. Takes
@@ -1409,15 +1460,52 @@ const arcgisTracksShapefileZip = (rows, name, now) => shapefileZip(name, shapefi
 
 // --- Statistics ---
 
+// Words that say how many, not what: "total of", "approx", "about".
+const SIZE_FILLER = /\b(?:total(?:\s+of)?|approx(?:imately)?|about|around|est(?:imated)?|at\s+least|up\s+to)\b\.?|~/gi;
+// One element: "2x T-72", "4 BMP-2", "vics 10x", "vics x10", "trucks (3)",
+// "truck". `counted` says a number was given.
+const sizePart = (part) => {
+    const text = part.replace(SIZE_FILLER, ' ').replace(/\s+/g, ' ').trim();
+    let count = 1, type = text, counted = false, m;
+    if ((m = /^(\d+)\s*x?\s*(.+)$/i.exec(text))) { count = Number(m[1]); type = m[2]; counted = true; }
+    else if ((m = /^(.+?)\s+(?:(\d+)\s*x|x\s*(\d+))$/i.exec(text) || /^(.+?)\s*\((\d+)\)$/.exec(text))) {
+        count = Number(m[2] || m[3]); type = m[1]; counted = true;
+    }
+    type = type.replace(/^of\s+/i, '').trim();
+    if (/[^su]s$/.test(type) && !/ss$/i.test(type)) type = type.slice(0, -1);
+    return { count, type: type.toUpperCase(), counted };
+};
+const sizeList = (text) => text.split(/\s*(?:[,;+&]|\band\b|\bwith\b|\bw\/)\s*/i).filter(Boolean).map(sizePart)
+    .filter(e => e.type && e.count > 0);
 // The elements of a Size line with their counts: "2x T-72, 4 BMP-2; truck"
 // -> T-72 x2, BMP-2 x4, TRUCK x1. Types are upper-cased, and a plural "s" is
 // dropped ("T-72s", "trucks") so the same vehicle is counted as one type.
-const sizeElements = (size) => String(size || '').split(/[,;+]/).map(s => s.trim()).filter(Boolean).map(part => {
-    const m = /^(\d+)\s*x?\s*(.+)$/i.exec(part);
-    let type = (m ? m[2] : part).trim().replace(/\s+/g, ' ');
-    if (/[^su]s$/.test(type) && !/ss$/i.test(type)) type = type.slice(0, -1);
-    return { count: m ? Number(m[1]) : 1, type: type.toUpperCase() };
-}).filter(e => e.type && e.count > 0);
+// "and", "&" and "with" part elements too. A total with its breakdown after
+// a colon or in brackets ("Total of vics 10x: 5x tanks and 5x APC") counts
+// the breakdown and only what it leaves of the total ("12 vics (5 tanks)":
+// 5 tanks and 7 vics), so nothing is counted twice; brackets that aren't a
+// breakdown ("3x T-72 (one damaged)") are a note, and left out.
+const sizeElements = (size) => {
+    const text = String(size || '').trim();
+    const plain = ({ count, type }) => ({ count, type });
+    // The breakdown, and what it leaves of the total; null when it isn't one.
+    const breakdown = (headText, tailText) => {
+        const head = sizeList(headText), parts = sizeList(tailText);
+        if (head.length !== 1 || !head[0].counted || !parts.length || !parts.every(e => e.counted)) return null;
+        const left = head[0].count - parts.reduce((n, e) => n + e.count, 0);
+        return [...parts, ...(left > 0 ? [{ ...head[0], count: left }] : [])].map(plain);
+    };
+    const m = /^([^:(]+?)\s*(?::\s*(.+)|\((.+)\)\s*)$/.exec(text);
+    if (m) {
+        const got = breakdown(m[1], m[2] || m[3]);
+        if (got) return got;
+        if (m[3] !== undefined) return sizeList(m[1]).map(plain);
+    }
+    // "Total 10 vics, 5x tanks, 5x APC": a total named as one, then its parts.
+    const t = /^(total\b[^,;+]*?)\s*[,;+]\s*(.+)$/i.exec(text);
+    const got = t && breakdown(t[1], t[2]);
+    return got || sizeList(text).map(plain);
+};
 
 // The MGRS square a grid sits in at `digits` per half (1: 10 km, 2: 1 km),
 // or null when the grid was given more coarsely than that.
@@ -1909,7 +1997,7 @@ const EQUIPMENT_ROLES = [
     ['fires', 'artillery and rockets'], ['ad', 'air defense'], ['atgm', 'antitank'],
     ['engineer', 'engineers'], ['logistics', 'logistics'], ['c2', 'command and control'],
     ['ew', 'electronic warfare'], ['air', 'aviation'], ['infantry', 'dismounted personnel'],
-    ['light', 'light vehicles'],
+    ['light', 'light vehicles'], ['vehicle', 'other vehicles'],
 ];
 const eqp = (role, origin, names) => names.map(n => [role, origin, ...[].concat(n)]);
 const EQUIPMENT_CATALOGUE = [
@@ -2000,8 +2088,12 @@ const EQUIPMENT_CATALOGUE = [
         ['Infauna', 'RB-531B'], ['Rtut-BM', 'Rtut-B', '1L262', 'SPR-2', 'Rtut'], 'Silok', ['Tirada-2', 'Tirada'], ['Bylina', 'RB-109A'],
         ['Shipovnik-Aero', 'Shipovnik'], ['Torn', 'R-381T'], 'Repellent-1', 'Stupor', ['1L222', 'Avtobaza', 'Avtobaza-M'],
         ['RB-636', 'RB-636AM2', 'Svet-KU'], ['R-934B', 'R-934BMV', 'Sinitsa'], ['RP-377', 'RP-377A', 'Lesochek'], ['RP-377LA', 'Lorandit'],
-        ['R-330M1P', 'Diabazol'], 'Dzyudoist', 'Altayets', 'ZS-82', 'ZS-88']),
-    ...eqp('air', 'RU', [['Mi-8', 'Mi-8AMTSh', 'Mi-8MTV', 'Mi-8MTPR-1', 'Hip'], ['Mi-17', 'Mi-171', 'Mi-171E', 'Mi-171Sh'],
+        ['R-330M1P', 'Diabazol'], 'Dzyudoist', 'Altayets', 'ZS-82', 'ZS-88',
+        // Radar jammers against airborne radars, strategic and tactical
+        // systems, and the drone jammers fitted to vehicles and carried.
+        ['SPN-2', '1RL248-2'], 'SPN-3', ['SPN-4', '1RL248-4'], 'SPN-30', ['Tobol', '14Ts227'], 'Divnomorye', 'Samarkand',
+        ['Mi-8MTPR-1', 'Rychag-AV'], 'Khibiny', 'Volnorez', ['Saniya', 'Sania'], ['Pishchal', 'Pischal']]),
+    ...eqp('air', 'RU', [['Mi-8', 'Mi-8AMTSh', 'Mi-8MTV', 'Hip'], ['Mi-17', 'Mi-171', 'Mi-171E', 'Mi-171Sh'],
         ['Mi-24', 'Mi-24P', 'Mi-24V', 'Hind'], ['Mi-35', 'Mi-35M'],
         ['Mi-28', 'Mi-28N', 'Mi-28NM', 'Havoc'], 'Mi-26', ['Mi-2', 'Hoplite'], ['Ka-50', 'Hokum'], ['Ka-52', 'Alligator'], ['Ka-226', 'Hoodlum'],
         ['Ka-27', 'Helix'], 'Ka-29', ['Ansat', 'Ansat-U'],
@@ -2069,7 +2161,7 @@ const EQUIPMENT_CATALOGUE = [
         ['Wanshan', 'WS580', 'WS2300', 'WS2400', 'WS2500', 'WS2600'], 'HY472', ['CA-141', 'CA141'], ['CA-30', 'CA30'], ['CA-10', 'CA10'],
         ['NJ-130', 'NJ130'], ['NJ-230', 'NJ230'], 'JY813', ['CWB-221', 'CWB221'], 'CSZ-181',
         'ZJX-93', ['WZ-653', 'WZ653', 'WZ653A'], 'VME-203', 'VME-102-40', 'Type 90-II ARV']),
-    ...eqp('ew', 'CN', ['J-16D', 'Y-8CA', 'Y-8CB', 'Y-8DZ', 'Y-8GX1', 'Y-8GX3', 'Y-8GX7', 'Y-8JB', 'Y-8EW', 'Y-9DZ', 'Y-9LG',
+    ...eqp('ew', 'CN', ['J-16D', 'J-15D', 'Y-8CA', 'Y-8CB', 'Y-8DZ', 'Y-8GX1', 'Y-8GX3', 'Y-8GX7', 'Y-8JB', 'Y-8EW', 'Y-9DZ', 'Y-9LG',
         ['DWL-002', 'DWL002'], 'CTL-181A EW']),
     ...eqp('air', 'CN', [['Z-8', 'Z-8L'], ['Z-9', 'Z-9W', 'Z-9WA', 'Z-9C'], ['Z-10', 'WZ-10', 'Z-10ME'], 'Z-11', 'Z-18', ['Z-19', 'WZ-19'],
         ['Z-20', 'Z-20T'], 'Z-21', ['H120', 'EC120'], 'SA342', 'S-70C2', ['J-10', 'J-10C'], 'J-11', 'J-15', 'J-16', 'J-20',
@@ -2087,9 +2179,10 @@ const EQUIPMENT_CATALOGUE = [
         ['FPV', 'FPV', 'LOITERING MUNITION', 'KAMIKAZE DRONE']]),
     ...eqp('ad', '', [['air defense', 'AIR DEFENSE', 'AIR DEFENCE', 'ADA', 'SAM', 'AAA', 'MANPADS']]),
     ...eqp('atgm', '', [['ATGM', 'ATGM', 'AT TEAM', 'RPG']]),
-    ...eqp('engineer', '', [['engineer', 'ENGINEER', 'BULLDOZER', 'DOZER', 'EXCAVATOR', 'BACKHOE', 'BRIDGE', 'BRIDGE LAYER', 'AVLB',
-        'MINELAYER', 'MINE PLOW'], ['CBRN', 'CBRN', 'DECON', 'SMOKE GENERATOR']]),
-    ...eqp('logistics', '', [['truck', 'TRUCK', 'LORRY', 'FUEL', 'TANKER', 'POL', 'CARGO', 'AMMO', 'WATER', 'SUPPLY', 'WRECKER', 'TRAILER', 'RECOVERY VEHICLE'],
+    ...eqp('engineer', '', [['engineer', 'ENGINEER', 'ENGINEERING', 'ENGR', 'ENG', 'SAPPER', 'CEV', 'BULLDOZER', 'DOZER', 'EXCAVATOR',
+        'BACKHOE', 'BRIDGE', 'BRIDGE LAYER', 'AVLB', 'MINELAYER', 'MINE PLOW'], ['CBRN', 'CBRN', 'DECON', 'SMOKE GENERATOR']]),
+    ...eqp('logistics', '', [['truck', 'TRUCK', 'LORRY', 'FUEL', 'FUELER', 'FUELLER', 'REFUELER', 'REFUELLER', 'TANKER', 'POL', 'CARGO',
+        'AMMO', 'WATER', 'SUPPLY', 'SUPPORT', 'SPT', 'LOGPAC', 'WRECKER', 'TRAILER', 'RECOVERY VEHICLE'],
         ['ambulance', 'AMBULANCE', 'MEDEVAC']]),
     ...eqp('c2', '', [['command post', 'COMMAND POST', 'CP', 'HQ', 'C2', 'ANTENNA', 'RADIO RELAY', 'SATCOM']]),
     ...eqp('ew', '', [['jammer', 'JAMMER', 'EW', 'REB', 'ANTI-DRONE', 'DRONE GUN']]),
@@ -2098,6 +2191,10 @@ const EQUIPMENT_CATALOGUE = [
         'FIGHTER', 'SQUAD', 'TEAM', 'INDIVIDUAL']]),
     ...eqp('light', '', [['light vehicle', 'LIGHT VEHICLE', 'CAR', 'JEEP', 'PICKUP', 'SUV', 'TECHNICAL', 'MOTORCYCLE', 'MOTORBIKE', 'ATV', 'UTV', 'VAN', 'SEDAN',
         'BUGGY', 'QUAD BIKE']]),
+    // A vehicle with no type given, as in MTI reports ("4x tracked"). The
+    // longest word wins, so "engineer vic" is engineers and "support vic"
+    // logistics; a vic, tracked or wheeled, with nothing more, comes here.
+    ...eqp('vehicle', '', [['vehicle', 'VIC', 'VEHICLE', 'VEH'], ['tracked vehicle', 'TRACKED'], ['wheeled vehicle', 'WHEELED']]),
 ];
 const normType = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
 // Names to match, longest first so the most specific one wins.
@@ -2108,7 +2205,9 @@ const equipmentKeysOf = (entries) => entries.flatMap(([role, origin, name, ...mo
             ? (w, c) => c.startsWith(compact) && !/\d/.test(c[compact.length] || '')
             : (w) => ` ${w} `.includes(` ${words} `);
         return { role, origin, name, len: compact.length, test };
-    })).filter(k => k.len).sort((a, b) => b.len - a.len);
+    // The general vehicle words (vic, tracked, wheeled) come last, whatever
+    // their length: "wheeled APC" is an APC, and only a bare vic is just a vehicle.
+    })).filter(k => k.len).sort((a, b) => (a.role === 'vehicle') - (b.role === 'vehicle') || b.len - a.len);
 let equipmentIndex = null;
 const equipmentSeen = new Map();
 const findKey = (keys, w) => {
@@ -2120,9 +2219,13 @@ const findKey = (keys, w) => {
 // built-in ones: a type added, or a built-in one put right.
 const lookupEquipment = (type, team = null) => {
     const w = normType(type);
-    const own = team && team.length ? findKey(team, w) : null;
+    // "TANKS", "VICS": a plural typed in capitals isn't folded by sizeElements,
+    // so its last word is tried without the S when the whole doesn't match.
+    const bare = /[^SU]S$/.test(w) ? w.slice(0, -1) : null;
+    const find = (keys) => findKey(keys, w) || (bare ? findKey(keys, bare) : null);
+    const own = team && team.length ? find(team) : null;
     if (own) return own;
-    if (!equipmentSeen.has(w)) equipmentSeen.set(w, findKey(equipmentIndex || (equipmentIndex = equipmentKeysOf(EQUIPMENT_CATALOGUE)), w));
+    if (!equipmentSeen.has(w)) equipmentSeen.set(w, find(equipmentIndex || (equipmentIndex = equipmentKeysOf(EQUIPMENT_CATALOGUE))));
     return equipmentSeen.get(w);
 };
 // The team's entries ({ type, role, origin }), ready for lookupEquipment.
@@ -3464,7 +3567,7 @@ const SaltCore = {
     BDA_EFFECTS, bdaElements, bdaSummary, bdaRollup, bdaCount, bdaPending,
     backupFilename, foldOverlays, backupText, allWorkspacesBackupText, parseBackup,
     parseCsv, reportsCsv, mtiCsvs,
-    utmToLatLon, gridToLatLon, findGrids, findRefs, overlayRef, geometryContains, metresToGeometry,
+    utmToLatLon, gridToLatLon, latLonToMgrs, findGrids, findRefs, overlayRef, geometryContains, metresToGeometry,
     webMercatorToLonLat, readDbf, shapefileProjection, parseShapefile,
     reportTracks, reportPositions, heatPoints, activityMatches, arcgisTrackRows, arcgisTracksGeoJson, arcgisTracksEsriJson,
     lonLatToMerc, MERC_WORLD, compass16, zipStore, crc32, shapefileParts, arcgisShapefileZip, arcgisTracksShapefileZip, tilesFor, tileZoom, tileUrl, wmsUrl, wmsCapabilitiesUrl, pickWmsCrs, pickWmsFormat, mercToLonLat, metresBetween, bearingBetween,

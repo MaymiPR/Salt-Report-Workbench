@@ -284,8 +284,9 @@ const finishOverlayImport = async () => {
     }
 };
 
-// --- The Overlays tab ---
+// --- The Map tab: the ops graphics ---
 
+const overlayGroupsOpen = new Set();   // the groups opened, by type
 const renderOverlays = () => {
     const box = document.getElementById('overlaysBody');
     if (!box) return;
@@ -321,6 +322,10 @@ const renderOverlays = () => {
             <button type="button" id="overlaysImportBtn" class="set-btn">Import KML / KMZ / GeoJSON / SHP</button>
             ${list.length ? '<button type="button" id="overlaysClearBtn" class="cancel-btn">Unload All</button>' : ''}
         </div>
+        ${list.length ? `<div class="overlay-fold" role="group" aria-label="Lists">
+            <button type="button" class="overlay-fold-btn" data-overlay-fold="open" title="Expand all" aria-label="Expand all"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 5.5 8 2l3.5 3.5M4.5 10.5 8 14l3.5-3.5"/></svg></button>
+            <button type="button" class="overlay-fold-btn" data-overlay-fold="close" title="Collapse all" aria-label="Collapse all"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 2.5 8 6l3.5-3.5M4.5 13.5 8 10l3.5 3.5"/></svg></button>
+        </div>` : ''}
     </div>`;
     // How many of the shown workspace's live reports each place appears in,
     // typed or by grid (a phase line: typed, or a grid near it).
@@ -343,17 +348,18 @@ const renderOverlays = () => {
     const groups = GROUPS.map(([type, title]) => {
         const members = list.map((o, i) => ({ o, i })).filter(x => x.o.type === type).sort(byName);
         if (!members.length) return '';
-        return `<section class="overlay-group" data-overlay-group="${type}">
-            <div class="overlay-group-head">
+        return `<details class="overlay-group" data-overlay-group="${type}"${overlayGroupsOpen.has(type) ? ' open' : ''}>
+            <summary class="overlay-group-head">
+                <span class="overlay-group-chevron" aria-hidden="true"></span>
                 <span class="overlay-group-title"><span class="overlay-type overlay-${type.toLowerCase()}">${type}</span> ${title}</span>
                 <span class="overlay-group-count">${members.length}</span>
                 <button type="button" class="overlay-group-unload editor-only" data-unload-group="${type}">Unload ${type === 'OBJ' ? 'OBJs' : type === 'PL' ? 'PLs' : 'NAIs'}</button>
-            </div>
+            </summary>
             <table class="overlays-table">
                 <thead><tr><th>Name</th><th>Shape</th><th>Reports${shownAto() ? ` in ${escapeHtml(shownAto())}` : ''}</th><th></th></tr></thead>
                 <tbody>${members.map(row).join('')}</tbody>
             </table>
-        </section>`;
+        </details>`;
     }).join('');
     box.innerHTML = `${header}
         ${list.length ? `
@@ -367,6 +373,13 @@ const overlaysFileInput = document.getElementById('overlaysFileInput');
 if (overlaysBody && overlaysFileInput) {
     overlaysBody.addEventListener('click', e => {
         if (e.target.closest('#overlaysImportBtn')) { overlaysFileInput.click(); return; }
+        // Every list opened, or every list closed.
+        const fold = e.target.closest('[data-overlay-fold]');
+        if (fold) {
+            const open = fold.dataset.overlayFold === 'open';
+            overlaysBody.querySelectorAll('[data-overlay-group]').forEach(g => { g.open = open; });
+            return;
+        }
         if (e.target.closest('#overlaysReviewAddBtn')) { finishOverlayImport(); return; }
         if (e.target.closest('#overlaysReviewCancelBtn')) { overlayReview = null; renderOverlays(); return; }
         if (e.target.closest('#overlaysClearBtn')) {
@@ -375,6 +388,7 @@ if (overlaysBody && overlaysFileInput) {
         }
         const group = e.target.closest('[data-unload-group]');
         if (group) {
+            e.preventDefault();   // in the group's header: unload, without folding it
             const type = group.dataset.unloadGroup;
             const n = currentOverlays().filter(o => o.type === type).length;
             showConfirmation(`Unload all ${n} ${type} overlay${n === 1 ? '' : 's'}? Reports are not changed.`,
@@ -388,6 +402,11 @@ if (overlaysBody && overlaysFileInput) {
             if (victim) saveOverlays(list.filter(o => o !== victim));
         }
     });
+    // Opened or closed: remembered, so a redraw keeps it.
+    overlaysBody.addEventListener('toggle', e => {
+        const g = e.target.closest('[data-overlay-group]');
+        if (g) g.open ? overlayGroupsOpen.add(g.dataset.overlayGroup) : overlayGroupsOpen.delete(g.dataset.overlayGroup);
+    }, true);
     overlaysBody.addEventListener('change', e => {
         const sel = e.target.closest('[data-review-idx]');
         if (sel && overlayReview) { overlayReview.rows[+sel.dataset.reviewIdx].type = sel.value; renderOverlays(); }

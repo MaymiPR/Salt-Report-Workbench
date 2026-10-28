@@ -452,9 +452,22 @@ class BrowserTests(unittest.TestCase):
             "gs => gs.map(g => g.dataset.overlayGroup)"
         )
         self.assertEqual(groups, ["NAI", "OBJ", "PL"])
+        # Each list is folded to start with; Unload in its header doesn't open it.
+        self.assertEqual(page.locator(".overlay-group[open]").count(), 0)
+        self.assertFalse(
+            page.locator(
+                ".overlay-group[data-overlay-group='OBJ'] .overlay-remove"
+            ).first.is_visible()
+        )
         page.click("[data-unload-group='PL']")
+        self.assertEqual(page.locator(".overlay-group[data-overlay-group='PL'][open]").count(), 0)
         page.click("#confirmActionBtn")
         page.wait_for_selector(".overlay-group[data-overlay-group='PL']", state="detached")
+        page.click("[data-overlay-fold='open']")
+        self.assertEqual(page.locator(".overlay-group:not([open])").count(), 0, "all open")
+        page.click("[data-overlay-fold='close']")
+        self.assertEqual(page.locator(".overlay-group[open]").count(), 0, "all closed")
+        page.click(".overlay-group[data-overlay-group='OBJ'] summary")
         page.click(".overlay-group[data-overlay-group='OBJ'] .overlay-remove")
         page.wait_for_function(
             "() => fetch('/api/sync').then(r => r.json()).then(s => s.overlays.map(o => o.type + ' ' + o.name).join() === 'NAI 1,NAI 2')"
@@ -713,25 +726,37 @@ class BrowserTests(unittest.TestCase):
     @staticmethod
     def pick_basemap(page, value):
         """Choose a basemap from the panel behind the map's layers button."""
+        if page.locator("#exportPanel").is_visible():
+            page.click("#exportViewToggleBtn")  # back from Manage to the map
         if not page.locator("#mapBasePop").is_visible():
             page.click("#mapBaseBtn")
         page.select_option("#mapBaseSelect", value)
 
     def open_basemaps(self, page):
-        """The list of services, in the basemap panel on the map."""
-        if not page.locator("#mapBasePop").is_visible():
-            page.click("#mapBaseBtn")
-        if not page.locator("#mapBasemapForm").is_visible():
-            page.click("#mapBaseEdit")
+        """The list of services, in Manage > Map."""
+        if not page.locator("#exportPanel").is_visible():
+            page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.wait_for_selector("#mapBasemapForm")
 
-    def add_tiles(self, page, name, url):
-        """One box takes either kind: a tile address is known by its {z}."""
+    def back_to_map(self, page):
+        """From Manage back to the map under the Report Log."""
+        if page.locator("#exportPanel").is_visible():
+            page.click("#exportViewToggleBtn")
+        self.open_map(page)
+
+    def add_tiles(self, page, url):
+        """One box takes either kind: a tile address is known by its {z}. It's
+        named for its host."""
+        import urllib.parse
+
+        name = urllib.parse.urlsplit(url.replace("{", "").replace("}", "")).hostname
         self.open_basemaps(page)
         page.fill("#mapBaseInput", url)
-        page.fill("#mapBaseNameIn", name)
         page.click("#mapBaseAddBtn")
         page.wait_for_selector(f"#toast-notification:has-text('{name} added')")
         self.assertEqual(page.input_value("#mapBaseInput"), "", "the box is emptied")
+        self.back_to_map(page)
 
     def add_wms(self, page, link, titles):
         """Look a WMS up from its link, tick the layers with these titles, add them."""
@@ -746,6 +771,7 @@ class BrowserTests(unittest.TestCase):
             page.check(f".map-layer-row:has(.map-layer-title:text-is('{t}')) input")
         page.click("#mapWmsAdd")
         page.wait_for_selector("#toast-notification:has-text('added for everyone')")
+        self.back_to_map(page)
 
     @staticmethod
     def capabilities(title, version, get_map, layers):
@@ -793,6 +819,10 @@ class BrowserTests(unittest.TestCase):
         self.open_map(page)
         self.add_wms(page, "https://basemap.test/wms", [])  # its one layer comes ticked
         page.wait_for_function("() => document.querySelectorAll('#mapBase image').length === 1")
+        for _ in range(50):  # the image is on the page before its request is logged
+            if asked:
+                break
+            page.wait_for_timeout(100)
         url = asked[-1]
         for part in ("REQUEST=GetMap", "LAYERS=imagery", "CRS=EPSG:3857", "map=ops"):
             self.assertIn(part, url)
@@ -802,14 +832,18 @@ class BrowserTests(unittest.TestCase):
         self.assertLess(y1 - y0, 40000)
         # A second service: added, and shown at once; the picker switches between them.
         asked.clear()
-        self.add_tiles(page, "Topo", "https://basemap.test/tiles/{z}/{x}/{y}.png")
+        self.add_tiles(page, "https://basemap.test/tiles/{z}/{x}/{y}.png")
         page.wait_for_function(
             "() => [...document.querySelectorAll('#mapBase image')].some(i => i.dataset.url.includes('/tiles/'))"
         )
+        for _ in range(50):
+            if asked:
+                break
+            page.wait_for_timeout(100)
         self.assertTrue(asked and len(asked) < 100, len(asked))
         self.assertTrue(all("/tiles/" in u for u in asked))
         options = page.locator("#mapBaseSelect option").all_text_contents()
-        self.assertEqual(options, ["No basemap", "Imagery", "Topo"])
+        self.assertEqual(options, ["No basemap", "Imagery", "basemap.test"])
         self.pick_basemap(page, "Imagery")
         page.wait_for_function(
             "() => [...document.querySelectorAll('#mapBase image')].some(i => i.dataset.url.includes('/wms'))"
@@ -817,7 +851,7 @@ class BrowserTests(unittest.TestCase):
         self.pick_basemap(page, "off")
         page.wait_for_function("() => document.querySelectorAll('#mapBase image').length === 0")
         page.wait_for_function(
-            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.map(b => b.name).join() === 'Imagery,Topo')"
+            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.map(b => b.name).join() === 'Imagery,basemap.test')"
         )
         # Viewers get the map too (its layers, window and basemap picker), the
         # same list to pick from, and can't change it; the Overlays tab isn't theirs.
@@ -836,7 +870,9 @@ class BrowserTests(unittest.TestCase):
         viewer.wait_for_function(
             "() => document.querySelectorAll('#mapBaseSelect option').length === 3"
         )
-        self.assertFalse(viewer.locator("#mapBaseEdit").is_visible())
+        viewer.click("#mapBaseBtn")
+        self.assertFalse(viewer.locator("#mapBaseManage").is_visible(), "editors only")
+        viewer.click("#mapBaseBtn")
         for sel in (
             "[data-map-layer='reports']",
             "[data-map-layer='heat']",
@@ -845,22 +881,39 @@ class BrowserTests(unittest.TestCase):
             "[data-map-zoom='full']",
         ):
             self.assertTrue(viewer.locator(sel).is_visible(), sel)
-        self.pick_basemap(viewer, "Topo")
+        self.pick_basemap(viewer, "basemap.test")
         viewer.wait_for_function("() => document.querySelectorAll('#mapBase image').length > 0")
-        # A tile service's details: renamed (and still the one shown here).
+        # A tile service's details: its address changed (its name stays, and it's still the one shown).
         self.open_basemaps(page)
-        self.pick_basemap(page, "Topo")
+        self.pick_basemap(page, "basemap.test")
         self.open_basemaps(page)
+        self.assertEqual(
+            page.locator("#mapBasemapForm input[placeholder='Name']").count(), 0, "no name boxes"
+        )
         page.click("[data-base-open='1']")
-        self.assertEqual(page.input_value("#mapTileName"), "Topo")
-        page.fill("#mapTileName", "Terrain tiles")
+        self.assertEqual(
+            page.input_value("#mapTileUrl"), "https://basemap.test/tiles/{z}/{x}/{y}.png"
+        )
+        page.fill("#mapTileUrl", "https://basemap.test/topo/{z}/{x}/{y}.png")
         page.click("#mapTileSave")
-        page.wait_for_selector("#toast-notification:has-text('Terrain tiles saved')")
+        page.wait_for_selector("#toast-notification:has-text('basemap.test saved')")
+        page.wait_for_function(
+            "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps[1].url.includes('/topo/'))"
+        )
+        self.back_to_map(page)
         self.assertEqual(
             page.locator("#mapBaseSelect option").all_text_contents(),
-            ["No basemap", "Imagery", "Terrain tiles"],
+            ["No basemap", "Imagery", "basemap.test"],
         )
-        self.assertEqual(page.input_value("#mapBaseSelect"), "Terrain tiles")
+        self.assertEqual(page.input_value("#mapBaseSelect"), "basemap.test")
+        # The map's basemap menu only switches; it links to Manage > Map.
+        page.click("#mapBaseBtn")
+        self.assertEqual(page.locator("#mapBasePop #mapBasemapForm").count(), 0)
+        page.click("#mapBaseManage")
+        page.wait_for_selector("#mapBasemapForm")
+        self.assertTrue(
+            page.locator(".ws-tab[data-tab='overlays']").get_attribute("aria-selected") == "true"
+        )
         # No x on the rows: a service is removed from its details, and asked first.
         self.assertEqual(page.locator("#mapBasemapForm .overlay-remove").count(), 0)
         page.click("[data-base-open='0']")
@@ -868,15 +921,38 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(page.is_checked(".map-layer-row:has-text('Imagery 2024') input"))
         page.click("#mapBaseRemove")
         self.assertEqual(page.text_content("#mapBaseRemove"), "Remove for everyone?")
-        self.assertEqual(page.locator("#mapBaseSelect option").count(), 3)
+        self.assertEqual(page.locator(".map-base-row").count(), 2, "not yet")
         page.click("#mapBaseRemove")
         page.wait_for_selector("#toast-notification:has-text('Imagery removed')")
+        self.assertEqual(page.locator(".map-base-detail").count(), 0)
+        self.back_to_map(page)
         self.assertEqual(
             page.locator("#mapBaseSelect option").all_text_contents(),
-            ["No basemap", "Terrain tiles"],
+            ["No basemap", "basemap.test"],
         )
-        self.assertEqual(page.locator(".map-base-detail").count(), 0)
         page.evaluate("saveBasemaps([])")
+
+    def test_a_wms_linked_over_https_is_asked_over_https(self):
+        # Regression (EOX): the capabilities gave http://, which sends everything on
+        # to https://; saved as given, every map image failed on an HTTPS page.
+        page = self.open_editor()
+        url = "f => wmsGetMapUrl(f)"
+        same = {
+            "link": "https://tiles.maps.eox.at/wms?service=wms",
+            "getMap": "http://tiles.maps.eox.at/?",
+        }
+        self.assertEqual(page.evaluate(url, same), "https://tiles.maps.eox.at/?")
+        other = {**same, "getMap": "http://maps.example.mil/wms?"}
+        self.assertEqual(
+            page.evaluate(url, other), "http://maps.example.mil/wms?", "another host: as given"
+        )
+        plain = {**same, "link": "http://tiles.maps.eox.at/wms"}
+        self.assertEqual(
+            page.evaluate(url, plain), "http://tiles.maps.eox.at/?", "linked over http: as given"
+        )
+        self.assertEqual(
+            page.evaluate(url, {"link": " https://x.test/wms ", "getMap": ""}), "https://x.test/wms"
+        )
 
     def test_a_wms_found_through_the_server_in_latitude_longitude(self):
         import http.server as hs
@@ -928,13 +1004,16 @@ class BrowserTests(unittest.TestCase):
         page.click("#mapBaseAddBtn")
         page.wait_for_selector(".map-layer-list")
         self.assertIn("read by the server", page.text_content(".map-find-head"))
-        self.assertEqual(page.input_value("#mapWmsName"), "Range Maps", "named after the service")
+        self.assertEqual(
+            page.text_content(".map-find-name"), "Range Maps", "named after the service"
+        )
         self.assertIn("can't show", page.text_content(".map-layer-row:has-text('UTM only')"))
         page.check(".map-layer-row:has-text('Roads') input")
         page.check(".map-layer-row:has-text('Terrain') input")
         self.assertEqual(page.text_content("#mapWmsAdd"), "Add 2 layers as one")
         page.click("#mapWmsAdd")
         page.wait_for_selector("#toast-notification:has-text('Range Maps added')")
+        self.back_to_map(page)
         page.wait_for_function(
             "() => fetch('/api/sync').then(r => r.json()).then(s => s.basemaps.some(b => b.name === 'Range Maps'))"
         )
@@ -967,8 +1046,9 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("VERSION=1.1.1", get_map)
         x0, y0, x1, y1 = map(float, get_map.split("BBOX=")[1].split("&")[0].split(","))
         self.assertTrue(44 < x0 < x1 < 45 and 33 < y0 < y1 < 34, (x0, y0, x1, y1))
-        # Check: the service sent an image (to the server), said for a few
-        # seconds; a bad layer, its error, which stays to be read.
+        # Check (in Manage > Map): the service sent an image (to the server),
+        # said for a few seconds; a bad layer, its error, which stays to be read.
+        self.open_basemaps(page)
         page.click("[data-base-check='0']")
         page.wait_for_selector(".map-base-check.ok")
         self.assertIn("map image", page.text_content(".map-base-check"))
@@ -1258,6 +1338,203 @@ class BrowserTests(unittest.TestCase):
         page.click("#exportPanel .ws-tab[data-tab='identity']")
         self.assertEqual(code.inner_text(), "\u2022" * len(CODE))
 
+    def test_mgrs_lock_keeps_its_zone_and_square_after_a_report(self):
+        # Regression: logging reset the form, which emptied the box while the lock went on.
+        page = self.open_editor()
+        page.click("#dataMgmtBtn")
+        page.click("#toggleMgrsLockBtn")
+        page.fill("#mgrsPrefix", "38S MB")
+        # Enter sets it and goes on to Location; it doesn't try to log the report.
+        page.press("#mgrsPrefix", "Enter")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "location")
+        page.wait_for_timeout(300)
+        self.assertNotIn("Please fill in", page.text_content("#toast-notification") or "")
+        self.log(page, "2x BMP", location="45000 82000")
+        self.assertEqual(page.input_value("#mgrsPrefix"), "38S MB")
+        page.wait_for_selector("#reportLogBody tr[data-id] .col-location:has-text('38S MB')")
+
+    def test_the_sidebar_box_wraps_its_button(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        page.wait_for_timeout(500)
+        side, btn = (
+            page.locator("#mapSide").bounding_box(),
+            page.locator("#mapSideBtn").bounding_box(),
+        )
+        self.assertLess(side["y"], btn["y"])
+        self.assertLess(side["x"], btn["x"])
+        self.assertGreater(side["x"] + side["width"], btn["x"] + btn["width"])
+        first = page.locator("#mapSide .map-side-head").first.bounding_box()
+        self.assertGreater(
+            first["y"], btn["y"] + btn["height"], "its contents start under the button"
+        )
+
+    def test_drones_are_shared_drawn_with_their_view_and_zoomed_to(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
+        self.open_map(page)
+        page.click("#mapDroneBtn")
+        page.fill("#mapDroneName", "GE 1")
+        page.fill("#mapDroneGridNew", "38SMB4000078000")
+        page.click("#mapDroneAdd")
+        page.wait_for_selector("#toast-notification:has-text('GE 1 added at 38S MB 40000 78000')")
+        page.wait_for_selector("#mapSvg .map-drone")
+        # Its view: a cone narrowing to the newest report, and the sightline.
+        cone = page.locator("#mapSvg .map-drone-cone")
+        self.assertEqual(cone.count(), 1)
+        shape = cone.get_attribute("d")
+        self.assertIn(" A", shape, "its far end is an arc, not cut straight")
+        tip = [float(v) for v in shape[1:].split()[0].split(",")]
+        at = page.get_attribute("#mapSvg .map-drone", "transform")
+        drone = [float(v) for v in at[at.index("(") + 1 : at.index(")")].split()]
+        self.assertEqual(tip, drone, "narrow at the drone, widening to the report")
+        self.assertEqual(page.locator("#mapSvg .map-drones line").count(), 2)
+        self.assertIn(
+            " km N", " ".join(page.locator("#mapSvg .map-label-drone").all_text_contents())
+        )
+        # Moved by typing a grid; Zoom centres on it, closer.
+        page.fill("#mapDroneGrid0", "38SMB4100079000")
+        page.press("#mapDroneGrid0", "Enter")
+        page.wait_for_selector("#toast-notification:has-text('GE 1 moved to 38S MB 41000 79000')")
+        before = page.evaluate("mapView.mpp")
+        page.click("[data-drone-zoom='0']")
+        page.wait_for_function(f"() => mapView.mpp < {before}")
+        # Drawn in the middle of the map, once redrawn.
+        page.wait_for_function(
+            r"() => { const t = document.querySelector('#mapSvg .map-drone').getAttribute('transform').match(/[\d.]+/g).map(Number);"
+            " const b = document.getElementById('mapBox'); return Math.abs(t[0] - b.clientWidth / 2) < 2 && Math.abs(t[1] - b.clientHeight / 2) < 2; }"
+        )
+        # Each browser's own switches: the view off, then the drones.
+        page.uncheck("#mapDroneView")
+        page.wait_for_function("() => !document.querySelector('#mapSvg .map-drone-cone')")
+        page.uncheck("#mapDroneShow")
+        page.wait_for_function("() => !document.querySelector('#mapSvg .map-drone')")
+        page.check("#mapDroneShow")
+        page.wait_for_selector("#mapSvg .map-drone")
+        # Shared: the server has it, and a viewer sees it but can't move it.
+        page.wait_for_function(
+            "() => fetch('/api/sync').then(r => r.json()).then(s => s.drones.length === 1 && s.drones[0].grid === '38S MB 41000 79000')"
+        )
+        viewer = self.open_viewer()
+        self.open_map(viewer)
+        viewer.wait_for_selector("#mapSvg .map-drone")
+        viewer.click("#mapDroneBtn")
+        self.assertEqual(viewer.locator("#mapDroneGrid0").count(), 0)
+        self.assertFalse(viewer.locator("#mapDroneAdd").is_visible())
+        page.evaluate("saveDrones([])")
+
+    def test_drone_view_points_where_told_and_flags_out_of_range(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
+        self.open_map(page)
+        page.evaluate("saveDrones([{ name: 'GE 1', grid: '38S MB 40000 78000', at: Date.now() }])")
+        page.wait_for_selector("#mapSvg .map-drone-cone")
+        page.click("#mapDroneBtn")
+        # Told where to look: the cone points there, not at the newest report.
+        page.fill("#mapDroneLook0", "38SMB4000090000")
+        page.press("#mapDroneLook0", "Enter")
+        page.wait_for_selector(
+            "#toast-notification:has-text('GE 1 is looking at 38S MB 40000 90000')"
+        )
+        page.wait_for_function(
+            "() => [...document.querySelectorAll('#mapSvg .map-label-drone')].some(t => t.textContent === '12.0 km N')"
+        )
+        self.assertEqual(page.locator("#mapSvg .map-drone-range").count(), 0, "no range, no ring")
+        # A range shorter than that: the ring, a red view, and how far out.
+        page.fill("#mapDroneRange0", "10")
+        page.press("#mapDroneRange0", "Enter")
+        page.wait_for_selector("#toast-notification:has-text(\"GE 1's range is 10 km\")")
+        page.wait_for_selector("#mapSvg .map-drone-range")
+        page.wait_for_selector("#mapSvg .map-drone-cone.out")
+        labels = " ".join(page.locator("#mapSvg .map-label-drone").all_text_contents())
+        self.assertIn("2.0 km out of range", labels)
+        self.assertIn("10 km", labels)
+        # Back to the newest report (in range): no longer red; no range: no ring.
+        page.fill("#mapDroneLook0", "")
+        page.press("#mapDroneLook0", "Enter")
+        page.wait_for_selector(
+            "#toast-notification:has-text(\"GE 1's view follows the newest report\")"
+        )
+        page.wait_for_function("() => document.querySelector('#mapSvg .map-drone-cone:not(.out)')")
+        page.fill("#mapDroneRange0", "")
+        page.press("#mapDroneRange0", "Enter")
+        page.wait_for_function("() => !document.querySelector('#mapSvg .map-drone-range')")
+        page.wait_for_function(
+            "() => fetch('/api/sync').then(r => r.json()).then(s => s.drones.length === 1 && !('look' in s.drones[0]) && !('range' in s.drones[0]))"
+        )
+        # Moving it keeps where it looks and its range.
+        page.evaluate("saveDrones([{ ...sharedDrones[0], look: '38S MB 40000 90000', range: 15 }])")
+        page.fill("#mapDroneGrid0", "38SMB4100078000")
+        page.press("#mapDroneGrid0", "Enter")
+        page.wait_for_function(
+            "() => fetch('/api/sync').then(r => r.json()).then(s => s.drones[0].grid === '38S MB 41000 78000' && s.drones[0].range === 15 && s.drones[0].look === '38S MB 40000 90000')"
+        )
+        viewer = self.open_viewer()
+        self.open_map(viewer)
+        viewer.click("#mapDroneBtn")
+        self.assertIn("38S MB 40000 90000", viewer.text_content("#mapDronePop"))
+        self.assertIn("15 km", viewer.text_content("#mapDronePop"))
+        self.assertEqual(viewer.locator("#mapDroneLook0").count(), 0, "viewers can't change it")
+        page.evaluate("saveDrones([])")
+
+    def test_shift_click_copies_the_grid_under_it(self):
+        self.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=self.editor)
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        page.locator("#mapBox").scroll_into_view_if_needed()
+        box = page.locator("#mapBox").bounding_box()
+        x, y = box["x"] + box["width"] * 0.6, box["y"] + box["height"] * 0.55
+        page.mouse.move(x, y)
+        self.assertTrue(page.locator("#mapGridReadout").is_hidden(), "only while Shift is held")
+        page.keyboard.down("Shift")
+        page.wait_for_selector("#mapGridReadout:not([hidden])")
+        shown = page.text_content("#mapGridReadout")
+        self.assertRegex(shown, r"^38S [A-Z]{2} \d{5} \d{5}$")
+        page.mouse.click(x, y)
+        page.wait_for_selector(f"#toast-notification:has-text('Copied {shown}')")
+        self.assertEqual(page.evaluate("navigator.clipboard.readText()"), shown)
+        self.assertTrue(page.locator("#mapCard").is_hidden(), "a Shift + click opens no card")
+        page.keyboard.up("Shift")
+        page.wait_for_selector("#mapGridReadout", state="hidden")
+        self.assertEqual(page.locator("#mapGrabBtn").count(), 0, "no button to press first")
+
+    def test_the_basemap_notice_only_when_nothing_came_back(self):
+        # Regression: one missing tile put the notice up while Check passed.
+        page = self.open_editor()
+        self.import_overlays(page)
+        serving = {"some": True}
+
+        def serve(route):
+            x = int(route.request.url.rstrip(".png").split("/")[-2])
+            if serving["some"] and x % 2 == 0:
+                route.fulfill(status=200, content_type="image/png", body=self.PNG_1PX)
+            else:
+                route.fulfill(status=404, content_type="text/plain", body="no tile")
+
+        self.context.route("https://gaps.test/**", serve)
+        self.open_map(page)
+        self.add_tiles(page, "https://gaps.test/t/{z}/{x}/{y}.png")
+        settled = "() => { const i = [...document.querySelectorAll('#mapBase image')]; return i.length && i.every(e => e.dataset.state); }"
+        page.wait_for_function(settled)
+        self.assertGreater(
+            page.locator("#mapBase image[data-state='error']").count(), 0, "some tiles missing"
+        )
+        self.assertTrue(
+            page.locator("#mapNote").is_hidden(), "a few gaps aren't the service failing"
+        )
+        # Nothing comes back for the next view: now it says so.
+        serving["some"] = False
+        page.click("[data-map-zoom='in']")
+        page.wait_for_function(
+            "() => { const i = [...document.querySelectorAll('#mapBase image')]; return i.length && i.every(e => e.dataset.state === 'error'); }"
+        )
+        page.wait_for_selector("#mapNote", state="visible")
+        page.evaluate("saveBasemaps([])")
+
     def test_the_basemap_notice_sits_under_the_controls_however_they_wrap(self):
         page = self.open_editor()
         self.import_overlays(page)
@@ -1415,9 +1692,7 @@ class BrowserTests(unittest.TestCase):
             names.append(page.text_content("#homeTitle"))
         self.assertEqual(len(set(widths)), 1, widths)
         self.assertEqual(len(set(spots)), 1, spots)
-        self.assertEqual(
-            names, ["Report Log", "Map", "Workspaces", "Statistics", "Summary Reports"]
-        )
+        self.assertEqual(names, ["Report Log", "Map", "Manage", "Statistics", "Summary Reports"])
         # Closing a view goes back to the Report Log as it was: here, the map.
         page.click("#summaryViewToggleBtn")
         page.wait_for_selector("#mapPanel #mapSvg")
