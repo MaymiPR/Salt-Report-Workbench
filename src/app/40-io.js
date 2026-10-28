@@ -622,12 +622,17 @@ const openCsvImportView = () => {
     destHtml += '<option value="IMPORT">IMPORT workspace</option>';
     others.forEach(a => { destHtml += `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`; });
     el.csv.destSelect.innerHTML = destHtml;
+    // Focus goes in (on Cancel, the safe button) and back where it was after.
+    // Not held inside: the panel is a view, and the view switcher stays usable.
+    dialogOpeners.delete(el.csv.panel);   // left another way last time
+    enterDialog(el.csv.panel, el.csv.cancelBtn);
 };
 
 const closeCsvImportView = () => {
     el.csv.panel.style.display = 'none';
     showHomeView();
     pendingCsv = null;
+    leaveDialog(el.csv.panel);
 };
 
 const confirmCsvImport = async () => {

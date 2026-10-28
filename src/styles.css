@@ -637,9 +637,26 @@ body.local-mode .startup-access-divider { display: none; }
 .cancel-btn { background-color: var(--input-bg); color: var(--text-primary); }
 
 /* Review fixes: toasts, dialogs, table access */
+/* An error toast: a red dark enough for white text (5.9:1). */
+.toast.toast-error { background-color: #c0261c; border-color: rgba(255, 255, 255, 0.12); }
+/* Shown at once (it still fades in), so its buttons can take focus as it opens. */
+.toast.show { transition: opacity 0.4s, transform 0.4s, visibility 0s; }
 /* An overlay's × pressed once: its name asks in place (as a basemap's does),
    wrapping rather than running into the next column. */
 .overlay-ask { white-space: normal; }
+/* The Identifier cell and the sort headers are buttons, for the keyboard,
+   that look as the plain text did. */
+#reportLogTable .id-edit-btn,
+#reportLogTable .sort-btn { all: unset; cursor: pointer; }
+#reportLogTable .id-edit-btn { display: block; width: 100%; box-sizing: border-box; text-align: inherit; }
+#reportLogTable .id-edit-btn:hover, #reportLogTable .id-edit-btn:active,
+#reportLogTable .sort-btn:hover, #reportLogTable .sort-btn:active { opacity: 1; transform: none; }
+#reportLogTable .id-edit-btn:focus-visible,
+#reportLogTable .sort-btn:focus-visible { outline: 2px solid var(--system-blue); outline-offset: 2px; border-radius: 4px; }
+#reportLogTable .sortable-th:has(.sort-btn:focus-visible) .sort-icon { opacity: 0.7; }
+/* Keyboard focus shows on the row controls and the Settings menu's items. */
+.color-swatch:focus-visible { outline: 2px solid var(--system-blue); outline-offset: 2px; }
+#dataMgmtMenu button:focus-visible { outline: none; background: rgba(10, 132, 255, 0.35); }
 /* End of review fixes */
 
 .input-group { margin-bottom: 12px; }

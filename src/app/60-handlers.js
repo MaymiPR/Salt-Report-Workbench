@@ -552,7 +552,7 @@ el.profile.setBtn.addEventListener('click', async () => {
 });
 // Scope this to the profile menu's swatches so the startup-modal swatches
 // (same class, different container) don't trigger the profile-side update.
-el.profile.menu.querySelectorAll('.color-swatch').forEach(sw => sw.addEventListener('click', e => { e.stopPropagation(); const c=sw.dataset.color; el.profile.color.value=c; el.profile.avatar.style.backgroundColor=c; el.profile.menu.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('selected')); sw.classList.add('selected'); }));
+el.profile.menu.querySelectorAll('.color-swatch').forEach(sw => sw.addEventListener('click', e => { e.stopPropagation(); const c=sw.dataset.color; el.profile.color.value=c; el.profile.avatar.style.backgroundColor=c; markSwatch(el.profile.menu, c); }));
 el.profile.initials.addEventListener('input', () => { el.profile.avatar.textContent = el.profile.initials.value.trim().toUpperCase()||'?'; });
 
 // Copy the access code to clipboard for quick sharing. Disabled when no
@@ -633,7 +633,7 @@ if (el.startup.presets) el.startup.presets.addEventListener('click', e => {
         el.startup.color.value = c;
         el.startup.avatar.textContent = ini;
         el.startup.avatar.style.backgroundColor = c;
-        el.startup.swatches.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('selected', s.dataset.color === c));
+        markSwatch(el.startup.swatches, c);
     } else if (chip.dataset.preset === 'ato') {
         el.startup.ato.value = chip.dataset.ato;
         el.startup.ato.dataset.touched = '1';
@@ -662,13 +662,13 @@ const openStartupModal = () => {
         el.startup.color.value = c;
         el.startup.avatar.textContent = userProfile.initials;
         el.startup.avatar.style.backgroundColor = c;
-        el.startup.swatches.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('selected', s.dataset.color === c));
+        markSwatch(el.startup.swatches, c);
     } else {
         el.startup.initials.value = '';
         el.startup.color.value = '#0a84ff';
         el.startup.avatar.textContent = '?';
         el.startup.avatar.style.backgroundColor = '#0a84ff';
-        el.startup.swatches.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('selected', s.dataset.color === '#0a84ff'));
+        markSwatch(el.startup.swatches, '#0a84ff');
     }
     renderStartupPresets();
     el.startup.ato.value   = activeAto || (localConfig && localConfig.ato) || '';
@@ -690,10 +690,12 @@ const openStartupModal = () => {
     el.startup.overlay.setAttribute('aria-hidden', 'false');
 
     // Focus the first empty field for a smooth flow.
+    const opener = document.activeElement;
     setTimeout(() => {
-        if      (!el.startup.initials.value) el.startup.initials.focus();
-        else if (!el.startup.ato.value)      el.startup.ato.focus();
-        else                                  el.startup.title.focus();
+        if (!el.startup.overlay.classList.contains('show')) return;
+        if (!dialogOpeners.has(el.startup.overlay)) dialogOpeners.set(el.startup.overlay, opener);
+        enterDialog(el.startup.overlay, !el.startup.initials.value ? el.startup.initials
+            : !el.startup.ato.value ? el.startup.ato : el.startup.title);
     }, 50);
 };
 
@@ -707,6 +709,7 @@ const closeStartupModal = () => {
     forceStartupModal = false;
     el.startup.overlay.classList.remove('show');
     el.startup.overlay.setAttribute('aria-hidden', 'true');
+    leaveDialog(el.startup.overlay);
     // Lift the pre-paint gate now that the user has confirmed setup — the
     // app body becomes visible behind the closing modal.
     document.documentElement.classList.remove('salt-ready-gate');
@@ -734,8 +737,7 @@ el.startup.swatches.querySelectorAll('.color-swatch').forEach(sw => sw.addEventL
     const c = sw.dataset.color;
     el.startup.color.value = c;
     el.startup.avatar.style.backgroundColor = c;
-    el.startup.swatches.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
-    sw.classList.add('selected');
+    markSwatch(el.startup.swatches, c);
 }));
 
 // Enter in any field advances to the next or submits.
@@ -1035,12 +1037,32 @@ el.menu.bdaBtn.addEventListener('click', () => { bdaMode = !bdaMode; bdaFilter =
 setupMenuToggle(el.menu.btn, el.menu.panel);
 el.menu.panel.addEventListener('click', e => { if(e.target.tagName==='BUTTON') el.menu.panel.style.display='none'; });
 document.addEventListener('click', e => { if(!el.menu.btn.contains(e.target)&&!el.menu.panel.contains(e.target)) el.menu.panel.style.display='none'; });
-// (The person icon used to live in the report-log header and toggle a popup;
-// it's now the Identity tab itself, wired through the normal tab handler.)
+// The Settings menu for the keyboard: its button says whether it is open
+// (whatever opened or closed it), opening it puts focus on its first item,
+// the arrows, Home and End move between the items shown, and Tab leaves it.
+const menuItems = () => [...el.menu.panel.querySelectorAll('[role="menuitem"]')].filter(b => b.getClientRects().length);
+new MutationObserver(() => el.menu.btn.setAttribute('aria-expanded', String(el.menu.panel.style.display === 'block')))
+    .observe(el.menu.panel, { attributes: true, attributeFilter: ['style'] });
+el.menu.btn.addEventListener('click', () => { if (el.menu.panel.style.display === 'block') { const first = menuItems()[0]; if (first) first.focus(); } });
+el.menu.btn.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    if (el.menu.panel.style.display !== 'block') el.menu.btn.click();
+    const items = menuItems();
+    if (items.length) (e.key === 'ArrowUp' ? items[items.length - 1] : items[0]).focus();
+});
+el.menu.panel.addEventListener('keydown', e => {
+    const items = menuItems();
+    const i = items.indexOf(document.activeElement);
+    const go = { ArrowDown: i + 1, ArrowUp: i < 0 ? -1 : i - 1, Home: 0, End: items.length - 1 }[e.key];
+    if (go !== undefined && items.length) { e.preventDefault(); items[(go + items.length) % items.length].focus(); return; }
+    if (e.key === 'Tab') el.menu.panel.style.display = 'none';
+});
+// Identity is a tab of Manage, wired with the other tabs above.
 
 // User Manual modal
-const openManual  = () => { el.manual.modal.classList.add('show');    el.manual.modal.setAttribute('aria-hidden', 'false'); el.manual.modal.querySelector('.manual-body').scrollTop = 0; };
-const closeManual = () => { el.manual.modal.classList.remove('show'); el.manual.modal.setAttribute('aria-hidden', 'true');  };
+const openManual  = () => { el.manual.modal.classList.add('show');    el.manual.modal.setAttribute('aria-hidden', 'false'); el.manual.modal.querySelector('.manual-body').scrollTop = 0; enterDialog(el.manual.modal, el.manual.closeBtn); };
+const closeManual = () => { el.manual.modal.classList.remove('show'); el.manual.modal.setAttribute('aria-hidden', 'true'); leaveDialog(el.manual.modal); };
 el.manual.openBtn .addEventListener('click', openManual);
 el.manual.closeBtn.addEventListener('click', closeManual);
 // Click outside the modal card closes it.
@@ -1053,6 +1075,7 @@ document.addEventListener('keydown', e => {
     if (e.key==='Escape' && el.toast.confirm.classList.contains('show')) { e.preventDefault(); hideConfirmation(); return; }
     if (e.key==='Escape' && el.menu.panel.style.display === 'block') { e.preventDefault(); el.menu.panel.style.display = 'none'; el.menu.btn.focus(); return; }
     if (e.key==='Escape' && el.manual.modal.classList.contains('show')) { e.preventDefault(); closeManual(); return; }
+    if (e.key==='Escape' && el.csv.panel.style.display === 'flex') { e.preventDefault(); closeCsvImportView(); return; }
     if (e.key==='Escape' && el.form.cancelBtn.style.visibility==='visible') { e.preventDefault(); resetForm(); showToast('Editing cancelled.'); return; }
     // Escape clears any selected table rows (before the form-clear fallback).
     if (e.key==='Escape') {

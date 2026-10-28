@@ -10,6 +10,7 @@ function setConnectionStatus(isOnline) {
     const title = isOnline ? (offlinePendingPush || pendingAtos.size ? 'Syncing...' : 'Online & Synced') : 'Offline (Saving Locally)';
     el.status.dot.className    = cls;
     el.status.dot.title        = title;
+    el.status.dot.setAttribute('aria-label', title);
     el.status.dotExp.className = cls;
     el.status.dotExp.title     = title;
 }

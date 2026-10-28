@@ -250,6 +250,13 @@ const pruneTableState = (live) => {
 // preserves the active filter without the caller having to pass it.
 const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
     keepBdaDrafts();
+    // A row control with keyboard focus gets it back after the redraw (the
+    // checklist's boxes are put back by keepBdaDrafts' own record).
+    const had = document.activeElement;
+    const refocus = had && had !== document.body && el.log.body.contains(had) && !bdaFocus
+        ? [had.tagName.toLowerCase(), ...['data-id', 'data-lm', 'data-history-id', 'data-bda-id', 'data-edit-id', 'data-restore-id', 'data-discard-id']
+            .filter(a => had.hasAttribute(a)).map(a => `[${a}="${CSS.escape(had.getAttribute(a))}"]`)].join('') + (had.classList[0] ? `.${CSS.escape(had.classList[0])}` : '')
+        : null;
     let rows = localReports.filter(r => !r.deleted);
     pruneTableState(rows);
     el.log.count.textContent = `${rows.length} unique reports`;
@@ -302,13 +309,20 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
         // The report in the form stays highlighted through a redraw.
         if (report.id === editingId) row.classList.add('selected-row');
         const rid    = report.id;
+        const shownId = formatFullId(report);
         const histBtn = (report.history && report.history.length > 0)
-            ? `<button class="history-btn ${isOpen ? 'open' : ''}" data-history-id="${escapeHtml(report.id)}" title="View past versions">&#8250;</button>`
-            : `<button class="history-btn" style="visibility:hidden;" disabled>&#8250;</button>`;
+            ? `<button class="history-btn ${isOpen ? 'open' : ''}" data-history-id="${escapeHtml(report.id)}" title="View past versions" aria-label="Past versions of ${escapeHtml(shownId)}" aria-expanded="${isOpen}">&#8250;</button>`
+            : `<button class="history-btn" style="visibility:hidden;" disabled aria-hidden="true">&#8250;</button>`;
         const refused     = isReadOnly ? null : unsavedEntry(activeAto, report);
-        const statusText  = (report.updated || refused)
-            ? `<span class="id-cell-wrap">${escapeHtml(formatFullId(report))}${report.updated ? '<span class="id-updated-badge">(Updated)</span>' : ''}${refused ? `<span class="unsaved-badge" title="${escapeHtml(refused.reason)}">Not saved</span>` : ''}</span>`
-            : escapeHtml(formatFullId(report));
+        let statusText    = (report.updated || refused)
+            ? `<span class="id-cell-wrap">${escapeHtml(shownId)}${report.updated ? '<span class="id-updated-badge">(Updated)</span>' : ''}${refused ? `<span class="unsaved-badge" title="${escapeHtml(refused.reason)}">Not saved</span>` : ''}</span>`
+            : escapeHtml(shownId);
+        // Editors load a report into the form from its row; the Identifier is
+        // a button so the keyboard can too (it looks as the text did).
+        if (!isReadOnly) {
+            const said = `Edit ${shownId}${report.updated ? ', updated' : ''}${refused ? `, not saved: ${refused.reason}` : ''}`;
+            statusText = `<button type="button" class="id-edit-btn" data-edit-id="${escapeHtml(report.id)}" aria-label="${escapeHtml(said)}">${statusText}</button>`;
+        }
         const discardBtn  = refused ? `<button class="discard-btn" data-discard-id="${escapeHtml(report.id)}" title="Drop this unsaved change">Discard</button>` : '';
         // Use the user recorded on the report itself (avoids color collisions
         // when two operators share initials).
@@ -331,9 +345,9 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
             const tip   = done === 0 ? 'No assessments yet'
                         : (total && done < total) ? `${done} of ${total} assessed`
                         : `All ${done} assessed`;
-            bdaBtn = `<button class="bda-btn ${state}${worstCls ? ' bda-worst-' + worstCls : ''}${openBdaRows.has(report.id) ? ' open' : ''}" data-bda-id="${escapeHtml(report.id)}" title="${tip}">${label}</button>`;
+            bdaBtn = `<button class="bda-btn ${state}${worstCls ? ' bda-worst-' + worstCls : ''}${openBdaRows.has(report.id) ? ' open' : ''}" data-bda-id="${escapeHtml(report.id)}" title="${tip}" aria-expanded="${openBdaRows.has(report.id)}">${label}</button>`;
         }
-        row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${escapeHtml(report.id)}" title="Select"${selectedRows.has(rid) ? ' checked' : ''}> ${histBtn} <button class="copy-btn" data-id="${escapeHtml(report.id)}">Copy</button>${discardBtn}${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${clampCell(report.size, `${rid}|size`)}</td><td class="col-activity">${clampCell(report.activity, `${rid}|activity`)}</td><td class="col-location">${clampCell(report.location, `${rid}|location`)}${locationTags(report.location, report.id)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}</td><td class="col-analysis">${clampCell(report.yourAnalysis, `${rid}|analysis`)}</td>${cusCells(report.custom, rid)}`;
+        row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${escapeHtml(report.id)}" title="Select" aria-label="Select ${escapeHtml(shownId)}"${selectedRows.has(rid) ? ' checked' : ''}> ${histBtn} <button class="copy-btn" data-id="${escapeHtml(report.id)}" aria-label="Copy ${escapeHtml(shownId)}">Copy</button>${discardBtn}${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${clampCell(report.size, `${rid}|size`)}</td><td class="col-activity">${clampCell(report.activity, `${rid}|activity`)}</td><td class="col-location">${clampCell(report.location, `${rid}|location`)}${locationTags(report.location, report.id)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}</td><td class="col-analysis">${clampCell(report.yourAnalysis, `${rid}|analysis`)}</td>${cusCells(report.custom, rid)}`;
         frag.appendChild(row);
 
         if (bdaMode && openBdaRows.has(report.id)) frag.appendChild(buildBdaRow(report));
@@ -345,7 +359,7 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
                 const hRep  = h.user || null;
                 const hHTML = hRep ? `<span style="color:${safeColor(hRep.color)};">${escapeHtml(hRep.initials)}</span>` : '?';
                 const hk = `${rid}|${h.lastModified}`;
-                hRow.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="history-selector" data-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Select history entry"${selectedHistory.has(hk) ? ' checked' : ''}> <span class="hist-arrow">&#8618;</span> <button class="restore-btn" data-restore-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Restore this version as current">Restore</button></div></td><td class="col-by reporter-col">${hHTML}</td><td class="col-id"><span class="id-cell-wrap">${escapeHtml(formatFullId(report))}<span class="id-updated-badge">(Update #${arr.length - i})</span></span></td><td class="col-size">${clampCell(h.size, `${hk}|size`)}</td><td class="col-activity">${clampCell(h.activity, `${hk}|activity`)}</td><td class="col-location">${clampCell(h.location, `${hk}|location`)}</td><td class="col-time">${escapeHtml(timeFmt(h.time))}</td><td class="col-analysis">${clampCell(h.yourAnalysis, `${hk}|analysis`)}</td>${cusCells(h.custom, hk)}`;
+                hRow.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="history-selector" data-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Select history entry" aria-label="Select update ${arr.length - i} of ${escapeHtml(shownId)}"${selectedHistory.has(hk) ? ' checked' : ''}> <span class="hist-arrow">&#8618;</span> <button class="restore-btn" data-restore-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Restore this version as current">Restore</button></div></td><td class="col-by reporter-col">${hHTML}</td><td class="col-id"><span class="id-cell-wrap">${escapeHtml(formatFullId(report))}<span class="id-updated-badge">(Update #${arr.length - i})</span></span></td><td class="col-size">${clampCell(h.size, `${hk}|size`)}</td><td class="col-activity">${clampCell(h.activity, `${hk}|activity`)}</td><td class="col-location">${clampCell(h.location, `${hk}|location`)}</td><td class="col-time">${escapeHtml(timeFmt(h.time))}</td><td class="col-analysis">${clampCell(h.yourAnalysis, `${hk}|analysis`)}</td>${cusCells(h.custom, hk)}`;
                 frag.appendChild(hRow);
             });
         }
@@ -354,6 +368,7 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
     el.log.body.replaceChildren(frag);
     // Delete (and Send) follow what is checked now.
     updateSelectionUI();
+    if (refocus) { const again = el.log.body.querySelector(refocus); if (again) again.focus({ preventScroll: true }); }
     if (bdaFocus) {
         const wrap = el.log.body.querySelector(`[data-bda-commit="${CSS.escape(bdaFocus.id)}"]`);
         const row = wrap && [...wrap.closest('.bda-wrap').querySelectorAll('.bda-check-row')].find(r => r.dataset.key === bdaFocus.key);
@@ -415,6 +430,8 @@ const updateSortIcons = () => {
         const icon   = th.querySelector('.sort-icon');
         icon.textContent = !active ? '⇅' : currentSortMode === 'recent' ? '⊙' : currentSortMode.endsWith('Asc') ? '▲' : '▼';
         icon.classList.toggle('active', active);
+        // Most recently changed first is neither ascending nor descending.
+        th.setAttribute('aria-sort', !active ? 'none' : currentSortMode === 'recent' ? 'other' : currentSortMode.endsWith('Asc') ? 'ascending' : 'descending');
     });
 };
 

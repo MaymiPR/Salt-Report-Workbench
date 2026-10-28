@@ -55,6 +55,7 @@ const rebuildFormFields = (fields, groupFor, fmt) => {
             inp.maxLength = 500;  // the server's per-value limit
             // Form shows the descriptive name; the copy text uses the letter.
             inp.placeholder = line.name || line.label;
+            inp.setAttribute('aria-label', line.name || line.label);
             inp.dataset.customLabel = line.label;
             inp.value = prevVals[line.label] || '';
             g.appendChild(inp);
@@ -357,4 +358,9 @@ const setProfileFromLocalStorage = () => {
     if (saved) { userProfile = saved; el.profile.initials.value = userProfile.initials; el.profile.color.value = userProfile.color; selectSwatch(userProfile.color); updateProfilePreview(); }
 };
 
-const selectSwatch = (color) => document.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('selected', s.dataset.color === color));
+// Mark the swatch of `color` as picked (for screen readers too) in `scope`.
+const markSwatch = (scope, color) => scope.querySelectorAll('.color-swatch').forEach(s => {
+    s.classList.toggle('selected', s.dataset.color === color);
+    s.setAttribute('aria-pressed', String(s.dataset.color === color));
+});
+const selectSwatch = (color) => markSwatch(document, color);
