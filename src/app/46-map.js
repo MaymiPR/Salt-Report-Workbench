@@ -362,23 +362,34 @@ const droneLayer = (tracks, px) => {
             const dx = tx - x, dy = ty - y, len = Math.hypot(dx, dy);
             if (len > 16) {
                 angle = Math.atan2(dx, -dy) * 180 / Math.PI;
-                const hw = Math.min(42, Math.max(10, len * 0.14));
+                // The end: a circle round the report, wide enough for its box.
+                const hw = Math.min(28, Math.max(13, len * 0.09));
                 const nx = -dy / len * hw, ny = dx / len * hw;
                 const f = v => v.toFixed(1);
+                // The sides run from the drone to just touch that circle, so they
+                // flow into its far side with no corner (a teardrop). They touch it
+                // at an angle t from the drone's side of the circle: cos t = r / d.
+                const t = Math.acos(Math.min(1, hw / len)), wx = -dx / len, wy = -dy / len;
+                const touch = s => [tx + hw * (wx * Math.cos(s * t) - wy * Math.sin(s * t)), ty + hw * (wx * Math.sin(s * t) + wy * Math.cos(s * t))];
+                const [p1, p2] = [touch(1), touch(-1)];
+                // The distance beside the cone, half way, clear of its edge.
+                const ox = nx / hw, oy = ny / hw, gap = hw * 0.5 + 9;
+                const lx = (x + tx) / 2 + ox * gap, ly = (y + ty) / 2 + oy * gap + 4;
+                const anchor = ox < -0.3 ? 'end' : ox > 0.3 ? 'start' : 'middle';
                 defs.push(`<linearGradient id="droneCone${i}" gradientUnits="userSpaceOnUse" x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}">`
                     + `<stop offset="0" stop-color="${DRONE_COLOR}" stop-opacity="0.16"/><stop offset="1" stop-color="${DRONE_COLOR}" stop-opacity="0.42"/></linearGradient>`);
                 const km = (SaltCore.metresBetween(p, q) / 1000).toFixed(1);
                 const dir = SaltCore.compass16(SaltCore.bearingBetween(p, q));
                 // Edged in orange, and the dashed sightline over a dark one, so
                 // they hold on a light basemap or a busy heat map.
-                // Its far end is rounded, bulging past the report by half the
-                // cone's half-width: the short arc of a circle a little wider than
-                // the end (with this edge order, sweep 0 bulges away from the drone).
-                cones.push(`<path class="map-drone-cone" d="M${f(x)},${f(y)} L${f(tx + nx)},${f(ty + ny)} A${f(hw * 1.25)},${f(hw * 1.25)} 0 0 0 ${f(tx - nx)},${f(ty - ny)} Z" fill="url(#droneCone${i})" stroke="${DRONE_COLOR}" stroke-opacity="0.85" stroke-width="1.2" stroke-linejoin="round"/>`
+                // From one touching point the long way round the far side to the
+                // other (clockwise on screen, more than half the circle).
+                cones.push(`<path class="map-drone-cone" d="M${f(x)},${f(y)} L${f(p1[0])},${f(p1[1])} A${f(hw)},${f(hw)} 0 1 1 ${f(p2[0])},${f(p2[1])} Z" fill="url(#droneCone${i})" stroke="${DRONE_COLOR}" stroke-opacity="0.85" stroke-width="1.2" stroke-linejoin="round"/>`
                     + `<line x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}" stroke="#000" stroke-width="4" stroke-opacity="0.7" stroke-dasharray="8 5"/>`
                     + `<line x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}" stroke="${DRONE_COLOR}" stroke-width="2.2" stroke-dasharray="8 5"/>`
-                    + `<rect x="${f(tx - 9)}" y="${f(ty - 9)}" width="18" height="18" rx="2" fill="none" stroke="${DRONE_COLOR}" stroke-width="2.4"/>`
-                    + `<text x="${f((x + tx) / 2 + nx * 0.6 + 6)}" y="${f((y + ty) / 2 + ny * 0.6)}" class="map-label map-label-drone">${km} km ${dir}</text>`);
+                    + `<rect x="${f(tx - 9)}" y="${f(ty - 9)}" width="18" height="18" rx="2" fill="none" stroke="${DRONE_COLOR}" stroke-width="2.4"/>`);
+                // On top, with the drones, so no graphic hides it.
+                marks.push(`<text x="${f(lx)}" y="${f(ly)}" text-anchor="${anchor}" class="map-label map-label-drone">${km} km ${dir}</text>`);
             }
         }
         const k = mapItems.push({ kind: 'drone', d }) - 1;

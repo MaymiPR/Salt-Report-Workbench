@@ -11,7 +11,7 @@ All notable changes to this project are documented here. The format follows
 - **Drones on the map.** A drone button under the basemap button: add a drone
   (a Gray Eagle, say) by name and grid, move it by typing a new grid, remove it.
   Each is drawn in orange with its name. **Its view** is a cone from the drone,
-  narrow at the drone and widening, round-ended, to the newest report on the map, with the
+  narrow at the drone and widening to a rounded end round the newest report on the map, with the
   sightline down its middle, a box round the report, and the distance and
   direction; it follows newer reports, the time slider and the filters.
   **Zoom** centres the map on a drone. The drones are shared with everyone;

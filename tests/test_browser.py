@@ -1369,7 +1369,9 @@ class BrowserTests(unittest.TestCase):
         drone = [float(v) for v in at[at.index("(") + 1 : at.index(")")].split()]
         self.assertEqual(tip, drone, "narrow at the drone, widening to the report")
         self.assertEqual(page.locator("#mapSvg .map-drones line").count(), 2)
-        self.assertIn(" km N", page.text_content("#mapSvg .map-drones"))
+        self.assertIn(
+            " km N", " ".join(page.locator("#mapSvg .map-label-drone").all_text_contents())
+        )
         # Moved by typing a grid; Zoom centres on it, closer.
         page.fill("#mapDroneGrid0", "38SMB4100079000")
         page.press("#mapDroneGrid0", "Enter")
