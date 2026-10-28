@@ -52,7 +52,8 @@ else if (lastView==='summary') openSummaryView();
 else showHomeView();
 
 syncWithServer().then(() => {
-    initSSE();
+    // Opened from a file there is no server to hear from: no reconnect loop.
+    if (!isLocalFile) initSSE();
     // Re-check after sync — server state may have revealed missing pieces.
     // No-op when the modal is already open.
     maybeShowStartupModal();
