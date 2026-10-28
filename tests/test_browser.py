@@ -726,9 +726,9 @@ class BrowserTests(unittest.TestCase):
         page = fresh.new_page()
         page.goto(self.editor + "/")
         page.wait_for_selector("#startupModal.show")
-        chip = f"#startup-preset-atos [data-ato='{self.ato}']"
-        page.click(chip)
-        self.assertEqual(page.eval_on_selector(chip, pressed), "true")
+        chips = page.locator("#startup-preset-atos [data-ato]")  # the first five
+        chips.first.click()
+        self.assertEqual(chips.first.evaluate(pressed), "true")
         page = first
         # Manage's tabs are tabs.
         self.import_overlays(page)  # for the map, below
