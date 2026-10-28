@@ -483,6 +483,7 @@ async function applyAtoConfig({ post = true } = {}) {
     const newAto   = el.config.ato.value.trim().toUpperCase();
     const newTitle = el.config.title.value.trim();
     if (!newAto || !newTitle) { showToast('Enter both an ATO Designator and a Report Title.', true); return; }
+    configChanging = false;
     const newConfig = { ato: newAto, title: newTitle };
     // Commit local state immediately so the rest of the UI is consistent.
     activeAto    = newAto;
@@ -497,13 +498,20 @@ async function applyAtoConfig({ post = true } = {}) {
     localConfig  = newConfig;
     writeStored('salt_last_active_ato', activeAto);
     writeStored('salt_offline_config', JSON.stringify(localConfig));
+    // The fields too (an earlier sync's empty config may have landed), unless
+    // the user has started changing them again.
+    if (!configChanging) { el.config.ato.value = newAto; el.config.title.value = newTitle; setAtoState(true); }
 }
+
+// Typed in: a sync leaves the fields alone until Set.
+[el.config.ato, el.config.title].forEach(inp => inp.addEventListener('input', () => { if (!inp.readOnly) configChanging = true; }));
 
 el.config.setBtn.addEventListener('click', () => {
     if (el.config.ato.readOnly) {
         // The button is in its "Change" state. Drop into editable mode, then
         // unlock the history dropdown so the user can pick a different ATO
         // (or just type a new one in the inputs above).
+        configChanging = true;
         setAtoState(false); activeAto=null; localReports=[]; renderLog(); el.form.startNum.value=''; resetForm();
         if (el.config.history.options.length > 1) {
             el.config.history.disabled = false;

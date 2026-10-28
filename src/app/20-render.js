@@ -374,12 +374,14 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
     });
 };
 
+// True from Change (or typing in the workspace fields) until Set applies it.
+let configChanging = false;
 // `fromSync`: a peer's change arriving. It leaves the workspace fields alone
-// while they're unlocked (Change pressed) or being typed in, so it can't
-// overwrite what's typed there or lock them again mid-change.
+// while they're being changed or have focus, so it can't overwrite what's
+// typed there or lock them again mid-change.
 const loadConfig = ({ fromSync = false } = {}) => {
     const cfg = [el.config.ato, el.config.title, el.config.history];
-    const busy = fromSync && (!el.config.ato.readOnly || cfg.includes(document.activeElement));
+    const busy = fromSync && (configChanging || cfg.includes(document.activeElement));
     if (!busy) {
         el.config.ato.value   = localConfig.ato   || '';
         el.config.title.value = localConfig.title || '';

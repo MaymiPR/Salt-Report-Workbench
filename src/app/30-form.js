@@ -343,6 +343,7 @@ const restoreHistoryVersion = (reportId, lastModified) => {
 };
 
 const setAtoState = (isSet) => {
+    if (isSet) configChanging = false;   // locked: nothing being changed
     el.config.ato.readOnly   = isSet;
     el.config.title.readOnly = isSet;
     el.config.setBtn.textContent = isSet ? 'Change' : 'Set';
