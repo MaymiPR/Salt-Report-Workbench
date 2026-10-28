@@ -1627,6 +1627,30 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(viewer.locator("#mapDroneLook0").count(), 0, "viewers can't change it")
         page.evaluate("saveDrones([])")
 
+    def test_removing_a_drone_removes_that_drone_whatever_synced_meanwhile(self):
+        # Regression: Remove matched the drone object, so a sync while it
+        # asked "for everyone?" left it in place yet said it was removed.
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        page.evaluate(
+            "saveDrones([{ name: 'GE 1', grid: '38S MB 40000 78000', at: 1 }, { name: 'GE 2', grid: '38S MB 41000 78000', at: 2 }])"
+        )
+        page.click("#mapDroneBtn")
+        page.click("[data-drone-remove='0']")
+        page.wait_for_selector("#confirmation-message:has-text('Remove GE 1')")
+        page.evaluate("sharedDrones = sharedDrones.map(d => ({ ...d })).reverse()")
+        page.click("#confirmActionBtn")
+        page.wait_for_selector("#toast-notification:has-text('GE 1 removed')")
+        self.assertEqual(page.evaluate("sharedDrones.map(d => d.name)"), ["GE 2"])
+        # Gone already: it says so, rather than that it removed it.
+        page.click("[data-drone-remove='0']")
+        page.wait_for_selector("#confirmation-message:has-text('Remove GE 2')")
+        page.evaluate("sharedDrones = []")
+        page.click("#confirmActionBtn")
+        page.wait_for_selector("#toast-notification:has-text('GE 2 is no longer on the map')")
+        page.evaluate("saveDrones([])")
+
     def test_shift_click_copies_the_grid_under_it(self):
         self.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=self.editor)
         page = self.open_editor()
@@ -2217,6 +2241,37 @@ class BrowserTests(unittest.TestCase):
         page.click("#summaryRevertBtn")
         self.assertIn("2. ASSESSMENT", page.inner_text("#summaryText"))
         self.assertFalse(page.locator("#summaryEdited").is_visible())
+        page.evaluate("saveNarrative({ enemy: '', units: [], equipment: [], off: [], custom: [] })")
+
+    def test_narrative_settings_save_and_remove_the_entry_opened(self):
+        # Regression: an open entry was known by its place in the list, so an
+        # entry added or removed by someone else meanwhile made Save overwrite,
+        # and Remove delete, the wrong one.
+        page = self.open_editor()
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        unit = "u => ({ name: u, places: [], kinds: [] })"
+        page.evaluate(f"saveNarrative({{ units: ['A-1', 'B-2'].map({unit}) }})")
+        page.wait_for_selector("[data-narr-id='b-2']")
+        page.click("[data-narr-id='b-2']")
+        # Someone else removes A-1 (a sync), under the open form.
+        page.evaluate(
+            f"sharedNarrative = {{ ...sharedNarrative, units: ['B-2'].map({unit}) }}; renderSummary()"
+        )
+        page.fill("#narrUnitName", "B-3")
+        page.click("[data-narr-save]")
+        page.wait_for_selector("#toast-notification:has-text('B-3 saved')")
+        self.assertEqual(page.evaluate("sharedNarrative.units.map(u => u.name)"), ["B-3"])
+        # And removes B-3 while it's open here: Remove says so and changes nothing.
+        page.click("[data-narr-id='b-3']")
+        page.evaluate(
+            f"sharedNarrative = {{ ...sharedNarrative, units: ['C-4'].map({unit}) }}; renderSummary()"
+        )
+        page.click("[data-narr-remove]")
+        page.click("[data-narr-remove]")
+        page.wait_for_selector("#toast-notification:has-text('Someone else removed B-3')")
+        self.assertEqual(page.evaluate("sharedNarrative.units.map(u => u.name)"), ["C-4"])
+        page.wait_for_selector("#narrUnitName", state="detached")
         page.evaluate("saveNarrative({ enemy: '', units: [], equipment: [], off: [], custom: [] })")
 
     def test_escape_in_the_narrative_settings_leaves_an_edit_alone(self):

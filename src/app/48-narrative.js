@@ -9,11 +9,16 @@
 // share one top-level scope, so names declared earlier are visible here.
 
 let narrTab = 'units';
-let narrOpen = null;        // the item open in the panel: { index (-1: a new one), fill? }
+let narrOpen = null;        // the item open in the panel: { id (null: a new one), entry (as opened), fill? }
 let narrRemoving = false;   // its Remove has asked "for everyone?"
 let narrBuilt = null;       // what the panel was last built from, so a sync doesn't rebuild it under the cursor
 
 const narrList = (k) => (Array.isArray(sharedNarrative[k]) ? sharedNarrative[k] : []);
+// What an entry is known by however the list changes round it: a unit's
+// name, a type of equipment, a rule's judgment and words.
+const narrId = (k, x) => (k === 'units' ? String(x.name || '').trim().toLowerCase()
+    : k === 'equipment' ? String(x.type || '').trim().toUpperCase()
+    : `${String(x.what || '').trim()}|${String(x.words || '').trim()}`.toLowerCase());
 const ROLE_NAMES = Object.fromEntries(SaltCore.EQUIPMENT_ROLES);
 const ORIGIN_NAMES = { '': 'Any army', RU: 'Russian', CN: 'Chinese' };
 const CHEVRON = '<svg class="narr-chevron" viewBox="0 0 8 14" width="7" height="12" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -50,10 +55,11 @@ const narrUnknown = () => {
 
 const chip = (attr, value, label, on) =>
     `<button type="button" class="narr-chip" ${attr}="${escapeHtml(value)}" aria-pressed="${on}">${escapeHtml(label)}</button>`;
-// A list row: the whole row opens it (editors); a chevron says so.
-const row = (i, name, meta) => (isReadOnly
+// A list row: the whole row opens it (editors); a chevron says so. `id` is
+// the entry's, as narrId gives it.
+const row = (i, name, meta, id) => (isReadOnly
     ? `<div class="narr-row"><span class="narr-name">${escapeHtml(name)}</span><span class="narr-meta">${escapeHtml(meta)}</span></div>`
-    : `<button type="button" class="narr-row" data-narr-edit="${i}"><span class="narr-name">${escapeHtml(name)}</span><span class="narr-meta">${escapeHtml(meta)}</span>${CHEVRON}</button>`);
+    : `<button type="button" class="narr-row" data-narr-edit="${i}" data-narr-id="${escapeHtml(id)}"><span class="narr-name">${escapeHtml(name)}</span><span class="narr-meta">${escapeHtml(meta)}</span>${CHEVRON}</button>`);
 const addRow = (label) => `<button type="button" class="narr-add editor-only" data-narr-add>+ ${label}</button>`;
 // The form's foot: Save and, for one already saved, Remove (which asks first).
 const formFoot = (saved) => `<div class="narr-foot">
@@ -104,17 +110,17 @@ const unitForm = (u) => {
         <input type="text" id="narrUnitOther" value="${escapeHtml(other.join(', '))}" placeholder="Other places, e.g. 11S NV 31" maxlength="400" spellcheck="false" aria-label="Other places, comma-separated"${other.length ? '' : ' hidden'}>
         <div class="narr-label">What it has</div>
         ${dropdown('kind', 'data-narr-kind', 'Any equipment', SaltCore.EQUIPMENT_ROLES.map(([r, t]) => [r, t, kinds.has(r)]))}
-        ${formFoot(narrOpen.index >= 0)}
+        ${formFoot(narrOpen.id !== null)}
     </div>`;
 };
 const unitsTab = () => {
     if (narrOpen) {
-        const u = narrOpen.index >= 0 ? narrList('units')[narrOpen.index] : {};
+        const u = narrOpen.id !== null ? narrOpen.entry : {};
         return drill('Units', u.name || 'New unit', unitForm(u));
     }
     const units = narrList('units');
     return `<div class="narr-list">${units.map((u, i) => row(i, u.name,
-            [(u.places || []).join(', ') || 'Anywhere', (u.kinds || []).map(k => ROLE_NAMES[k]).join(', ')].filter(Boolean).join(' · '))).join('')
+            [(u.places || []).join(', ') || 'Anywhere', (u.kinds || []).map(k => ROLE_NAMES[k]).join(', ')].filter(Boolean).join(' · '), narrId('units', u))).join('')
             || '<div class="narr-empty">No units yet. Add the units you track, and where they operate, to have judgments name them.</div>'}</div>
         ${addRow('Add a unit')}`;
 };
@@ -137,11 +143,11 @@ const equipmentForm = (e) => `<div class="narr-form">
         <div class="narr-chips" data-narr-single>${SaltCore.EQUIPMENT_ROLES.map(([r, t]) => chip('data-narr-role', r, t, r === e.role)).join('')}</div>
         <div class="narr-label">Army</div>
         <div class="narr-chips" data-narr-single>${Object.entries(ORIGIN_NAMES).map(([o, t]) => chip('data-narr-origin', o, t, o === (e.origin || ''))).join('')}</div>
-        ${formFoot(narrOpen.index >= 0)}
+        ${formFoot(narrOpen.id !== null)}
     </div>`;
 const equipmentTab = () => {
     if (narrOpen) {
-        const e = narrOpen.index >= 0 ? narrList('equipment')[narrOpen.index] : { type: narrOpen.fill || '', role: '' };
+        const e = narrOpen.id !== null ? narrOpen.entry : { type: narrOpen.fill || '', role: '' };
         return drill('Equipment', e.type || 'New entry', equipmentForm(e));
     }
     const unknown = narrUnknown();
@@ -162,7 +168,7 @@ const equipmentTab = () => {
             <div class="narr-says" id="narrEqFindSays"></div>
         </div>
         <div class="narr-label">Yours</div>
-        <div class="narr-list">${narrList('equipment').map((e, i) => row(i, e.type, `${ROLE_NAMES[e.role] || e.role} · ${ORIGIN_NAMES[e.origin || '']}`)).join('')
+        <div class="narr-list">${narrList('equipment').map((e, i) => row(i, e.type, `${ROLE_NAMES[e.role] || e.role} · ${ORIGIN_NAMES[e.origin || '']}`, narrId('equipment', e))).join('')
             || '<div class="narr-empty">None yet: the built-in catalogue only.</div>'}</div>
         ${addRow('Add a type')}
         <details class="narr-builtin"><summary>Built-in catalogue</summary>${builtIn}</details>`;
@@ -180,11 +186,11 @@ const ruleForm = (c) => `<div class="narr-form">
             <input type="number" id="narrRuleMin" value="${c.min || 2}" min="1" max="20" aria-label="Reports"><span>times or more within</span>
             <input type="number" id="narrRuleHours" value="${c.hours || 12}" min="1" max="168" aria-label="Hours"><span>hrs.</span></div>
         <div class="narr-hint">Starts at roughly even chance; one more report makes it likely, three more very likely.</div>
-        ${formFoot(narrOpen.index >= 0)}
+        ${formFoot(narrOpen.id !== null)}
     </div>`;
 const rulesTab = () => {
     if (narrOpen) {
-        const c = narrOpen.index >= 0 ? narrList('custom')[narrOpen.index] : {};
+        const c = narrOpen.id !== null ? narrOpen.entry : {};
         return drill('Rules', c.what || 'New rule', ruleForm(c));
     }
     const off = new Set(narrList('off'));
@@ -195,7 +201,7 @@ const rulesTab = () => {
             <label class="narr-switch-row"><span><strong>${escapeHtml(name)}</strong><small>${escapeHtml(what)}</small></span>
                 <input type="checkbox" class="narr-switch" data-narr-rule="${id}"${off.has(id) ? '' : ' checked'}${isReadOnly ? ' disabled' : ''} aria-label="${escapeHtml(name)}"></label>`).join('')}</div>`).join('')}
         <div class="narr-label">Your own</div>
-        <div class="narr-list">${narrList('custom').map((c, i) => row(i, c.what, `${c.words} · ${c.min} in ${c.hours} hrs`)).join('')
+        <div class="narr-list">${narrList('custom').map((c, i) => row(i, c.what, `${c.words} · ${c.min} in ${c.hours} hrs`, narrId('custom', c))).join('')
             || '<div class="narr-empty">None yet: a judgment, the words that point to it, and how often.</div>'}</div>
         ${addRow('Add a rule')}`;
 };
@@ -262,10 +268,25 @@ const readNarrForm = () => {
     return { what, words, min, hours };
 };
 const LIST_OF = { units: 'units', equipment: 'equipment', rules: 'custom' };
+// Where the open entry is in its list now (another editor may have added or
+// removed one since it was opened), by its id; -1 when it's new or gone.
+const narrIndex = () => {
+    if (!narrOpen || narrOpen.id === null) return -1;
+    const key = LIST_OF[narrTab];
+    return narrList(key).findIndex(x => narrId(key, x) === narrOpen.id);
+};
+// The open entry was removed by someone else while it was open: said, and closed.
+const narrGone = () => {
+    const e = narrOpen.entry || {};
+    showToast(`Someone else removed ${e.name || e.type || e.what || 'it'} in the meantime.`, true);
+    narrOpen = null; narrRemoving = false; narrBuilt = null;
+    renderNarrSettings();
+};
 const saveNarrForm = () => {
     const entry = readNarrForm();
     if (!entry) return;
-    const key = LIST_OF[narrTab], { index } = narrOpen;
+    const key = LIST_OF[narrTab], index = narrIndex();
+    if (narrOpen.id !== null && index < 0) { narrGone(); return; }
     const list = narrList(key);
     const same = (x) => (key === 'equipment' ? x.type.trim().toUpperCase() === entry.type.toUpperCase()
         : key === 'units' ? x.name.trim().toLowerCase() === entry.name.toLowerCase() : false);
@@ -282,15 +303,20 @@ const saveNarrForm = () => {
     box.addEventListener('click', e => {
         const tab = e.target.closest('[data-narr-tab]');
         if (tab) { narrTab = tab.dataset.narrTab; go(null); return; }
+        // A saved one opens by its id, so the list can change under it.
         const edit = e.target.closest('[data-narr-edit]');
-        if (edit) { go({ index: +edit.dataset.narrEdit }); return; }
+        if (edit) {
+            const key = LIST_OF[narrTab], entry = narrList(key).find(x => narrId(key, x) === edit.dataset.narrId);
+            if (entry) go({ id: edit.dataset.narrId, entry }); else rerender();
+            return;
+        }
         if (e.target.closest('[data-narr-add]')) {
             const typed = narrTab === 'equipment' ? ((document.getElementById('narrEqFind') || {}).value || '').trim() : '';
-            go({ index: -1, fill: typed });
+            go({ id: null, fill: typed });
             return;
         }
         const fill = e.target.closest('[data-narr-fill]');
-        if (fill) { go({ index: -1, fill: fill.dataset.narrFill }); return; }
+        if (fill) { go({ id: null, fill: fill.dataset.narrFill }); return; }
         if (e.target.closest('[data-narr-back]')) { go(null); return; }
         // A dropdown: its button opens or closes it; an option is ticked or not.
         const ddBtn = e.target.closest('.narr-dd-btn');
@@ -325,8 +351,10 @@ const saveNarrForm = () => {
         if (e.target.closest('[data-narr-save]')) { saveNarrForm(); return; }
         if (e.target.closest('[data-narr-remove]')) {
             if (!narrRemoving) { narrRemoving = true; rerender(); return; }
-            const key = LIST_OF[narrTab], gone = narrList(key)[narrOpen.index];
-            saveNarrative({ [key]: narrList(key).filter((_, i) => i !== narrOpen.index) }, `${(gone && (gone.name || gone.type || gone.what)) || 'It'} removed.`);
+            const key = LIST_OF[narrTab], index = narrIndex();
+            if (index < 0) { narrGone(); return; }
+            const gone = narrList(key)[index];
+            saveNarrative({ [key]: narrList(key).filter((_, i) => i !== index) }, `${gone.name || gone.type || gone.what || 'It'} removed.`);
         }
     });
     box.addEventListener('change', e => {

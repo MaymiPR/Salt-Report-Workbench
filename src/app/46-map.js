@@ -1160,7 +1160,14 @@ if (mapBody) {
         const gone = e.target.closest('[data-drone-remove]');
         if (gone) {
             const d = sharedDrones[+gone.dataset.droneRemove];
-            if (d) showConfirmation(`Remove ${d.name} from the map, for everyone?`, () => saveDrones(sharedDrones.filter(x => x !== d), `${d.name} removed.`));
+            // By its name when confirmed: a sync may have changed the list meanwhile.
+            if (d) {
+                showConfirmation(`Remove ${d.name} from the map, for everyone?`, () => {
+                    const left = sharedDrones.filter(x => x.name !== d.name);
+                    if (left.length === sharedDrones.length) { showToast(`${d.name} is no longer on the map.`, true); return; }
+                    saveDrones(left, `${d.name} removed.`);
+                });
+            }
             return;
         }
         if (e.target.closest('#mapDroneAdd')) {
