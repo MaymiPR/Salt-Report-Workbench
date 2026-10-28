@@ -23,20 +23,25 @@ const ROLE_NAMES = Object.fromEntries(SaltCore.EQUIPMENT_ROLES);
 const ORIGIN_NAMES = { '': 'Any army', RU: 'Russian', CN: 'Chinese' };
 const CHEVRON = '<svg class="narr-chevron" viewBox="0 0 8 14" width="7" height="12" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+// Shown here at once; refused by the server, the settings go back to what
+// they were (unless a sync has replaced them since). A server that can't be
+// reached, or is too old to share them, leaves the change in this browser.
 const saveNarrative = async (changes, said) => {
-    sharedNarrative = { enemy: '', units: [], equipment: [], off: [], custom: [], ...sharedNarrative, ...changes };
+    const before = sharedNarrative;
+    const mine = sharedNarrative = { enemy: '', units: [], equipment: [], off: [], custom: [], ...sharedNarrative, ...changes };
     storeNarrative();
     narrOpen = null; narrRemoving = false;
     narrBuilt = null;
     renderSummary();
     if (isLocalFile) { if (said) showToast(said); return; }
     try {
-        const res = await postJson('/api/save_narrative', { narrative: sharedNarrative });
+        const res = await postJson('/api/save_narrative', { narrative: mine });
         if (res.status === 401) { handleUnauthorized(); return; }
         // A server from before these settings: says so, rather than "Not Found".
         if (res.status === 404) showToast("This server is an older version and can't share these settings: restart it with this version. Kept in this browser for now.", true, { ms: 10000 });
         else if (!res.ok) {
             const body = await res.json().catch(() => ({}));
+            if (sharedNarrative === mine) { sharedNarrative = before; storeNarrative(); narrBuilt = null; renderSummary(); }
             showToast(`The server refused the narrative settings: ${body.message || res.status}`, true, { ms: 8000 });
         } else if (said) showToast(said);
     } catch (e) { showToast('Saved in this browser only: the server could not be reached.', true); }
@@ -268,6 +273,9 @@ const readNarrForm = () => {
     return { what, words, min, hours };
 };
 const LIST_OF = { units: 'units', equipment: 'equipment', rules: 'custom' };
+// The sync server's limits on each list (MAX_UNITS, MAX_EQUIPMENT and
+// MAX_CUSTOM_RULES in server/salt_sync_server.py), checked here first.
+const NARR_MOST = { units: [50, 'units'], equipment: [500, 'types'], custom: [30, 'rules'] };
 // Where the open entry is in its list now (another editor may have added or
 // removed one since it was opened), by its id; -1 when it's new or gone.
 const narrIndex = () => {
@@ -288,6 +296,7 @@ const saveNarrForm = () => {
     const key = LIST_OF[narrTab], index = narrIndex();
     if (narrOpen.id !== null && index < 0) { narrGone(); return; }
     const list = narrList(key);
+    if (index < 0 && list.length >= NARR_MOST[key][0]) { showToast(`${NARR_MOST[key][0]} ${NARR_MOST[key][1]} at most. Remove one to add another.`, true); return; }
     const same = (x) => (key === 'equipment' ? x.type.trim().toUpperCase() === entry.type.toUpperCase()
         : key === 'units' ? x.name.trim().toLowerCase() === entry.name.toLowerCase() : false);
     if (list.some((x, i) => i !== index && same(x))) { showToast(`There is already ${key === 'units' ? 'a unit' : 'an entry'} called ${entry.name || entry.type}.`, true); return; }

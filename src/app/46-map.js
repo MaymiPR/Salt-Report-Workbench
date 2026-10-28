@@ -110,6 +110,8 @@ const svgEsc = escapeHtml;
 let droneShow = localStorage.getItem('salt_drone_show') !== 'off';
 let droneView = localStorage.getItem('salt_drone_view') !== 'off';
 const DRONE_COLOR = '#ff9f0a';
+// The sync server's limits (MAX_DRONES, MAX_DRONE_RANGE_KM in server/salt_sync_server.py).
+const MAX_DRONES = 10, MAX_DRONE_RANGE_KM = 1000;
 const dronePoint = (d) => { const g = SaltCore.findGrids(d.grid)[0]; return g ? { lon: g.lon, lat: g.lat } : null; };
 const shownDrones = () => (droneShow ? sharedDrones.map(d => ({ d, p: dronePoint(d) })).filter(x => x.p) : []);
 // A grid as the drones keep it ("11S NV 39697 06762"), from what was typed:
@@ -686,8 +688,19 @@ const freeBasemapName = (want) => {
     return name;
 };
 
+// The sync server's limits on the basemaps (MAX_BASEMAPS, MAX_BASEMAP_URL in
+// server/salt_sync_server.py), checked here first so the reason is said at once.
+const MAX_BASEMAPS = 20, MAX_BASEMAP_URL = 2000;
+const basemapTooLong = (entry) => {
+    if (String(entry.url || '').length <= MAX_BASEMAP_URL) return false;
+    showToast(`That address is too long: ${MAX_BASEMAP_URL.toLocaleString('en-US')} characters at most.`, true);
+    return true;
+};
+
 const addBasemap = (entry) => {
     if (sharedBasemaps.some(b => b.name.toLowerCase() === entry.name.toLowerCase())) { showToast(`There is already a service called ${entry.name}.`, true); return false; }
+    if (sharedBasemaps.length >= MAX_BASEMAPS) { showToast(`${MAX_BASEMAPS} basemaps at most. Remove one to add another.`, true); return false; }
+    if (basemapTooLong(entry)) return false;
     // The new one is shown here at once.
     mapBaseChoice = entry.name;
     try { localStorage.setItem('salt_map_base', entry.name); } catch (err) { /* this session only */ }
@@ -698,6 +711,7 @@ const addBasemap = (entry) => {
 // A saved service changed (its layers, name or address), in its place in the list.
 const replaceBasemap = (oldName, entry) => {
     if (sharedBasemaps.some(b => b.name !== oldName && b.name.toLowerCase() === entry.name.toLowerCase())) { showToast(`There is already a service called ${entry.name}.`, true); return false; }
+    if (basemapTooLong(entry)) return false;
     // Renamed: still the one shown here.
     if (mapBaseChoice === oldName && entry.name !== oldName) {
         mapBaseChoice = entry.name;
@@ -891,7 +905,11 @@ const renderBasemapManager = () => {
 };
 const basemapsChanged = () => { renderBasemapManager(); renderMapView(); };
 
+// Shown here at once; refused by the server, the list goes back to what it
+// was (unless a sync has replaced it since). A server that can't be reached
+// leaves the change in this browser.
 const saveBasemaps = async (list, said) => {
+    const before = sharedBasemaps;
     sharedBasemaps = list;
     mapBaseFailed = false;
     storeBasemaps();
@@ -902,6 +920,7 @@ const saveBasemaps = async (list, said) => {
         if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) {
             const body = await res.json().catch(() => ({}));
+            if (sharedBasemaps === list) { sharedBasemaps = before; storeBasemaps(); basemapsChanged(); }
             showToast(`The server refused the basemaps: ${body.message || res.status}`, true, { ms: 8000 });
         } else if (said) showToast(said);
     } catch (e) { showToast('Saved in this browser only: the server could not be reached.', true); }
@@ -1056,7 +1075,9 @@ const renderDronePop = () => {
     });
 };
 
+// As the basemaps: refused, the list goes back to what it was.
 const saveDrones = async (list, said) => {
+    const before = sharedDrones;
     sharedDrones = list;
     storeDrones();
     renderMapView();
@@ -1066,6 +1087,7 @@ const saveDrones = async (list, said) => {
         if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) {
             const body = await res.json().catch(() => ({}));
+            if (sharedDrones === list) { sharedDrones = before; storeDrones(); renderMapView(); }
             showToast(`The server refused the drones: ${body.message || res.status}`, true, { ms: 8000 });
         } else if (said) showToast(said);
     } catch (e) { showToast('Saved in this browser only: the server could not be reached.', true); }
@@ -1176,7 +1198,7 @@ if (mapBody) {
             if (!name) { showToast('Name the drone (e.g. GE 1).', true); return; }
             if (sharedDrones.some(d => d.name.toLowerCase() === name.toLowerCase())) { showToast(`There is already a drone called ${name}.`, true); return; }
             if (!grid) { showToast('Type its grid, e.g. 11S NV 39697 06762.', true); return; }
-            if (sharedDrones.length >= 10) { showToast('Ten drones at most.', true); return; }
+            if (sharedDrones.length >= MAX_DRONES) { showToast(`${MAX_DRONES} drones at most.`, true); return; }
             document.getElementById('mapDroneName').value = '';
             document.getElementById('mapDroneGridNew').value = '';
             saveDrones([...sharedDrones, { name, grid, at: Date.now() }], `${name} added at ${grid}.`);
@@ -1211,7 +1233,7 @@ if (mapBody) {
             e.preventDefault();
             const d = sharedDrones[+ranged.dataset.droneRange], text = ranged.value.trim().replace(/\s*km$/i, ''), km = Number(text);
             if (!d) return;
-            if (text && !(km > 0 && km <= 1000)) { showToast('Type its range in km (up to 1,000), or leave it empty for none.', true); return; }
+            if (text && !(km > 0 && km <= MAX_DRONE_RANGE_KM)) { showToast(`Type its range in km (up to ${MAX_DRONE_RANGE_KM.toLocaleString('en-US')}), or leave it empty for none.`, true); return; }
             ranged.blur();
             const { range: _, ...rest } = d;
             saveDrones(sharedDrones.map(x => (x === d ? (text ? { ...d, range: km } : rest) : x)),

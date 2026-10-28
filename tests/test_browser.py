@@ -1627,6 +1627,56 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(viewer.locator("#mapDroneLook0").count(), 0, "viewers can't change it")
         page.evaluate("saveDrones([])")
 
+    def test_a_refused_save_puts_the_shared_lists_back(self):
+        # Regression: the basemaps, drones and narrative settings were changed
+        # here first, and stayed changed when the server refused them.
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        asked = []
+
+        def refuse(route):
+            asked.append(route.request.url)
+            route.fulfill(status=400, content_type="application/json", body='{"message": "no"}')
+
+        for api in ("save_basemaps", "save_drones", "save_narrative"):
+            page.route(f"**/api/{api}", refuse)
+        basemaps = page.evaluate("JSON.stringify(sharedBasemaps)")
+        page.evaluate(
+            "saveBasemaps([...sharedBasemaps, { name: 'Refused', kind: 'tiles', url: 'https://refused.test/{z}/{x}/{y}.png' }])"
+        )
+        page.wait_for_selector("#toast-notification:has-text('The server refused the basemaps')")
+        self.assertEqual(page.evaluate("JSON.stringify(sharedBasemaps)"), basemaps)
+        self.assertEqual(page.evaluate("localStorage.getItem('salt_basemaps')"), basemaps)
+        self.assertNotIn("Refused", page.text_content("#mapBaseSelect"))
+        page.click("#mapDroneBtn")
+        page.fill("#mapDroneName", "GE 9")
+        page.fill("#mapDroneGridNew", "38SMB4000078000")
+        page.click("#mapDroneAdd")
+        page.wait_for_selector("#toast-notification:has-text('The server refused the drones')")
+        self.assertEqual(page.evaluate("sharedDrones.length"), 0)
+        self.assertEqual(page.locator("#mapSvg .map-drone").count(), 0)
+        enemy = page.evaluate("sharedNarrative.enemy || ''")
+        page.evaluate("saveNarrative({ enemy: 'NOPE' })")
+        page.wait_for_selector("#toast-notification:has-text('The server refused the narrative')")
+        self.assertEqual(page.evaluate("sharedNarrative.enemy || ''"), enemy)
+        # Past the server's limits: said at once, without asking it.
+        asked.clear()
+        page.evaluate("""() => {
+            sharedDrones = Array.from({ length: 10 }, (_, i) => ({ name: 'D' + i, grid: '38S MB 40000 78000', at: i }));
+            document.getElementById('mapDroneName').value = 'GE 10';
+            document.getElementById('mapDroneGridNew').value = '38SMB4000078000';
+            document.getElementById('mapDroneAdd').click();
+        }""")
+        page.wait_for_selector("#toast-notification:has-text('10 drones at most')")
+        page.evaluate("""() => {
+            sharedBasemaps = Array.from({ length: 20 }, (_, i) => ({ name: 'B' + i, kind: 'tiles', url: 'https://b.test/{z}/{x}/{y}.png' }));
+            addBasemap({ name: 'One more', kind: 'tiles', url: 'https://b.test/{z}/{x}/{y}.png' });
+        }""")
+        page.wait_for_selector("#toast-notification:has-text('20 basemaps at most')")
+        self.assertEqual(asked, [])
+        page.evaluate("sharedDrones = []; sharedBasemaps = []; renderMapView()")
+
     def test_removing_a_drone_removes_that_drone_whatever_synced_meanwhile(self):
         # Regression: Remove matched the drone object, so a sync while it
         # asked "for everyone?" left it in place yet said it was removed.
