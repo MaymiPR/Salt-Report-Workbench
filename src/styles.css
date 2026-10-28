@@ -1251,7 +1251,6 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-base-row.open { border-bottom-color: transparent; }
 .map-base-detail { padding: 6px 2px 10px; border-bottom: 1px solid var(--divider); }
 .map-base-detail .map-find-foot { align-items: center; }
-.map-form-row .map-base-remove { margin-left: auto; color: var(--system-red, #ff453a); }
 .map-base-remove.sure { font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .map-base-check.fading { transition: none; } }
 .map-find-msg { margin: 0 0 8px; font-size: 0.85em; }
@@ -1599,7 +1598,8 @@ button.narr-row:hover { background: var(--input-bg-hover); }
 .narr-find { display: flex; flex-direction: column; gap: 4px; }
 .narr-foot { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
 .narr-foot .set-btn { margin: 0; width: auto; padding: 8px 20px; }
-.narr-foot .map-base-remove { margin-left: auto; }
+/* Red, as Remove on a basemap's row, and when it asks "for everyone?". */
+.narr-foot .map-base-remove { margin-left: auto; color: var(--system-red); }
 .narr-back { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 2px 0; border: none; background: none; color: var(--system-blue); font: inherit; cursor: pointer; }
 .narr-drill-title { font-size: 1.05em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .narr-sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-secondary); }
