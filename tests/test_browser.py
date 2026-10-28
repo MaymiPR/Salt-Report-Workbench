@@ -201,7 +201,13 @@ class BrowserTests(unittest.TestCase):
         page.fill("#startup-title", title)
         page.click("#startupContinueBtn")
         page.wait_for_selector("#startupModal.show", state="hidden")
+        self.assert_in_workspace(page, ato)
         return page
+
+    def assert_in_workspace(self, page, ato):
+        """The editor is in the workspace typed in: a test that goes on in
+        another (the last test's, say) fails here, not later, puzzlingly."""
+        self.assertEqual(page.evaluate("[activeAto, el.config.ato.value]"), [ato, ato])
 
     def open_viewer(self):
         page = self.context.new_page()
@@ -270,6 +276,7 @@ class BrowserTests(unittest.TestCase):
         other.fill("#startup-title", "Patrol")
         other.click("#startupContinueBtn")
         other.wait_for_selector("#startupModal.show", state="hidden")
+        self.assert_in_workspace(other, ato)
         return other
 
     @staticmethod
@@ -525,6 +532,21 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(self.sizes(page), ["4x T-72, 2x BMP-2"])
         page.click("#bdaRollup [data-bda-filter='Destroyed']")
         self.assertEqual(len(self.sizes(page)), 2)
+
+    def test_the_welcome_screen_leaves_the_field_being_typed_in(self):
+        # Regression: 50 ms after opening, it moved the cursor to the first
+        # empty field. A sync that had filled in the ATO made that the Title,
+        # so an ATO being typed went on in the Title box (seen on CI as an
+        # editor starting in the last test's workspace).
+        page = self.context.new_page()
+        page.goto(self.editor + "/")
+        page.wait_for_selector("#startupModal.show")
+        page.evaluate(
+            """() => { el.startup.overlay.classList.remove('show'); openStartupModal();
+                el.startup.ato.value = 'SHOWN'; el.startup.ato.focus(); }"""
+        )
+        page.wait_for_timeout(150)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "startup-ato")
 
     def test_typing_survives_a_sync(self):
         # Regression: every sync re-laid the form out, which took the cursor
