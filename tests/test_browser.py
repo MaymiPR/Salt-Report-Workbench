@@ -984,6 +984,44 @@ class BrowserTests(unittest.TestCase):
         )
         page.evaluate("saveBasemaps([])")
 
+    def test_switching_basemaps_leaves_no_stale_wms_image(self):
+        # Regression: a WMS asked for just before No basemap (or tiles) was
+        # picked still turned up, and one landing late wiped the tiles.
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.context.route(
+            "https://race.test/**",
+            lambda route: route.fulfill(status=200, content_type="image/png", body=self.PNG_1PX),
+        )
+        self.open_map(page)
+        page.evaluate(
+            """saveBasemaps([
+                { name: 'Race WMS', kind: 'wms', url: 'https://race.test/wms', layers: 'a', version: '1.3.0', crs: 'EPSG:3857', format: 'image/png' },
+                { name: 'Race tiles', kind: 'tiles', url: 'https://race.test/t/{z}/{x}/{y}.png' },
+            ])"""
+        )
+        images = "[...document.querySelectorAll('#mapBase image')].map(i => i.dataset.url)"
+        # The WMS is asked for once the view settles (300 ms): picked, then No
+        # basemap before that, nothing turns up later.
+        self.pick_basemap(page, "Race WMS")
+        page.wait_for_timeout(100)
+        self.pick_basemap(page, "off")
+        page.wait_for_timeout(800)
+        self.assertEqual(page.evaluate(images), [])
+        # Tiles picked before that: they stay, and no WMS lands on them.
+        self.pick_basemap(page, "Race WMS")
+        page.wait_for_timeout(100)
+        self.pick_basemap(page, "Race tiles")
+        page.wait_for_function(
+            "() => { const i = [...document.querySelectorAll('#mapBase image')]; return i.length && i.every(e => e.dataset.state === 'ok'); }"
+        )
+        tiles = len(page.evaluate(images))
+        page.wait_for_timeout(800)
+        urls = page.evaluate(images)
+        self.assertEqual(len(urls), tiles, urls)
+        self.assertTrue(all("/t/" in u for u in urls), urls)
+        page.evaluate("saveBasemaps([])")
+
     def test_a_wms_linked_over_https_is_asked_over_https(self):
         # Regression (EOX): the capabilities gave http://, which sends everything on
         # to https://; saved as given, every map image failed on an HTTPS page.

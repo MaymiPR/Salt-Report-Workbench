@@ -39,6 +39,7 @@ const activeBasemap = () => (mapBaseChoice === 'off' ? null
     : sharedBasemaps.find(b => b.name === mapBaseChoice) || sharedBasemaps[0] || null);
 let mapBaseFailed = false;
 let mapWmsTimer = null;
+let mapWmsGen = 0;             // the WMS request whose image may still go on screen
 let mapFrame = 0;
 let mapItems = [];             // what the pointer can hover: [{ kind, ...}] by index
 let mapLastWant = null;        // the Web Mercator box the basemap was last asked for
@@ -136,7 +137,7 @@ const drawMap = () => {
     const ext = mapExtent(tracks);
     if (!ext) {
         m.svg.innerHTML = '';
-        m.base.innerHTML = '';
+        clearBasemap(m);
         m.note.textContent = 'Import overlays, or log reports with grids, to see the map.';
         m.note.hidden = false;
         m.legend.innerHTML = '';
@@ -488,11 +489,21 @@ const mapLegend = (heatPts, positions, tracks) => {
 
 // --- Basemap ---
 
+// Nothing of a basemap on screen, and no WMS request still to come or to land.
+const clearBasemap = (m) => {
+    clearTimeout(mapWmsTimer);
+    mapWmsGen++;
+    m.base.innerHTML = '';
+};
+
 // Images are kept by address and only moved as the view changes, so panning
 // doesn't fetch again. Only the part of the view inside the extent is asked for.
 const drawBasemap = (m, ext, view, w, h) => {
     const b = activeBasemap();
-    if (!b) { m.base.innerHTML = ''; return; }
+    if (!b) { clearBasemap(m); return; }
+    // Another service (or the same one changed): what the last one drew goes.
+    const key = [b.kind, b.url, b.layers || ''].join(' ');
+    [...m.base.children].forEach(el => { if (el.dataset.base !== key) el.remove(); });
     const { cx, cy, mpp } = mapView;
     const place = (img, box) => {
         img.setAttribute('x', ((box[0] - cx) / mpp + w / 2).toFixed(1));
@@ -501,7 +512,7 @@ const drawBasemap = (m, ext, view, w, h) => {
         img.setAttribute('height', ((box[3] - box[1]) / mpp + 0.6).toFixed(1));
     };
     const want = [Math.max(ext[0], view[0]), Math.max(ext[1], view[1]), Math.min(ext[2], view[2]), Math.min(ext[3], view[3])];
-    if (want[0] >= want[2] || want[1] >= want[3]) { m.base.innerHTML = ''; return; }
+    if (want[0] >= want[2] || want[1] >= want[3]) { clearBasemap(m); return; }
     mapLastWant = want;
     // An HTTPS page can't load images from an http:// basemap, so those come
     // through the sync server, which fetches them from that saved host.
@@ -522,6 +533,7 @@ const drawBasemap = (m, ext, view, w, h) => {
             img = document.createElementNS('http://www.w3.org/2000/svg', 'image');
             img.dataset.url = url;
             img.dataset.box = box.join(',');
+            img.dataset.base = key;
             img.setAttribute('preserveAspectRatio', 'none');
             img.addEventListener('error', () => settle(img, false));
             img.addEventListener('load', () => settle(img, true));
@@ -533,6 +545,8 @@ const drawBasemap = (m, ext, view, w, h) => {
         return img;
     };
     if (b.kind === 'tiles') {
+        clearTimeout(mapWmsTimer);
+        mapWmsGen++;
         const tiles = SaltCore.tilesFor(want, SaltCore.tileZoom(mpp), 400) || [];
         tiles.forEach(t => add(SaltCore.tileUrl(b.url, t), t.box));
         have.forEach(el => el.remove());
@@ -540,6 +554,8 @@ const drawBasemap = (m, ext, view, w, h) => {
     }
     // WMS: one image for what's in view, asked for once the view settles; the
     // one on screen stays (moved with the view) until the new one arrives.
+    // Each request is numbered: one that lands after a newer one was asked
+    // for, or after the basemap changed, is dropped.
     have.forEach(el => place(el, el.dataset.box.split(',').map(Number)));
     clearTimeout(mapWmsTimer);
     mapWmsTimer = setTimeout(() => {
@@ -547,17 +563,22 @@ const drawBasemap = (m, ext, view, w, h) => {
         if (pw < 8 || ph < 8) return;
         const url = SaltCore.wmsUrl(b.url, b.layers, want, pw, ph, b);
         if (m.base.querySelector(`[data-url="${CSS.escape(url)}"]`)) return;
+        const gen = ++mapWmsGen;
         const img = document.createElementNS('http://www.w3.org/2000/svg', 'image');
         img.dataset.url = url;
         img.dataset.box = want.join(',');
+        img.dataset.base = key;
         img.setAttribute('preserveAspectRatio', 'none');
         img.addEventListener('load', () => {
-            [...m.base.children].forEach(el => { if (el !== img) el.remove(); });
+            if (gen !== mapWmsGen || img.parentNode !== m.base) { img.remove(); return; }
+            // The view it replaces goes; nothing else does.
+            [...m.base.children].forEach(el => { if (el !== img && el.dataset.base === key) el.remove(); });
             settle(img, true);
         });
         // A view that didn't come back leaves the last one on screen: a failure
         // only when there's nothing else to show.
         img.addEventListener('error', () => {
+            if (gen !== mapWmsGen || img.parentNode !== m.base) { img.remove(); return; }
             if ([...m.base.children].some(el => el !== img && el.dataset.state === 'ok')) img.remove();
             else settle(img, false);
         });
