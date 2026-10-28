@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The README is rewritten** to be read in two minutes: the Report Log first,
+  each main feature with a screenshot (new ones of Statistics and BDA), then
+  quick start, usage, and flags. Install details and backups move to
+  `docs/INSTALL.md`, and the file tree to `docs/ARCHITECTURE.md`. Screenshots
+  are about a third of their old size.
+
+### Removed
+
+- `CODE_OF_CONDUCT.md`.
+
 ## [2.15.0] - 2026-10-27
 
 ### Added
