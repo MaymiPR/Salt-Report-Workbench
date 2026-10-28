@@ -14,10 +14,10 @@ updateSepBtnText();
 updateBdaBtnText();
 updateMgrsLockUi();
 updateSortIcons();
-if (localStorage.getItem('salt_layout')==='horizontal') el.layout.grid.classList.add('horizontal-layout');
+if (readRaw('salt_layout')==='horizontal') el.layout.grid.classList.add('horizontal-layout');
 applyLayoutMode();
 
-const lastAto    = localStorage.getItem('salt_last_active_ato');
+const lastAto    = readRaw('salt_last_active_ato');
 const lastConfig = readStored('salt_offline_config', null);
 if (lastAto && lastConfig && lastConfig.ato === lastAto) {
     activeAto = lastAto; localConfig = lastConfig;
@@ -45,9 +45,10 @@ if (!el.startup.overlay.classList.contains('show')) {
 }
 
 renderLog();
-if (localStorage.getItem('salt_view')==='export') openExportView();
-else if (localStorage.getItem('salt_view')==='stats') openStatsView();
-else if (localStorage.getItem('salt_view')==='summary') openSummaryView();
+const lastView = readRaw('salt_view');
+if (lastView==='export') openExportView();
+else if (lastView==='stats') openStatsView();
+else if (lastView==='summary') openSummaryView();
 else showHomeView();
 
 syncWithServer().then(() => {

@@ -148,7 +148,7 @@ async function unloadWorkspace(ato) {
             localReports = [];
             localConfig  = { ato:'', title:'' };
             writeStored('salt_offline_config', JSON.stringify(localConfig));
-            localStorage.removeItem('salt_last_active_ato');
+            removeStored('salt_last_active_ato');
             offlinePendingPush = false;
             writeStored('salt_offline_push', 'false');
             loadConfig();
@@ -349,7 +349,7 @@ const ioFormat = () => IO_FORMATS.export.find(f => f.id === el.ioPicker.select.v
 const renderIoPicker = () => {
     const p = el.ioPicker;
     if (!p.select) return;
-    const remembered = localStorage.getItem('salt_io_export');
+    const remembered = readRaw('salt_io_export');
     p.select.innerHTML = IO_FORMATS.export.map(f => `<option value="${f.id}">${escapeHtml(f.label)}</option>`).join('');
     if (IO_FORMATS.export.some(f => f.id === remembered)) p.select.value = remembered;
     const f = ioFormat();
@@ -421,7 +421,7 @@ const openExportView = () => {
     writeStored('salt_view', 'export');
     renderIoPicker();
     // Restore last-used tab; default 'export' for fresh sessions.
-    switchWorkspacesTab(localStorage.getItem('salt_workspaces_tab') || 'export');
+    switchWorkspacesTab(readRaw('salt_workspaces_tab', 'export'));
     renderExportPreview();
     renderWorkspacesList();
 };

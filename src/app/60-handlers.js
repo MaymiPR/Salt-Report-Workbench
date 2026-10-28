@@ -797,7 +797,7 @@ document.getElementById('exportArcgisCsvBtn').addEventListener('click', () => {
 el.menu.exportBtn.addEventListener('click', () => isExportViewActive ? closeExportView() : openExportView());
 
 el.ioPicker.select.addEventListener('change', () => {
-    try { localStorage.setItem('salt_io_export', el.ioPicker.select.value); } catch (e) { /* storage blocked: this session only */ }
+    writeStored('salt_io_export', el.ioPicker.select.value);
     renderIoPicker();
 });
 el.ioPicker.run.addEventListener('click', runIoPicker);

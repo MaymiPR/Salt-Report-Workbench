@@ -172,6 +172,17 @@ const readStored = (key, fallback) => {
         return fallback;
     }
 };
+// A plain string from localStorage, or the fallback when there is none or the
+// browser blocks storage (where even reading it throws).
+const readRaw = (key, fallback = null) => {
+    try {
+        const raw = localStorage.getItem(key);
+        return raw === null ? fallback : raw;
+    } catch (e) {
+        return fallback;
+    }
+};
+const removeStored = (key) => { try { localStorage.removeItem(key); } catch (e) { /* blocked: nothing kept to remove */ } };
 // Write to localStorage. Storage can be full (a long operation's reports and
 // history, cached in every browser) or blocked. The app works from memory
 // either way, so a failure is reported once instead of thrown into whatever
@@ -185,7 +196,7 @@ const writeStored = (key, value) => {
         if (!storageWarned) {
             storageWarned = true;
             // Deferred: the first writes run before the toast exists.
-            setTimeout(() => showToast('Browser storage is full. This tab keeps working, but it can\'t save its offline copy or settings until space is freed.', true), 0);
+            setTimeout(() => showToast('Browser storage is full or blocked. This tab keeps working, but it can\'t save its offline copy or settings until that changes.', true), 0);
         }
         return false;
     }
@@ -194,7 +205,7 @@ const writeStored = (key, value) => {
 // cached copy is useless without it, and it would leave every report at rest
 // on a machine that only watches. Whatever an earlier version left is cleared.
 const viewerAtLoad = document.body.classList.contains('read-only');
-if (viewerAtLoad) ['salt_reports_by_ato', 'salt_unsaved'].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+if (viewerAtLoad) ['salt_reports_by_ato', 'salt_unsaved'].forEach(removeStored);
 let reportsByAto  = viewerAtLoad ? {} : readStored('salt_reports_by_ato', {});
 let activeAto     = null;
 // Viewer-only: the workspace the viewer has clicked to look at locally.
@@ -272,7 +283,7 @@ const setAccessCode = (code) => {
 };
 const clearAccessCode = () => {
     accessCode = '';
-    localStorage.removeItem(_ACCESS_CODE_KEY);
+    removeStored(_ACCESS_CODE_KEY);
     clearAccessCookie();
     renderIdentityAccessCode();
 };
@@ -285,9 +296,9 @@ const clearAccessCode = () => {
     const metaCode = (document.querySelector('meta[name="salt-access-code"]') || {}).content || '';
     if (metaCode) {
         setAccessCode(metaCode);
-        if ((localStorage.getItem(_ACCESS_CONFIRMED_KEY) || '') !== metaCode) forceStartupModal = true;
+        if (readRaw(_ACCESS_CONFIRMED_KEY, '') !== metaCode) forceStartupModal = true;
     } else {
-        const cached = localStorage.getItem(_ACCESS_CODE_KEY);
+        const cached = readRaw(_ACCESS_CODE_KEY);
         if (cached) setAccessCode(cached);
     }
 })();
@@ -299,7 +310,7 @@ let isReadOnly = document.body.classList.contains('read-only');
 // Access-code auth is meaningless here: the field is hidden and not required.
 const isLocalFile = location.protocol === 'file:';
 if (isLocalFile) document.body.classList.add('local-mode');
-let currentSortMode  = localStorage.getItem('salt_sort_mode') || 'recent';
+let currentSortMode  = readRaw('salt_sort_mode', 'recent');
 // Each sortable column's modes, in the order a click steps through them. The
 // Identifier header also offers "recent" (last modified first), the default.
 const SORT_MODES = {
@@ -309,9 +320,9 @@ const SORT_MODES = {
     activity: ['activityAsc', 'activityDesc'],
     location: ['locationAsc', 'locationDesc'],
 };
-let timeDisplayMode  = localStorage.getItem('salt_time_mode')  || 'zulu';
+let timeDisplayMode  = readRaw('salt_time_mode', 'zulu');
 // Separator between the ATO designator and the workspace title: 'dash' | 'space'.
-let atoTitleSep      = localStorage.getItem('salt_ato_title_sep') || 'dash';
+let atoTitleSep      = readRaw('salt_ato_title_sep', 'dash');
 
 // --- Report format (builder) ---
 // A format is an ordered list of lines: one for every workspace, synced via
@@ -333,7 +344,7 @@ const isFormat = f => !!(f && Array.isArray(f.lines) && f.lines.length);
 let sharedFormat = readStored('salt_format', null);
 if (!isFormat(sharedFormat)) sharedFormat = readStored('salt_last_format', null);
 if (!isFormat(sharedFormat)) sharedFormat = null;
-try { localStorage.removeItem('salt_ws_formats'); localStorage.removeItem('salt_last_format'); } catch (e) {}
+removeStored('salt_ws_formats'); removeStored('salt_last_format');
 const defaultFormat  = () => ({ preset: 'salt', lines: FORMAT_PRESETS['salt'].map(l => ({...l})) });
 const currentFormat  = () => sharedFormat || defaultFormat();
 const isStockFormat  = () => !sharedFormat || JSON.stringify(sharedFormat.lines) === JSON.stringify(FORMAT_PRESETS['salt']);
@@ -345,12 +356,12 @@ const formatsFor = (atos) => Object.fromEntries(atos.map(a => [a, currentFormat(
 // Map tab and synced. Viewers keep none locally. Browsers from before
 // they were shared kept them per workspace ('salt_ws_overlays'); those are
 // folded into one set once.
-if (viewerAtLoad) { try { localStorage.removeItem('salt_ws_overlays'); localStorage.removeItem('salt_overlays'); } catch (e) {} }
+if (viewerAtLoad) { removeStored('salt_ws_overlays'); removeStored('salt_overlays'); }
 let sharedOverlays = viewerAtLoad ? [] : SaltCore.foldOverlays(readStored('salt_overlays', null) || readStored('salt_ws_overlays', []));
 const storeOverlays = () => {
     if (isReadOnly || viewerAtLoad) return;
     writeStored('salt_overlays', JSON.stringify(sharedOverlays));
-    try { localStorage.removeItem('salt_ws_overlays'); } catch (e) {}
+    removeStored('salt_ws_overlays');
 };
 // The workspace on screen: the editor's active one, or the viewer's pick.
 const shownAto        = () => (isReadOnly ? viewerShowingAto : activeAto) || '';
@@ -381,11 +392,11 @@ const locationInfo = (text) => {
 // --- BDA mode ---
 // Hidden until enabled from the ellipsis menu. Assessments live on each
 // report under `bda: []` and sync like everything else.
-let bdaMode = localStorage.getItem('salt_bda_mode') === 'on';
+let bdaMode = readRaw('salt_bda_mode') === 'on';
 // MGRS Lock (per browser): a grid zone and 100 km square ("11S NV") put in
 // front of grids typed as digits alone, so operators type "39697 06762".
-let mgrsLock = localStorage.getItem('salt_mgrs_lock') === 'on';
-let mgrsLockPrefix = SaltCore.mgrsPrefix(localStorage.getItem('salt_mgrs_prefix') || '') || '';
+let mgrsLock = readRaw('salt_mgrs_lock') === 'on';
+let mgrsLockPrefix = SaltCore.mgrsPrefix(readRaw('salt_mgrs_prefix', '')) || '';
 document.body.classList.toggle('mgrs-lock', mgrsLock);
 // The Location as it will be logged: with the locked prefix, when it is on.
 const lockedLocation = (text) => (mgrsLock && mgrsLockPrefix ? SaltCore.applyMgrsPrefix(text, mgrsLockPrefix) : text);
@@ -396,7 +407,7 @@ const openBdaRows = new Set();
 const openHistoryRows = new Set();
 let isExportViewActive = false;
 let pendingCsv         = null; // { headers, rows, filename }
-let offlinePendingPush = localStorage.getItem('salt_offline_push') === 'true';
+let offlinePendingPush = readRaw('salt_offline_push') === 'true';
 // What the server holds, per workspace (report key -> lastModified), so a
 // push sends only what changed. Refreshed on every pull; a workspace with no
 // record yet (say, right after a reload) is pushed in full.
@@ -408,7 +419,7 @@ const saveUnsaved = () => { writeStored('salt_unsaved', JSON.stringify(unsaved))
 const unsavedEntry = (ato, report) => ((unsaved[ato] || {})[SaltCore.reportKey(report)]) || null;
 
 // Dedupe localStorage writes — skip if the JSON hasn't actually changed.
-let lastSavedReportsJson = localStorage.getItem('salt_reports_by_ato') || '';
+let lastSavedReportsJson = readRaw('salt_reports_by_ato', '');
 const saveReportsByAtoToLocal = () => {
     if (isReadOnly) return;
     const json = JSON.stringify(reportsByAto);

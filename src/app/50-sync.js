@@ -229,7 +229,7 @@ function applyServerUpdate(workspaces, config, profiles, connectedUsers, sources
         localReports = [];
         localConfig = { ato: '', title: '' };
         writeStored('salt_offline_config', JSON.stringify(localConfig));
-        localStorage.removeItem('salt_last_active_ato');
+        removeStored('salt_last_active_ato');
     }
 
     loadConfig();
