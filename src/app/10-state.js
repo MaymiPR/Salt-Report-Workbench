@@ -408,6 +408,12 @@ document.body.classList.toggle('bda-mode', bdaMode);
 let bdaFilter = null;
 const openBdaRows = new Set();
 const openHistoryRows = new Set();
+// What else survives a redraw of the table (a sync from another operator):
+// the rows checked (report ids), the history rows checked ("id|lastModified")
+// and the cells expanded ("id|column", "id|lastModified|column" on history).
+const selectedRows = new Set();
+const selectedHistory = new Set();
+const expandedCells = new Set();
 let isExportViewActive = false;
 let pendingCsv         = null; // { headers, rows, filename }
 let offlinePendingPush = readRaw('salt_offline_push') === 'true';

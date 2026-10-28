@@ -179,8 +179,6 @@ const deleteBdaEntry = (reportId, lm) => {
     });
 };
 
-// `filterText` defaults to the current search-bar value so every repaint
-// preserves the active filter without the caller having to pass it.
 // The BDA roll-up strip: totals for the whole workspace as chips. Clicking a
 // chip shows only the reports with that outcome (Unassessed: reports with
 // elements still to assess); clicking it again clears the filter.
@@ -235,9 +233,24 @@ const matchesSearch = (r, filterText) => {
     return `${r.fullId} ${r.displayId} ${r.size} ${r.activity} ${r.location} ${r.yourAnalysis||''} ${r.user?.initials||''} ${ts} ${cus} ${bda}`.toLowerCase().includes(filterText);
 };
 
+// Forget checked rows and expanded cells whose report (or history entry) is
+// gone: deleted, or in another workspace now.
+const pruneTableState = (live) => {
+    const byId = new Map(live.map(r => [r.id, r]));
+    selectedRows.forEach(id => { if (!byId.has(id)) selectedRows.delete(id); });
+    selectedHistory.forEach(k => {
+        const [id, lm] = k.split('|');
+        if (!((byId.get(id) || {}).history || []).some(h => String(h.lastModified) === lm)) selectedHistory.delete(k);
+    });
+    expandedCells.forEach(k => { if (!byId.has(k.split('|')[0])) expandedCells.delete(k); });
+};
+
+// `filterText` defaults to the current search-bar value so every repaint
+// preserves the active filter without the caller having to pass it.
 const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
     keepBdaDrafts();
     let rows = localReports.filter(r => !r.deleted);
+    pruneTableState(rows);
     el.log.count.textContent = `${rows.length} unique reports`;
     // Total = each live report + its history entries. Deleted excluded.
     const totalReports = rows.reduce((sum, r) => sum + 1 + ((r.history && r.history.length) || 0), 0);
@@ -265,16 +278,18 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
 
     // Dense free-text content (several MGRS grids, a long analysis) can wrap
     // into a very tall cell. Clamp to 2 lines; cells that actually overflow
-    // get a click-to-expand affordance (marked post-render, see below).
-    const clampCell = (text) => `<span class="cell-clamp" title="${escapeHtml(text)}">${escapeHtml(text)}</span>`;
+    // get a click-to-expand affordance (marked post-render, see below). `key`
+    // names the cell, so one expanded stays expanded over a redraw.
+    const clampCell = (text, key) => `<span class="cell-clamp${expandedCells.has(key) ? ' expanded' : ''}" data-cell="${escapeHtml(key)}" title="${escapeHtml(text)}">${escapeHtml(text)}</span>`;
 
     // Keep the header's custom columns in step with the format, then emit a
     // matching cell per row (works for history rows too, which carry their
     // own `custom` snapshot).
     syncCustomColumns();
     const cusCols  = customColumns();
-    const cusCells = (obj) => cusCols.map(l =>
-        `<td class="col-custom">${clampCell((obj || {})[l.label] || '')}</td>`).join('');
+    const cusCells = (obj, key) => cusCols.map(l =>
+        `<td class="col-custom">${clampCell((obj || {})[l.label] || '', `${key}|custom:${l.label}`)}</td>`).join('');
+    const editingId = el.form.reportId.value;
 
     // Build into a fragment — one reflow on attach instead of N.
     const frag = document.createDocumentFragment();
@@ -283,6 +298,9 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
         const isOpen = openHistoryRows.has(report.id);
         const row    = document.createElement('tr');
         row.dataset.id = report.id;
+        // The report in the form stays highlighted through a redraw.
+        if (report.id === editingId) row.classList.add('selected-row');
+        const rid    = report.id;
         const histBtn = (report.history && report.history.length > 0)
             ? `<button class="history-btn ${isOpen ? 'open' : ''}" data-history-id="${escapeHtml(report.id)}" title="View past versions">&#8250;</button>`
             : `<button class="history-btn" style="visibility:hidden;" disabled>&#8250;</button>`;
@@ -314,7 +332,7 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
                         : `All ${done} assessed`;
             bdaBtn = `<button class="bda-btn ${state}${worstCls ? ' bda-worst-' + worstCls : ''}${openBdaRows.has(report.id) ? ' open' : ''}" data-bda-id="${escapeHtml(report.id)}" title="${tip}">${label}</button>`;
         }
-        row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${escapeHtml(report.id)}" title="Select"> ${histBtn} <button class="copy-btn" data-id="${escapeHtml(report.id)}">Copy</button>${discardBtn}${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${clampCell(report.size)}</td><td class="col-activity">${clampCell(report.activity)}</td><td class="col-location">${clampCell(report.location)}${locationTags(report.location, report.id)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}</td><td class="col-analysis">${clampCell(report.yourAnalysis)}</td>${cusCells(report.custom)}`;
+        row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${escapeHtml(report.id)}" title="Select"${selectedRows.has(rid) ? ' checked' : ''}> ${histBtn} <button class="copy-btn" data-id="${escapeHtml(report.id)}">Copy</button>${discardBtn}${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${clampCell(report.size, `${rid}|size`)}</td><td class="col-activity">${clampCell(report.activity, `${rid}|activity`)}</td><td class="col-location">${clampCell(report.location, `${rid}|location`)}${locationTags(report.location, report.id)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}</td><td class="col-analysis">${clampCell(report.yourAnalysis, `${rid}|analysis`)}</td>${cusCells(report.custom, rid)}`;
         frag.appendChild(row);
 
         if (bdaMode && openBdaRows.has(report.id)) frag.appendChild(buildBdaRow(report));
@@ -325,13 +343,16 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
                 hRow.className = 'history-sub-row';
                 const hRep  = h.user || null;
                 const hHTML = hRep ? `<span style="color:${safeColor(hRep.color)};">${escapeHtml(hRep.initials)}</span>` : '?';
-                hRow.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="history-selector" data-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Select history entry"> <span class="hist-arrow">&#8618;</span> <button class="restore-btn" data-restore-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Restore this version as current">Restore</button></div></td><td class="col-by reporter-col">${hHTML}</td><td class="col-id"><span class="id-cell-wrap">${escapeHtml(formatFullId(report))}<span class="id-updated-badge">(Update #${arr.length - i})</span></span></td><td class="col-size">${clampCell(h.size)}</td><td class="col-activity">${clampCell(h.activity)}</td><td class="col-location">${clampCell(h.location)}</td><td class="col-time">${escapeHtml(timeFmt(h.time))}</td><td class="col-analysis">${clampCell(h.yourAnalysis)}</td>${cusCells(h.custom)}`;
+                const hk = `${rid}|${h.lastModified}`;
+                hRow.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="history-selector" data-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Select history entry"${selectedHistory.has(hk) ? ' checked' : ''}> <span class="hist-arrow">&#8618;</span> <button class="restore-btn" data-restore-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Restore this version as current">Restore</button></div></td><td class="col-by reporter-col">${hHTML}</td><td class="col-id"><span class="id-cell-wrap">${escapeHtml(formatFullId(report))}<span class="id-updated-badge">(Update #${arr.length - i})</span></span></td><td class="col-size">${clampCell(h.size, `${hk}|size`)}</td><td class="col-activity">${clampCell(h.activity, `${hk}|activity`)}</td><td class="col-location">${clampCell(h.location, `${hk}|location`)}</td><td class="col-time">${escapeHtml(timeFmt(h.time))}</td><td class="col-analysis">${clampCell(h.yourAnalysis, `${hk}|analysis`)}</td>${cusCells(h.custom, hk)}`;
                 frag.appendChild(hRow);
             });
         }
     });
 
     el.log.body.replaceChildren(frag);
+    // Delete (and Send) follow what is checked now.
+    updateSelectionUI();
     if (bdaFocus) {
         const wrap = el.log.body.querySelector(`[data-bda-commit="${CSS.escape(bdaFocus.id)}"]`);
         const row = wrap && [...wrap.closest('.bda-wrap').querySelectorAll('.bda-check-row')].find(r => r.dataset.key === bdaFocus.key);
@@ -405,7 +426,9 @@ const updateSelectionUI = () => {
     el.log.deleteBtn.style.display = n > 0 ? 'inline-block' : 'none';
     if (activeAto === 'IMPORT' && nMain > 0) {
         const targets = Object.keys(reportsByAto).filter(k => k !== 'IMPORT' && (reportsByAto[k]||[]).some(r => !r.deleted));
+        const picked  = el.log.sendSelect.value;   // kept over a redraw
         el.log.sendSelect.innerHTML = targets.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
+        if (targets.includes(picked)) el.log.sendSelect.value = picked;
         el.log.sendSelect.style.display = targets.length > 0 ? 'inline-block' : 'none';
         el.log.sendBtn.style.display    = targets.length > 0 ? 'inline-block' : 'none';
     } else {

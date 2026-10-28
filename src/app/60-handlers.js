@@ -300,7 +300,8 @@ el.log.body.addEventListener('click', e => {
     // listeners on the same element.
     const clamp = e.target.closest('.cell-clamp');
     if (clamp && (clamp.classList.contains('clampable') || clamp.classList.contains('expanded'))) {
-        clamp.classList.toggle('expanded');
+        const open = clamp.classList.toggle('expanded');
+        if (open) expandedCells.add(clamp.dataset.cell); else expandedCells.delete(clamp.dataset.cell);
         return;
     }
     const tr = e.target.closest('tr');
@@ -317,7 +318,20 @@ if (el.log.bdaRollup) el.log.bdaRollup.addEventListener('click', e => {
     renderLog();
 });
 
-el.log.body.addEventListener('change', e => { if (e.target.classList.contains('row-selector') || e.target.classList.contains('history-selector')) updateSelectionUI(); });
+// A checkbox's state lives in selectedRows / selectedHistory, so a redraw keeps it.
+const keepChecked = (cb) => {
+    if (cb.classList.contains('row-selector')) cb.checked ? selectedRows.add(cb.dataset.id) : selectedRows.delete(cb.dataset.id);
+    else if (cb.classList.contains('history-selector')) {
+        const k = `${cb.dataset.id}|${cb.dataset.lm}`;
+        cb.checked ? selectedHistory.add(k) : selectedHistory.delete(k);
+    }
+};
+const clearChecked = () => { selectedRows.clear(); selectedHistory.clear(); };
+el.log.body.addEventListener('change', e => {
+    if (!e.target.classList.contains('row-selector') && !e.target.classList.contains('history-selector')) return;
+    keepChecked(e.target);
+    updateSelectionUI();
+});
 
 el.log.deleteBtn.addEventListener('click', () => {
     // Single pass over the checked boxes — partition into main vs history
@@ -372,17 +386,18 @@ el.log.deleteBtn.addEventListener('click', () => {
             await apiPost('/api/delete_history', { ato: activeAto, deletions: histSel });
         }
         // Persist locally + push (save_reports merges by lastModified, which we bumped above).
+        clearChecked();
         const saved = await saveLocalAndSync(reportsByAto);
         resetForm();
-        el.log.deleteBtn.style.display = 'none';
+        updateSelectionUI();
         const canUndo = undone.ids.length || Object.keys(undone.history).length;
         showToast(saved || isLocalFile ? `${total} item(s) deleted.` : `${total} item(s) deleted here; the server can't be reached.`,
             false, canUndo ? { ms: UNDO_MS, undo: () => undoDeletion(ato, undone) } : {});
     });
 });
 
-el.log.selectAll.addEventListener('click',   () => { document.querySelectorAll('.row-selector, .history-selector').forEach(cb => cb.checked=true);  updateSelectionUI(); el.menu.panel.style.display='none'; });
-el.log.deselectAll.addEventListener('click', () => { document.querySelectorAll('.row-selector, .history-selector').forEach(cb => cb.checked=false); updateSelectionUI(); el.menu.panel.style.display='none'; });
+el.log.selectAll.addEventListener('click',   () => { document.querySelectorAll('.row-selector, .history-selector').forEach(cb => { cb.checked=true; keepChecked(cb); });  updateSelectionUI(); el.menu.panel.style.display='none'; });
+el.log.deselectAll.addEventListener('click', () => { clearChecked(); document.querySelectorAll('.row-selector, .history-selector').forEach(cb => cb.checked=false); updateSelectionUI(); el.menu.panel.style.display='none'; });
 
 el.log.sendBtn.addEventListener('click', async () => {
     const target = el.log.sendSelect.value;
@@ -1004,7 +1019,7 @@ document.addEventListener('keydown', e => {
     // Escape clears any selected table rows (before the form-clear fallback).
     if (e.key==='Escape') {
         const sel = document.querySelectorAll('.row-selector:checked, .history-selector:checked');
-        if (sel.length) { e.preventDefault(); sel.forEach(cb => cb.checked = false); updateSelectionUI(); return; }
+        if (sel.length) { e.preventDefault(); clearChecked(); sel.forEach(cb => cb.checked = false); updateSelectionUI(); return; }
     }
     // New-report mode: Escape clears the form fields if focus is inside the form
     // AND any of the SALT fields has content. Doesn't clear when the form is
