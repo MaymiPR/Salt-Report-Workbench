@@ -27,6 +27,15 @@ All notable changes to this project are documented here. The format follows
 - **Fewer, smaller syncs.** The server numbers every change. A page that
   already has the newest one doesn't pull again, and changes within 150 ms of
   each other send one notice instead of one each.
+- **One way to remove things, everywhere.** Deleting reports or a BDA
+  assessment, removing an overlay, basemap, drone or narrative setting, and
+  unloading overlays or a workspace all ask first in place, with no pop-up:
+  the first press turns the button (or the name beside it) into "... for
+  everyone?", so nothing moves, and a second press removes. Any other button
+  lets the question go. The message that follows has **Undo** for ten
+  seconds, which puts back what was removed, for everyone; an unloaded
+  workspace's reports go back to the server with their own authors, and you
+  are back in it if it was yours.
 
 ### Fixed
 

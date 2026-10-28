@@ -1275,6 +1275,11 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-drone-grid, .map-drone-grid-in { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
 .map-drone-grid { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .map-drone-grid-in { margin: 0; padding: 5px 8px; font-size: 0.95em; }
+/* Remove pressed once: the question sits where its grid was, over a hidden
+   copy of the box, so the row keeps its height and nothing moves. */
+.map-drone-ask { display: grid; align-items: center; min-width: 0; }
+.map-drone-ask > * { grid-area: 1 / 1; }
+.map-drone-ask .map-drone-grid-in { visibility: hidden; }
 /* Under each drone: where it's looking and its range. */
 .map-drone-sub { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 64px; align-items: center; gap: 8px; padding: 2px 2px 6px; border-bottom: 1px solid var(--divider); font-size: 0.84em; }
 .map-drone-row:has(+ .map-drone-sub) { border-bottom: none; }

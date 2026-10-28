@@ -280,9 +280,23 @@ const finishOverlayImport = async () => {
 // --- The Map tab: the ops graphics ---
 
 const overlayGroupsOpen = new Set();   // the groups opened, by type
-// The overlay whose × was pressed once (its key): its name asks "Remove for
-// everyone?" in place, as a basemap's does, and a second press removes it.
-let overlayRemoving = null;
+// An overlay's × pressed once: its name asks "Remove for everyone?" in
+// place, as a basemap's does, and a second press removes it. Unload All
+// and each list's Unload ask on their own faces (askFirst, app/10-state.js).
+// Undo puts back what went, by type and name, beside whatever came since.
+const putOverlaysBack = async (gone, said) => {
+    const have = new Set(currentOverlays().map(overlayKey));
+    const back = gone.filter(o => !have.has(overlayKey(o)));
+    if (!back.length) { showToast('Nothing left to put back.', true); return; }
+    if (await saveOverlays([...currentOverlays(), ...back])) showToast(said);
+};
+const removeOverlays = async (gone, said) => {
+    if (!gone.length) return;
+    const keys = new Set(gone.map(overlayKey));
+    if (await saveOverlays(currentOverlays().filter(o => !keys.has(overlayKey(o))))) {
+        undoToast(said, () => putOverlaysBack(gone, `${gone.length === 1 ? overlayKey(gone[0]) : `${gone.length} overlays`} put back.`));
+    }
+};
 const renderOverlays = () => {
     const box = document.getElementById('overlaysBody');
     if (!box) return;
@@ -312,12 +326,15 @@ const renderOverlays = () => {
     }
 
     const list = currentOverlays();
-    if (overlayRemoving && !list.some(o => overlayKey(o) === overlayRemoving)) overlayRemoving = null;
+    // The one asking was removed meanwhile (here or by someone else): let go.
+    const asked = askingAbout('overlay|');
+    if (asked && !list.some(o => `overlay|${overlayKey(o)}` === asked)) forgetAsk();
+    const allAsk = isAsking('overlays|all');
     // The map of them is the Map view (app/49-mapview.js).
     const header = `<div class="overlays-head">
         <div class="overlays-actions editor-only">
             <button type="button" id="overlaysImportBtn" class="set-btn">Import KML / KMZ / GeoJSON / SHP</button>
-            ${list.length ? '<button type="button" id="overlaysClearBtn" class="cancel-btn">Unload All</button>' : ''}
+            ${list.length ? `<button type="button" id="overlaysClearBtn" class="cancel-btn"${allAsk ? ' data-asking' : ''}>${allAsk ? 'Unload all for everyone?' : 'Unload All'}</button>` : ''}
         </div>
         ${list.length ? `<div class="overlay-fold" role="group" aria-label="Lists">
             <button type="button" class="overlay-fold-btn" data-overlay-fold="open" title="Expand all" aria-label="Expand all"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 5.5 8 2l3.5 3.5M4.5 10.5 8 14l3.5-3.5"/></svg></button>
@@ -338,24 +355,27 @@ const renderOverlays = () => {
         // The name in the file, when it says more than the overlay's own name.
         const said  = String(o.label || '').toUpperCase().replace(/\s+/g, ' ').trim();
         const extra = said && said !== key && said !== o.name ? ` <span class="overlays-muted">${escapeHtml(o.label)}</span>` : '';
-        const name = overlayRemoving === key
+        const ask = isAsking(`overlay|${key}`);
+        const name = ask
             ? `<span class="map-base-ask overlay-ask" role="status" title="${escapeHtml(key)}">Remove for everyone?</span>`
             : `${escapeHtml(o.name)}${extra}`;
         // The type comes from the server (anyone's import): only a known one names a class.
         const type = OVERLAY_TYPES.includes(o.type) ? o.type : '';
         return `<tr><td><span class="overlay-type${type ? ` overlay-${type.toLowerCase()}` : ''}">${escapeHtml(o.type)}</span> ${name}</td>
             <td>${SHAPE_LABEL[o.geometry.type] || ''}</td><td>${uses[key] || 0}</td>
-            <td><button type="button" class="overlay-remove editor-only" data-remove-overlay="${i}" title="Unload ${escapeHtml(key)}" aria-label="Unload ${escapeHtml(key)}">&times;</button></td></tr>`;
+            <td><button type="button" class="overlay-remove editor-only" data-remove-overlay="${i}"${ask ? ' data-asking' : ''} title="Unload ${escapeHtml(key)}" aria-label="Unload ${escapeHtml(key)}">&times;</button></td></tr>`;
     };
     const groups = GROUPS.map(([type, title]) => {
         const members = list.map((o, i) => ({ o, i })).filter(x => x.o.type === type).sort(byName);
         if (!members.length) return '';
+        const plural = type === 'OBJ' ? 'OBJs' : type === 'PL' ? 'PLs' : 'NAIs';
+        const groupAsk = isAsking(`overlays|${type}`);
         return `<details class="overlay-group" data-overlay-group="${type}"${overlayGroupsOpen.has(type) ? ' open' : ''}>
             <summary class="overlay-group-head">
                 <span class="overlay-group-chevron" aria-hidden="true"></span>
                 <span class="overlay-group-title"><span class="overlay-type overlay-${type.toLowerCase()}">${type}</span> ${title}</span>
                 <span class="overlay-group-count">${members.length}</span>
-                <button type="button" class="overlay-group-unload editor-only" data-unload-group="${type}">Unload ${type === 'OBJ' ? 'OBJs' : type === 'PL' ? 'PLs' : 'NAIs'}</button>
+                <button type="button" class="overlay-group-unload editor-only" data-unload-group="${type}"${groupAsk ? ' data-asking' : ''}>${groupAsk ? `Unload ${plural} for everyone?` : `Unload ${plural}`}</button>
             </summary>
             <table class="overlays-table">
                 <thead><tr><th>Name</th><th>Shape</th><th>Reports${shownAto() ? ` in ${escapeHtml(shownAto())}` : ''}</th><th></th></tr></thead>
@@ -380,20 +400,10 @@ if (overlaysBody && overlaysFileInput) {
             const victim = list[+rm.dataset.removeOverlay];
             if (!victim) return;
             // The first press asks; the second (on the same one) removes it.
-            if (overlayRemoving !== overlayKey(victim)) {
-                overlayRemoving = overlayKey(victim);
-                renderOverlays();
-                // Redrawn: the same × keeps focus, for a second press from the keyboard.
-                const again = overlaysBody.querySelector(`[data-remove-overlay="${rm.dataset.removeOverlay}"]`);
-                if (again) again.focus({ preventScroll: true });
-                return;
-            }
-            overlayRemoving = null;
-            saveOverlays(list.filter(o => o !== victim));
+            if (!askFirst(`overlay|${overlayKey(victim)}`, renderOverlays)) return;
+            removeOverlays([victim], `${overlayKey(victim)} removed.`);
             return;
         }
-        // Any other button pressed: a × that asked is let go.
-        if (overlayRemoving && e.target.closest('button')) { overlayRemoving = null; renderOverlays(); }
         if (e.target.closest('#overlaysImportBtn')) { overlaysFileInput.click(); return; }
         // Every list opened, or every list closed.
         const fold = e.target.closest('[data-overlay-fold]');
@@ -404,17 +414,18 @@ if (overlaysBody && overlaysFileInput) {
         }
         if (e.target.closest('#overlaysReviewAddBtn')) { finishOverlayImport(); return; }
         if (e.target.closest('#overlaysReviewCancelBtn')) { overlayReview = null; renderOverlays(); return; }
+        // Every overlay, or a list's: reports are not changed.
         if (e.target.closest('#overlaysClearBtn')) {
-            showConfirmation('Unload every overlay, from every workspace? Reports are not changed.', () => saveOverlays([]));
+            if (askFirst('overlays|all', renderOverlays)) removeOverlays(currentOverlays(), 'Every overlay unloaded.');
             return;
         }
         const group = e.target.closest('[data-unload-group]');
         if (group) {
             e.preventDefault();   // in the group's header: unload, without folding it
             const type = group.dataset.unloadGroup;
-            const n = currentOverlays().filter(o => o.type === type).length;
-            showConfirmation(`Unload all ${n} ${type} overlay${n === 1 ? '' : 's'}? Reports are not changed.`,
-                () => saveOverlays(currentOverlays().filter(o => o.type !== type)));
+            if (!askFirst(`overlays|${type}`, renderOverlays)) return;
+            const gone = currentOverlays().filter(o => o.type === type);
+            removeOverlays(gone, `${gone.length} ${type} overlay${gone.length === 1 ? '' : 's'} unloaded.`);
             return;
         }
     });

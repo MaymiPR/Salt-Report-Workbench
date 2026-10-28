@@ -701,3 +701,59 @@ const showConfirmation = (msg, onConfirm) => {
 };
 el.toast.confirmBtn.addEventListener('click', () => { const run = pendingConfirm; hideConfirmation(); if (run) run(); });
 el.toast.cancelBtn .addEventListener('click', hideConfirmation);
+
+// --- Removing: asked in place, then Undo ---
+// Every remove asks first, on the control itself: the first press turns it
+// (or the name beside it) into "… for everyone?" where it is, so nothing
+// else moves; a second press removes, and the toast then offers Undo. Any
+// other button pressed lets the question go. One control asks at a time:
+// `key` names it, and `redraw` draws its owner with or without the
+// question. The asking control carries data-asking, and keeps focus over
+// the redraw, so the second press can come from the keyboard.
+let askNow = null;   // { key, redraw }
+const isAsking = (key) => !!askNow && askNow.key === key;
+const askingAbout = (prefix) => (askNow && askNow.key.startsWith(prefix) ? askNow.key : null);
+const forgetAsk = () => { askNow = null; };
+// Said to screen readers: a control that is its own question says it here
+// (a row's question is said by its own role="status").
+const askSaid = document.createElement('div');
+askSaid.className = 'visually-hidden';
+askSaid.setAttribute('role', 'status');
+document.body.appendChild(askSaid);
+// Draw, and give focus back to the control that had it, found again by its
+// id and data attributes when the drawing replaced it.
+const refocusAfter = (draw) => {
+    const had = document.activeElement;
+    draw();
+    const now = document.activeElement;
+    if (!had || had === document.body || had.isConnected || (now && now !== document.body)) return;
+    const named = [...had.attributes].filter(a => (a.name === 'id' || a.name.startsWith('data-')) && a.name !== 'data-asking')
+        .map(a => `[${a.name}="${CSS.escape(a.value)}"]`).join('');
+    const again = named && [...document.querySelectorAll(had.tagName.toLowerCase() + named)].find(n => n.getClientRects().length);
+    if (again) again.focus({ preventScroll: true });
+};
+// True on the second press (go ahead); the first press asks, and is false.
+const askFirst = (key, redraw) => {
+    if (isAsking(key)) { askNow = null; askSaid.textContent = ''; refocusAfter(redraw); return true; }
+    if (askNow) { const was = askNow.redraw; askNow = null; refocusAfter(was); }
+    askNow = { key, redraw };
+    refocusAfter(redraw);
+    const q = document.querySelector('[data-asking]');
+    const text = q ? q.textContent.trim() : '';
+    askSaid.textContent = text.endsWith('?') ? text : '';
+    return false;
+};
+const letGo = () => {
+    if (!askNow) return;
+    const { redraw } = askNow;
+    askNow = null;
+    askSaid.textContent = '';
+    refocusAfter(redraw);
+};
+// Any other button pressed: let go before its own handler runs.
+document.addEventListener('click', e => {
+    const b = askNow && e.target.closest && e.target.closest('button');
+    if (b && !b.hasAttribute('data-asking')) letGo();
+}, true);
+// The toast that offers Undo after a removal.
+const undoToast = (msg, undo) => showToast(msg, false, { ms: UNDO_MS, undo });

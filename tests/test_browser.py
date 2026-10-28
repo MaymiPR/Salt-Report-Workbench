@@ -316,14 +316,109 @@ class BrowserTests(unittest.TestCase):
     def test_delete_then_undo(self):
         page = self.open_editor()
         self.log(page, "2x BTR")
-        page.check("#reportLogBody .row-selector")
+        self.log(page, "1x truck")
+        page.check("#reportLogBody tr:has(.col-size:has-text('2x BTR')) .row-selector")
+        # The first press asks, on the button itself; no pop-up.
         page.click("#deleteSelectedBtn")
-        page.click("#confirmActionBtn")
-        page.wait_for_selector("#reportLogBody tr[data-id]", state="detached")
+        self.assertEqual(page.text_content("#deleteSelectedBtn"), "Delete 1 for everyone?")
+        self.assertFalse(page.is_visible("#confirmation-toast"))
+        self.assertEqual(page.evaluate("document.activeElement.id"), "deleteSelectedBtn")
+        self.assertEqual(page.evaluate("askSaid.textContent"), "Delete 1 for everyone?")
+        self.assertEqual(len(self.sizes(page)), 2, "not yet")
+        # A changed selection lets the question go; so does any other button.
+        page.check("#reportLogBody tr:has(.col-size:has-text('1x truck')) .row-selector")
+        self.assertEqual(page.text_content("#deleteSelectedBtn"), "Delete")
+        page.click("#deleteSelectedBtn")
+        self.assertEqual(page.text_content("#deleteSelectedBtn"), "Delete 2 for everyone?")
+        page.click("th[data-sort='size'] .sort-btn")
+        self.assertEqual(page.text_content("#deleteSelectedBtn"), "Delete")
+        page.uncheck("#reportLogBody tr:has(.col-size:has-text('1x truck')) .row-selector")
+        # From the keyboard: Enter asks, Enter again deletes.
+        page.focus("#deleteSelectedBtn")
+        page.keyboard.press("Enter")
+        self.assertEqual(page.text_content("#deleteSelectedBtn"), "Delete 1 for everyone?")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#reportLogBody .col-size:has-text('2x BTR')", state="detached")
+        self.assertEqual(self.sizes(page), ["1x truck"])
+        self.wait_for_server(
+            page, f"s => s.workspaces['{self.ato}'].some(r => r.size === '2x BTR' && r.deleted)"
+        )
         page.click("#toast-notification .toast-undo")
         page.wait_for_selector("#reportLogBody .col-size:has-text('2x BTR')")
         # And the server agrees: the report is live again.
         self.wait_for_server(page, f"s => s.workspaces['{self.ato}'].every(r => !r.deleted)")
+
+    def test_deleting_a_bda_assessment_asks_in_its_row_and_undo_puts_it_back(self):
+        page = self.open_editor()
+        self.log(page, "2x T-72")
+        page.click("#dataMgmtBtn")
+        page.click("#toggleBdaBtn")
+        page.click("#reportLogBody tr[data-id] .bda-btn")
+        page.click(".bda-check-row[data-row='0'] .bda-eff-btn[data-bda-eff='Destroyed']")
+        page.click(".bda-commit-btn")
+        page.wait_for_selector(".bda-entry")
+        assessed = f"s => (s.workspaces['{self.ato}'][0].bda || []).length === 1"
+        self.wait_for_server(page, assessed)
+        # Let that save settle: this page has pulled it back, and redrawn.
+        page.wait_for_function("() => pushesInFlight === 0 && !pullDeferred")
+        page.evaluate("() => syncWithServer()")
+        self.next_frames(page)
+        # The first press asks in the entry's row, where its time was: no
+        # pop-up, nothing moves, and the delete keeps focus.
+        box = page.locator(".bda-entry .bda-del").bounding_box()
+        page.click(".bda-entry .bda-del")
+        page.wait_for_selector(".bda-entry .map-base-ask:has-text('Delete for everyone?')")
+        self.next_frames(page)
+        self.assertFalse(page.is_visible("#confirmation-toast"))
+        self.assertEqual(page.locator(".bda-entry .bda-del").bounding_box(), box)
+        self.assertTrue(page.evaluate("document.activeElement.classList.contains('bda-del')"))
+        # Another button lets it go; asked again, the second press deletes.
+        page.click("th[data-sort='size'] .sort-btn")
+        self.assertEqual(page.locator(".bda-entry .map-base-ask").count(), 0)
+        page.click(".bda-entry .bda-del")
+        page.click(".bda-entry .bda-del")
+        page.wait_for_selector("#toast-notification:has-text('BDA assessment deleted')")
+        self.assertEqual(page.locator(".bda-entry").count(), 0)
+        self.wait_for_server(page, f"s => !(s.workspaces['{self.ato}'][0].bda || []).length")
+        # Undo puts it back, for everyone.
+        page.click("#toast-notification .toast-undo")
+        page.wait_for_selector(".bda-entry")
+        self.wait_for_server(page, assessed)
+
+    def test_unloading_a_workspace_asks_in_its_row_and_undo_sends_it_back(self):
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        # Another editor in it unloads it, and then thinks better of it.
+        other = self.second_editor("CD", self.ato)
+        other.wait_for_selector("#reportLogBody .col-size:has-text('2x BTR')")
+        other.click("#exportViewToggleBtn")
+        other.click(".ws-tab[data-tab='workspaces']")
+        unload = f"#workspacesList [data-unload-ato='{self.ato}']"
+        row = f"#workspacesList .workspace-row:has([data-unload-ato='{self.ato}'])"
+        other.locator(unload).scroll_into_view_if_needed()
+        box = other.locator(unload).bounding_box()
+        other.click(unload)
+        other.wait_for_selector(f"{row} .map-base-ask:has-text('Unload for everyone?')")
+        self.assertEqual(other.locator(unload).bounding_box(), box, "nothing moved")
+        self.assertEqual(other.evaluate("document.activeElement.dataset.unloadAto"), self.ato)
+        self.assertFalse(other.is_visible("#confirmation-toast"))
+        other.click(unload)
+        other.wait_for_selector("#toast-notification:has-text('unloaded.')")
+        self.wait_for_server(other, f"s => !s.workspaces['{self.ato}']")
+        self.assertEqual(other.evaluate("activeAto"), "")
+        other.click("#toast-notification .toast-undo")
+        other.wait_for_selector("#toast-notification:has-text('is back')")
+        # Back on the server as it was: each report keeps its author.
+        self.wait_for_server(
+            other,
+            f"s => (s.workspaces['{self.ato}'] || []).some(r => r.size === '2x BTR'"
+            " && r.user && r.user.initials === 'AB')",
+        )
+        # And the editor who was in it is in it again.
+        self.assertEqual(other.evaluate("[activeAto, el.config.ato.value]"), [self.ato, self.ato])
+        self.assertEqual(self.sizes(other), ["2x BTR"])
+        other.evaluate("() => syncWithServer()")
+        self.assertEqual(other.evaluate("activeAto"), self.ato)
 
     def test_a_save_the_server_refuses_says_so(self):
         # Regression: every POST resolved whatever the server answered, so a
@@ -347,8 +442,12 @@ class BrowserTests(unittest.TestCase):
         page.route("**/api/unload_ato", self.refuse("Unload refused"))
         page.click("#dataMgmtBtn")
         page.click("#clearAllBtn")
-        page.click("#confirmActionBtn")
+        # The menu item asks, and the menu stays open for the answer.
+        self.assertEqual(page.text_content("#clearAllBtn"), f"Unload {self.ato} for everyone?")
+        self.assertTrue(page.is_visible("#dataMgmtMenu"))
+        page.click("#clearAllBtn")
         page.wait_for_selector("#toast-notification:has-text('Not unloaded: Unload refused.')")
+        self.assertEqual(page.text_content("#clearAllBtn"), "Clear Workspace")
         self.assertEqual(self.sizes(page), ["2x BTR"])
         self.assertTrue(
             page.evaluate(f"!!reportsByAto['{self.ato}']"),
@@ -368,7 +467,7 @@ class BrowserTests(unittest.TestCase):
         )
         page.check("#reportLogBody .row-selector")
         page.click("#deleteSelectedBtn")
-        page.click("#confirmActionBtn")
+        page.click("#deleteSelectedBtn")
         page.wait_for_selector("#toast-notification .toast-undo")
         page.hover("#toast-notification")
         self.assertTrue(page.evaluate("toastHeld"), "the clock stops under the pointer")
@@ -449,10 +548,14 @@ class BrowserTests(unittest.TestCase):
     def test_escape_and_tab_in_dialogs_and_the_settings_menu(self):
         page = self.open_editor()
         self.log(page, "2x BTR")
-        # The confirmation takes focus on Cancel, keeps Tab inside, and Escape
-        # cancels it, giving focus back.
-        page.check("#reportLogBody .row-selector")
-        page.click("#deleteSelectedBtn")
+        page.click("#reportLogBody .id-edit-btn")
+        page.fill("#size", "3x BTR")
+        page.click("#updateButton")
+        page.wait_for_selector("#reportLogBody .col-size:has-text('3x BTR')")
+        page.click("#reportLogBody .history-btn[data-history-id]")
+        # The confirmation (Restore's) takes focus on Cancel, keeps Tab inside,
+        # and Escape cancels it, giving focus back.
+        page.click("#reportLogBody .restore-btn")
         page.wait_for_selector("#confirmation-toast.show")
         self.assertEqual(page.evaluate("document.activeElement.id"), "cancelActionBtn")
         page.keyboard.press("Tab")
@@ -462,8 +565,8 @@ class BrowserTests(unittest.TestCase):
         )
         page.keyboard.press("Escape")
         page.wait_for_selector("#confirmation-toast.show", state="hidden")
-        self.assertEqual(page.evaluate("document.activeElement.id"), "deleteSelectedBtn")
-        self.assertEqual(self.sizes(page), ["2x BTR"])
+        self.assertEqual(page.evaluate("document.activeElement.className"), "restore-btn")
+        self.assertEqual(self.sizes(page), ["3x BTR"])
         # The Settings menu: open says so, arrows move, Escape closes it.
         page.click("#dataMgmtBtn")
         self.assertEqual(page.get_attribute("#dataMgmtBtn", "aria-expanded"), "true")
@@ -487,12 +590,12 @@ class BrowserTests(unittest.TestCase):
         # A search with spaces round it still finds; Escape clears it.
         page.fill("#searchBar", "  btr ")
         page.wait_for_timeout(300)
-        self.assertEqual(self.sizes(page), ["2x BTR"])
+        self.assertEqual(self.sizes(page), ["3x BTR"])
         page.fill("#searchBar", "nothing like it")
         page.wait_for_timeout(300)
         self.assertEqual(self.sizes(page), [])
         page.press("#searchBar", "Escape")
-        self.assertEqual(self.sizes(page), ["2x BTR"])
+        self.assertEqual(self.sizes(page), ["3x BTR"])
 
     def test_bda_roll_up_counts_and_filters(self):
         page = self.open_editor()
@@ -757,7 +860,7 @@ class BrowserTests(unittest.TestCase):
         other.wait_for_selector("#reportLogBody .col-size:has-text('1x BTR')")
         other.click("#dataMgmtBtn")
         other.click("#clearAllBtn")
-        other.click("#confirmActionBtn")
+        other.click("#clearAllBtn")
         page.wait_for_selector("#toast-notification:has-text('was unloaded by another operator')")
         self.assertEqual(page.evaluate("activeAto"), "")
         self.assertEqual(self.sizes(page), [])
@@ -1089,9 +1192,12 @@ class BrowserTests(unittest.TestCase):
             ).first.is_visible()
         )
         page.click("[data-unload-group='PL']")
+        self.assertEqual(page.text_content("[data-unload-group='PL']"), "Unload PLs for everyone?")
         self.assertEqual(page.locator(".overlay-group[data-overlay-group='PL'][open]").count(), 0)
-        page.click("#confirmActionBtn")
+        page.click("[data-unload-group='PL']")
         page.wait_for_selector(".overlay-group[data-overlay-group='PL']", state="detached")
+        self.assertEqual(page.locator(".overlay-group[open]").count(), 0)
+        page.wait_for_selector("#toast-notification:has-text('1 PL overlay unloaded.')")
         page.click("[data-overlay-fold='open']")
         self.assertEqual(page.locator(".overlay-group:not([open])").count(), 0, "all open")
         page.click("[data-overlay-fold='close']")
@@ -1126,6 +1232,56 @@ class BrowserTests(unittest.TestCase):
         page.click(f"{nai1} .overlay-remove")
         self.wait_for_server(page, "s => !s.overlays.some(o => o.type === 'NAI' && o.name === '1')")
         self.assertFalse(page.evaluate(here))
+        # Undo puts it back, for everyone.
+        page.wait_for_selector("#toast-notification:has-text('NAI 1 removed')")
+        page.click("#toast-notification .toast-undo")
+        page.wait_for_selector("#toast-notification:has-text('NAI 1 put back')")
+        self.wait_for_server(page, "s => s.overlays.some(o => o.type === 'NAI' && o.name === '1')")
+
+    def test_unload_all_overlays_asks_on_the_button_and_undo_puts_them_back(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.click("#overlaysClearBtn")
+        self.assertEqual(page.text_content("#overlaysClearBtn"), "Unload all for everyone?")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "overlaysClearBtn")
+        self.assertEqual(page.evaluate("askSaid.textContent"), "Unload all for everyone?")
+        self.assertFalse(page.is_visible("#confirmation-toast"))
+        self.assertEqual(page.evaluate("currentOverlays().length"), 4, "not yet")
+        page.evaluate("window.kept = currentOverlays().map(o => ({ ...o }))")
+        page.click("#overlaysClearBtn")
+        page.wait_for_selector("#toast-notification:has-text('Every overlay unloaded')")
+        self.wait_for_server(page, "s => s.overlays.length === 0")
+        # One imported meanwhile stays, beside the four put back.
+        page.evaluate("saveOverlays([{ ...kept[0], name: '9', label: '' }])")
+        self.wait_for_server(page, "s => s.overlays.length === 1")
+        page.click("#toast-notification .toast-undo")
+        page.wait_for_selector("#toast-notification:has-text('4 overlays put back')")
+        self.wait_for_server(page, "s => s.overlays.length === 5")
+        page.evaluate("saveOverlays(currentOverlays().filter(o => o.name !== '9'))")
+        self.wait_for_server(page, "s => s.overlays.length === 4")
+
+    def test_a_narrative_entry_removed_comes_back_with_undo(self):
+        page = self.open_editor()
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        unit = "u => ({ name: u, places: [], kinds: [] })"
+        page.evaluate(f"saveNarrative({{ units: ['A-1', 'B-2'].map({unit}) }})")
+        page.click("[data-narr-id='a-1']")
+        page.fill("#narrUnitName", "A-1 typed")
+        # Remove asks on its own face; what was typed in the form stays.
+        page.click("[data-narr-remove]")
+        self.assertEqual(page.text_content("[data-narr-remove]"), "Remove for everyone?")
+        self.assertEqual(page.input_value("#narrUnitName"), "A-1 typed")
+        self.assertTrue(page.evaluate("document.activeElement.hasAttribute('data-narr-remove')"))
+        page.click("[data-narr-remove]")
+        page.wait_for_selector("#toast-notification:has-text('A-1 removed')")
+        self.wait_for_server(page, "s => s.narrative.units.map(u => u.name).join() === 'B-2'")
+        page.click("#toast-notification .toast-undo")
+        page.wait_for_selector("#toast-notification:has-text('A-1 put back')")
+        self.wait_for_server(page, "s => s.narrative.units.map(u => u.name).join() === 'A-1,B-2'")
+        page.evaluate("saveNarrative({ enemy: '', units: [], equipment: [], off: [], custom: [] })")
 
     def test_a_synced_color_cant_add_css(self):
         page = self.open_editor()
@@ -1718,10 +1874,21 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#toast-notification:has-text('Imagery removed')")
         self.assertEqual(page.locator(".map-base-detail").count(), 0)
         self.assertEqual(page.locator(".map-base-row").count(), 1)
+        self.wait_for_server(page, "s => s.basemaps.map(b => b.name).join() === 'basemap.test'")
         self.back_to_map(page)
         self.assertEqual(
             page.locator("#mapBaseSelect option").all_text_contents(),
             ["No basemap", "basemap.test"],
+        )
+        # Undo puts it back where it was, for everyone.
+        page.click("#toast-notification .toast-undo")
+        page.wait_for_selector("#toast-notification:has-text('Imagery put back')")
+        self.wait_for_server(
+            page, "s => s.basemaps.map(b => b.name).join() === 'Imagery,basemap.test'"
+        )
+        self.assertEqual(
+            page.locator("#mapBaseSelect option").all_text_contents(),
+            ["No basemap", "Imagery", "basemap.test"],
         )
         page.evaluate("saveBasemaps([])")
 
@@ -2464,18 +2631,30 @@ class BrowserTests(unittest.TestCase):
         )
         self.synced(page)
         page.click("#mapDroneBtn")
-        page.click("[data-drone-remove='0']")
-        page.wait_for_selector("#confirmation-message:has-text('Remove GE 1')")
+        ge1 = "[data-drone-remove][data-drone-name='GE 1']"
+        box = page.locator(ge1).bounding_box()
+        # The first press asks in its row, in place of its grid: nothing moves.
+        page.click(ge1)
+        page.wait_for_selector(".map-drone-row:has(.map-drone-name:text-is('GE 1')) .map-base-ask")
+        self.assertEqual(page.locator(ge1).bounding_box(), box)
+        self.assertEqual(page.evaluate("document.activeElement.dataset.droneName"), "GE 1")
+        self.assertEqual(page.evaluate("sharedDrones.length"), 2, "not yet")
         page.evaluate("sharedDrones = sharedDrones.map(d => ({ ...d })).reverse()")
-        page.click("#confirmActionBtn")
+        page.click(ge1)
         page.wait_for_selector("#toast-notification:has-text('GE 1 removed')")
         self.assertEqual(page.evaluate("sharedDrones.map(d => d.name)"), ["GE 2"])
+        self.wait_for_server(page, "s => s.drones.map(d => d.name).join() === 'GE 2'")
+        # Undo puts it back where it was, for everyone.
+        page.click("#toast-notification .toast-undo")
+        page.wait_for_selector("#toast-notification:has-text('GE 1 put back')")
+        self.wait_for_server(page, "s => s.drones.map(d => d.name).join() === 'GE 2,GE 1'")
         self.synced(page)
         # Gone already: it says so, rather than that it removed it.
-        page.click("[data-drone-remove='0']")
-        page.wait_for_selector("#confirmation-message:has-text('Remove GE 2')")
+        if not page.is_visible("#mapDronePop"):
+            page.click("#mapDroneBtn")
+        page.click("[data-drone-remove][data-drone-name='GE 2']")
         page.evaluate("sharedDrones = []")
-        page.click("#confirmActionBtn")
+        page.click("[data-drone-remove][data-drone-name='GE 2']")
         page.wait_for_selector("#toast-notification:has-text('GE 2 is no longer on the map')")
         page.evaluate("saveDrones([])")
 
