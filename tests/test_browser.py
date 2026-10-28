@@ -722,6 +722,47 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-map-zoom='out']")
         page.click("[data-map-zoom='out']")
         page.wait_for_function(f"() => Math.abs(mapView.mpp - {before}) < 1e-6")
+        # The heat drawn on the map has colour in it.
+        self.assertGreater(
+            page.evaluate(
+                """async () => {
+                    const img = new Image();
+                    img.src = document.querySelector('#mapSvg image.map-heat').getAttribute('href');
+                    await img.decode();
+                    const c = document.createElement('canvas');
+                    c.width = img.width; c.height = img.height;
+                    const ctx = c.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    return ctx.getImageData(0, 0, c.width, c.height).data.filter((v, i) => i % 4 === 3 && v > 0).length;
+                }"""
+            ),
+            100,
+        )
+
+    def test_the_heat_map_keeps_counting_past_three_reports_in_one_place(self):
+        # Regression: each report added to an 8-bit canvas, which stopped at
+        # about three in one place, so 3 and 10 there looked the same and a
+        # lone report beside them didn't fade as the busy place grew.
+        page = self.open_editor()
+        alpha = """async (n) => {
+            const pts = [{ lon: 40, lat: 50, w: 1 }, ...Array.from({ length: n }, () => ({ lon: 140, lat: 50, w: 1 }))];
+            const svg = heatLayer(pts, (lon, lat) => [lon, lat], 200, 100);
+            const img = new Image();
+            img.src = svg.match(/href="([^"]+)"/)[1];
+            await img.decode();
+            const c = document.createElement('canvas');
+            c.width = 200; c.height = 100;
+            const ctx = c.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            return [ctx.getImageData(40, 50, 1, 1).data[3], ctx.getImageData(140, 50, 1, 1).data[3]];
+        }"""
+        lone3, busy3 = page.evaluate(alpha, 3)
+        lone10, busy10 = page.evaluate(alpha, 10)
+        self.assertGreater(busy3, 220)
+        self.assertGreater(busy10, 220)
+        self.assertGreater(lone3, lone10 + 40, (lone3, lone10))
+        # A lone report on its own is the top of the ramp, as before.
+        self.assertEqual(page.evaluate(alpha, 0)[0], busy3)
 
     @staticmethod
     def pick_basemap(page, value):

@@ -154,19 +154,22 @@ const drawMap = () => {
 
     const out = [];
     mapItems = [];
-    if (mapLayers.heat) out.push(heatLayer(reps, px, w, h));
+    // Worked out once a drawing, for the layer and its count in the key.
+    const heat = mapLayers.heat ? SaltCore.heatPoints(reps, mapAllGrids) : [];
+    const positions = mapLayers.reports ? SaltCore.reportPositions(reps, mapAllGrids) : [];
+    if (mapLayers.heat) out.push(heatLayer(heat, px, w, h));
     const drones = droneLayer(tracks, px);
     out.push(drones.view);
     out.push(overlayLayer(px, w, h));
     if (mapLayers.tracks) out.push(trackLayer(tracks, px));
-    if (mapLayers.reports) out.push(reportLayer(reps, tracks, px));
+    if (mapLayers.reports) out.push(reportLayer(positions, tracks, px));
     out.push(selectionLayer(tracks, px));
     out.push(drones.marks);
     m.svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
     m.svg.innerHTML = out.join('');
     m.note.hidden = !mapBaseFailed;
     if (mapBaseFailed) m.note.textContent = `The basemap service didn't answer. It may not be reachable from this computer.${isReadOnly ? '' : ' Check, in Manage > Map, says why.'}`;
-    m.legend.innerHTML = mapLegend(reps, tracks);
+    m.legend.innerHTML = mapLegend(heat, positions, tracks);
     mapLastDraw = { view, tracks, reps };
     mapDrawnHook();
 };
@@ -247,37 +250,63 @@ const HEAT_RADIUS = 28;
 // clear, so a lone report doesn't read as an OBJ, and it grows more opaque as
 // it rises, so the busiest places stand out over imagery or the plain background.
 const HEAT_STOPS = [[0, [10, 132, 255, 0]], [0.15, [10, 132, 255, 90]], [0.4, [48, 209, 88, 165]], [0.65, [255, 214, 10, 205]], [1, [255, 59, 48, 235]]];
-const heatColor = (t) => {
-    if (t < 0.03) return [0, 0, 0, 0];
-    const k = HEAT_STOPS.findIndex(([s]) => s >= t);
-    const [s1, c1] = HEAT_STOPS[Math.max(1, k)], [s0, c0] = HEAT_STOPS[Math.max(0, k - 1)];
-    const f = s1 === s0 ? 1 : (t - s0) / (s1 - s0);
-    return c0.map((v, j) => Math.round(v + (c1[j] - v) * f));
-};
-const heatLayer = (reps, px, w, h) => {
-    const pts = SaltCore.heatPoints(reps, mapAllGrids).map(p => ({ xy: px(p.lon, p.lat), w: p.w }))
-        .filter(p => p.xy[0] > -HEAT_RADIUS && p.xy[0] < w + HEAT_RADIUS && p.xy[1] > -HEAT_RADIUS && p.xy[1] < h + HEAT_RADIUS);
+// The ramp, worked out once: 256 colours (RGBA) from fewest to most.
+const HEAT_LUT = (() => {
+    const lut = new Uint8ClampedArray(256 * 4);
+    for (let i = 0; i < 256; i++) {
+        const t = i / 255;
+        if (t < 0.03) continue;
+        const k = HEAT_STOPS.findIndex(([s]) => s >= t);
+        const [s1, c1] = HEAT_STOPS[Math.max(1, k)], [s0, c0] = HEAT_STOPS[Math.max(0, k - 1)];
+        const f = s1 === s0 ? 1 : (t - s0) / (s1 - s0);
+        for (let j = 0; j < 4; j++) lut[i * 4 + j] = Math.round(c0[j] + (c1[j] - c0[j]) * f);
+    }
+    return lut;
+})();
+// How many reports are near each pixel: each adds a cone, its weight at its
+// grid falling to nothing at the radius, summed without limit (an 8-bit
+// canvas stopped counting at about three in one place), then scaled so the
+// busiest place is the top of the ramp. Kept between drawings.
+let heatGrid = new Float32Array(0);
+const heatLayer = (points, px, w, h) => {
+    const R = HEAT_RADIUS;
+    const pts = points.map(p => ({ xy: px(p.lon, p.lat), w: p.w }))
+        .filter(p => p.xy[0] > -R && p.xy[0] < w + R && p.xy[1] > -R && p.xy[1] < h + R);
     if (!pts.length) return '';
+    if (heatGrid.length < w * h) heatGrid = new Float32Array(w * h);
+    const grid = heatGrid;
+    // Only the part the reports touch is filled, coloured and cleared.
+    let bx0 = w, by0 = h, bx1 = 0, by1 = 0;
+    pts.forEach(({ xy: [x, y], w: wt }) => {
+        const x0 = Math.max(0, Math.floor(x - R)), x1 = Math.min(w - 1, Math.ceil(x + R));
+        const y0 = Math.max(0, Math.floor(y - R)), y1 = Math.min(h - 1, Math.ceil(y + R));
+        if (x0 > x1 || y0 > y1) return;
+        bx0 = Math.min(bx0, x0); by0 = Math.min(by0, y0); bx1 = Math.max(bx1, x1); by1 = Math.max(by1, y1);
+        for (let j = y0; j <= y1; j++) {
+            const dy = j + 0.5 - y, row = j * w;
+            for (let i = x0; i <= x1; i++) {
+                const dx = i + 0.5 - x, d = Math.sqrt(dx * dx + dy * dy);
+                if (d < R) grid[row + i] += wt * (1 - d / R);
+            }
+        }
+    });
+    if (bx0 > bx1) return '';
+    let max = 0;
+    for (let j = by0; j <= by1; j++) for (let i = bx0, k = j * w + bx0; i <= bx1; i++, k++) if (grid[k] > max) max = grid[k];
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const ctx = c.getContext('2d');
-    ctx.globalCompositeOperation = 'lighter';
-    pts.forEach(({ xy: [x, y], w: wt }) => {
-        const g = ctx.createRadialGradient(x, y, 0, x, y, HEAT_RADIUS);
-        g.addColorStop(0, `rgba(0,0,0,${0.35 * wt})`);
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g;
-        ctx.fillRect(x - HEAT_RADIUS, y - HEAT_RADIUS, HEAT_RADIUS * 2, HEAT_RADIUS * 2);
-    });
-    const img = ctx.getImageData(0, 0, w, h), d = img.data;
-    let max = 0;
-    for (let i = 3; i < d.length; i += 4) max = Math.max(max, d[i]);
-    if (!max) return '';
-    for (let i = 0; i < d.length; i += 4) {
-        const [r, g, b, a] = heatColor(d[i + 3] / max);
-        d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = a;
+    const img = ctx.createImageData(w, h), d = img.data;
+    for (let j = by0; j <= by1; j++) {
+        for (let i = bx0, k = j * w + bx0; i <= bx1; i++, k++) {
+            const v = grid[k];
+            if (!v) continue;
+            grid[k] = 0;
+            const at = Math.min(255, Math.round(v / max * 255)) * 4, o = k * 4;
+            d[o] = HEAT_LUT[at]; d[o + 1] = HEAT_LUT[at + 1]; d[o + 2] = HEAT_LUT[at + 2]; d[o + 3] = HEAT_LUT[at + 3];
+        }
     }
-    ctx.globalCompositeOperation = 'source-over';
+    if (!max) return '';
     ctx.putImageData(img, 0, 0);
     return `<image href="${c.toDataURL('image/png')}" x="0" y="0" width="${w}" height="${h}" class="map-heat"/>`;
 };
@@ -334,9 +363,9 @@ const trackLayer = (tracks, px) => {
 
 // Each report as a dot at its latest grids, to click; with every saved report,
 // its earlier positions too, smaller and fainter, under the latest.
-const reportLayer = (reps, tracks, px) => {
+const reportLayer = (positions, tracks, px) => {
     const byId = new Map(tracks.map(t => [t.report.id, t]));
-    const pts = SaltCore.reportPositions(reps, mapAllGrids).filter(p => byId.has(p.report.id))
+    const pts = positions.filter(p => byId.has(p.report.id))
         .sort((a, b) => a.latest - b.latest);
     return `<g class="map-reports">${pts.map(p => {
         const i = mapItems.push({ kind: 'report', t: byId.get(p.report.id) }) - 1;
@@ -434,14 +463,14 @@ const selectionLayer = (tracks, px) => {
 };
 
 // The key: what each colour is, and what each layer that's on counts.
-const mapLegend = (reps, tracks) => {
+const mapLegend = (heatPts, positions, tracks) => {
     const swatch = (color, line) => `<svg width="18" height="10" aria-hidden="true">${line
         ? `<line x1="1" y1="5" x2="17" y2="5" stroke="#fff" stroke-width="4"/><line x1="1" y1="5" x2="17" y2="5" stroke="${color}" stroke-width="2"/>`
         : `<rect x="1" y="1" width="16" height="8" rx="2" fill="${color}" fill-opacity="0.3" stroke="${color}" stroke-width="1.5"/>`}</svg>`;
     const key = (inner, text) => `<span class="map-key">${inner}${text}</span>`;
     const dot = `<svg width="18" height="10" aria-hidden="true"><circle cx="9" cy="5" r="4" fill="${MAP_COLORS.track}" stroke="${MAP_COLORS.edge}" stroke-width="1.2"/></svg>`;
     const trackLine = `<svg width="18" height="10" aria-hidden="true"><line x1="1" y1="5" x2="17" y2="5" stroke="${MAP_COLORS.edge}" stroke-width="4.5"/><line x1="1" y1="5" x2="17" y2="5" stroke="${MAP_COLORS.track}" stroke-width="2.2"/></svg>`;
-    const heat = Math.round(SaltCore.heatPoints(reps, mapAllGrids).reduce((s, p) => s + p.w, 0));
+    const heat = Math.round(heatPts.reduce((s, p) => s + p.w, 0));
     const what = [
         mapLayers.heat && key('<span class="map-ramp"></span>', mapAllGrids
             ? `Fewer to more reports (${heat}, every saved report, updates included)`
@@ -450,7 +479,7 @@ const mapLegend = (reps, tracks) => {
         shownDrones().length && key('<svg width="18" height="10" aria-hidden="true"><path d="M9,0.5 L10.2,3.6 L14.5,5.3 L14.5,6.4 L10.2,5.8 L9.9,8.4 L11.3,9.5 L6.7,9.5 L8.1,8.4 L7.8,5.8 L3.5,6.4 L3.5,5.3 L7.8,3.6 Z" fill="#ff9f0a" stroke="#000" stroke-width="0.8"/></svg>',
             droneView ? 'Drone, and its view' : 'Drone'),
         mapLayers.reports && key(dot, mapAllGrids
-            ? `Report, every saved one (${SaltCore.reportPositions(reps, true).length} positions; earlier ones smaller)`
+            ? `Report, every saved one (${positions.length} positions; earlier ones smaller)`
             : `Report, at its latest grid (${tracks.length})`),
     ].filter(Boolean);
     return key(swatch(MAP_COLORS.NAI), 'NAI') + key(swatch(MAP_COLORS.OBJ), 'OBJ') + key(swatch(MAP_COLORS.PL, true), 'PL')
