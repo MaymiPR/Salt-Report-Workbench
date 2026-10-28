@@ -46,6 +46,9 @@ All notable changes to this project are documented here. The format follows
   Now the breakdown is counted, and what it leaves of the total.
 - MGRS Lock's zone and square disappeared from beside Location after each
   report, though the lock still applied.
+- The note that the basemap service didn't answer came up when only a few
+  tiles were missing (a service with no imagery for part of the area), even
+  though Check passed; now it shows only when nothing in view came back.
 - Enter in MGRS Lock's box tried to log the report ("Please fill in: Size,
   Activity, Location"); now it sets the zone and square and goes on to
   Location.

@@ -1421,6 +1421,39 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#mapGridReadout", state="hidden")
         self.assertEqual(page.locator("#mapGrabBtn").count(), 0, "no button to press first")
 
+    def test_the_basemap_notice_only_when_nothing_came_back(self):
+        # Regression: one missing tile put the notice up while Check passed.
+        page = self.open_editor()
+        self.import_overlays(page)
+        serving = {"some": True}
+
+        def serve(route):
+            x = int(route.request.url.rstrip(".png").split("/")[-2])
+            if serving["some"] and x % 2 == 0:
+                route.fulfill(status=200, content_type="image/png", body=self.PNG_1PX)
+            else:
+                route.fulfill(status=404, content_type="text/plain", body="no tile")
+
+        self.context.route("https://gaps.test/**", serve)
+        self.open_map(page)
+        self.add_tiles(page, "https://gaps.test/t/{z}/{x}/{y}.png")
+        settled = "() => { const i = [...document.querySelectorAll('#mapBase image')]; return i.length && i.every(e => e.dataset.state); }"
+        page.wait_for_function(settled)
+        self.assertGreater(
+            page.locator("#mapBase image[data-state='error']").count(), 0, "some tiles missing"
+        )
+        self.assertTrue(
+            page.locator("#mapNote").is_hidden(), "a few gaps aren't the service failing"
+        )
+        # Nothing comes back for the next view: now it says so.
+        serving["some"] = False
+        page.click("[data-map-zoom='in']")
+        page.wait_for_function(
+            "() => { const i = [...document.querySelectorAll('#mapBase image')]; return i.length && i.every(e => e.dataset.state === 'error'); }"
+        )
+        page.wait_for_selector("#mapNote", state="visible")
+        page.evaluate("saveBasemaps([])")
+
     def test_the_basemap_notice_sits_under_the_controls_however_they_wrap(self):
         page = self.open_editor()
         self.import_overlays(page)

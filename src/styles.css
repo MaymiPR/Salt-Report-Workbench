@@ -1393,6 +1393,8 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .map-grids .io-mode:disabled { opacity: 0.4; cursor: default; }
 .map-label-time { font-weight: 500; font-size: 10px; fill: #ffd60a; }
 .map-label-drone { fill: #ffcc80; }
+/* A faint dark edge round the drone's view, so it reads on any background without shouting. */
+.map-drone-view { filter: drop-shadow(0 0 1.2px rgba(0, 0, 0, 0.85)); }
 .map-selected.flash circle { animation: map-ring 0.8s ease-out 2; }
 @keyframes map-ring { 50% { r: 20px; } }
 .map-view .map-box { height: var(--map-h); }

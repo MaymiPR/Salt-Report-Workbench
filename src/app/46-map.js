@@ -150,11 +150,13 @@ const drawMap = () => {
     const out = [];
     mapItems = [];
     if (mapLayers.heat) out.push(heatLayer(reps, px, w, h));
+    const drones = droneLayer(tracks, px);
+    out.push(drones.view);
     out.push(overlayLayer(px, w, h));
     if (mapLayers.tracks) out.push(trackLayer(tracks, px));
     if (mapLayers.reports) out.push(reportLayer(reps, tracks, px));
     out.push(selectionLayer(tracks, px));
-    out.push(droneLayer(tracks, px));
+    out.push(drones.marks);
     m.svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
     m.svg.innerHTML = out.join('');
     m.note.hidden = !mapBaseFailed;
@@ -347,7 +349,7 @@ const reportLayer = (reps, tracks, px) => {
 // distance and direction. It follows the newest report as reports come in.
 const droneLayer = (tracks, px) => {
     const list = shownDrones();
-    if (!list.length) return '';
+    if (!list.length) return { view: '', marks: '' };
     const last = t => t.points[t.points.length - 1];
     const when = t => new Date(last(t).time).getTime() || 0;
     const newest = droneView && tracks.length ? tracks.reduce((a, b) => (when(b) > when(a) ? b : a)) : null;
@@ -364,14 +366,17 @@ const droneLayer = (tracks, px) => {
                 const nx = -dy / len * hw, ny = dx / len * hw;
                 const f = v => v.toFixed(1);
                 defs.push(`<linearGradient id="droneCone${i}" gradientUnits="userSpaceOnUse" x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}">`
-                    + `<stop offset="0" stop-color="${DRONE_COLOR}" stop-opacity="0.12"/><stop offset="1" stop-color="${DRONE_COLOR}" stop-opacity="0.34"/></linearGradient>`);
+                    + `<stop offset="0" stop-color="${DRONE_COLOR}" stop-opacity="0.16"/><stop offset="1" stop-color="${DRONE_COLOR}" stop-opacity="0.42"/></linearGradient>`);
                 const km = (SaltCore.metresBetween(p, q) / 1000).toFixed(1);
                 const dir = SaltCore.compass16(SaltCore.bearingBetween(p, q));
-                cones.push(`<polygon points="${f(x)},${f(y)} ${f(tx + nx)},${f(ty + ny)} ${f(tx - nx)},${f(ty - ny)}" fill="url(#droneCone${i})"/>`
-                    + `<line x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}" stroke="#000" stroke-width="3" stroke-opacity="0.5" stroke-dasharray="7 5"/>`
-                    + `<line x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}" stroke="${DRONE_COLOR}" stroke-width="1.6" stroke-dasharray="7 5"/>`
-                    + `<rect x="${f(tx - 9)}" y="${f(ty - 9)}" width="18" height="18" rx="2" fill="none" stroke="${DRONE_COLOR}" stroke-width="2"/>`
-                    + `<text x="${f((x + tx) / 2 + nx * 0.6 + 6)}" y="${f((y + ty) / 2 + ny * 0.6)}" class="map-label map-label-drone">${km} km ${dir}</text>`);            }
+                // Edged in orange, and the dashed sightline over a dark one, so
+                // they hold on a light basemap or a busy heat map.
+                cones.push(`<polygon points="${f(x)},${f(y)} ${f(tx + nx)},${f(ty + ny)} ${f(tx - nx)},${f(ty - ny)}" fill="url(#droneCone${i})" stroke="${DRONE_COLOR}" stroke-opacity="0.85" stroke-width="1.2" stroke-linejoin="round"/>`
+                    + `<line x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}" stroke="#000" stroke-width="4" stroke-opacity="0.7" stroke-dasharray="8 5"/>`
+                    + `<line x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}" stroke="${DRONE_COLOR}" stroke-width="2.2" stroke-dasharray="8 5"/>`
+                    + `<rect x="${f(tx - 9)}" y="${f(ty - 9)}" width="18" height="18" rx="2" fill="none" stroke="${DRONE_COLOR}" stroke-width="2.4"/>`
+                    + `<text x="${f((x + tx) / 2 + nx * 0.6 + 6)}" y="${f((y + ty) / 2 + ny * 0.6)}" class="map-label map-label-drone">${km} km ${dir}</text>`);
+            }
         }
         const k = mapItems.push({ kind: 'drone', d }) - 1;
         marks.push(`<g class="map-drone" data-map-item="${k}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})">`
@@ -379,7 +384,12 @@ const droneLayer = (tracks, px) => {
             + `<circle r="14" fill="transparent" class="map-hit"/>`
             + `<text x="14" y="-10" class="map-label map-label-drone">${svgEsc(d.name)}</text></g>`);
     });
-    return `<g class="map-drones"><defs>${defs.join('')}</defs><g pointer-events="none">${cones.join('')}</g>${marks.join('')}</g>`;
+    // The view goes under the graphics and reports (their names stay readable);
+    // the drones themselves go on top.
+    return {
+        view: `<g class="map-drones map-drone-view" pointer-events="none"><defs>${defs.join('')}</defs>${cones.join('')}</g>`,
+        marks: `<g class="map-drones">${marks.join('')}</g>`,
+    };
 };
 
 // A ring round the picked report, in every mode.
@@ -436,6 +446,15 @@ const drawBasemap = (m, ext, view, w, h) => {
     // through the sync server, which fetches them from that saved host.
     const src = (url) => (location.protocol === 'https:' && /^http:\/\//i.test(url) ? '/api/basemap?u=' + encodeURIComponent(url) : url);
     const have = new Map([...m.base.children].map(el => [el.dataset.url, el]));
+    // The note that the service didn't answer: only when nothing in view came
+    // back. A service often has no tile for part of an area (or drops one), and
+    // those few gaps aren't the service failing.
+    const settle = (img, ok) => {
+        img.dataset.state = ok ? 'ok' : 'error';
+        const imgs = [...m.base.children];
+        const failed = !!imgs.length && imgs.every(i => i.dataset.state === 'error');
+        if (failed !== mapBaseFailed && (failed || imgs.some(i => i.dataset.state === 'ok'))) { mapBaseFailed = failed; redrawMap(); }
+    };
     const add = (url, box) => {
         let img = have.get(url);
         if (!img) {
@@ -443,8 +462,8 @@ const drawBasemap = (m, ext, view, w, h) => {
             img.dataset.url = url;
             img.dataset.box = box.join(',');
             img.setAttribute('preserveAspectRatio', 'none');
-            img.addEventListener('error', () => { if (!mapBaseFailed) { mapBaseFailed = true; redrawMap(); } });
-            img.addEventListener('load', () => { if (mapBaseFailed) { mapBaseFailed = false; redrawMap(); } });
+            img.addEventListener('error', () => settle(img, false));
+            img.addEventListener('load', () => settle(img, true));
             img.setAttribute('href', src(url));
             m.base.appendChild(img);
         }
@@ -473,9 +492,14 @@ const drawBasemap = (m, ext, view, w, h) => {
         img.setAttribute('preserveAspectRatio', 'none');
         img.addEventListener('load', () => {
             [...m.base.children].forEach(el => { if (el !== img) el.remove(); });
-            if (mapBaseFailed) { mapBaseFailed = false; redrawMap(); }
+            settle(img, true);
         });
-        img.addEventListener('error', () => { img.remove(); if (!mapBaseFailed) { mapBaseFailed = true; redrawMap(); } });
+        // A view that didn't come back leaves the last one on screen: a failure
+        // only when there's nothing else to show.
+        img.addEventListener('error', () => {
+            if ([...m.base.children].some(el => el !== img && el.dataset.state === 'ok')) img.remove();
+            else settle(img, false);
+        });
         img.setAttribute('href', src(url));
         place(img, want);
         m.base.appendChild(img);
