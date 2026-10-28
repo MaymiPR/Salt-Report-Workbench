@@ -341,8 +341,8 @@ const reportLayer = (reps, tracks, px) => {
 };
 
 // Each drone, pointing where it's looking: with its view on, a cone from the
-// drone to the newest report on the map, wide at the drone and narrowing to a
-// point at the report (a pointer, not the camera's footprint, which we don't
+// drone to the newest report on the map, narrow at the drone and widening to
+// the report (where it's looking, not the camera's footprint, which we don't
 // know), with the sightline down its middle, a box round the report, and the
 // distance and direction. It follows the newest report as reports come in.
 const droneLayer = (tracks, px) => {
@@ -364,15 +364,14 @@ const droneLayer = (tracks, px) => {
                 const nx = -dy / len * hw, ny = dx / len * hw;
                 const f = v => v.toFixed(1);
                 defs.push(`<linearGradient id="droneCone${i}" gradientUnits="userSpaceOnUse" x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}">`
-                    + `<stop offset="0" stop-color="${DRONE_COLOR}" stop-opacity="0.38"/><stop offset="1" stop-color="${DRONE_COLOR}" stop-opacity="0.06"/></linearGradient>`);
+                    + `<stop offset="0" stop-color="${DRONE_COLOR}" stop-opacity="0.12"/><stop offset="1" stop-color="${DRONE_COLOR}" stop-opacity="0.34"/></linearGradient>`);
                 const km = (SaltCore.metresBetween(p, q) / 1000).toFixed(1);
                 const dir = SaltCore.compass16(SaltCore.bearingBetween(p, q));
-                cones.push(`<polygon points="${f(x + nx)},${f(y + ny)} ${f(tx)},${f(ty)} ${f(x - nx)},${f(y - ny)}" fill="url(#droneCone${i})"/>`
+                cones.push(`<polygon points="${f(x)},${f(y)} ${f(tx + nx)},${f(ty + ny)} ${f(tx - nx)},${f(ty - ny)}" fill="url(#droneCone${i})"/>`
                     + `<line x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}" stroke="#000" stroke-width="3" stroke-opacity="0.5" stroke-dasharray="7 5"/>`
                     + `<line x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}" stroke="${DRONE_COLOR}" stroke-width="1.6" stroke-dasharray="7 5"/>`
                     + `<rect x="${f(tx - 9)}" y="${f(ty - 9)}" width="18" height="18" rx="2" fill="none" stroke="${DRONE_COLOR}" stroke-width="2"/>`
-                    + `<text x="${f((x + tx) / 2 + nx * 0.6 + 6)}" y="${f((y + ty) / 2 + ny * 0.6)}" class="map-label map-label-drone">${km} km ${dir}</text>`);
-            }
+                    + `<text x="${f((x + tx) / 2 + nx * 0.6 + 6)}" y="${f((y + ty) / 2 + ny * 0.6)}" class="map-label map-label-drone">${km} km ${dir}</text>`);            }
         }
         const k = mapItems.push({ kind: 'drone', d }) - 1;
         marks.push(`<g class="map-drone" data-map-item="${k}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})">`
@@ -624,15 +623,15 @@ const addFoundLayers = () => {
     if (!crs) { showToast("Those layers aren't offered in Web Mercator or in latitude / longitude, so the map can't show them together.", true, { ms: 8000 }); return; }
     const layers = picked.map(l => l.name).join(',');
     if (layers.length > 2000) { showToast('Too many layers for one service; tick fewer.', true); return; }
-    const typed = (document.getElementById('mapWmsName') || {}).value;
-    const name = (typed || '').trim() || f.edit || freeBasemapName(f.title || (picked.length === 1 ? picked[0].title : new URL(f.link).hostname));
+    // Named for itself: the service's title (else the one layer's, or its host); a saved one keeps its name.
+    const name = f.edit || freeBasemapName(f.title || (picked.length === 1 ? picked[0].title : new URL(f.link).hostname));
     const entry = { name, kind: 'wms', url: f.getMap || f.link.trim(), layers, version: f.version, crs, format: SaltCore.pickWmsFormat(f.formats) };
     if (!(f.edit ? replaceBasemap(f.edit, entry) : addBasemap(entry))) return false;
     wmsFind = null;
     return true;
 };
 // Empty the add box once a service is in (the form was redrawn with what was typed).
-const clearBaseInputs = () => ['mapBaseInput', 'mapBaseNameIn'].forEach(id => { const i = document.getElementById(id); if (i) i.value = ''; });
+const clearBaseInputs = () => { const i = document.getElementById('mapBaseInput'); if (i) i.value = ''; };
 
 // Check: ask the service for a little of the map, the way the map does, and
 // say what came back: an image, or the service's own error.
@@ -682,12 +681,11 @@ const wmsFindHtml = () => {
     if (f.error) return `<div class="map-find-msg map-find-error">${escapeHtml(f.error)}</div>
         <div class="map-form-row">
             <input type="text" id="mapWmsManualLayers" placeholder="Layer names, comma-separated, to try anyway" maxlength="2000" spellcheck="false" value="${escapeHtml(saved ? saved.layers || '' : '')}">
-            <input type="text" id="mapWmsManualName" placeholder="Name" maxlength="60" spellcheck="false" value="${escapeHtml(f.name || '')}">
             <button type="button" id="mapWmsManualAdd" class="${saved ? 'set-btn' : 'cancel-btn'}">${saved ? 'Save' : 'Add anyway'}</button>
         </div>${saved ? baseEditFoot('') : ''}`;
     const n = f.picked.size;
     return `<div class="map-find-head">
-            <input type="text" id="mapWmsName" value="${escapeHtml(f.name || freeBasemapName(f.title || new URL(f.link).hostname))}" maxlength="60" spellcheck="false" aria-label="Name">
+            <strong class="map-find-name">${escapeHtml(f.edit || freeBasemapName(f.title || new URL(f.link).hostname))}</strong>
             <span class="overlays-muted">${f.layers.length} layer${f.layers.length === 1 ? '' : 's'} &middot; WMS ${f.version} &middot; read by ${escapeHtml(f.via)}</span>
         </div>
         ${f.layers.length > 10 ? '<input type="text" id="mapWmsFilter" class="map-layer-filter" placeholder="Filter layers" spellcheck="false">' : ''}
@@ -716,23 +714,22 @@ const baseEditFoot = (save) => `<div class="map-form-row map-find-foot">
         </div>`;
 
 // A saved service's details: a WMS's layers (looked up again), or a tile
-// service's address and name.
+// service's address.
 const baseDetailHtml = (b) => {
     if (b.kind === 'wms') return wmsFind && wmsFind.edit === b.name ? `<div class="map-base-detail">${wmsFindHtml()}</div>` : '';
     return `<div class="map-base-detail">
             <div class="map-form-row">
                 <input type="text" id="mapTileUrl" value="${escapeHtml(b.url)}" maxlength="4000" spellcheck="false" aria-label="Tile address">
-                <input type="text" id="mapTileName" value="${escapeHtml(b.name)}" maxlength="60" spellcheck="false" aria-label="Name">
             </div>
             ${baseEditFoot('<button type="button" id="mapTileSave" class="set-btn">Save</button>')}
         </div>`;
 };
 
 // Editors keep the list of services (each can be checked, or opened to change
-// its layers, rename or remove it), and add one by pasting its address: a WMS
-// link, whose layers are then looked up, or a tile address with {z}, {x} and
-// {y}. The name is optional. It lives in Manage > Map; the map's own basemap
-// button only switches between them.
+// its layers or address, or remove it), and add one by pasting its address: a
+// WMS link, whose layers are then looked up, or a tile address with {z}, {x}
+// and {y}. Each is named for itself: a WMS by its title, tiles by their host.
+// It lives in Manage > Map; the map's own basemap button only switches.
 const basemapForm = () => {
     // Removed (here or by someone else) while open: closed.
     if (baseOpen && !sharedBasemaps.some(b => b.name === baseOpen)) {
@@ -750,7 +747,6 @@ const basemapForm = () => {
             </div>${baseCheck && baseCheck.name === b.name ? `<div class="map-base-check${baseCheck.ok ? ' ok' : ''}" role="status">${escapeHtml(baseCheck.text)}</div>` : ''}${baseOpen === b.name ? baseDetailHtml(b) : ''}`).join('')}</div>` : ''}
         <div class="map-form-row map-base-add">
             <input type="text" id="mapBaseInput" placeholder="WMS link or tile address" maxlength="4000" spellcheck="false" value="${escapeHtml(adding ? adding.link : '')}" aria-label="WMS link or tile address">
-            <input type="text" id="mapBaseNameIn" placeholder="Name" maxlength="60" spellcheck="false" aria-label="Name (optional)">
             <button type="button" id="mapBaseAddBtn" class="set-btn"${adding && adding.busy ? ' disabled' : ''}>Add</button>
         </div>
         ${adding ? wmsFindHtml() : ''}
@@ -766,7 +762,7 @@ const renderBasemapManager = () => {
     const same = old && old.dataset.open === (baseOpen || '');
     const typed = old ? [...old.querySelectorAll('input[type="text"][id]')].filter(i => same || i.closest('.map-base-add')).map(i => [i.id, i.value]) : [];
     slot.innerHTML = basemapForm();
-    typed.forEach(([id, v]) => { const i = document.getElementById(id); if (i && !(id === 'mapWmsName' && !v)) i.value = v; });
+    typed.forEach(([id, v]) => { const i = document.getElementById(id); if (i) i.value = v; });
     filterWmsLayers();
 };
 const basemapsChanged = () => { renderBasemapManager(); renderMapView(); };
@@ -849,7 +845,6 @@ const renderOverlayMap = (box) => {
                     <button type="button" data-map-zoom="full" id="mapFullBtn" title="Full screen" aria-label="Full screen">${FULL_ICON}</button>
                     <button type="button" id="mapBaseBtn" title="Basemap" aria-label="Basemap" aria-expanded="false"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2 1.8 5.2 8 8.4l6.2-3.2z"/><path d="m1.8 8 6.2 3.2L14.2 8"/><path d="m1.8 10.8 6.2 3.2 6.2-3.2"/></svg></button>
                     <button type="button" id="mapDroneBtn" title="Drones" aria-label="Drones" aria-expanded="false"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M8 1.5 9.3 5.6 14.5 7.6v1.6L9.3 8.4 9 11.8l1.9 1.4v1.1L8 13.6l-2.9.7v-1.1L7 11.8l-.3-3.4-5.2.8V7.6l5.2-2z"/></svg></button>
-                    <button type="button" id="mapGrabBtn" title="Grab a grid: click the map to copy its grid" aria-label="Grab a grid" aria-pressed="false"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="4.5"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/></svg></button>
                 </div>
                 <!-- The basemap: which one to show. Editors add and change them in Manage > Map. -->
                 <div id="mapBasePop" class="map-base-pop" hidden>
@@ -956,25 +951,34 @@ const zoomToDrone = (d) => {
 
 // --- Grab a grid ---
 
-// With grab on, the grid under the pointer shows beside it, and a click (not
-// a drag) copies it, ten digits; the map's other clicks wait until it's off.
-let mapGrabbing = false;
-const setMapGrab = (on) => {
-    mapGrabbing = on;
-    const btn = document.getElementById('mapGrabBtn'), box = document.getElementById('mapBox');
-    if (btn) { btn.setAttribute('aria-pressed', String(on)); btn.classList.toggle('active', on); }
-    if (box) box.classList.toggle('grabbing', on);
-    const r = document.getElementById('mapGridReadout');
-    if (r && !on) r.hidden = true;
-    if (on) showToast('Click the map to copy a grid. Esc or the button again stops.');
-};
+// Shift + click copies the grid under the pointer, ten digits. While Shift is
+// held over the map, that grid shows beside the pointer and the cursor is a
+// crosshair; a Shift + click opens no card.
 const gridAtPointer = (e, box) => {
     if (!mapView) return null;
     const r = box.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
     const [lon, lat] = SaltCore.mercToLonLat(mapView.cx + (x - box.clientWidth / 2) * mapView.mpp, mapView.cy - (y - box.clientHeight / 2) * mapView.mpp);
     return { x, y, mgrs: SaltCore.latLonToMgrs(lat, lon) };
 };
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && mapGrabbing) setMapGrab(false); });
+const MAP_CONTROLS = '.map-zoom, .map-card, .map-bottom, .map-base-pop, .map-tools, .map-side, .map-side-btn';
+let mapPointer = null;   // where the pointer last was over the map: { clientX, clientY, target }
+const showGridReadout = (e, shift) => {
+    const box = document.getElementById('mapBox'), readout = document.getElementById('mapGridReadout');
+    if (!box || !readout) return;
+    const on = shift && !!e && !(e.target && e.target.closest && e.target.closest(MAP_CONTROLS));
+    const g = on ? gridAtPointer(e, box) : null;
+    box.classList.toggle('grabbing', !!(g && g.mgrs));
+    readout.hidden = !(g && g.mgrs);
+    if (!g || !g.mgrs) return;
+    readout.textContent = g.mgrs;
+    readout.style.left = `${Math.min(g.x + 16, box.clientWidth - readout.offsetWidth - 6)}px`;
+    readout.style.top = `${Math.min(g.y + 16, box.clientHeight - readout.offsetHeight - 6)}px`;
+};
+// Shift pressed or let go with the pointer still: the readout follows the key.
+['keydown', 'keyup'].forEach(type => document.addEventListener(type, e => {
+    if (e.key === 'Shift' && mapPointer) showGridReadout(mapPointer, type === 'keydown');
+}));
+window.addEventListener('blur', () => showGridReadout(null, false));
 
 const trackTip = (t) => {
     const r = t.report, local = timeDisplayMode === 'local';
@@ -1018,7 +1022,6 @@ if (mapBody) {
         if (e.target.closest('#mapBaseBtn')) { toggleBasePop(); return; }
         if (e.target.closest('#mapBaseManage')) { toggleBasePop(false); openExportView(); switchWorkspacesTab('overlays'); return; }
         if (e.target.closest('#mapDroneBtn')) { toggleDronePop(); return; }
-        if (e.target.closest('#mapGrabBtn')) { setMapGrab(!mapGrabbing); return; }
         const zoomTo = e.target.closest('[data-drone-zoom]');
         if (zoomTo) { const d = sharedDrones[+zoomTo.dataset.droneZoom]; if (d) zoomToDrone(d); return; }
         const gone = e.target.closest('[data-drone-remove]');
@@ -1094,7 +1097,7 @@ if (baseHost) {
             const url = document.getElementById('mapTileUrl').value.trim();
             if (!b) return;
             if (!/^https?:\/\//i.test(url) || !/\{(z|TileMatrix)\}/i.test(url)) { showToast('A tile address starts with http:// or https:// and has {z}, {x} and {y}.', true); return; }
-            replaceBasemap(b.name, { ...b, url, name: document.getElementById('mapTileName').value.trim() || b.name });
+            replaceBasemap(b.name, { ...b, url });
             return;
         }
         const check = e.target.closest('[data-base-check]');
@@ -1104,13 +1107,12 @@ if (baseHost) {
         if (e.target.closest('#mapBaseAddBtn')) {
             if (baseOpen) { baseOpen = null; baseRemoving = false; if (wmsFind && wmsFind.edit) wmsFind = null; }
             const text = document.getElementById('mapBaseInput').value.trim();
-            const name = document.getElementById('mapBaseNameIn').value.trim();
             if (!/^https?:\/\//i.test(text)) { showToast('Paste an address that starts with http:// or https://.', true); return; }
             if (/\{(z|TileMatrix)\}/i.test(text)) {
                 const host = new URL(text.replace(/[{}]/g, '')).hostname;
-                if (addBasemap({ name: name || freeBasemapName(host), kind: 'tiles', url: text })) clearBaseInputs();
+                if (addBasemap({ name: freeBasemapName(host), kind: 'tiles', url: text })) clearBaseInputs();
                 else basemapsChanged();
-            } else findWmsLayers(text, name);
+            } else findWmsLayers(text);
             return;
         }
         if (e.target.closest('#mapWmsAdd')) { if (addFoundLayers()) clearBaseInputs(); return; }
@@ -1119,7 +1121,7 @@ if (baseHost) {
             const layers = document.getElementById('mapWmsManualLayers').value.trim();
             if (!layers) { showToast('Type the layer names to try.', true); return; }
             const saved = wmsFind.edit && sharedBasemaps.find(b => b.name === wmsFind.edit);
-            const name = document.getElementById('mapWmsManualName').value.trim() || (saved ? saved.name : freeBasemapName(new URL(wmsFind.link).hostname));
+            const name = saved ? saved.name : freeBasemapName(new URL(wmsFind.link).hostname);
             if (saved) replaceBasemap(saved.name, { ...saved, name, layers });
             else if (addBasemap({ name, kind: 'wms', url: wmsFind.link, layers })) { wmsFind = null; clearBaseInputs(); }
             return;
@@ -1127,8 +1129,8 @@ if (baseHost) {
     });
     baseHost.addEventListener('input', e => { if (e.target.id === 'mapWmsFilter') filterWmsLayers(); });
     baseHost.addEventListener('keydown', e => {
-        if (e.key === 'Enter' && (e.target.id === 'mapBaseInput' || e.target.id === 'mapBaseNameIn')) { e.preventDefault(); document.getElementById('mapBaseAddBtn').click(); }
-        if (e.key === 'Enter' && (e.target.id === 'mapTileUrl' || e.target.id === 'mapTileName')) { e.preventDefault(); document.getElementById('mapTileSave').click(); }
+        if (e.key === 'Enter' && e.target.id === 'mapBaseInput') { e.preventDefault(); document.getElementById('mapBaseAddBtn').click(); }
+        if (e.key === 'Enter' && e.target.id === 'mapTileUrl') { e.preventDefault(); document.getElementById('mapTileSave').click(); }
     });
     baseHost.addEventListener('change', e => {
         const pick = e.target.closest('[data-layer-pick]');
@@ -1206,16 +1208,8 @@ const wireMapBox = () => {
         m.box.classList.add('dragging');
     });
     m.box.addEventListener('pointermove', e => {
-        const readout = document.getElementById('mapGridReadout');
-        if (mapGrabbing && readout && !e.target.closest('.map-zoom, .map-card, .map-bottom, .map-base-pop, .map-tools, .map-side, .map-side-btn')) {
-            const g = gridAtPointer(e, m.box);
-            readout.hidden = !g || !g.mgrs;
-            if (g && g.mgrs) {
-                readout.textContent = g.mgrs;
-                readout.style.left = `${Math.min(g.x + 16, m.box.clientWidth - readout.offsetWidth - 6)}px`;
-                readout.style.top = `${Math.min(g.y + 16, m.box.clientHeight - readout.offsetHeight - 6)}px`;
-            }
-        } else if (readout) readout.hidden = true;
+        mapPointer = { clientX: e.clientX, clientY: e.clientY, target: e.target };
+        showGridReadout(e, e.shiftKey && !drag);
         if (drag) {
             mapView.cx = drag.cx - (e.clientX - drag.x) * mapView.mpp;
             mapView.cy = drag.cy + (e.clientY - drag.y) * mapView.mpp;
@@ -1225,7 +1219,7 @@ const wireMapBox = () => {
         }
         const g = e.target.closest('[data-map-item]');
         const item = g && mapItems[+g.dataset.mapItem];
-        if (!item || !m.card.hidden || mapGrabbing) { m.tip.hidden = true; return; }
+        if (!item || !m.card.hidden || e.shiftKey) { m.tip.hidden = true; return; }
         m.tip.innerHTML = item.kind === 'drone' ? droneTip(item.d) : trackTip(item.t);
         const [x, y] = at(e);
         m.tip.hidden = false;
@@ -1238,7 +1232,7 @@ const wireMapBox = () => {
         end();
         // A press that didn't move is a click: on a report, a place, or nothing.
         if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return;
-        if (mapGrabbing) {
+        if (e.shiftKey) {
             const g = gridAtPointer(e, m.box);
             if (g && g.mgrs) { copyToClipboard(g.mgrs); showToast(`Copied ${g.mgrs}`); }
             return;
@@ -1253,8 +1247,8 @@ const wireMapBox = () => {
     m.box.addEventListener('pointercancel', end);
     m.box.addEventListener('pointerleave', () => {
         if (!drag) m.tip.hidden = true;
-        const readout = document.getElementById('mapGridReadout');
-        if (readout) readout.hidden = true;
+        mapPointer = null;
+        showGridReadout(null, false);
     });
     new ResizeObserver(() => redrawMap()).observe(m.box);
 };

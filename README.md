@@ -57,9 +57,9 @@ The map button beside the Report Log heading opens the map under it. It shows yo
 heat map, tracks, or dots, over a WMS or tile basemap you add. A sidebar lists
 activities and the busiest places, and a slider shows how things stood earlier.
 Put a drone (a Gray Eagle, say) on it by its grid, and a cone points from the drone
-to the newest report. A grab button copies the grid of any spot you click.
+to the newest report. Shift + click copies the grid of any spot.
 
-![The map: NAIs, objectives and phase lines with a heat map, the activity sidebar on the left, and a drone (GE 1) with a cone pointing to the newest report, 8.2 km NE](docs/screenshots/map.png)
+![The map: NAIs, objectives and phase lines with a heat map, the activity sidebar on the left, and a drone (GE 1) with a cone widening to the newest report, 8.2 km NE](docs/screenshots/map.png)
 
 ### Statistics
 

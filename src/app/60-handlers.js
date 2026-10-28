@@ -895,6 +895,13 @@ mgrsPrefixBox.addEventListener('input', () => {
         renderLocationHints();
     }
 });
+// Enter in the box sets the zone and square and goes on to Location: it's in
+// the report form, but it doesn't log a report (nor say what's missing).
+mgrsPrefixBox.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    el.form.location.focus();
+});
 mgrsPrefixBox.addEventListener('blur', () => {
     if (mgrsPrefixBox.value.trim() && !SaltCore.mgrsPrefix(mgrsPrefixBox.value)) showToast('Use the grid zone and 100 km square, e.g. 11S NV.', true);
     else mgrsPrefixBox.value = mgrsLockPrefix;
@@ -946,7 +953,8 @@ document.addEventListener('keydown', e => {
             return;
         }
     }
-    if (e.key==='Enter') {
+    // A box that takes Enter itself (MGRS Lock's) has already said so.
+    if (e.key==='Enter' && !e.defaultPrevented) {
         // Pick which button this keypress should fire:
         //   Editing + Ctrl/Meta+Enter → Edit (overwrite, no history)
         //   Editing + plain Enter     → Update (append to history)

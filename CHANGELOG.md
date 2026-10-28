@@ -11,13 +11,13 @@ All notable changes to this project are documented here. The format follows
 - **Drones on the map.** A drone button under the basemap button: add a drone
   (a Gray Eagle, say) by name and grid, move it by typing a new grid, remove it.
   Each is drawn in orange with its name. **Its view** is a cone from the drone,
-  wide at the drone and narrowing to the newest report on the map, with the
+  narrow at the drone and widening to the newest report on the map, with the
   sightline down its middle, a box round the report, and the distance and
   direction; it follows newer reports, the time slider and the filters.
   **Zoom** centres the map on a drone. The drones are shared with everyone;
   showing them and their view is each browser's choice.
-- **Grab a grid.** A crosshair button: the grid under the pointer shows beside
-  it, and a click copies that ten-digit grid. Esc stops.
+- **Grab a grid.** Shift + click on the map copies the ten-digit grid there;
+  while Shift is held, the grid under the pointer shows beside it.
 - **General terms in the narrative**: vic, vehicle, tracked, wheeled, support,
   fueler, engineer and their mixes. A vehicle of no given type is counted as
   *other vehicles*; the more specific word wins.
@@ -31,7 +31,10 @@ All notable changes to this project are documented here. The format follows
   tab is now **Map**: the ops graphics and the basemaps (added, checked,
   changed and removed there). The map's basemap button only switches between
   them, with a link to Manage.
-- The NAI, OBJ and phase-line lists fold away, closed to start with.
+- The NAI, OBJ and phase-line lists fold away, closed to start with; two icon
+  buttons open or close them all.
+- Basemaps are named for themselves (a WMS by its title, a tile service by its
+  host); the name boxes are gone.
 - The map's sidebar box reaches up round its button.
 - Sizes: "and", "&" and "with" separate elements, a count can follow its type
   ("vics 10x"), and "total of", "approx" and the like are left out.
@@ -43,6 +46,9 @@ All notable changes to this project are documented here. The format follows
   Now the breakdown is counted, and what it leaves of the total.
 - MGRS Lock's zone and square disappeared from beside Location after each
   report, though the lock still applied.
+- Enter in MGRS Lock's box tried to log the report ("Please fill in: Size,
+  Activity, Location"); now it sets the zone and square and goes on to
+  Location.
 
 ## [2.16.0] - 2026-10-27
 

@@ -322,6 +322,10 @@ const renderOverlays = () => {
             <button type="button" id="overlaysImportBtn" class="set-btn">Import KML / KMZ / GeoJSON / SHP</button>
             ${list.length ? '<button type="button" id="overlaysClearBtn" class="cancel-btn">Unload All</button>' : ''}
         </div>
+        ${list.length ? `<div class="overlay-fold" role="group" aria-label="Lists">
+            <button type="button" class="overlay-fold-btn" data-overlay-fold="open" title="Expand all" aria-label="Expand all"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 5.5 8 2l3.5 3.5M4.5 10.5 8 14l3.5-3.5"/></svg></button>
+            <button type="button" class="overlay-fold-btn" data-overlay-fold="close" title="Collapse all" aria-label="Collapse all"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 2.5 8 6l3.5-3.5M4.5 13.5 8 10l3.5 3.5"/></svg></button>
+        </div>` : ''}
     </div>`;
     // How many of the shown workspace's live reports each place appears in,
     // typed or by grid (a phase line: typed, or a grid near it).
@@ -369,6 +373,13 @@ const overlaysFileInput = document.getElementById('overlaysFileInput');
 if (overlaysBody && overlaysFileInput) {
     overlaysBody.addEventListener('click', e => {
         if (e.target.closest('#overlaysImportBtn')) { overlaysFileInput.click(); return; }
+        // Every list opened, or every list closed.
+        const fold = e.target.closest('[data-overlay-fold]');
+        if (fold) {
+            const open = fold.dataset.overlayFold === 'open';
+            overlaysBody.querySelectorAll('[data-overlay-group]').forEach(g => { g.open = open; });
+            return;
+        }
         if (e.target.closest('#overlaysReviewAddBtn')) { finishOverlayImport(); return; }
         if (e.target.closest('#overlaysReviewCancelBtn')) { overlayReview = null; renderOverlays(); return; }
         if (e.target.closest('#overlaysClearBtn')) {

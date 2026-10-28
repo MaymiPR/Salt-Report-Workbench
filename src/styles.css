@@ -1202,6 +1202,10 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 /* List | Map, with the import buttons beside it. */
 .overlays-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 12px; }
 .overlays-head .overlays-actions { margin: 0; }
+/* Expand all and collapse all: two small icon buttons at the row's end. */
+.overlay-fold { display: flex; gap: 4px; margin-left: auto; }
+.overlay-fold-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; margin: 0; padding: 0; border: none; border-radius: 8px; background: var(--input-bg); color: var(--text-secondary); cursor: pointer; }
+.overlay-fold-btn:hover { color: var(--text-primary); }
 
 /* --- The overlay map --- */
 .map-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 10px; }
@@ -1216,7 +1220,7 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 /* The drone menu: two switches, the drones (Zoom; editors: grid, remove), and the add row. */
 .map-drone-pop { width: min(380px, calc(100% - 70px)); max-height: calc(100% - 20px); overflow-y: auto; }
 #mapDroneBtn[hidden] { display: none; }
-#mapDroneBtn.active, #mapGrabBtn.active { color: var(--system-blue); }
+#mapDroneBtn.active { color: var(--system-blue); }
 .map-drone-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; font-size: 0.84em; font-weight: 400; color: var(--text-primary); cursor: pointer; }
 .map-drone-list { display: flex; flex-direction: column; gap: 2px; }
 .map-drone-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 4px 2px; border-bottom: 1px solid var(--divider); font-size: 0.84em; }
@@ -1230,7 +1234,6 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-drone-add button { padding: 7px 14px; font-size: 0.84em; }
 .map-base-add input { padding: 7px 10px; font-size: 0.84em; }
 .map-base-add #mapBaseInput { flex: 1 1 170px; }
-.map-base-add #mapBaseNameIn { flex: 0 1 100px; }
 .map-base-add button { padding: 7px 14px; font-size: 0.84em; }
 .map-base-hint { font-size: 0.75em; color: var(--text-secondary); }
 #mapBaseBtn.active { color: var(--system-blue); }
@@ -1249,7 +1252,7 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-find-msg { margin: 0 0 8px; font-size: 0.85em; }
 .map-find-error { padding: 7px 10px; border-radius: 8px; background: rgba(255, 69, 58, 0.12); border: 1px solid rgba(255, 69, 58, 0.35); color: var(--text-primary); line-height: 1.4; }
 .map-find-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; font-size: 0.85em; }
-.map-find-head input { flex: 0 1 260px; margin: 0; padding: 8px 12px; font-size: 0.95em; background: var(--panel-bg); }
+.map-find-name { font-size: 1.05em; color: var(--text-primary); }
 .map-layer-filter { margin: 0 0 6px; padding: 7px 12px; font-size: 0.85em; background: var(--panel-bg); border: 1px solid var(--divider) !important; }
 .map-layer-list { max-height: 220px; overflow-y: auto; border-radius: 10px; background: var(--panel-bg); padding: 4px; margin-bottom: 8px; }
 .map-layer-row { display: flex; align-items: center; gap: 8px; margin: 0; padding: 5px 8px; border-radius: 7px; font-size: 0.85em; font-weight: 400; color: var(--text-primary); cursor: pointer; }
@@ -1262,7 +1265,6 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-find-foot { margin-bottom: 4px; }
 .map-base-name { font-weight: 600; }
 .map-base-kind { color: var(--text-secondary); }
-.map-form-row #mapWmsManualName { flex: 0 1 170px; }
 .map-basemap-form { background: var(--input-bg); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
 .map-form-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .map-form-row select { width: auto; min-width: 150px; margin: 0; padding: 9px 34px 9px 12px; font-size: 0.88em; }
@@ -1270,7 +1272,7 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-form-row button { margin: 0; width: auto; padding: 9px 18px; }
 .map-box { position: relative; height: max(380px, calc(100vh - 380px)); border-radius: 12px; overflow: hidden; background: #2a2b2e; border: 1px solid var(--divider); touch-action: none; cursor: grab; user-select: none; }
 .map-box.dragging { cursor: grabbing; }
-/* Grab a grid: a crosshair over everything drawn, and the grid beside it. */
+/* Shift held over the map: a crosshair over everything drawn, and the grid beside it. */
 .map-box.grabbing, .map-box.grabbing [data-map-item] { cursor: crosshair; }
 .map-grid-readout { position: absolute; z-index: 3; padding: 4px 8px; border-radius: 8px; background: rgba(0, 0, 0, 0.75); color: #fff; font: 600 12px ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; white-space: nowrap; pointer-events: none; }
 .map-grid-readout[hidden] { display: none; }
