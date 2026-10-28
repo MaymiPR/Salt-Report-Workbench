@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Colours come from one set of tokens.** Every colour in the stylesheet is
+  now named once at its top: each system colour has a soft, hover and strong
+  tint, plus a few colours with one job (shadows, text on a coloured button,
+  the error red). The many near-identical tints were merged, so some
+  backgrounds and borders are a shade lighter or darker. A test keeps new
+  colours to the tokens and checks every token is defined and used.
+
 ## [2.20.0] - 2026-10-28
 
 ### Added
