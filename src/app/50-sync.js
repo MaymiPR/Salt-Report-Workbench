@@ -131,10 +131,16 @@ async function syncWithServer() {
         // pull replaces local state, so they would be lost.
         if (offlinePendingPush && activeAto && !(await pushToServer())) return;
         if (!(await pushPending())) { setConnectionStatus(false); return; }
+        // A switch of workspace started, or still being saved, when this pull
+        // was asked for: the server may answer with the old workspace. Once
+        // the switch is saved, that answer is stale and is asked for again;
+        // while it is still being saved, applyServerUpdate keeps the new one.
+        const epoch = configEpoch, duringSwitch = !!switchingTo;
         const res = await fetch('/api/sync');
         if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) throw new Error('Server unreachable');
         const state = await res.json();
+        if ((epoch !== configEpoch || duringSwitch) && !switchingTo) { setConnectionStatus(true); syncWithServer(); return; }
         applyServerUpdate(state.workspaces, state.config, state.profiles, state.connected_users, state.sources, state.connected_initials, state.read_only, state.format, state.overlays, state.basemaps, state.narrative, state.drones);
         setConnectionStatus(true);
     } catch (err) {

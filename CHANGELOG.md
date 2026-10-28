@@ -61,9 +61,9 @@ Fixes from a full review of the project.
     report by report, and its prompt didn't say what else it changes.
   - A teammate's sync emptied the workspace fields while you were changing
     them, and the start screen could move everyone to a stale workspace.
-  - A sync that landed while a workspace switch was being saved brought the
-    old workspace's reports back into the log, and the next report logged
-    copied them all into the new workspace.
+  - A sync that landed while a workspace switch was being saved, or was asked
+    for just before it, brought the old workspace back, and the next report
+    logged copied all its reports into the new workspace.
   - Checked rows, the row being edited and opened cells were lost at every
     sync.
   - "Send to ATO" could lose reports when the destination refused them.

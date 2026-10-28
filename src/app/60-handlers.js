@@ -494,7 +494,9 @@ async function applyAtoConfig({ post = true } = {}) {
     writeStored('salt_offline_config', JSON.stringify(localConfig));
     setAtoState(true); renderLog();
     // While it's being sent, a sync carrying the server's old workspace keeps
-    // this one (applyServerUpdate reads switchingTo).
+    // this one (applyServerUpdate reads switchingTo), and a pull asked for
+    // before now is asked for again (syncWithServer reads configEpoch).
+    configEpoch++;
     switchingTo = newConfig;
     try {
         if (post) saveToast(await apiPost('/api/save_config', { config: newConfig }), isLocalFile ? 'Configuration saved.' : 'Configuration synced.');

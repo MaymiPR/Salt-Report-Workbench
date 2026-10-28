@@ -249,7 +249,13 @@ class BrowserTests(unittest.TestCase):
         deadline = time.monotonic() + timeout
         while not page.evaluate(check):
             if time.monotonic() > deadline:
-                raise AssertionError(f"the server never had {predicate}")
+                # What it had instead: each workspace's sizes, and the config.
+                had = page.evaluate(
+                    "() => fetch('/api/sync').then(r => r.json()).then(s => JSON.stringify({"
+                    " config: s.config, workspaces: Object.fromEntries(Object.entries(s.workspaces)"
+                    ".map(([k, v]) => [k, v.map(r => r.size + (r.deleted ? ' (deleted)' : ''))])) }))"
+                )
+                raise AssertionError(f"the server never had {predicate}; it had {had}")
             page.wait_for_timeout(100)
 
     def second_editor(self, initials, ato):
@@ -557,6 +563,50 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#toast-notification:has-text('Configuration synced')")
         self.log(page, "2x BMP")
         self.assertEqual(self.sizes(page), ["2x BMP"])
+        self.wait_for_server(
+            page, f"s => (s.workspaces['{new}'] || []).map(r => r.size).join() === '2x BMP'"
+        )
+        self.wait_for_server(
+            page, f"s => (s.workspaces['{old}'] || []).map(r => r.size).join() === '1x BTR'"
+        )
+
+    def test_a_pull_asked_for_before_a_switch_doesnt_switch_back(self):
+        # Regression: a pull asked for before a workspace switch, answered
+        # after it, put this editor back in the old workspace (seen on CI as
+        # one test's reports showing up in the next).
+        page = self.open_editor()
+        old = self.ato
+        self.log(page, "1x BTR")
+        self.wait_for_server(
+            page, f"s => (s.workspaces['{old}'] || []).map(r => r.size).join() === '1x BTR'"
+        )
+        # The next pull is answered now (the old workspace) but arrives later.
+        page.evaluate(
+            """async () => {
+                const answer = await (await fetch('/api/sync')).text();
+                const realFetch = window.fetch;
+                let release;
+                const gate = new Promise(r => { release = r; });
+                window.fetch = (url, opts) => {
+                    if (url !== '/api/sync') return realFetch(url, opts);
+                    window.fetch = realFetch;
+                    return gate.then(() => new Response(answer, { status: 200, headers: { 'Content-Type': 'application/json' } }));
+                };
+                window.releasePull = release;
+                window.heldPull = syncWithServer();
+            }"""
+        )
+        new = old[:24] + "LATER"
+        page.click("#setAtoBtn")  # Change
+        page.fill("#atoDesignator", new)
+        page.click("#setAtoBtn")  # Set
+        page.wait_for_selector("#toast-notification:has-text('Configuration synced')")
+        # The old answer arrives only now.
+        self.assertEqual(
+            page.evaluate("async () => { releasePull(); await heldPull; return activeAto; }"), new
+        )
+        self.assertEqual(self.sizes(page), [])
+        self.log(page, "2x BMP")
         self.wait_for_server(
             page, f"s => (s.workspaces['{new}'] || []).map(r => r.size).join() === '2x BMP'"
         )

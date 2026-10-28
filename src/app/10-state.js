@@ -227,6 +227,9 @@ let serverConfig  = null;
 // The workspace this editor is switching to while save_config is on its way
 // ({ ato, title }), so a sync in between can't switch it back. Null otherwise.
 let switchingTo   = null;
+// Counts this editor's workspace switches, so a pull asked for before one
+// can tell its answer is out of date (syncWithServer).
+let configEpoch   = 0;
 let userProfile   = null;
 // ato → source descriptor ("alpha01.txt" | "Uploaded backup" | "In-session").
 let workspaceSources = {};
