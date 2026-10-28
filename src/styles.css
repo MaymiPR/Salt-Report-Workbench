@@ -7,7 +7,7 @@
     --input-bg: #2c2c2e;
     --input-bg-hover: #3a3a3c;
     --text-primary: #f5f5f7;
-    --text-secondary: #8e8e93;
+    --text-secondary: #a4a4a9;
     --system-blue: #0a84ff;
     --system-green: #32d74b;
     --system-red: #ff453a;
@@ -68,7 +68,7 @@ select { -webkit-appearance: none; appearance: none; background-image: url('data
    that aren't text at all, like the map's time slider. */
 input:read-only:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]) { opacity: 0.5; cursor: not-allowed; }
 input[type="checkbox"] { -webkit-appearance: none; appearance: none; width: 17px; height: 17px; border-radius: 5px; border: 1.5px solid var(--system-gray); background-color: var(--input-bg); background-repeat: no-repeat; background-position: center; cursor: pointer; flex-shrink: 0; transition: background-color 0.15s, border-color 0.15s; vertical-align: middle; }
-input[type="checkbox"]:checked { background-color: #60cdff; border-color: #60cdff; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 8'%3E%3Cpath fill='none' stroke='%23ffffff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' d='M1 4l3 3 5-6'/%3E%3C/svg%3E"); background-size: 70%; }
+input[type="checkbox"]:checked { background-color: var(--system-blue); border-color: var(--system-blue); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 8'%3E%3Cpath fill='none' stroke='%23ffffff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' d='M1 4l3 3 5-6'/%3E%3C/svg%3E"); background-size: 70%; }
 input[type="checkbox"]:hover { border-color: var(--text-secondary); }
 
 button { color: white; padding: 12px 20px; border: none; border-radius: 12px; cursor: pointer; font-size: 0.95em; font-weight: 600; transition: transform 0.1s ease, opacity 0.2s ease; }
@@ -115,7 +115,7 @@ button:hover { opacity: 0.85; }
 #report-count { font-size: 0.78em; color: var(--text-secondary); white-space: nowrap; font-weight: 400; }
 /* Stacked metrics — active count over total-including-history. */
 .report-metrics { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; line-height: 1.25; flex-shrink: 0; }
-#report-total-count { font-size: 0.72em; color: var(--text-secondary); white-space: nowrap; font-weight: 400; opacity: 0.7; }
+#report-total-count { font-size: 0.72em; color: var(--text-secondary); white-space: nowrap; font-weight: 400; opacity: 0.85; }
 
 .form-header-row { display: flex; justify-content: flex-start; align-items: center; margin-bottom: 20px; margin-top: 0; padding-top: 15px; border-top: 1px solid var(--divider); gap: 10px; }
 #form-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -688,7 +688,7 @@ body.local-mode .startup-access-divider { display: none; }
 .export-panel-heading { display: flex; align-items: baseline; gap: 10px; }
 .export-block { margin-bottom: 18px; }
 .export-block-label { margin-bottom: 10px; }
-.export-block-label span { text-transform: none; font-size: 1em; letter-spacing: 0; color: var(--system-gray); font-weight: 400; margin-left: 6px; }
+.export-block-label span { text-transform: none; font-size: 1em; letter-spacing: 0; color: var(--text-secondary); font-weight: 400; margin-left: 6px; }
 /* Export Filter — date/time range picker */
 .filter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px; }
 @media (max-width: 600px) { .filter-grid { grid-template-columns: 1fr; } }
@@ -1133,7 +1133,7 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .cell-clamp.clampable:hover { color: var(--system-blue); }
 
 /* --- Report Builder --- */
-#builderScopeNote { text-transform: none; letter-spacing: 0; font-size: 1em; color: var(--system-gray); font-weight: 400; margin-left: 6px; }
+#builderScopeNote { text-transform: none; letter-spacing: 0; font-size: 1em; color: var(--text-secondary); font-weight: 400; margin-left: 6px; }
 .builder-presets { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; }
 .builder-lines { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
 .builder-line {
@@ -1611,8 +1611,9 @@ button.narr-row:hover { background: var(--input-bg-hover); }
 .narr-switch-row:last-child { border-bottom: none; }
 .narr-switch-row > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .narr-switch-row small { font-size: 0.84em; color: var(--text-secondary); line-height: 1.35; }
-/* An on/off switch: a track with a knob, blue when on. */
-input[type="checkbox"].narr-switch { flex: 0 0 auto; position: relative; width: 38px; height: 22px; margin: 0; border: none; border-radius: 11px; background: var(--system-gray); background-image: none; cursor: pointer; transition: background-color 0.2s; }
+/* An on/off switch: a track with a knob, green when on. Off, the track is a
+   gray light enough to stand out from the panels (3:1 or more). */
+input[type="checkbox"].narr-switch { flex: 0 0 auto; position: relative; width: 38px; height: 22px; margin: 0; border: none; border-radius: 11px; background: #76767a; background-image: none; cursor: pointer; transition: background-color 0.2s; }
 .narr-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); transition: transform 0.2s cubic-bezier(0.32, 0.72, 0, 1); }
 input[type="checkbox"].narr-switch:checked { background: var(--system-green); background-image: none; }
 .narr-switch:checked::after { transform: translateX(16px); }
