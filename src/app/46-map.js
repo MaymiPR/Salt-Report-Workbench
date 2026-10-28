@@ -227,7 +227,7 @@ const overlayLayer = (px, w, h) => {
     currentOverlays().forEach(o => {
         const g = o.type === 'PL' ? o.geometry : SaltCore.asArea(o.geometry);
         const color = MAP_COLORS[o.type];
-        const key = `${o.type} ${o.name}`;
+        const key = SaltCore.overlayKey(o);
         const picked = key === mapPlace;
         if (/Polygon/.test(g.type)) {
             const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;

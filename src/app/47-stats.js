@@ -162,7 +162,7 @@ const renderStats = () => {
     const ato = shownAto();
     const { reps, phrase, atoOf, atos } = statsWindow();
     const local = timeDisplayMode === 'local';
-    const d = SaltCore.statsData(reps, currentOverlays(), { local });
+    const d = SaltCore.statsData(reps, currentOverlays(), { local, team: narrTeam() });
     const scope = statsScope === 'all' ? `All ATOs (${atos})` : (ato || 'No workspace');
     const context = `${scope} · ${phrase} · ${reps.length} report${reps.length === 1 ? '' : 's'}`;
     s.subtitle.textContent = context;

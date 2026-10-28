@@ -14,6 +14,9 @@ let narrRemoving = false;   // its Remove has asked "for everyone?"
 let narrBuilt = null;       // what the panel was last built from, so a sync doesn't rebuild it under the cursor
 
 const narrList = (k) => (Array.isArray(sharedNarrative[k]) ? sharedNarrative[k] : []);
+// The team's own equipment, ready for SaltCore: Statistics, Summary and BDA
+// fold its plurals the same way the narrative does.
+const narrTeam = () => SaltCore.teamEquipment(narrList('equipment'));
 // What an entry is known by however the list changes round it: a unit's
 // name, a type of equipment, a rule's judgment and words.
 const narrId = (k, x) => (k === 'units' ? String(x.name || '').trim().toLowerCase()
@@ -51,8 +54,8 @@ const saveNarrative = async (changes, said) => {
 const narrPlaces = () => SaltCore.summaryPlaces(localReports.filter(r => !r.deleted), currentOverlays()).filter(p => !/^PL /.test(p));
 // Types in the reports the catalogue doesn't know (the team's entries included).
 const narrUnknown = () => {
-    const team = SaltCore.teamEquipment(narrList('equipment'));
-    return [...new Set(localReports.filter(r => !r.deleted).flatMap(r => SaltCore.sizeElements(r.size).map(e => e.type)))]
+    const team = narrTeam();
+    return [...new Set(localReports.filter(r => !r.deleted).flatMap(r => SaltCore.sizeElements(r.size, team).map(e => e.type)))]
         .filter(t => !SaltCore.lookupEquipment(t, team)).sort().slice(0, 30);
 };
 

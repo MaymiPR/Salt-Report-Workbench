@@ -143,7 +143,7 @@ const summaryCharts = () => {
             return [...a.nai.keys, ...a.obj.keys, ...a.pls].includes(summaryPlace);
         });
     }
-    const d = SaltCore.statsData(reps, currentOverlays(), { local, squareDigits: 2 });
+    const d = SaltCore.statsData(reps, currentOverlays(), { local, squareDigits: 2, team: narrTeam() });
     const ident = x => x;
     const all = {
         nai:     { title: 'Reports per NAI', kind: 'bar', items: d.nai },
