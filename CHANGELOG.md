@@ -18,6 +18,13 @@ All notable changes to this project are documented here. The format follows
   exports, statistics, the equipment catalogue, doctrine, the narrative,
   sync). The build joins them in name order into the same single script, so
   the page works exactly as before; the Node tests load them the same way.
+- **The server describes each shared setting and each route once.** The
+  settings every workspace shares are one list (`SHARED_SECTIONS`) that the
+  stored data, `/api/sync`, the backup files, the boot load and the save routes
+  all follow, so a new shared list is one entry; every path is one entry in a
+  route table that says its handler, its validator and who may use it; and the
+  file opens with a table of contents. Nothing it answers, writes or prints
+  changes.
 
 ## [2.21.0] - 2026-10-28
 

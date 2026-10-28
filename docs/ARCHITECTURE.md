@@ -133,12 +133,29 @@ bad report never stalls syncing for anyone.
 
 A `ThreadingTCPServer` subclass with one `BaseHTTPRequestHandler` subclass.
 The same handler class serves both ports; each listener carries a `view_only`
-flag that the handler checks per request. Every POST route is a method in the
-handler's `_POST_ROUTES` table, paired with a schema validator in
-`_VALIDATORS`. The validator does all the checking of a request's shape (a
-blank workspace name or an empty list of changes included), so a route takes
-its fields as given; a route refuses only what depends on what the server
-holds (a report that isn't there, `404`; an edit to an older copy, `409`).
+flag that the handler checks per request. Every path the server answers is
+one entry in its `ROUTES` table: the method, the handler method, for a POST
+its schema validator, and who may use it (whether it needs the access code,
+whether the viewer port may use it, and for `/api/basemap` a rate limit of its
+own). `do_GET` and `do_POST` look a request up there and apply the entry's
+rules; a path that isn't there is a `404`, and a POST to one gets every
+refusal a write gets first. The validator does all the checking of a
+request's shape (a blank workspace name or an empty list of changes included),
+so a route takes its fields as given; a route refuses only what depends on
+what the server holds (a report that isn't there, `404`; an edit to an older
+copy, `409`).
+
+The settings every workspace shares (the config, profiles, report format,
+overlays, basemaps, drones and the narrative's settings) are each one entry in
+`SHARED_SECTIONS`: its key, its empty value, its save route, validator and
+cleaner, and how a backup file's copy is read. `DATA_STORE`, the `/api/sync`
+payload, `Shared settings.json`, the copy in every workspace backup, the boot
+load and the save routes all come from that list, in its order, so a new shared
+list is one entry. What one of them does its own way stays written out where it
+happens: the config is the workspace viewers are shown and has a route of its
+own, profiles are saved one at a time and merged from every file at boot,
+backups keep the format per workspace (`formats`), and older per-workspace
+overlays are pooled at boot.
 
 Every `/api` error reply, whatever refused it, is the same JSON:
 `{"status": "error", "message": "..."}`, the message one sentence ending in a
