@@ -776,9 +776,18 @@ class BrowserTests(unittest.TestCase):
         page = self.open_editor()
         version = page.evaluate("APP_VERSION")
         self.assertEqual(page.text_content("#appVersion"), f"v{version}")
-        # At the bottom, centered under the Report Log and the map, not in the top bar.
-        self.assertEqual(page.locator(".home-footer #appVersion").count(), 1)
+        # At the panel's foot, centered, not in the top bar; in the same place
+        # on every view, under what each view shows.
+        self.assertEqual(page.locator(".report-section > .app-footer #appVersion").count(), 1)
         self.assertEqual(page.locator("#topBar #appVersion").count(), 0)
+        where = "(() => { const r = document.getElementById('appVersion').getBoundingClientRect(); return [Math.round(r.x), Math.round(r.y)]; })()"
+        home = page.evaluate(where)
+        table = page.evaluate("document.querySelector('#logView .table-wrapper').getBoundingClientRect().bottom")
+        self.assertLessEqual(table, home[1], "the table ends above it")
+        for button in ("#exportViewToggleBtn", "#statsViewToggleBtn", "#summaryViewToggleBtn"):
+            page.click(button)
+            self.assertTrue(page.is_visible("#appVersion"), button)
+            self.assertEqual(page.evaluate(where), home, button)
         self.assertTrue(page.locator("#versionBar").is_hidden(), "the same release")
 
         def other_release(route):
@@ -1255,14 +1264,13 @@ class BrowserTests(unittest.TestCase):
         page.click("#toggleNearbyBtn")
         try:
             self.assertEqual(page.text_content("#toggleNearbyBtn"), "Add Nearby Places: Off")
-            # Logged as typed; the places are still offered, to add with a click.
+            # Logged as typed; the places are only said, with nothing to add them by.
             page.fill("#location", "38SMB4500085200")
-            page.wait_for_selector("#locationHints .loc-hint.offered[data-loc-add='NAI 1']")
+            page.wait_for_selector("#locationHints .loc-hint.offered:text-is('NAI 1')")
+            self.assertEqual(page.locator("#locationHints [data-loc-add]").count(), 0)
+            self.assertNotIn("+", page.text_content("#locationHints"))
             self.log(page, "2x BTR", location="38SMB4500085200")
             self.assertEqual(here("2x BTR"), "38SMB4500085200")
-            page.fill("#location", "38SMB4500085200")
-            page.click("#locationHints [data-loc-add='NAI 1']")
-            self.assertEqual(page.input_value("#location"), "38SMB4500085200, NAI 1")
             # This browser's choice: it lasts a reload.
             page.reload()
             page.wait_for_function(
@@ -2247,11 +2255,15 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_function("!document.querySelector('#mapSvg .map-ring-kept')")
         self.assertEqual(page.evaluate("localStorage.getItem('salt_range_rings')"), "[]")
 
-        # Time-distance: a standard rate, or a speed typed.
+        # Time-distance: empty at first; a speed typed, in a unit of the units in use.
+        page.evaluate("localStorage.removeItem('salt_measure_speed')")
+        page.evaluate("mapState.measureSpeed = ''; mapState.measureUnit = ''")
         box = self.start_measure(page, "time")
-        page.select_option("#mapMeasureRate", "foot")
-        self.assertEqual(page.input_value("#mapMeasureSpeed"), "4")
-        # Under the options (rate and speed), which float over the map's right side.
+        self.assertEqual(page.input_value("#mapMeasureSpeed"), "")
+        units = page.locator("#mapMeasureUnit option").evaluate_all("os => os.map(o => o.textContent)")
+        self.assertEqual(units, ["km/h", "m/min"], "metric units only")
+        page.fill("#mapMeasureSpeed", "4")
+        # Under the options (speed and unit), which float over the map's right side.
         low = box["y"] + box["height"] * 0.8
         page.mouse.click(x, low)
         page.mouse.click(x + 150, low)
@@ -2264,6 +2276,17 @@ class BrowserTests(unittest.TestCase):
         self.assertIn(f"takes {want}, from 38S MB", said)
         page.fill("#mapMeasureSpeed", "8")
         page.wait_for_selector("#mapMeasureOut:has-text('at 8 km/h takes')")
+        page.select_option("#mapMeasureUnit", "mmin")
+        page.wait_for_selector("#mapMeasureOut:has-text('at 8 m/min takes')")
+        # Kept for next time, in this browser.
+        self.assertEqual(
+            page.evaluate("JSON.parse(localStorage.getItem('salt_measure_speed'))"),
+            {"v": "8", "unit": "mmin"},
+        )
+        page.select_option("#mapMeasureUnit", "kmh")
+        self.start_measure(page, "path")
+        self.start_measure(page, "time")
+        self.assertEqual(page.input_value("#mapMeasureSpeed"), "8")
         # From the keyboard: the map focused, Space puts a point at its middle.
         self.start_measure(page, "path")
         page.focus("#mapBox")
@@ -2297,18 +2320,22 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#mapSvg .map-measure-line")
         said = page.text_content("#mapMeasureOut")
         self.assertRegex(said, r"^[\d.,]+ (yd|mi), \d{3}° [NESW]+, from 38S MB")
-        # Aircraft in nautical miles and knots; vehicles in miles and mph.
+        # Imperial units only: knots for aircraft (nautical miles), mph for the rest.
         self.start_measure(page, "time")
-        page.select_option("#mapMeasureRate", "air")
-        self.assertEqual(page.input_value("#mapMeasureSpeed"), "120")
+        units = page.locator("#mapMeasureUnit option").evaluate_all("os => os.map(o => o.textContent)")
+        self.assertEqual(units, ["mph", "knots"])
+        page.fill("#mapMeasureSpeed", "120")
+        page.select_option("#mapMeasureUnit", "kn")
         x = box["x"] + 260  # clear of the sidebar and the tools' options
-        page.mouse.click(x, y)
-        page.mouse.click(x + 150, y)
+        low = box["y"] + box["height"] * 0.8
+        page.mouse.click(x, low)
+        page.mouse.click(x + 150, low)
         page.wait_for_selector("#mapMeasureOut:has-text('at 120 knots takes')")
         self.assertRegex(page.text_content("#mapMeasureOut"), r"^Time-distance: [\d.]+ nm at ")
-        page.select_option("#mapMeasureRate", "road")
+        page.fill("#mapMeasureSpeed", "25")
+        page.select_option("#mapMeasureUnit", "mph")
         page.wait_for_selector("#mapMeasureOut:has-text('at 25 mph takes')")
-        self.assertIn("(25 mph)", page.text_content("#mapMeasureRate option[value='road']"))
+        page.evaluate("localStorage.removeItem('salt_measure_speed')")
         # Per browser: a reload keeps it; the toggle puts metric back.
         page.reload()
         self.assert_in_workspace(page, self.ato)
@@ -3864,11 +3891,10 @@ class BrowserTests(unittest.TestCase):
         self.log(page, "2x BMP", activity="moving north along the wadi")
         page.click("#reportLogBody tr[data-id] .col-size:has-text('2x BMP')")
         self.assertEqual(page.text_content("#formTitle"), f"Updating {self.ato}001")
-        note = page.text_content("#formEditingNote")
-        self.assertIn("2x BMP", note)
-        self.assertIn(f"{self.ato}001", note)
+        # Only that: no line under it with the full identifier and the report.
+        self.assertEqual(page.locator("#formEditingNote").count(), 0)
+        self.assertNotIn("2x BMP", page.text_content(".form-title-block"))
         page.click("#cancelButton")
-        self.assertTrue(page.locator("#formEditingNote").is_hidden())
         widths, spots, names = [], [], []
         for btn in (
             None,
@@ -3922,6 +3948,23 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector(
             "#reportLogBody .col-location:has-text('38S MB 45000 82000, vic the bridge')"
         )
+        # Put back in the form to update: the digits in Location, the zone and
+        # square in the lock's box; saved untouched, it is as it was written.
+        page.click("#reportLogBody tr[data-id] .col-size:has-text('1x BTR')")
+        self.assertEqual(page.input_value("#location"), "45000 82000, vic the bridge")
+        self.assertEqual(page.input_value("#mgrsPrefix"), "38S MB")
+        page.fill("#activity", "halted")
+        page.click("#updateButton")
+        page.wait_for_selector("#reportLogBody tr[data-id] .col-activity:has-text('halted')")
+        self.assertEqual(
+            page.evaluate("localReports.find(r => r.size === '1x BTR').location"),
+            "38S MB 45000 82000, vic the bridge",
+        )
+        # A grid in another square stays whole.
+        self.log(page, "2x BTR", location="11S NV 39697 06762")
+        page.click("#reportLogBody tr[data-id] .col-size:has-text('2x BTR')")
+        self.assertEqual(page.input_value("#location"), "11S NV 39697 06762")
+        page.click("#cancelButton")
         # Kept across a reload; off again leaves typed digits alone.
         page.reload()
         self.assertEqual(page.input_value("#mgrsPrefix"), "38S MB")

@@ -84,8 +84,10 @@ const mapState = {
     measureHover: null,
     measurePx: null,       // the last drawing's lon/lat to screen, for refreshMeasure (app/61-map-draw.js)
     // The time-distance tool's speed: a standard rate by id, and km/h.
-    measureRate: 'road',
-    measureKmh: 40,
+    // Time-distance: the speed as typed (empty until one is, then kept in
+    // this browser) and its unit's id (SPEED_UNITS in app/64-map-controls.js).
+    measureSpeed: '',
+    measureUnit: '',
     // Range rings kept on the map, this browser's own: [{ lon, lat, r }], r in meters.
     rings: (() => {
         const v = readStored('salt_range_rings', []);

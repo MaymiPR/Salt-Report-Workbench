@@ -104,6 +104,22 @@ const applyMgrsPrefix = (text, prefix) => {
     }).join(',');
 };
 
+// applyMgrsPrefix the other way, for a report put back in the form: each
+// grid in the locked zone and square ("38S MB 45000 82000", "38SMB4500082000")
+// as its digits ("45000 82000"). Grids in another square, and everything
+// else, are left as they are.
+const stripMgrsPrefix = (text, prefix) => {
+    const p = mgrsPrefix(prefix), s = String(text || '');
+    if (!p) return s;
+    return s.split(',').map(seg => {
+        const t = seg.trim(), lead = seg.slice(0, seg.length - seg.trimStart().length);
+        const m = /^(\d{1,2})\s*([C-HJ-NP-X])\s*([A-HJ-NP-Z])\s*([A-HJ-NP-V])\s*(\d{1,10})(?:\s+(\d{1,5}))?$/i.exec(t);
+        if (!m || mgrsPrefix(`${m[1]}${m[2]} ${m[3]}${m[4]}`) !== p) return seg;
+        if (m[6] !== undefined) return m[5].length === m[6].length ? `${lead}${m[5]} ${m[6]}` : seg;
+        return m[5].length % 2 === 0 ? `${lead}${m[5].slice(0, m[5].length / 2)} ${m[5].slice(m[5].length / 2)}` : seg;
+    }).join(',');
+};
+
 const normalizeLocation = (loc) => {
     const s = String(loc || '').trim();
     if (!s || s.includes(',')) return s;

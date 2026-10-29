@@ -54,8 +54,11 @@ async function handleFormSubmit(mode) {
         showToast('Please fill in: ' + missing.join(', '), true);
         return;
     }
-    // With MGRS Lock on, grids typed as digits get the locked zone and square.
-    const locked = lockedLocation(el.form.location.value);
+    // With MGRS Lock on, grids typed as digits get the locked zone and square;
+    // a report being updated whose Location wasn't touched keeps it as written.
+    const was = el.form.reportId.value && localReports.find(r => r.id === el.form.reportId.value);
+    const untouched = was && mgrsLock && el.form.location.value === SaltCore.stripMgrsPrefix(was.location, mgrsLockPrefix);
+    const locked = untouched ? was.location : lockedLocation(el.form.location.value);
     if (locked !== el.form.location.value) el.form.location.value = locked;
     // Toasts from here on (settling the Location, a refused upload) say more
     // than "logged", which then stays out of their way.

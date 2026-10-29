@@ -163,8 +163,8 @@
                     <h3>Log a New Report</h3>
                     <ul>
                         <li>Fill in <strong>Size</strong>, <strong>Activity</strong>, <strong>Location</strong> (required), plus <strong>Time</strong> (optional). The <strong>Analysis</strong> box is hidden by default; enable it per workspace from the Builder tab if you use it.</li>
-                        <li><strong>MGRS Lock</strong> (Settings menu, per browser): set your grid zone and 100 km square once (<code>11S NV</code>, in the box that appears in front of Location) and type just the digits: <code>39697 06762</code> is logged as <code>11S NV 39697 06762</code>. Each comma-separated part that is only an even run of digits gets it; full grids, place names and odd numbers (<code>Hill 205</code>) are left alone. The NAI / OBJ / PL hints work from the full grid as you type.</li>
-                        <li><strong>Add Nearby Places</strong> (Settings menu, per browser, on to start with): with it on, Log and Update add to the Location the NAI or OBJ a grid is in and a phase line within 1 km. Turn it off when you don't want them written: the chips under Location still offer them, with an outline instead of a fill, and one is added only when you click it.</li>
+                        <li><strong>MGRS Lock</strong> (Settings menu, per browser; when you update a report, its grids in your zone and square show as their digits, the zone and square staying in the lock's box): set your grid zone and 100 km square once (<code>11S NV</code>, in the box that appears in front of Location) and type just the digits: <code>39697 06762</code> is logged as <code>11S NV 39697 06762</code>. Each comma-separated part that is only an even run of digits gets it; full grids, place names and odd numbers (<code>Hill 205</code>) are left alone. The NAI / OBJ / PL hints work from the full grid as you type.</li>
+                        <li><strong>Add Nearby Places</strong> (Settings menu, per browser, on to start with): with it on, Log and Update add to the Location the NAI or OBJ a grid is in and a phase line within 1 km. Turn it off when you don't want them written: the places still show under Location, in grey and without a <strong>+</strong>, so you know they're there, and nothing is added.</li>
                         <li><strong>Multiple grids auto-separate</strong>: type several MGRS coordinates in Location without commas (<code>12ABC123456 21CBA321654</code>, spaced digits fine too) and commas are inserted between them on log. If you type your own commas, or mix in free text, nothing is changed.</li>
                         <li><strong>Time field</strong>: type <code>HHMM</code> and it auto-formats to <code>HH:MM</code> on blur. Leave it blank and the report gets stamped with the current time when you submit. A typed time gets today&rsquo;s date, unless it is more than an hour ahead of now, in which case it is taken as yesterday&rsquo;s: in Zulu mode the day rolls over during a US evening, so <code>23:50</code> typed at <code>00:30Z</code> means forty minutes ago.</li>
                         <li><strong>Observer</strong> (with FMV mode on): the drone the report was seen from, one of those on station, or <em>No observer</em>. Your pick stays for your next report while that drone is on station. It is saved on the report and its earlier versions, shown small under the report&rsquo;s time, in its card on the map, and in the CSV export&rsquo;s last column; it isn&rsquo;t in the copied SALT text. A report being edited shows its own observer, even one since taken off station or removed.</li>
@@ -299,7 +299,7 @@
                         <li>Lists every workspace currently loaded with its source (which backup file it was loaded from, or &ldquo;Uploaded backup&rdquo;, &ldquo;Uploaded CSV&rdquo;, or &ldquo;In-session&rdquo;), live report count, and history count.</li>
                         <li>The workspace you are in is highlighted blue and tagged <em>Active</em>. The initials after a workspace&rsquo;s source are the editors working in it.</li>
                         <li>Each row has an <strong>Unload</strong> button. The first press asks <em>Unload for everyone?</em> under the workspace's name, and a second unloads it. Unloading clears the workspace from memory and notifies peers; the backup file on disk is preserved, so a server restart would reload it. <strong>Undo</strong>, for ten seconds after, sends its reports back to the server, each with its own author, and puts you back in it if you were in it; its source then reads <em>Uploaded backup (.txt)</em>.</li>
-                        <li><strong>Activity</strong>, under the list: the last 50 changes made on the server, newest first, such as <em>CD logged ALPHA012 &middot; 2 min ago</em> or <em>AB moved to BRAVO</em>. A change in another workspace than yours says which. It starts empty each time the server starts (<em>Nothing yet since the server started.</em>), and holds no addresses. Viewers see it in their sidebar, under the workspaces.</li>
+                        <li><strong>Activity</strong>, under the list, in a box of one height that scrolls: the last 50 changes made on the server, newest first, such as <em>CD logged ALPHA012 &middot; 2 min ago</em> or <em>AB moved to BRAVO</em>. A change in another workspace than yours says which. It starts empty each time the server starts (<em>Nothing yet since the server started.</em>), and holds no addresses. Viewers see it in their sidebar, under the workspaces.</li>
                         <li>While you are updating a report, a line under its name says when someone else saves it, such as <em>CD updated this report just now</em>. Edit or Update still asks before writing over their change.</li>
                     </ul>
 
@@ -429,7 +429,7 @@
                                 <li><strong>Path</strong>: click points along the way; each leg shows its distance and bearing, and the end the total. Double-click or press <kbd>Enter</kbd> to finish; the next click starts another.</li>
                                 <li><strong>Area</strong>: click round a shape, three points or more: its area and perimeter. Double-click or <kbd>Enter</kbd> finishes it.</li>
                                 <li><strong>Range ring</strong>: click the center, then the radius (or press at the center and drag out to it): the ring with its radius. <strong>Keep ring on the map</strong> leaves it there after measuring, in this browser only; the kept rings are listed under the tools while Range ring is picked, each with &times; to remove it, and <strong>Clear all</strong>.</li>
-                                <li><strong>Time-distance</strong>: pick a standard rate (vehicles on a road march, 40 km/h; dismounts on a road, 4 km/h, or across country, 2 km/h; a helicopter, 120 knots) or type a speed in the box, then click along the route: its length and how long it takes. Double-click or <kbd>Enter</kbd> finishes it.</li>
+                                <li><strong>Time-distance</strong>: type a speed and pick its unit beside it (km/h or m/min with Settings &gt; Units on Metric; mph or knots on Imperial, knots giving the distance in nautical miles), then click along the route: its length and how long it takes. The box is empty the first time; after that this browser keeps the last speed and unit. Double-click or <kbd>Enter</kbd> finishes it.</li>
                                 <li>From the keyboard: <kbd>Tab</kbd> to the ruler and its tools; with the map itself focused, the arrow keys move it under the crosshair in its middle, <kbd>Space</kbd> puts a point there, and <kbd>Enter</kbd> finishes.</li>
                             </ul></li>
                         <li><strong>Save or print</strong>: the arrow button under the layers button. <strong>Save as PNG</strong> saves the view as it is on screen, with a title (the workspace, its window and when it was made), a north arrow, a scale bar and the key. The basemap goes in when its service lets the page copy its images; when it doesn&rsquo;t, the image says it was left out. <strong>Print</strong> lays out the same on a landscape page, basemap included, and the print dialog can also save it as a PDF.</li>
@@ -507,7 +507,7 @@
                         <li>Changes made while locally run queue in your browser and replay automatically the moment the server comes back.</li>
                         <li>Each change sends only the reports it touched, not the whole workspace, so syncing stays quick however long the operation runs.</li>
                         <li>If the server refuses a report (for example a field longer than it accepts), a red message gives the reason and the report stays in your table marked <strong>Not saved</strong>; hover the mark for the reason. Fix it (Edit or Update) and it is sent again; or click <strong>Discard</strong> (or delete it) to drop the change and get the server's copy back. The rest of your reports keep syncing either way.</li>
-                        <li>A red <strong>Not saving</strong> bar at the top means your changes have waited more than 30 seconds for the server. They are kept in this browser and sent when it can be reached; closing the tab while they wait asks first. A bar saying <em>This page is version X and the server is Y</em> means the server was upgraded since this page was opened: press <strong>Reload</strong>. The version this page is shows small at the bottom center, under the Report Log and the map.</li>
+                        <li>A red <strong>Not saving</strong> bar at the top means your changes have waited more than 30 seconds for the server. They are kept in this browser and sent when it can be reached; closing the tab while they wait asks first. A bar saying <em>This page is version X and the server is Y</em> means the server was upgraded since this page was opened: press <strong>Reload</strong>. The version this page is shows small at the foot of the right-hand panel, centered, in the same place on every view.</li>
                         <li>Anything that goes wrong unexpectedly shows as a red message beginning <em>Something went wrong</em>. Your reports are kept; reload the page if it misbehaves.</li>
                         <li>Two reports can end up with one number when two editors log at once, or one logs while the server can&rsquo;t be reached. Both rows are marked <strong>Duplicate</strong> in orange; <strong>Renumber</strong> on either gives that report the next free number in its workspace (saved as an Edit: no update entry).</li>
                         <li>Anything else the server doesn&rsquo;t take (the workspace, your identity, the overlays, the report format, an unload) says so and why: <em>Not saved</em>, or <em>Not unloaded</em>. Changes made while it can&rsquo;t be reached say they&rsquo;re saved here; reports are sent, workspace by workspace, as soon as it&rsquo;s back.</li>
@@ -640,8 +640,6 @@
                     <div class="form-header-row">
                         <div class="form-title-block">
                             <h2 id="formTitle">New Report</h2>
-                            <!-- While updating: which report, in full (app/30-form.js). -->
-                            <div id="formEditingNote" class="form-editing-note" hidden></div>
                             <!-- Someone else saved it since it was loaded: who, and when. -->
                             <div id="formPeerNote" class="form-peer-note" role="status" hidden></div>
                         </div>
@@ -703,6 +701,8 @@
                 </aside>
 
                 <div class="report-section">
+                    <!-- This release: centered at the panel's foot, in its padding, the same on every view. -->
+                    <div class="app-footer"><span id="appVersion" class="app-version" title="SALT Report Workbench version"></span></div>
                 <!-- The view switcher: a 2x2 square of icons, in every view. The open
                      view's icon is highlighted; clicking it again goes back to the Report Log
                      (as a list or as the map, whichever was showing). -->
@@ -825,8 +825,6 @@
                         </div>
                     </div>
                     </div><!-- end #homePager -->
-                    <!-- This release, under the Report Log and the map, centered. -->
-                    <div class="home-footer"><span id="appVersion" class="app-version" title="SALT Report Workbench version"></span></div>
                     </div><!-- end #homeView -->
                     <div id="exportPanel">
                         <div class="export-panel-header">

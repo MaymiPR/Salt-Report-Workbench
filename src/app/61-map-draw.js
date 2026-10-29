@@ -345,8 +345,8 @@ const measureLayer = (px) => {
 const measureTotal = (pts) => {
     const m = SaltCore.pathMeters(pts);
     if (mapState.measureTool !== 'time') return SaltCore.formatDistance(m, unitSystem);
-    const rate = measureRate();
-    return `${SaltCore.formatDistance(m, unitSystem, rate.kind)}${mapState.measureKmh > 0 ? `, ${SaltCore.formatDuration(m / 1000 / mapState.measureKmh)}` : ''}`;
+    const kmh = measureKmh();
+    return `${SaltCore.formatDistance(m, unitSystem, measureKind())}${kmh > 0 ? `, ${SaltCore.formatDuration(m / 1000 / kmh)}` : ''}`;
 };
 // The pointer's line alone, without drawing the rest of the map again.
 const refreshMeasure = () => {

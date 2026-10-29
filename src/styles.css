@@ -167,8 +167,6 @@ button:hover { opacity: 0.85; }
 .form-header-row { display: flex; justify-content: flex-start; align-items: center; margin-bottom: 20px; margin-top: 0; padding-top: 15px; border-top: 1px solid var(--divider); gap: 10px; }
 #formTitle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .form-title-block { display: flex; flex-direction: column; min-width: 0; flex: 0 1 auto; }
-.form-editing-note { margin-top: 2px; font-size: 0.78em; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.form-editing-note[hidden] { display: none; }
 .form-peer-note { margin-top: 2px; font-size: 0.78em; font-weight: 600; color: var(--system-orange); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .form-peer-note[hidden] { display: none; }
 
@@ -448,7 +446,7 @@ body.local-mode .startup-access-divider { display: none; }
 /* The view switcher: Workspaces, Statistics, Summary Reports, and Settings
    as a 2x2 square at the top right of the report panel, in every view. Each
    view's header leaves room for it. */
-.report-section { position: relative; }
+.report-section { position: relative; padding-bottom: 26px; }
 .view-switcher { position: absolute; top: 26px; right: 26px; z-index: 30; display: grid; grid-template-columns: repeat(2, 28px); grid-auto-rows: 28px; gap: 5px; }
 .view-icon { width: 28px; height: 28px; margin: 0; padding: 0; border: none; border-radius: 8px; background: var(--input-bg); color: var(--text-secondary); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background-color 0.15s, color 0.15s; }
 .view-icon svg { width: 17px; height: 17px; display: block; }
@@ -719,7 +717,8 @@ body.local-mode .startup-access-divider { display: none; }
 .status-bar button { margin-left: 10px; padding: 4px 14px; border-radius: 100px; font-size: 0.85em; font-weight: 600; }
 /* The release, small beside who is connected. */
 .app-version { font-size: 0.7em; font-weight: 400; color: var(--text-secondary); white-space: nowrap; }
-.home-footer { flex: 0 0 auto; display: flex; justify-content: center; padding: 3px 0 1px; line-height: 1.2; }
+.app-footer { position: absolute; left: 0; right: 0; bottom: 9px; display: flex; justify-content: center; line-height: 1.2; pointer-events: none; z-index: 1; }
+.app-footer .app-version { pointer-events: auto; }
 
 /* Review fixes: toasts, dialogs, table access */
 /* An error toast: a red dark enough for white text (5.9:1). */
@@ -1067,8 +1066,9 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
     background-color: var(--input-bg);
     border-radius: 10px;
 }
-/* --- Activity: the server's last changes, newest first; scrolls past a few. --- */
-.peer-activity-list { max-height: 220px; overflow-y: auto; padding-right: 4px; flex: 0 0 auto; }
+/* --- Activity: the server's last changes, newest first, in a box of one height
+   from the start (it scrolls; it doesn't grow with each change). --- */
+.peer-activity-list { height: 220px; overflow-y: auto; padding-right: 4px; flex: 0 0 auto; }
 .peer-activity-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .peer-activity-row { font-size: 0.82em; padding: 5px 10px; border-radius: 8px; background-color: var(--input-bg); overflow-wrap: anywhere; }
 .peer-activity-when { color: var(--text-secondary); white-space: nowrap; }
@@ -1364,13 +1364,16 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 #mapDroneBtn[hidden] { display: none; }
 #mapDroneBtn.active { color: var(--system-blue); }
 .map-drone-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.map-drone-plus { width: 24px; height: 24px; margin: 0; padding: 0; border: none; border-radius: 50%; background: var(--input-bg); color: var(--system-blue); font-size: 1.05em; font-weight: 600; line-height: 1; cursor: pointer; }
+.map-drone-plus { width: 24px; height: 24px; margin: 0; padding: 0; border: none; border-radius: 50%; background: var(--input-bg); color: var(--system-blue); display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; cursor: pointer; }
+.map-drone-plus svg { display: block; }
 .map-drone-plus:hover, .map-drone-plus[aria-expanded="true"] { background: var(--input-bg-hover); }
 .map-drone-shows { display: flex; flex-wrap: wrap; gap: 4px 16px; }
 .map-drone-switch { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; font-size: 0.8em; font-weight: 400; color: var(--text-secondary); cursor: pointer; }
+/* The drone menu's switches, smaller than the others: their knob and its
+   travel too (as specific as the general switch's rules, which come later). */
 .map-drone-switch input[type="checkbox"].narr-switch, input[type="checkbox"].narr-switch.map-drone-station { width: 30px; height: 18px; border-radius: 9px; }
-.map-drone-switch .narr-switch::after, .map-drone-station::after { width: 14px; height: 14px; }
-.map-drone-switch .narr-switch:checked::after, .map-drone-station:checked::after { transform: translateX(12px); }
+.map-drone-switch input[type="checkbox"].narr-switch::after, input[type="checkbox"].narr-switch.map-drone-station::after { width: 14px; height: 14px; }
+.map-drone-switch input[type="checkbox"].narr-switch:checked::after, input[type="checkbox"].narr-switch.map-drone-station:checked::after { transform: translateX(12px); }
 .map-drone-add-box { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 2px; border-top: 1px solid var(--divider); }
 .map-drone-list { display: flex; flex-direction: column; }
 .map-drone-item { border-top: 1px solid var(--divider); }
@@ -1600,8 +1603,9 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .loc-hint { font-size: 0.78em; font-weight: 600; padding: 3px 10px; border-radius: 100px; border: none; margin: 0; width: auto; background: var(--blue-soft); color: var(--system-blue); cursor: pointer; font-family: inherit; line-height: 1.4; }
 .loc-hint:hover { background: var(--blue-hover); }
 .loc-hint-sub { font-weight: 500; opacity: 0.75; }
-/* Add Nearby Places off: offered, not added; an outline, not a fill. */
-.loc-hint.offered { background: transparent; box-shadow: inset 0 0 0 1px var(--blue-soft); }
+/* Add Nearby Places off: only said, grey, nothing to press. */
+.loc-hint.offered { background: transparent; color: var(--text-secondary); cursor: default; box-shadow: inset 0 0 0 1px var(--divider); }
+.loc-hint.offered:hover { background: transparent; }
 .loc-hint.warn { background: var(--orange-soft); color: var(--system-orange); cursor: default; border-radius: 8px; }
 
 /* A question with several answers: an action sheet, one answer per row. */

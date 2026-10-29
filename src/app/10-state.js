@@ -10,7 +10,6 @@ const el = {
         root:      document.getElementById('saltForm'),
         reportId:  document.getElementById('reportId'),
         title:     document.getElementById('formTitle'),
-        editingNote: document.getElementById('formEditingNote'),
         peerNote:  document.getElementById('formPeerNote'),
         logBtn:    document.getElementById('logButton'),
         editBtn:   document.getElementById('editButton'),

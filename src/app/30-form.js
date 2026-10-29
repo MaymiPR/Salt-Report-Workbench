@@ -145,7 +145,13 @@ const renderLocationHints = () => {
     const plan = ovs.length && text.trim() ? SaltCore.locationPlan(text, ovs) : { add: [], conflicts: [] };
     const near = plan.add.some(k => k.startsWith('PL ')) ? locationInfo(text).nearestPl : null;
     const chips = [
-        ...plan.add.map(k => `<button type="button" class="loc-hint${addNearby ? '' : ' offered'}" data-loc-add="${escapeHtml(k)}" title="${addNearby ? 'Added when you log. Click to add it now.' : 'Not added when you log (Add Nearby Places is off). Click to add it.'}">+ ${escapeHtml(k)}${near && near.key === k ? ` <span class="loc-hint-sub">${Math.round(near.meters)} m</span>` : ''}</button>`),
+        // Add Nearby Places off: only said, with nothing to add it with.
+        ...plan.add.map(k => {
+            const sub = near && near.key === k ? ` <span class="loc-hint-sub">${Math.round(near.meters)} m</span>` : '';
+            return addNearby
+                ? `<button type="button" class="loc-hint" data-loc-add="${escapeHtml(k)}" title="Added when you log. Click to add it now.">+ ${escapeHtml(k)}${sub}</button>`
+                : `<span class="loc-hint offered" title="Nearby; not added (Add Nearby Places is off).">${escapeHtml(k)}${sub}</span>`;
+        }),
         ...plan.conflicts.map(c => `<span class="loc-hint warn" title="When you log, you pick which to keep.">${escapeHtml(c.message)}</span>`),
     ];
     box.innerHTML = chips.join('');
@@ -229,7 +235,6 @@ const resetForm = () => {
     el.form.root.reset();
     el.form.reportId.value = '';
     el.form.title.textContent = 'New Report';
-    el.form.editingNote.hidden = true;
     el.form.logBtn.textContent = 'Log New Report';
     el.form.logBtn.style.display  = '';
     el.form.editPair.style.display = 'none';
@@ -253,20 +258,16 @@ const loadReportForEditing = (reportId) => {
     document.querySelectorAll('.selected-row').forEach(r => r.classList.remove('selected-row'));
     const rowEl = [...el.log.body.rows].find(tr => tr.dataset.id === report.id);
     if (rowEl) rowEl.classList.add('selected-row');
-    // The short ID always fits; the full identifier and what the report says go
-    // on the line below, cut to fit, whole on hover.
     el.form.title.textContent = `Updating ${report.displayId || formatFullId(report)}`;
-    const note = [formatFullId(report), report.size, report.activity].filter(Boolean).join(' · ');
-    el.form.editingNote.textContent = note;
-    el.form.editingNote.title = note;
-    el.form.editingNote.hidden = false;
     el.form.reportId.value    = report.id;
     editingVersion = loadedVersion(report);
     renderPeerChange();
     el.form.startNum.value = reportNum(report) || 1;
     el.form.size.value     = report.size;
     el.form.activity.value = report.activity;
-    el.form.location.value = report.location;
+    // With MGRS Lock on, its grids in the locked zone and square as their
+    // digits, the zone and square being in the lock's box.
+    el.form.location.value = mgrsLock ? SaltCore.stripMgrsPrefix(report.location, mgrsLockPrefix) : report.location;
     renderLocationHints();
     el.form.analysis.value = report.yourAnalysis || '';
     document.querySelectorAll('#saltFields [data-custom-label]').forEach(i => { i.value = (report.custom || {})[i.dataset.customLabel] || ''; });

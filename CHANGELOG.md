@@ -51,6 +51,20 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Time-distance is simpler**: type a speed and pick its unit, then click
+  along the route. The units are those of Settings > Units (km/h or m/min on
+  Metric; mph or knots on Imperial), the box is empty the first time, and
+  this browser keeps the last speed and unit. The list of standard rates is
+  gone.
+- **The version number** sits at the foot of the right-hand panel, centered,
+  in the same place on every view (Report Log, map, Manage, Statistics,
+  Summary), and the views reach further down.
+- **The Activity list** in Manage > Workspaces has one height from the start
+  and scrolls, instead of growing with each change.
+- **Add Nearby Places off** shows the nearby places in grey without a **+**:
+  nothing to add them with.
+- **Updating a report** says only "Updating ALPHA012" under the form's title,
+  without the line of the report's identifier and contents.
 - **AXIS is built in**: `/api/save_overlays` takes it as a graphic's type,
   and a tag of the team's can't be named *AXIS* or *Axis of advance*.
 - **Each drone looks at its own reports**: with no grid to look at, a drone's
@@ -60,6 +74,14 @@ All notable changes to this project are documented here. The format follows
 - **A smaller drone menu**: one row per drone (station switch, its name to
   zoom to it, its grid, and More for where it's looking, its range and
   Remove), the two switches on one line, and adding a drone behind **+**.
+
+### Fixed
+- **MGRS Lock when updating a report**: its grids in the locked zone and
+  square go back in the form as their digits, the zone and square staying in
+  the lock's box, instead of the whole grid landing in Location. Saved
+  untouched, the Location stays as it was written.
+- **The drone menu's switches** draw their knob inside the track, and its
+  **+** is centered.
 
 ## [2.31.0] - 2026-10-29
 

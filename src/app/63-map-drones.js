@@ -150,7 +150,7 @@ const renderDronePop = () => {
     refocusAfter(() => {
         pop.innerHTML = `<div class="map-drone-head">
                 <span class="map-base-pop-head">Drones</span>
-                <button type="button" id="mapDroneAddBtn" class="map-drone-plus editor-only" aria-expanded="${adding}" aria-controls="mapDroneAddForm" title="Add a drone" aria-label="Add a drone">+</button>
+                <button type="button" id="mapDroneAddBtn" class="map-drone-plus editor-only" aria-expanded="${adding}" aria-controls="mapDroneAddForm" title="Add a drone" aria-label="Add a drone"><svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 1.5v9M1.5 6h9"/></svg></button>
             </div>
             <div class="map-drone-shows">${toggle('mapDroneShow', mapState.droneShow, 'On the map')}${toggle('mapDroneView', mapState.droneView, 'Their view')}</div>
             <div id="mapDroneAddForm" class="map-drone-add-box editor-only"${adding ? '' : ' hidden'}>

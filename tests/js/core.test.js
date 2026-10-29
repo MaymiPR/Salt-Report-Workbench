@@ -1209,6 +1209,16 @@ test('a locked grid prefix goes in front of grids typed as digits', () => {
     assert.equal(core.applyMgrsPrefix('397 067, 11S NV 40007 05191', '11S NV'), '11S NV 397 067, 11S NV 40007 05191', 'full grids kept');
     assert.equal(core.applyMgrsPrefix('Hill 205, 205, 39 067', '11S NV'), 'Hill 205, 205, 39 067', 'not grids');
     assert.equal(core.applyMgrsPrefix('39697 06762', ''), '39697 06762', 'no prefix set');
+    // And back, for a report put in the form: its digits, the zone and square in the lock's box.
+    assert.equal(core.stripMgrsPrefix('11S NV 39697 06762, NAI 2', '11S NV'), '39697 06762, NAI 2');
+    assert.equal(core.stripMgrsPrefix('11SNV3969706762', '11SNV'), '39697 06762');
+    assert.equal(core.stripMgrsPrefix('11S NV 397 067', '11S NV'), '397 067');
+    assert.equal(core.stripMgrsPrefix('38S MB 45000 82000, 11S NV 1 2', '11S NV'), '38S MB 45000 82000, 1 2', 'another square kept');
+    assert.equal(core.stripMgrsPrefix('11S NV 397 0670', '11S NV'), '11S NV 397 0670', 'not a grid, kept');
+    assert.equal(core.stripMgrsPrefix('vic Hill 205', '11S NV'), 'vic Hill 205');
+    assert.equal(core.stripMgrsPrefix('11S NV 39697 06762', ''), '11S NV 39697 06762', 'no prefix set');
+    ['11S NV 39697 06762, vic bridge', '11S NV 397 067'].forEach(loc =>
+        assert.equal(core.normalizeLocation(core.applyMgrsPrefix(core.stripMgrsPrefix(loc, '11S NV'), '11S NV')), core.normalizeLocation(loc), loc));
 });
 
 // The files in a zip of stored entries, by name.

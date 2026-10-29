@@ -344,8 +344,28 @@ const MEASURE_TOOLS = [
     ['time', 'Time-distance', 'Click along a route: how long it takes at a speed'],
 ];
 const MAX_RINGS = 20;
-// The time-distance tool's rate: a standard one, or the speed typed with its class.
-const measureRate = () => SaltCore.STANDARD_RATES.find(r => r.id === mapState.measureRate) || SaltCore.STANDARD_RATES[0];
+// The time-distance tool's speed: a number typed and a unit of the units
+// in use (Settings > Units), which also says how the distance reads (a
+// knot is an aircraft's, so its distance is in nautical miles). Kept in this
+// browser once typed.
+const SPEED_UNITS = {
+    metric: [{ id: 'kmh', label: 'km/h', kmh: 1, kind: 'vehicle' }, { id: 'mmin', label: 'm/min', kmh: 0.06, kind: 'dismount' }],
+    imperial: [{ id: 'mph', label: 'mph', kmh: 1.609344, kind: 'vehicle' }, { id: 'kn', label: 'knots', kmh: 1.852, kind: 'aircraft' }],
+};
+const measureSpeedUnit = () => {
+    const list = SPEED_UNITS[unitSystem] || SPEED_UNITS.metric;
+    return list.find(u => u.id === mapState.measureUnit) || list[0];
+};
+const measureKind = () => measureSpeedUnit().kind;
+const measureKmh = () => { const v = Number(mapState.measureSpeed); return mapState.measureSpeed !== '' && v > 0 ? v * measureSpeedUnit().kmh : 0; };
+try {
+    const kept = JSON.parse(storedText('salt_measure_speed') || 'null');
+    if (kept && typeof kept === 'object') {
+        mapState.measureSpeed = typeof kept.v === 'string' ? kept.v.slice(0, 12) : '';
+        mapState.measureUnit = typeof kept.unit === 'string' ? kept.unit : '';
+    }
+} catch (e) { /* none kept */ }
+const keepMeasureSpeed = () => writeStored('salt_measure_speed', JSON.stringify({ v: mapState.measureSpeed, unit: mapState.measureUnit }));
 // On, the ruler says so, its tools slide out and the cursor is a crosshair;
 // off, they slide back and what was measured goes (kept rings stay).
 const setMapMeasuring = (on) => {
@@ -383,12 +403,10 @@ const renderMeasureTools = () => {
     tools.querySelectorAll('[data-measure-tool]').forEach(b => setOn(b, b.dataset.measureTool === mapState.measureTool));
     const tool = mapState.measuring ? mapState.measureTool : '';
     if (tool === 'time') {
-        const rate = measureRate(), per = SaltCore.kmhPerSpeedUnit(unitSystem, rate.kind);
-        const typed = Math.round(mapState.measureKmh / per * 10) / 10;
-        panel.innerHTML = `<label for="mapMeasureRate">Speed</label>
-            <select id="mapMeasureRate">${SaltCore.STANDARD_RATES.map(r => `<option value="${r.id}"${r.id === rate.id ? ' selected' : ''}>${escapeHtml(r.label)} (${escapeHtml(SaltCore.formatSpeed(r.kmh, unitSystem, r.kind))})</option>`).join('')}</select>
-            <span class="map-measure-speed"><input type="number" id="mapMeasureSpeed" min="0" step="any" inputmode="decimal" value="${typed}" aria-label="Speed in ${SaltCore.speedUnit(unitSystem, rate.kind)}">
-            <span aria-hidden="true">${SaltCore.speedUnit(unitSystem, rate.kind)}</span></span>`;
+        const unit = measureSpeedUnit();
+        panel.innerHTML = `<label for="mapMeasureSpeed">Speed</label>
+            <span class="map-measure-speed"><input type="number" id="mapMeasureSpeed" min="0" step="any" inputmode="decimal" placeholder="Speed" value="${escapeHtml(mapState.measureSpeed)}">
+            <select id="mapMeasureUnit" aria-label="Speed unit">${(SPEED_UNITS[unitSystem] || SPEED_UNITS.metric).map(u => `<option value="${u.id}"${u.id === unit.id ? ' selected' : ''}>${escapeHtml(u.label)}</option>`).join('')}</select></span>`;
     } else if (tool === 'ring') {
         const done = mapState.measure.length && mapState.ringR > 0;
         panel.innerHTML = `<button type="button" id="mapRingKeep" class="text-btn"${done ? '' : ' disabled'}>Keep ring on the map</button>
@@ -458,10 +476,10 @@ const showMeasure = () => {
             : pts.length === 1 ? `From ${grid(pts[0])}: click the next point.`
             : `Path: ${dist(SaltCore.pathMeters(pts))} in ${plural(pts.length - 1, 'leg')} (${legs()}), from ${grid(pts[0])} to ${grid(pts[pts.length - 1])}.${finish}`;
     } else {
-        const rate = measureRate(), m = SaltCore.pathMeters(pts), kmh = mapState.measureKmh;
-        out.textContent = pts.length < 2 ? `Time-distance: pick or type a speed, then click points along the route.${pts.length ? ` From ${grid(pts[0])}: click the next point.` : ''}`
-            : !(kmh > 0) ? `Time-distance: ${dist(m, rate.kind)}. Type a speed above 0.`
-            : `Time-distance: ${dist(m, rate.kind)} at ${SaltCore.formatSpeed(kmh, unitSystem, rate.kind)} takes ${SaltCore.formatDuration(m / 1000 / kmh)}, from ${grid(pts[0])} to ${grid(pts[pts.length - 1])}.${finish}`;
+        const kind = measureKind(), m = SaltCore.pathMeters(pts), kmh = measureKmh();
+        out.textContent = pts.length < 2 ? `Time-distance: type a speed and pick its unit, then click points along the route.${pts.length ? ` From ${grid(pts[0])}: click the next point.` : ''}`
+            : !(kmh > 0) ? `Time-distance: ${dist(m, kind)}. Type a speed above 0.`
+            : `Time-distance: ${dist(m, kind)} at ${mapState.measureSpeed} ${measureSpeedUnit().label} takes ${SaltCore.formatDuration(m / 1000 / kmh)}, from ${grid(pts[0])} to ${grid(pts[pts.length - 1])}.${finish}`;
     }
 };
 // Range rings kept on the map, in this browser only.
@@ -512,21 +530,18 @@ if (mapBody) {
             if (keep) keep.focus();
         }
     });
-    // The time-distance tool's speed: a standard rate fills the box, in its
-    // class's unit; a speed typed there is used as it is.
+    // The time-distance tool's speed and its unit, kept for next time.
     mapBody.addEventListener('change', e => {
-        if (e.target.id !== 'mapMeasureRate') return;
-        mapState.measureRate = e.target.value;
-        mapState.measureKmh = measureRate().kmh;
-        renderMeasureTools();
+        if (e.target.id !== 'mapMeasureUnit') return;
+        mapState.measureUnit = e.target.value;
+        keepMeasureSpeed();
         showMeasure();
         refreshMeasure();
-        document.getElementById('mapMeasureRate').focus();
     });
     mapBody.addEventListener('input', e => {
         if (e.target.id !== 'mapMeasureSpeed') return;
-        const v = Number(e.target.value);
-        mapState.measureKmh = v > 0 ? v * SaltCore.kmhPerSpeedUnit(unitSystem, measureRate().kind) : 0;
+        mapState.measureSpeed = e.target.value.trim().slice(0, 12);
+        keepMeasureSpeed();
         showMeasure();
         refreshMeasure();
     });
