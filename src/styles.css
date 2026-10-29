@@ -1554,13 +1554,18 @@ button.map-key-tag.off { opacity: 0.45; text-decoration: line-through; }
 .overlay-team .tag-dot { margin: 0; }
 .overlay-group-title .tag-dot { margin-right: 2px; }
 
-/* Manage > Map: the team's own tags, and adding one. */
+/* Manage > Map: the team's own tags, one row however many: the list, the
+   picked one's color, name, count and x, and + New tag (or the new tag's boxes). */
 .overlay-tags { background: var(--input-bg); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; }
 .overlay-tags-head { font-weight: 600; font-size: 0.92em; margin-bottom: 4px; }
 .overlay-tags .overlays-note { margin-bottom: 8px; }
-.overlay-tag-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.overlay-tag-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
 .overlay-tag-row:last-child { margin-bottom: 0; }
-.overlay-tag-row input[type="text"] { flex: 1; min-width: 0; padding: 6px 10px; font-size: 0.9em; border-radius: 8px; background-color: var(--white-soft); }
+.overlay-tag-row input[type="text"] { flex: 1; min-width: 120px; padding: 6px 10px; font-size: 0.9em; border-radius: 8px; background-color: var(--white-soft); }
+.overlay-tags-count { flex: none; font-size: 0.85em; font-weight: 600; color: var(--text-secondary); }
+.overlay-tag-pick { flex: 0 1 auto; width: auto; max-width: 40%; margin: 0; padding: 6px 30px 6px 10px; font-size: 0.9em; border-radius: 8px; background-position: right 10px center; }
+.overlay-tag-row .text-btn { flex: none; }
+.overlay-tag-row .overlay-tag-new-btn { margin-left: auto; }
 .overlay-tag-row .overlay-tag-ask { flex: 1; font-size: 0.9em; }
 .overlay-tag-color { flex: none; width: 30px; height: 26px; margin: 0; padding: 0; border: none; border-radius: 6px; background: none; cursor: pointer; }
 .overlay-tag-color::-webkit-color-swatch-wrapper { padding: 2px; }
@@ -1574,6 +1579,10 @@ button.map-key-tag.off { opacity: 0.45; text-decoration: line-through; }
 .overlay-bulk button { margin: 0; width: auto; padding: 7px 14px; font-size: 0.95em; }
 .overlay-bulk .text-btn { padding: 0 4px; }
 .overlay-bulk-count { font-weight: 600; }
+.overlay-bulk-label { color: var(--text-secondary); }
+/* An import's review: the checkbox column. */
+.overlays-review th:first-child { width: 26px; }
+.overlays-review td:first-child { padding-right: 0; }
 body.read-only .editor-only { display: none !important; }
 
 /* Under a report's Location: the place its grid puts it in, and checks. */
