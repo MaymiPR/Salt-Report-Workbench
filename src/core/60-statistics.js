@@ -247,7 +247,7 @@ const chartXml = (chart, at) => {
     const last = at.first + items.length - 1;
     const bar = chart.kind === 'bar';
     const peak = items.reduce((b, it, i) => (it.value > items[b].value ? i : b), 0);
-    // Bars carry their values; columns read off the axis, with the peak labelled.
+    // Bars carry their values; columns read off the axis, with the peak labeled.
     const labelOpts = (show) => `<c:showLegendKey val="0"/><c:showVal val="${show ? 1 : 0}"/><c:showCatName val="0"/><c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/>`;
     const dLbls = bar
         ? `<c:dLbls><c:spPr><a:noFill/>${noLine}</c:spPr>${chartTx(900, XLSX_INK, true)}<c:dLblPos val="outEnd"/>${labelOpts(true)}</c:dLbls>`

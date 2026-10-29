@@ -4,7 +4,7 @@
 // --- Geography: MGRS, overlays, and what a Location box says ---
 
 // UTM to latitude/longitude on WGS84, by Krüger's series (Karney 2011), which
-// stays sub-millimetre well beyond a zone's edge (Norway's and Svalbard's wide
+// stays sub-millimeter well beyond a zone's edge (Norway's and Svalbard's wide
 // zones included).
 const WGS84_A = 6378137, WGS84_F = 1 / 298.257223563, UTM_K0 = 0.9996;
 const KRUGER = (() => {
@@ -78,7 +78,7 @@ const MGRS_BANDS = 'CDEFGHJKLMNPQRSTUVWX';
 const MGRS_COLS  = ['ABCDEFGH', 'JKLMNPQR', 'STUVWXYZ'];
 const MGRS_ROWS  = 'ABCDEFGHJKLMNPQRSTUV';
 
-// One MGRS grid (zone, band, 100 km square, digits) as the centre of the
+// One MGRS grid (zone, band, 100 km square, digits) as the center of the
 // square it names: "38SMB4488" is a 1 km square, and the point is its middle.
 // The 100 km row letters repeat every 2,000 km, so of the northings they
 // allow, the one that lands inside the latitude band is the grid's. Null when
@@ -217,7 +217,7 @@ const overlayRef = (rawName, fallbackType) => {
 };
 
 // Ray casting in longitude/latitude: exact enough for areas a few tens of
-// kilometres across. Holes (inner rings) exclude.
+// kilometers across. Holes (inner rings) exclude.
 const inRing = (lon, lat, ring) => {
     let inside = false;
     for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -232,9 +232,9 @@ const geometryContains = (g, lon, lat) =>
   : g.type === 'MultiPolygon' ? g.coordinates.some(p => inPolygon(lon, lat, p))
   : false;
 
-// Metres from a point to a line, on a flat projection centred on the point:
-// within a fraction of a percent over the tens of kilometres that matter here.
-const metresToLine = (lon, lat, line) => {
+// Meters from a point to a line, on a flat projection centered on the point:
+// within a fraction of a percent over the tens of kilometers that matter here.
+const metersToLine = (lon, lat, line) => {
     const kx = 111320 * Math.cos(lat * Math.PI / 180), ky = 110574;
     let best = Infinity;
     for (let i = 1; i < line.length; i++) {
@@ -246,13 +246,13 @@ const metresToLine = (lon, lat, line) => {
     }
     return best;
 };
-const metresToGeometry = (g, lon, lat) =>
-    g.type === 'LineString' ? metresToLine(lon, lat, g.coordinates)
-  : g.type === 'MultiLineString' ? Math.min(...g.coordinates.map(l => metresToLine(lon, lat, l)))
+const metersToGeometry = (g, lon, lat) =>
+    g.type === 'LineString' ? metersToLine(lon, lat, g.coordinates)
+  : g.type === 'MultiLineString' ? Math.min(...g.coordinates.map(l => metersToLine(lon, lat, l)))
   : Infinity;
 
 // A grid this close to a phase line counts as a report at that line.
-const PL_NEAR_METRES = 1000;
+const PL_NEAR_METERS = 1000;
 
 // An NAI or OBJ drawn as a path (Google Earth's Add Path, or a ring on its
 // own) is still an area: each path is closed back to its start. A path of
@@ -279,7 +279,7 @@ const asArea = (g) => {
 //           overlays its grids fall inside, marked 'grid'
 //   pl      phase lines typed, and the nearest PL overlay with its distance
 //   pls     the phase lines it is at: typed, or the nearest within
-//           PL_NEAR_METRES of a grid
+//           PL_NEAR_METERS of a grid
 //   checks  where a typed NAI or OBJ disagrees with the grid. The typed name
 //           still counts; the check is for a person to look at.
 const analyzeLocation = (text, overlays) => {
@@ -314,19 +314,19 @@ const analyzeLocation = (text, overlays) => {
     const nai = place('NAI'), obj = place('OBJ');
     let nearestPl = null;
     ovs.filter(o => o.type === 'PL').forEach(o => points.forEach(p => {
-        const d = metresToGeometry(o.geometry, p.lon, p.lat);
-        if (isFinite(d) && (!nearestPl || d < nearestPl.metres)) nearestPl = { key: keyOf(o), metres: d };
+        const d = metersToGeometry(o.geometry, p.lon, p.lat);
+        if (isFinite(d) && (!nearestPl || d < nearestPl.meters)) nearestPl = { key: keyOf(o), meters: d };
     }));
     return {
         points: points.map(({ start, end, ...p }) => p),
         nai, obj, pl: typed('PL'), nearestPl, checks,
-        pls: [...new Set([...typed('PL'), ...(nearestPl && nearestPl.metres <= PL_NEAR_METRES ? [nearestPl.key] : [])])],
+        pls: [...new Set([...typed('PL'), ...(nearestPl && nearestPl.meters <= PL_NEAR_METERS ? [nearestPl.key] : [])])],
     };
 };
 
 // What Log or Update should do to a Location box, read against the overlays:
 //   add        places its grids are in (or, for a phase line, within
-//              PL_NEAR_METRES of) that the box doesn't name yet; added only
+//              PL_NEAR_METERS of) that the box doesn't name yet; added only
 //              for a type nothing was typed for
 //   conflicts  typed NAIs, OBJs and PLs the grids disagree with, each with
 //              what the grids say instead (`found`, may be empty), for the
@@ -351,17 +351,17 @@ const locationPlan = (text, overlays) => {
                 message: found.length ? `${k} typed; grid is in ${found.join(', ')}` : `${k} typed; grid is outside it` });
         });
     });
-    const near = a.nearestPl && a.nearestPl.metres <= PL_NEAR_METRES ? a.nearestPl : null;
+    const near = a.nearestPl && a.nearestPl.meters <= PL_NEAR_METERS ? a.nearestPl : null;
     if (!a.pl.length) { if (near) plan.add.push(near.key); return plan; }
     a.pl.forEach(k => {
         const own = ovs.filter(o => o.type === 'PL' && keyOf(o) === k);
         if (!own.length) return;
-        const d = Math.min(...own.flatMap(o => a.points.map(pt => metresToGeometry(o.geometry, pt.lon, pt.lat))));
-        if (d <= PL_NEAR_METRES) return;
+        const d = Math.min(...own.flatMap(o => a.points.map(pt => metersToGeometry(o.geometry, pt.lon, pt.lat))));
+        if (d <= PL_NEAR_METERS) return;
         const found = near && !a.pl.includes(near.key) ? [near.key] : [];
         const km = (d / 1000).toFixed(1);
         plan.conflicts.push({ type: 'PL', typed: k, found,
-            message: found.length ? `${k} typed; grid is ${km} km from it, ${Math.round(near.metres)} m from ${near.key}` : `${k} typed; grid is ${km} km from it` });
+            message: found.length ? `${k} typed; grid is ${km} km from it, ${Math.round(near.meters)} m from ${near.key}` : `${k} typed; grid is ${km} km from it` });
     });
     return plan;
 };

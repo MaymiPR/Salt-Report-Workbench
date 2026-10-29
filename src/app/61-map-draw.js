@@ -125,13 +125,13 @@ const overlayLayer = (px, w, h) => {
 };
 
 // Each report once, at its latest grid: a density surface drawn on a canvas,
-// coloured with one hue from clear to bright, and laid under the graphics.
+// colored with one hue from clear to bright, and laid under the graphics.
 const HEAT_RADIUS = 28;
 // Blue, green, yellow, red, from fewest to most. The blue end fades in from
 // clear, so a lone report doesn't read as an OBJ, and it grows more opaque as
 // it rises, so the busiest places stand out over imagery or the plain background.
 const HEAT_STOPS = [[0, [10, 132, 255, 0]], [0.15, [10, 132, 255, 90]], [0.4, [48, 209, 88, 165]], [0.65, [255, 214, 10, 205]], [1, [255, 59, 48, 235]]];
-// The ramp, worked out once: 256 colours (RGBA) from fewest to most.
+// The ramp, worked out once: 256 colors (RGBA) from fewest to most.
 const HEAT_LUT = (() => {
     const lut = new Uint8ClampedArray(256 * 4);
     for (let i = 0; i < 256; i++) {
@@ -155,7 +155,7 @@ const heatLayer = (points, px, w, h) => {
     if (!pts.length) return '';
     if (mapState.heatGrid.length < w * h) mapState.heatGrid = new Float32Array(w * h);
     const grid = mapState.heatGrid;
-    // Only the part the reports touch is filled, coloured and cleared.
+    // Only the part the reports touch is filled, colored and cleared.
     let bx0 = w, by0 = h, bx1 = 0, by1 = 0;
     pts.forEach(({ xy: [x, y], w: wt }) => {
         const x0 = Math.max(0, Math.floor(x - R)), x1 = Math.min(w - 1, Math.ceil(x + R));
@@ -204,7 +204,7 @@ const trackLayer = (tracks, px) => {
         return `<path d="M${tip.map(v => v.toFixed(1))}L${l.map(v => v.toFixed(1))}L${r.map(v => v.toFixed(1))}Z" fill="${color}" stroke="${MAP_COLORS.edge}" stroke-width="1.2" stroke-linejoin="round"/>`;
     };
     // Names on the tracks that moved, while they stay readable; hover tells the rest.
-    const labelled = tracks.filter(t => t.moved).length <= 25;
+    const labeled = tracks.filter(t => t.moved).length <= 25;
     tracks.forEach(t => {
         if (!t.moved && mapState.layers.reports) return;
         const i = mapState.items.push({ kind: 'track', t }) - 1;
@@ -228,7 +228,7 @@ const trackLayer = (tracks, px) => {
                 + `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="4.5" fill="${color}" stroke="${MAP_COLORS.edge}" stroke-width="1.5"/>`
                 + `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="10" fill="transparent" class="map-hit"/></g>`);
         }
-        if (labelled && t.moved) out.push(`<text x="${(ex + 9).toFixed(1)}" y="${(ey + 4).toFixed(1)}" class="map-label map-label-track">${svgEsc(t.report.displayId || '')}</text>`);
+        if (labeled && t.moved) out.push(`<text x="${(ex + 9).toFixed(1)}" y="${(ey + 4).toFixed(1)}" class="map-label map-label-track">${svgEsc(t.report.displayId || '')}</text>`);
         // The picked track: when it was at each position.
         if (t.moved && t.report.id === mapState.selected) {
             const local = timeDisplayMode === 'local';
@@ -265,7 +265,7 @@ const selectionLayer = (tracks, px) => {
         + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="none" stroke="${MAP_COLORS.OBJ}" stroke-width="2.5"/></g>`;
 };
 
-// The key: what each colour is, and what each layer that's on counts.
+// The key: what each color is, and what each layer that's on counts.
 const mapLegend = (heatPts, positions, tracks) => {
     const swatch = (color, line) => `<svg width="18" height="10" aria-hidden="true">${line
         ? `<line x1="1" y1="5" x2="17" y2="5" stroke="#fff" stroke-width="4"/><line x1="1" y1="5" x2="17" y2="5" stroke="${color}" stroke-width="2"/>`

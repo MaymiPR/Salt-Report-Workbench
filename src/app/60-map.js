@@ -35,11 +35,11 @@ const mapState = {
     place: '',             // the NAI / OBJ / PL picked on the map ('NAI 1'), or ''
     lastDraw: null,        // what the last drawing showed: { view, tracks, reps }
     flashUntil: 0,         // the picked report's ring pulses until then (ms)
-    fitMpp: Infinity,      // metres per pixel with the whole area in view
+    fitMpp: Infinity,      // meters per pixel with the whole area in view
     // Set by the Map view: told after each drawing, and of a click on the map.
     drawnHook: () => {},
     clickHook: () => {},
-    view: null,            // { cx, cy, mpp }: centre (Web Mercator metres) and metres per pixel
+    view: null,            // { cx, cy, mpp }: center (Web Mercator meters) and meters per pixel
     // The basemap this browser shows, by name: 'off' for none, '' for the first.
     baseChoice: storedText('salt_map_base') || '',
     baseFailed: false,

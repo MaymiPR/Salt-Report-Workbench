@@ -89,7 +89,7 @@ const renderMapPanel = (box) => {
     }
     box.querySelectorAll('[data-map-layer]').forEach(b => setOn(b, mapState.layers[b.dataset.mapLayer], 'aria-pressed', null));
     box.querySelectorAll('[data-map-grids]').forEach(b => setOn(b, (b.dataset.mapGrids === 'all') === mapState.allGrids, 'aria-pressed', null));
-    // Greyed out, not hidden, when neither layer it changes is on: the tools don't move.
+    // Grayed out, not hidden, when neither layer it changes is on: the tools don't move.
     box.querySelectorAll('[data-map-grids]').forEach(b => { b.disabled = !mapState.layers.heat && !mapState.layers.reports; });
     box.querySelectorAll('[data-map-hours]').forEach(b => setOn(b, +b.dataset.mapHours === mapState.hours));
     const pick = document.getElementById('mapBaseSelect');

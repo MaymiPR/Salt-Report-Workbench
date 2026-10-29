@@ -1647,7 +1647,7 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#reportLogBody .col-location:has-text('38SMB4500084000')")
         self.log(page, "1x truck", activity="parked", location="38SMB5500082000")
         self.open_map(page)
-        # The graphics in their colours: NAI green, OBJ blue, PL black on white.
+        # The graphics in their colors: NAI green, OBJ blue, PL black on white.
         strokes = page.locator("#mapSvg .map-overlays path").evaluate_all(
             "ps => ps.map(p => p.getAttribute('stroke'))"
         )
@@ -1671,7 +1671,7 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-map-zoom='out']")
         page.click("[data-map-zoom='out']")
         page.wait_for_function(f"() => Math.abs(mapState.view.mpp - {before}) < 1e-6")
-        # The heat drawn on the map has colour in it.
+        # The heat drawn on the map has color in it.
         self.assertGreater(
             page.evaluate(
                 """async () => {
@@ -2526,7 +2526,7 @@ class BrowserTests(unittest.TestCase):
         self.assertIn(
             " km N", " ".join(page.locator("#mapSvg .map-label-drone").all_text_contents())
         )
-        # Moved by typing a grid; Zoom centres on it, closer.
+        # Moved by typing a grid; Zoom centers on it, closer.
         page.fill("#mapDroneGrid0", "38SMB4100079000")
         page.press("#mapDroneGrid0", "Enter")
         page.wait_for_selector("#toast-notification:has-text('GE 1 moved to 38S MB 41000 79000')")
@@ -3119,7 +3119,7 @@ class BrowserTests(unittest.TestCase):
             ),
             ["table", "equipment"],
         )
-        # The table is the chart's accessible version: reachable, labelled, and
+        # The table is the chart's accessible version: reachable, labeled, and
         # the bars aren't tab stops of their own.
         self.assertEqual(page.locator(".stats-hit[tabindex]").count(), 0)
         self.assertEqual(
@@ -3411,7 +3411,7 @@ class BrowserTests(unittest.TestCase):
         self.import_overlays(page)
         self.log(page, "1x XYZ-9", location="38SMB4500082000")
         self.open_map(page)
-        # Labelled groups, the slider read as the time it shows, switches as switches.
+        # Labeled groups, the slider read as the time it shows, switches as switches.
         self.assertEqual(page.get_attribute("#mapBox .map-tools", "role"), "group")
         self.assertEqual(page.get_attribute("#mapBox .filter-presets", "role"), "group")
         self.assertEqual(page.get_attribute("#mapEndRange", "aria-valuetext"), "Now")
@@ -3462,7 +3462,7 @@ class BrowserTests(unittest.TestCase):
         )
 
     def test_escape_in_the_narrative_settings_leaves_an_edit_alone(self):
-        # Regression: Escape closed the settings' form and cancelled the edit too.
+        # Regression: Escape closed the settings' form and canceled the edit too.
         page = self.open_editor()
         self.log(page, "2x BMP")
         page.click("#reportLogBody tr[data-id] .col-size:has-text('2x BMP')")

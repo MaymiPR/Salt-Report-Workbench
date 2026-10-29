@@ -119,7 +119,7 @@ const renderLocationHints = () => {
     const plan = ovs.length && text.trim() ? SaltCore.locationPlan(text, ovs) : { add: [], conflicts: [] };
     const near = plan.add.some(k => k.startsWith('PL ')) ? locationInfo(text).nearestPl : null;
     const chips = [
-        ...plan.add.map(k => `<button type="button" class="loc-hint" data-loc-add="${escapeHtml(k)}" title="Added when you log. Click to add it now.">+ ${escapeHtml(k)}${near && near.key === k ? ` <span class="loc-hint-sub">${Math.round(near.metres)} m</span>` : ''}</button>`),
+        ...plan.add.map(k => `<button type="button" class="loc-hint" data-loc-add="${escapeHtml(k)}" title="Added when you log. Click to add it now.">+ ${escapeHtml(k)}${near && near.key === k ? ` <span class="loc-hint-sub">${Math.round(near.meters)} m</span>` : ''}</button>`),
         ...plan.conflicts.map(c => `<span class="loc-hint warn" title="When you log, you pick which to keep.">${escapeHtml(c.message)}</span>`),
     ];
     box.innerHTML = chips.join('');

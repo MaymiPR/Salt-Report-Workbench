@@ -179,7 +179,7 @@ const renderStats = () => {
         { id: 'nai', title: 'Reports per NAI', kind: 'bar', items: d.nai, empty: 'No NAI typed or found by grid.' },
         { id: 'obj', title: 'Reports per OBJ', kind: 'bar', items: d.obj, empty: 'No OBJ typed or found by grid.' },
         { id: 'pl', title: 'Reports at each phase line', kind: 'bar', items: d.pl, empty: 'No phase line typed or near a grid.',
-          note: `Typed, or a grid within ${SaltCore.PL_NEAR_METRES / 1000} km of the line` },
+          note: `Typed, or a grid within ${SaltCore.PL_NEAR_METERS / 1000} km of the line` },
         { id: 'hours', title: `Reports by hour of day (${local ? 'local' : 'Zulu'})`, kind: 'column', items: d.hours, labelEvery: 3, fmtX: ident,
           tipX: h => `${h}:00–${h}:59${zoneMark(local)}`, axis: `Hour (${zoneMark(local)})` },
         { id: 'days', title: 'Reports by day', kind: 'column', items: d.days, labelEvery: Math.max(1, Math.ceil(d.days.length / 8)), fmtX: dayLabel, axis: 'Day' },

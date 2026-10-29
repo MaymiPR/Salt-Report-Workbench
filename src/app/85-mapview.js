@@ -173,8 +173,8 @@ const selectMapReport = (id, at) => {
 };
 
 // Put the map on a report and pulse its ring. Zoomed all the way out, it
-// zooms in on it first (the whole area can't move to centre one report).
-const centreMapOn = (id) => {
+// zooms in on it first (the whole area can't move to center one report).
+const centerMapOn = (id) => {
     const t = mapState.lastDraw && mapState.lastDraw.tracks.find(x => x.report.id === id);
     if (!t || !mapState.view) return false;
     if (mapState.view.mpp >= mapState.fitMpp * 0.99) mapState.view.mpp = mapState.fitMpp / 4;
@@ -188,7 +188,7 @@ const centreMapOn = (id) => {
 mapState.clickHook = ({ item, at, lonLat: [lon, lat], mpp }) => {
     if (item && item.t) { mapCardFrom = null; selectMapReport(item.t.report.id, at); return; }
     const near = mpp * Math.cos(lat * Math.PI / 180) * 10;   // ten pixels, on the ground
-    const lines = currentOverlays().filter(o => o.type === 'PL' && SaltCore.metresToGeometry(o.geometry, lon, lat) <= near);
+    const lines = currentOverlays().filter(o => o.type === 'PL' && SaltCore.metersToGeometry(o.geometry, lon, lat) <= near);
     const areas = currentOverlays().filter(o => o.type !== 'PL' && /Polygon|LineString/.test((o.geometry || {}).type || '')
         && SaltCore.geometryContains(SaltCore.asArea(o.geometry), lon, lat));
     const hit = lines[0] || areas[0];
@@ -328,14 +328,14 @@ const hideHomeViews = () => {
         const tr = e.target.closest('[data-map-row]');
         if (tr) {
             const id = tr.dataset.mapRow;
-            const centred = centreMapOn(id);
+            const centered = centerMapOn(id);
             mapState.selected = id;
             mapCardFrom = id;
             // Drawn now, so the card can open beside where the report landed
             // (at the middle, unless the edge of the area held the map back).
             drawMap();
             const box = document.getElementById('mapBox'), ring = document.querySelector('#mapSvg .map-selected circle');
-            mapCardAt = centred && box && ring ? [+ring.getAttribute('cx'), +ring.getAttribute('cy')] : null;
+            mapCardAt = centered && box && ring ? [+ring.getAttribute('cx'), +ring.getAttribute('cy')] : null;
             renderMapCard();
         }
     });

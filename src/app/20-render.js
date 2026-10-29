@@ -228,7 +228,7 @@ const locationTags = (text, id) => {
     });
     const near = a.nearestPl;
     if (near && !a.pl.includes(near.key) && a.pls.includes(near.key)) {
-        tags.push(`<span class="loc-tag loc-pl" title="The grid is ${Math.round(near.metres)} m from ${escapeHtml(near.key)}">${escapeHtml(near.key)}</span>`);
+        tags.push(`<span class="loc-tag loc-pl" title="The grid is ${Math.round(near.meters)} m from ${escapeHtml(near.key)}">${escapeHtml(near.key)}</span>`);
     }
     // An editor can click a check to settle it (saved as an Update).
     a.checks.forEach(c => tags.push(id && !isReadOnly

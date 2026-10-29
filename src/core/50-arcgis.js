@@ -27,7 +27,7 @@ const arcgisRows = (reps, overlays, { local, customLabels = [], idOf }) => {
                 precision_m: p.precision,
                 nai: a.nai.keys.join('; '), nai_from: a.nai.from, obj: a.obj.keys.join('; '), obj_from: a.obj.from,
                 pl: a.pl.join('; '), pl_near: a.nearestPl ? a.nearestPl.key : '',
-                pl_dist_m: a.nearestPl ? Math.round(a.nearestPl.metres) : null,
+                pl_dist_m: a.nearestPl ? Math.round(a.nearestPl.meters) : null,
                 loc_check: a.checks.join('; '), analysis: r.yourAnalysis || '',
                 reporter: (r.user && r.user.initials) || '', bda, updated: r.updated ? 'yes' : 'no',
             };

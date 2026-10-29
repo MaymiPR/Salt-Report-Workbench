@@ -17,10 +17,10 @@
     --divider: #38383a;
     --glass-bg: rgba(28, 28, 30, 0.75);
     --glass-border: rgba(255, 255, 255, 0.1);
-    /* Every other colour in this file is one of these. Tints of the system
-       colours: soft behind a chip, tag or selected row; hover for the same
+    /* Every other color in this file is one of these. Tints of the system
+       colors: soft behind a chip, tag or selected row; hover for the same
        pointed at or pressed; strong for a ring, a tinted border or a focused
-       item. faint is a whole row or panel washed with the colour, outline a
+       item. faint is a whole row or panel washed with the color, outline a
        selected item's border, fill a finished BDA pill. */
     --blue-faint: rgba(10, 132, 255, 0.06);
     --blue-soft: rgba(10, 132, 255, 0.14);
@@ -49,7 +49,7 @@
     --shadow: rgba(0, 0, 0, 0.4);
     --shadow-strong: rgba(0, 0, 0, 0.55);
     --backdrop: rgba(0, 0, 0, 0.55);
-    /* Colours with one job each. on-color is text on a colour or a dark glass;
+    /* Colors with one job each. on-color is text on a color or a dark glass;
        error-bg a red dark enough for it (5.9:1). */
     --on-color: #fff;
     --error-bg: #c0261c;
@@ -60,7 +60,7 @@
     --map-drone-label: #ffcc80;
     --map-out-label: #ff8a80;
     --heat-ramp: linear-gradient(90deg, rgba(10, 132, 255, 0.35), rgba(48, 209, 88, 0.65) 35%, rgba(255, 214, 10, 0.8) 65%, rgba(255, 59, 48, 0.92));
-    /* The identity colours that aren't system colours. */
+    /* The identity colors that aren't system colors. */
     --swatch-sky: #5ac8fa;
     --swatch-pink: #ff375f;
     --swatch-purple: #bf5af2;
@@ -885,7 +885,7 @@ body.local-mode .startup-access-divider { display: none; }
 .io-card .filter-meta { padding-top: 8px; }
 /* Imports: one drop area; the whole tab takes a dropped file. */
 .io-drop { flex: 1; display: flex; flex-direction: column; align-items: center; box-sizing: border-box; border: 1.5px dashed var(--divider); border-radius: 14px; padding: 14px 16px 18px; text-align: center; color: var(--text-secondary); cursor: pointer; transition: border-color 0.15s, background-color 0.15s; }
-/* The label stays at the top; the rest is centred in the space left. */
+/* The label stays at the top; the rest is centered in the space left. */
 .io-drop .export-block-label { align-self: flex-start; margin-bottom: auto; }
 .io-drop .io-drop-sub { margin-bottom: auto; }
 .io-drop svg { width: 26px; height: 26px; display: block; margin: 4px auto 8px; }
@@ -1295,7 +1295,7 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .overlays-table td { padding: 6px 8px; border-bottom: 1px solid var(--divider); vertical-align: middle; overflow-wrap: anywhere; }
 .overlays-table select { padding: 5px 30px 5px 10px; min-width: 96px; font-size: 0.95em; margin: 0; width: auto; background-position: right 10px center; }
 .overlay-type { display: inline-block; min-width: 30px; text-align: center; font-size: 0.78em; font-weight: 700; padding: 1px 6px; border-radius: 6px; margin-right: 4px; }
-/* The map's colours: NAI green, OBJ blue, PL black (a neutral chip here, on the dark panel). */
+/* The map's colors: NAI green, OBJ blue, PL black (a neutral chip here, on the dark panel). */
 .overlay-nai { background: var(--green-soft); color: var(--system-green); }
 .overlay-obj { background: var(--blue-soft); color: var(--system-blue); }
 .overlay-pl  { background: var(--white-soft); color: var(--text-primary); }

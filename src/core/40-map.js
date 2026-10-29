@@ -8,7 +8,7 @@ const webMercatorToLonLat = ([x, y]) => [x / 6378137 * 180 / Math.PI, (2 * Math.
 
 // What a .prj (WKT, as ArcGIS writes it) says the coordinates are, as
 // { name, toLonLat }: geographic (WGS 84, NAD 83), Web Mercator, or a UTM zone
-// on WGS 84 or NAD 83 (a metre or so apart, well inside a grid square). Any
+// on WGS 84 or NAD 83 (a meter or so apart, well inside a grid square). Any
 // other system is refused by name. Null without a .prj.
 const shapefileProjection = (wkt) => {
     const s = String(wkt || '').trim();
@@ -169,14 +169,14 @@ const reportTracks = (reps) => (reps || []).filter(r => !r.deleted).map(r => {
         points.push({ lon: g.lon, lat: g.lat, mgrs: g.mgrs, time: v.time });
     });
     let lengthM = 0;
-    for (let i = 1; i < points.length; i++) lengthM += metresBetween(points[i - 1], points[i]);
+    for (let i = 1; i < points.length; i++) lengthM += metersBetween(points[i - 1], points[i]);
     const bearingDeg = points.length >= 2 ? bearingBetween(points[0], points[points.length - 1]) : null;
     return { report: r, points, moved: points.length >= 2, lengthM, bearingDeg };
 }).filter(t => t.points.length);
 
-// Metres between two points, and the bearing from the first to the second
+// Meters between two points, and the bearing from the first to the second
 // (degrees clockwise from north), on a sphere: plenty for tracks of a few km.
-const metresBetween = (a, b) => {
+const metersBetween = (a, b) => {
     const R = 6371008.8, f1 = a.lat * Math.PI / 180, f2 = b.lat * Math.PI / 180;
     const df = f2 - f1, dl = (b.lon - a.lon) * Math.PI / 180;
     const h = Math.sin(df / 2) ** 2 + Math.cos(f1) * Math.cos(f2) * Math.sin(dl / 2) ** 2;
@@ -239,7 +239,7 @@ const arcgisTracksGeoJson = (rows) => JSON.stringify({
 });
 const arcgisTracksEsriJson = (rows) => esriJson(rows.map(attrsOf), 'esriGeometryPolyline', (row, i) => ({ paths: [rows[i].path] }));
 
-// Web Mercator (the tile services' projection), metres, and back.
+// Web Mercator (the tile services' projection), meters, and back.
 const MERC_R = 6378137;
 const lonLatToMerc = (lon, lat) => [lon * Math.PI / 180 * MERC_R, Math.log(Math.tan(Math.PI / 4 + Math.max(-85.0511, Math.min(85.0511, lat)) * Math.PI / 360)) * MERC_R];
 const MERC_WORLD = 2 * Math.PI * MERC_R;
@@ -259,8 +259,8 @@ const tilesFor = ([x0, y0, x1, y1], z, max = 256) => {
     }
     return out;
 };
-// The zoom whose tiles show `metresPerPixel` (256-pixel tiles), rounded up for sharpness.
-const tileZoom = (metresPerPixel) => Math.max(0, Math.min(20, Math.ceil(Math.log2(MERC_WORLD / 256 / metresPerPixel))));
+// The zoom whose tiles show `metersPerPixel` (256-pixel tiles), rounded up for sharpness.
+const tileZoom = (metersPerPixel) => Math.max(0, Math.min(20, Math.ceil(Math.log2(MERC_WORLD / 256 / metersPerPixel))));
 
 // A tile's address from a template: {z} {x} {y} (or WMTS's {TileMatrix}
 // {TileCol} {TileRow}; {-y} counts rows from the south, as TMS does).
@@ -268,11 +268,11 @@ const tileUrl = (template, { z, x, y }) => String(template)
     .replace(/\{(z|TileMatrix)\}/gi, z).replace(/\{(x|TileCol)\}/gi, x)
     .replace(/\{-y\}/gi, 2 ** z - 1 - y).replace(/\{(y|TileRow)\}/gi, y);
 
-// Web Mercator metres back to longitude and latitude.
+// Web Mercator meters back to longitude and latitude.
 const mercToLonLat = (x, y) => [x / MERC_R * 180 / Math.PI, (2 * Math.atan(Math.exp(y / MERC_R)) - Math.PI / 2) * 180 / Math.PI];
 
 // The projections a WMS can draw our map in, best first: Web Mercator under
-// its several names (same metres), then longitude / latitude, which the map
+// its several names (same meters), then longitude / latitude, which the map
 // stretches to fit (true to well under a pixel over an area the size of a
 // training area).
 const WMS_MERC_CRS = ['EPSG:3857', 'EPSG:900913', 'EPSG:102100', 'EPSG:102113', 'EPSG:3785'];

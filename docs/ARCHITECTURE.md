@@ -32,7 +32,7 @@ Three constraints drive almost every decision:
 │       ├── 30-form.js        Entry, editing, restore, undo
 │       ├── 40-io.js          Manage panel, builder, export, import
 │       ├── 50-overlays.js    Overlay import (KML, KMZ, GeoJSON, SHP), the Map tab's graphics, ArcGIS export
-│       ├── 60-map.js         The map: its state, colours and shared helpers
+│       ├── 60-map.js         The map: its state, colors and shared helpers
 │       ├── 61-map-draw.js    Drawing it: overlays, heat map, tracks, report dots, legend
 │       ├── 62-map-basemaps.js  Basemaps: drawing them, finding, adding, checking services
 │       ├── 63-map-drones.js  Drones: where, their view and range, their menu, saving

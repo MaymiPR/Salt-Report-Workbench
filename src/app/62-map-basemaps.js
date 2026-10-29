@@ -183,7 +183,7 @@ const findWmsLayers = async (link, name = '', edit = null) => {
     } catch (e) {
         found = { link, name, edit, error: e.message || String(e) };
     }
-    // Cancelled, or another lookup started, while this one was out.
+    // Canceled, or another lookup started, while this one was out.
     if (mapState.wmsFind !== asked) return;
     mapState.wmsFind = found;
     basemapsChanged();

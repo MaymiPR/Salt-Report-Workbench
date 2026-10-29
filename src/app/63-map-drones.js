@@ -43,7 +43,7 @@ const droneLayer = (tracks, px) => {
     list.forEach(({ d, p }, i) => {
         const [x, y] = px(p.lon, p.lat);
         let angle = 0;
-        // Its range, as a ring: metres on the ground to pixels at its latitude.
+        // Its range, as a ring: meters on the ground to pixels at its latitude.
         if (mapState.droneView && d.range && mapState.view) {
             const r = d.range * 1000 / (mapState.view.mpp * Math.cos(p.lat * Math.PI / 180));
             cones.push(`<circle class="map-drone-range" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${DRONE_COLOR}" fill-opacity="0.025" stroke="${DRONE_COLOR}" stroke-opacity="0.6" stroke-width="1.3" stroke-dasharray="3 4"/>`);
@@ -69,14 +69,14 @@ const droneLayer = (tracks, px) => {
                 const ox = nx / hw, oy = ny / hw, gap = hw * 0.5 + 9;
                 const lx = (x + tx) / 2 + ox * gap, ly = (y + ty) / 2 + oy * gap + 4;
                 const anchor = ox < -0.3 ? 'end' : ox > 0.3 ? 'start' : 'middle';
-                const metres = SaltCore.metresBetween(p, q);
-                const km = (metres / 1000).toFixed(1);
+                const meters = SaltCore.metersBetween(p, q);
+                const km = (meters / 1000).toFixed(1);
                 const dir = SaltCore.compass16(SaltCore.bearingBetween(p, q));
-                const out = d.range ? metres - d.range * 1000 : 0;   // past its range, in metres
+                const out = d.range ? meters - d.range * 1000 : 0;   // past its range, in meters
                 const color = out > 0 ? DRONE_OUT : DRONE_COLOR;
                 defs.push(`<linearGradient id="droneCone${i}" gradientUnits="userSpaceOnUse" x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}">`
                     + `<stop offset="0" stop-color="${color}" stop-opacity="0.16"/><stop offset="1" stop-color="${color}" stop-opacity="0.42"/></linearGradient>`);
-                // Edged in its colour, and the dashed sightline over a dark one, so
+                // Edged in its color, and the dashed sightline over a dark one, so
                 // they hold on a light basemap or a busy heat map.
                 // From one touching point the long way round the far side to the
                 // other (clockwise on screen, more than half the circle).
