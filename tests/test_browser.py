@@ -1382,9 +1382,7 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(shown("#exportClearFilterBtn"))
         page.click("[data-preset-hours='24']")
         self.assertNotEqual(page.input_value("#exportFromDate"), "")
-        self.assertNotEqual(
-            page.input_value("#exportFromDate"), page.input_value("#exportToDate")
-        )
+        self.assertNotEqual(page.input_value("#exportFromDate"), page.input_value("#exportToDate"))
         page.click("#exportClearFilterBtn")
         self.assertEqual(page.input_value("#exportFromDate"), "")
         self.assertTrue(shown("#exportClearFilterBtn"))
@@ -1755,7 +1753,9 @@ class BrowserTests(unittest.TestCase):
         page.click("#mapBaseAddBtn")
         page.wait_for_selector(".map-layer-list, .map-find-error")
         self.assertEqual(
-            page.locator(".map-find-error").count(), 0, page.evaluate("JSON.stringify(mapState.wmsFind)")
+            page.locator(".map-find-error").count(),
+            0,
+            page.evaluate("JSON.stringify(mapState.wmsFind)"),
         )
         for t in titles:
             page.check(f".map-layer-row:has(.map-layer-title:text-is('{t}')) input")

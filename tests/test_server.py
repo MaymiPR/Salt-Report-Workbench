@@ -608,14 +608,14 @@ class AccessCodeTests(unittest.TestCase):
         good = {"Cookie": "salt_access=k7m2x9pqr3"}  # case-insensitive
         bad = {"Cookie": "salt_access=WRONGCODE2"}
         with mock.patch.object(srv, "_access_code", "K7M2X9PQR3"):
-            self.assertTrue(srv._check_access_code({}, True, remote), "viewer port is never gated")
-            self.assertTrue(srv._check_access_code({}, False, "127.0.0.1"), "the host is trusted")
-            self.assertTrue(srv._check_access_code(good, False, remote))
-            self.assertFalse(srv._check_access_code(bad, False, remote))
-            self.assertFalse(srv._check_access_code({}, False, remote))
+            self.assertTrue(srv._access_code_ok({}, True, remote), "viewer port is never gated")
+            self.assertTrue(srv._access_code_ok({}, False, "127.0.0.1"), "the host is trusted")
+            self.assertTrue(srv._access_code_ok(good, False, remote))
+            self.assertFalse(srv._access_code_ok(bad, False, remote))
+            self.assertFalse(srv._access_code_ok({}, False, remote))
         with mock.patch.object(srv, "_access_code", None):
             self.assertTrue(
-                srv._check_access_code({}, False, remote), "--no-access-code disables the gate"
+                srv._access_code_ok({}, False, remote), "--no-access-code disables the gate"
             )
 
     def test_the_machines_own_addresses_are_looked_up_again_after_a_while(self):

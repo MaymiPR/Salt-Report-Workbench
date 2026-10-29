@@ -143,7 +143,9 @@ refusal a write gets first. The validator does all the checking of a
 request's shape (a blank workspace name or an empty list of changes included),
 so a route takes its fields as given; a route refuses only what depends on
 what the server holds (a report that isn't there, `404`; an edit to an older
-copy, `409`).
+copy, `409`). The checking functions are named by what they return: `_v_<route>`
+is a route's validator, `_check_<thing>` returns what is wrong (or `None`) and
+the validators share them, and `_is_<thing>` answers yes or no.
 
 The settings every workspace shares (the config, profiles, report format,
 overlays, basemaps, drones and the narrative's settings) are each one entry in
