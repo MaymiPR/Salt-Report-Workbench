@@ -2779,8 +2779,13 @@ class HttpApiTests(unittest.TestCase):
         import os
         import time
 
-        folder = Path(srv.BACKUP_DIR)
-        folder.mkdir(parents=True, exist_ok=True)
+        # A folder of its own: the shared one can hold a newer file another
+        # test (or its save still finishing) left, seen on a slow Windows runner.
+        folder = Path(tempfile.mkdtemp(prefix="salt-boot-"))
+        self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+        patch = mock.patch.object(srv, "BACKUP_DIR", str(folder))
+        patch.start()
+        self.addCleanup(patch.stop)
         older = {"ALPHA": [report(lm=1, size="old"), report("r2", "ALPHA002", lm=1)]}
         newer = {"ALPHA": [report(lm=2, size="new")]}
         for name, ws, title, age in (
