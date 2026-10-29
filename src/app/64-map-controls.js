@@ -65,7 +65,7 @@ const renderMapPanel = (box) => {
                     <div class="map-measure-wrap">
                         <button type="button" id="mapMeasureBtn" title="Measure" aria-label="Measure" aria-pressed="false" aria-controls="mapMeasureTools"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 11.5 11.5 2 14 4.5 4.5 14Z"/><path d="M5 9.5l1.2 1.2M7 7.5l1.2 1.2M9 5.5l1.2 1.2"/></svg></button>
                         <div id="mapMeasureTools" class="map-measure-tools" role="toolbar" aria-label="Measure tools" inert>
-                            ${MEASURE_TOOLS.map(([k, t, tip]) => `<button type="button" class="map-measure-tool" data-measure-tool="${k}" title="${tip}" aria-pressed="false">${t}</button>`).join('')}
+                            ${MEASURE_TOOLS.map(([k, t, tip]) => `<button type="button" class="map-measure-tool${k === 'axis' ? ' editor-only' : ''}" data-measure-tool="${k}" title="${tip}" aria-pressed="false">${t}</button>`).join('')}
                         </div>
                         <div id="mapMeasurePanel" class="map-measure-panel" hidden></div>
                     </div>
@@ -342,6 +342,8 @@ const MEASURE_TOOLS = [
     ['area', 'Area', 'Click round a shape: its area and perimeter'],
     ['ring', 'Range ring', 'Click a center, then the radius (or drag it out)'],
     ['time', 'Time-distance', 'Click along a route: how long it takes at a speed'],
+    // Editors only: an axis of advance drawn, then named and saved for everyone.
+    ['axis', 'Draw axis', 'Click from where the enemy comes from, along its way, to where it heads; then name it and save it'],
 ];
 const MAX_RINGS = 20;
 // The time-distance tool's speed: a number typed and a unit of the units
@@ -407,6 +409,10 @@ const renderMeasureTools = () => {
         panel.innerHTML = `<label for="mapMeasureSpeed">Speed</label>
             <span class="map-measure-speed"><input type="number" id="mapMeasureSpeed" min="0" step="any" inputmode="decimal" placeholder="Speed" value="${escapeHtml(mapState.measureSpeed)}">
             <select id="mapMeasureUnit" aria-label="Speed unit">${(SPEED_UNITS[unitSystem] || SPEED_UNITS.metric).map(u => `<option value="${u.id}"${u.id === unit.id ? ' selected' : ''}>${escapeHtml(u.label)}</option>`).join('')}</select></span>`;
+    } else if (tool === 'axis' && mapState.measureDone && mapState.measure.length > 1 && !isReadOnly) {
+        panel.innerHTML = `<label for="mapAxisName">Name</label>
+            <span class="map-measure-speed"><span aria-hidden="true">AXIS</span><input type="text" id="mapAxisName" maxlength="20" spellcheck="false" value="${escapeHtml(nextAxisName())}" aria-label="Name, after AXIS"></span>
+            <button type="button" id="mapAxisSave" class="text-btn">Save axis</button>`;
     } else if (tool === 'ring') {
         const done = mapState.measure.length && mapState.ringR > 0;
         panel.innerHTML = `<button type="button" id="mapRingKeep" class="text-btn"${done ? '' : ' disabled'}>Keep ring on the map</button>
@@ -425,10 +431,37 @@ const addMeasurePoint = ([lon, lat]) => {
         if (!pts.length || mapState.ringR) { mapState.measure = [p]; mapState.ringR = 0; }
         else mapState.ringR = SaltCore.metersBetween(pts[0], p);
         renderMeasureTools();
-    } else if (mapState.measureDone) { mapState.measure = [p]; mapState.measureDone = false; }
-    else mapState.measure = [...pts, p];
+    } else if (mapState.measureDone) {
+        mapState.measure = [p];
+        mapState.measureDone = false;
+        if (mapState.measureTool === 'axis') renderMeasureTools();
+    } else mapState.measure = [...pts, p];
     showMeasure();
     redrawMap();
+};
+// The first free number for a new axis: AXIS 1, AXIS 2...
+const nextAxisName = () => {
+    const taken = new Set(currentOverlays().filter(o => o.type === 'AXIS').map(o => String(o.name).toUpperCase()));
+    let n = 1;
+    while (taken.has(String(n))) n++;
+    return String(n);
+};
+// The axis drawn, saved as an overlay for everyone under the name typed
+// (one word, as an imported axis's: "Gold" is AXIS GOLD). A name in use asks
+// for another; a saved one is drawn with the overlays, the tool ready for
+// the next.
+const saveDrawnAxis = async () => {
+    const box = document.getElementById('mapAxisName');
+    const ref = SaltCore.overlayRef(`AXIS ${(box && box.value) || ''}`, 'AXIS');
+    if (!ref || ref.type !== 'AXIS') { showToast('Give the axis a name: a word or a number.', true); if (box) box.focus(); return; }
+    if (currentOverlays().some(o => overlayKey(o) === ref.key)) { showToast(`${ref.key} exists already: pick another name.`, true); if (box) box.focus(); return; }
+    const pts = mapState.measure;
+    const axis = { type: 'AXIS', name: ref.name, geometry: { type: 'LineString', coordinates: pts.map(p => [+p.lon.toFixed(6), +p.lat.toFixed(6)]) } };
+    resetMeasure();
+    renderMeasureTools();
+    showMeasure();
+    const undo = () => saveOverlays(sharedOverlays.filter(o => overlayKey(o) !== ref.key), `${ref.key} removed.`);
+    await saveOverlays([...sharedOverlays, axis], `${ref.key} saved for everyone.`, undo);
 };
 // Double-click or Enter: a path, area or route is finished (a click then
 // starts another). The second click of a double-click added a point where
@@ -445,6 +478,12 @@ const finishMeasure = (dbl) => {
     mapState.measureHover = null;
     showMeasure();
     redrawMap();
+    // A drawn axis: its name next, then Save.
+    if (tool === 'axis') {
+        renderMeasureTools();
+        const box = document.getElementById('mapAxisName');
+        if (box) { box.focus(); box.select(); }
+    }
 };
 // What is measured, with its grids, for reading and copying; a screen
 // reader hears it (role=status).
@@ -471,6 +510,11 @@ const showMeasure = () => {
     } else if (tool === 'area') {
         out.textContent = pts.length < 3 ? `Area: click round the shape, three points or more.${pts.length ? ` ${plural(pts.length, 'point')} so far.` : ''}`
             : `Area: ${SaltCore.formatArea(SaltCore.areaMeters(pts), unitSystem)}, perimeter ${dist(SaltCore.pathMeters([...pts, pts[0]]))} (${plural(pts.length, 'point')}).${finish}`;
+    } else if (tool === 'axis') {
+        out.textContent = !pts.length ? 'Draw axis: click where the enemy comes from, then along its way to where it heads.'
+            : pts.length === 1 ? `From ${grid(pts[0])}: click the next point.`
+            : !mapState.measureDone ? `Axis: ${dist(SaltCore.pathMeters(pts))}, from ${grid(pts[0])} to ${grid(pts[pts.length - 1])}.${finish}`
+            : `Axis: ${dist(SaltCore.pathMeters(pts))}, from ${grid(pts[0])} to ${grid(pts[pts.length - 1])}. Name it and Save, or click to draw it again.`;
     } else if (tool === 'path') {
         out.textContent = !pts.length ? 'Path: click points along the way.'
             : pts.length === 1 ? `From ${grid(pts[0])}: click the next point.`
@@ -524,6 +568,7 @@ if (mapBody) {
             if (next) next.focus();
             return;
         }
+        if (e.target.closest('#mapAxisSave')) { saveDrawnAxis(); return; }
         if (e.target.closest('#mapRingClear')) {
             saveRings([], 'Kept rings cleared.');
             const keep = document.getElementById('mapRingKeep');
@@ -537,6 +582,10 @@ if (mapBody) {
         keepMeasureSpeed();
         showMeasure();
         refreshMeasure();
+    });
+    // Enter in the axis's name saves it.
+    mapBody.addEventListener('keydown', e => {
+        if (e.target.id === 'mapAxisName' && e.key === 'Enter') { e.preventDefault(); saveDrawnAxis(); }
     });
     mapBody.addEventListener('input', e => {
         if (e.target.id !== 'mapMeasureSpeed') return;

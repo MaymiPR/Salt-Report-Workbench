@@ -2437,6 +2437,48 @@ class BrowserTests(unittest.TestCase):
         )
         return page.locator("#mapBox").bounding_box()
 
+    def test_an_axis_of_advance_drawn_on_the_map_is_saved_for_everyone(self):
+        self.tidy_tags_and_overlays()
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        box = self.start_measure(page, "axis")
+        page.wait_for_selector("#mapMeasureOut:has-text('where the enemy comes from')")
+        # Under the tools (a row across the map's middle) and over the key at
+        # its foot, which grows a row for the axis.
+        x, y = box["x"] + 240, box["y"] + box["height"] * 0.62 + 40
+        page.mouse.click(x, y)
+        page.mouse.click(x + 50, y - 20)
+        page.mouse.click(x + 100, y - 45)
+        page.focus("#mapBox")
+        page.keyboard.press("Enter")
+        # Finished: named next, the first free number offered.
+        page.wait_for_function("document.activeElement.id === 'mapAxisName'")
+        self.assertEqual(page.input_value("#mapAxisName"), "1")
+        page.fill("#mapAxisName", "Gold")
+        page.press("#mapAxisName", "Enter")
+        page.wait_for_selector("#toastNotification:has-text('AXIS GOLD saved for everyone.')")
+        self.wait_for_server(
+            page,
+            "s => s.overlays.some(o => o.type === 'AXIS' && o.name === 'GOLD' && o.geometry.coordinates.length === 3)",
+        )
+        page.wait_for_selector("#mapSvg .map-axis .map-axis-head")
+        # A name in use asks for another.
+        self.start_measure(page, "axis")
+        page.mouse.click(x, y + 20)
+        page.mouse.click(x + 60, y)
+        page.focus("#mapBox")
+        page.keyboard.press("Enter")
+        page.wait_for_function("document.activeElement.id === 'mapAxisName'")
+        self.assertEqual(page.input_value("#mapAxisName"), "1")
+        page.fill("#mapAxisName", "gold")
+        page.click("#mapAxisSave")
+        page.wait_for_selector("#toastNotification:has-text('AXIS GOLD exists already')")
+        self.assertEqual(page.evaluate("sharedOverlays.filter(o => o.type === 'AXIS').length"), 1)
+        # Viewers can't draw one.
+        viewer = self.open_viewer()
+        self.assertEqual(viewer.locator("[data-measure-tool='axis']:visible").count(), 0)
+
     def test_the_measure_tools_path_area_ring_and_time(self):
         page = self.open_editor()
         self.import_overlays(page)
