@@ -66,11 +66,41 @@ const mapState = {
     // pointer and nothing redraws (app/64-map-controls.js); it is drawn once,
     // at the new view, when the drag ends.
     dragging: false,
-    // The measure tool: on, and the points clicked ([{ lon, lat }], two at
-    // most; a third click starts again from it).
+    // The measure tools (app/64-map-controls.js): on, which one, and the
+    // points clicked ([{ lon, lat }]). Distance takes two (a third click
+    // starts again from it); Path, Area and Time-distance take any number
+    // until finished (`measureDone`); Range ring takes its center, then its
+    // radius (`ringR`, meters). `measureHover` is where the pointer is, for
+    // the line or ring still to be placed.
     measuring: false,
+    measureTool: 'distance',
     measure: [],
+    measureDone: false,
+    ringR: 0,
+    measureHover: null,
+    measurePx: null,       // the last drawing's lon/lat to screen, for refreshMeasure (app/61-map-draw.js)
+    // The time-distance tool's speed: a standard rate by id, and km/h.
+    measureRate: 'road',
+    measureKmh: 40,
+    // Range rings kept on the map, this browser's own: [{ lon, lat, r }], r in meters.
+    rings: (() => {
+        const v = readStored('salt_range_rings', []);
+        return Array.isArray(v) ? v.filter(g => g && isFinite(g.lon) && isFinite(g.lat) && g.r > 0).slice(0, 20) : [];
+    })(),
 };
+// Metric or imperial, this browser's own (Settings > Units): the map's
+// measures and a report's rate of march follow it (SaltCore.formatDistance).
+let unitSystem = storedText('salt_units') === 'imperial' ? 'imperial' : 'metric';
+// A report's rate of march (SaltCore.marchRates) for what it moves as, from
+// the catalogue and the team's equipment: { kind, legs, overall }. Its map
+// card and its history rows in the Report Log show it.
+const marchOf = (r) => {
+    const kind = SaltCore.movementClass(r.size, narrTeam());
+    return { kind, ...SaltCore.marchRates(r, kind) };
+};
+const marchSpeed = (rate, kind) => SaltCore.formatSpeed(rate.kmh, unitSystem, kind);
+// "vehicles", "dismounts", "aircraft": what the rate is reckoned for.
+const MARCH_CLASS_WORDS = { vehicle: 'vehicles', dismount: 'dismounts', aircraft: 'aircraft' };
 const activeBasemap = () => (mapState.baseChoice === 'off' ? null
     : sharedBasemaps.find(b => b.name === mapState.baseChoice) || sharedBasemaps[0] || null);
 

@@ -374,6 +374,17 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
             bdaBtn = `<button class="bda-btn ${state}${worstCls ? ' bda-worst-' + worstCls : ''}${openBdaRows.has(report.id) ? ' open' : ''}" data-bda-id="${escapeHtml(report.id)}" title="${tip}" aria-expanded="${openBdaRows.has(report.id)}">${label}</button>`;
         }
         row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${escapeHtml(report.id)}" title="Select" aria-label="Select ${escapeHtml(shownId)}"${selectedRows.has(rid) ? ' checked' : ''}> ${histBtn} <button class="copy-btn" data-id="${escapeHtml(report.id)}" aria-label="Copy ${escapeHtml(shownId)}">Copy</button>${discardBtn}${renumberBtn}${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${clampCell(report.size, `${rid}|size`)}</td><td class="col-activity">${clampCell(report.activity, `${rid}|activity`)}</td><td class="col-location">${clampCell(report.location, `${rid}|location`)}${locationTags(report.location, report.id)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}</td><td class="col-analysis">${clampCell(report.yourAnalysis, `${rid}|analysis`)}</td>${cusCells(report.custom, rid)}`;
+        // With its updates open: its rate of march from the grid before
+        // (app/60-map.js, marchOf), and overall, under its time.
+        const march = isOpen && report.history && report.history.length ? marchOf(report) : null;
+        const marchCell = (tr, v, withOverall) => {
+            const leg = march.legs.find(l => l.to === v), all = withOverall && march.overall;
+            if (!leg && !all) return;
+            const what = MARCH_CLASS_WORDS[march.kind];
+            tr.querySelector('.col-time').insertAdjacentHTML('beforeend', (leg ? `<span class="march-rate">${escapeHtml(marchSpeed(leg, march.kind))}<span class="visually-hidden"> from the grid before (rate of march, ${what})</span></span>` : '')
+                + (all ? `<span class="march-rate">${escapeHtml(marchSpeed(march.overall, march.kind))} overall<span class="visually-hidden"> (rate of march, ${what})</span></span>` : ''));
+        };
+        if (march) marchCell(row, report, true);
         frag.appendChild(row);
 
         if (bdaMode && openBdaRows.has(report.id)) frag.appendChild(buildBdaRow(report));
@@ -386,6 +397,7 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
                 const hHTML = hRep ? `<span style="color:${safeColor(hRep.color)};">${escapeHtml(hRep.initials)}</span>` : '?';
                 const hk = `${rid}|${h.lastModified}`;
                 hRow.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="history-selector" data-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Select history entry" aria-label="Select update ${arr.length - i} of ${escapeHtml(shownId)}"${selectedHistory.has(hk) ? ' checked' : ''}> <span class="hist-arrow">&#8618;</span> <button class="restore-btn" data-restore-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Restore this version as current">Restore</button></div></td><td class="col-by reporter-col">${hHTML}</td><td class="col-id"><span class="id-cell-wrap">${escapeHtml(formatFullId(report))}<span class="id-updated-badge">(Update #${arr.length - i})</span></span></td><td class="col-size">${clampCell(h.size, `${hk}|size`)}</td><td class="col-activity">${clampCell(h.activity, `${hk}|activity`)}</td><td class="col-location">${clampCell(h.location, `${hk}|location`)}</td><td class="col-time">${escapeHtml(timeFmt(h.time))}</td><td class="col-analysis">${clampCell(h.yourAnalysis, `${hk}|analysis`)}</td>${cusCells(h.custom, hk)}`;
+                if (march) marchCell(hRow, h, false);
                 frag.appendChild(hRow);
             });
         }

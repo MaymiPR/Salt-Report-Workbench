@@ -90,7 +90,8 @@ by the build and by `tests/js/load-core.js`, so the parts share one scope:
 `00-head.js` (opens the function), `10-dates.js` (dates, times, text safety),
 `20-reports.js` (reports, BDA, backups, CSV), `30-geography.js` (MGRS,
 overlays, Location boxes), `40-map.js` (shapefiles read, tracks, heat,
-activity), `50-arcgis.js` (the ArcGIS and shapefile exports),
+activity), `45-measure.js` (units, lengths, areas, range rings, what a
+report moves as and its rate of march), `50-arcgis.js` (the ArcGIS and shapefile exports),
 `60-statistics.js` (statistics, the Excel workbook, summary reports),
 `70-catalogue.js` (the equipment catalogue), `75-doctrine.js` (echelons,
 likelihood terms, the built-in rules, doctrine), `80-narrative.js` (the
@@ -212,7 +213,18 @@ GeoTrans to check it against.
 The map (`app/60-map.js`) draws in screen pixels from Web Mercator, redrawn
 on every pan and zoom. Nothing on it is synced; each browser keeps its own
 choices (`salt_map_layers`, `salt_map_grids`, `salt_map_base`,
-`salt_map_side`, `salt_map_only_in_view`). Tracks, heat and dots come from
+`salt_map_side`, `salt_map_only_in_view`, the kept range rings
+`salt_range_rings`, and Settings > Units, `salt_units`). The measure tools
+(`app/64-map-controls.js`) keep their points in `mapState` and draw in one
+group (`measureLayer`), so the line to the pointer is redrawn alone
+(`refreshMeasure`) rather than the whole map. Lengths, areas and speeds are
+read out by `formatDistance`, `formatArea` and `formatSpeed` in
+`core/45-measure.js`, in metric or imperial, for a class (`vehicle`,
+`dismount`, `aircraft`); `movementClass` takes the class from the
+equipment catalogue's roles, and `marchRates` a report's rate of march from
+its versions (each leg from leaving one grid to reaching the next, and
+overall), leaving out a leg under a minute, with a time that can't be read,
+or faster than `MARCH_MAX_KMH` allows. Tracks, heat and dots come from
 `reportTracks`, `heatPoints` and `reportPositions` in `core/40-map.js`: tracks are a
 report's versions in reported order; heat and dots are each report once at its
 latest grid (*Latest grids*), or every saved version at its grids (*All

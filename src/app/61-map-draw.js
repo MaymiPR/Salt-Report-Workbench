@@ -259,24 +259,67 @@ const reportLayer = (positions, tracks, px) => {
     }).join('')}</g>`;
 };
 
-// "2.4 km, 047° NE" from the first point measured to the second.
-const measureText = ([a, b]) => {
-    const m = SaltCore.metersBetween(a, b), deg = SaltCore.bearingBetween(a, b);
-    const far = m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m < 10000 ? 2 : 1)} km`;
-    return `${far}, ${String(Math.round(deg) % 360).padStart(3, '0')}° ${SaltCore.compass16(deg)}`;
-};
-// The measure tool's line: its ends, and the distance and bearing beside its middle.
+// "2.4 km, 047° NE" from the first point measured to the second, in this
+// browser's units (Settings > Units).
+const measureText = ([a, b]) => `${SaltCore.formatDistance(SaltCore.metersBetween(a, b), unitSystem)}, ${SaltCore.formatBearing(SaltCore.bearingBetween(a, b))}`;
+// The measure tools on the map, and the range rings kept: the line, path or
+// shape clicked, its ends, and its distances beside it; while a point is
+// still to be placed, a fainter line to the pointer. Always one group, so
+// the pointer's line can be redrawn alone (refreshMeasure).
+const MEASURE_LEG_LABELS = 12;
 const measureLayer = (px) => {
+    mapState.measurePx = px;
+    const xy = (p) => px(p.lon, p.lat);
+    const d = (pts, close) => pts.map((p, i) => { const [x, y] = xy(p); return `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`; }).join('') + (close ? 'Z' : '');
+    const stroke = (dd, extra = '') => `<path d="${dd}" class="map-measure-halo" fill="none"/><path d="${dd}" class="map-measure-line${extra}" fill="none"/>`;
+    const label = ([x, y], text, cls = '') => `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" class="map-label map-measure-label${cls}">${svgEsc(text)}</text>`;
+    const mid = (a, b) => { const [x1, y1] = xy(a), [x2, y2] = xy(b); return [(x1 + x2) / 2, (y1 + y2) / 2 - 8]; };
+    const ring = (c, r, cls) => {
+        const round = SaltCore.ringPoints(c, r);
+        const [x, y] = xy(round[0]);
+        return `<path d="${d(round, true)}" class="map-measure-halo" fill="none"/><path d="${d(round, true)}" class="map-measure-line ${cls}" fill="none"/>`
+            + `<circle cx="${xy(c)[0].toFixed(1)}" cy="${xy(c)[1].toFixed(1)}" r="3" class="map-measure-end"/>`
+            + label([x, y - 6], SaltCore.formatDistance(r, unitSystem), ` ${cls}-label`);
+    };
+    const out = mapState.rings.map(g => ring(g, g.r, 'map-ring-kept'));
     const pts = mapState.measuring ? mapState.measure : [];
-    if (!pts.length) return '';
-    const xy = pts.map(p => px(p.lon, p.lat).map(v => v.toFixed(1)));
-    const ends = xy.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="4" class="map-measure-end"/>`).join('');
-    if (xy.length < 2) return `<g class="map-measure" pointer-events="none">${ends}</g>`;
-    const [[x1, y1], [x2, y2]] = xy;
-    const mx = (+x1 + +x2) / 2, my = (+y1 + +y2) / 2 - 8;
-    const line = (cls) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="${cls}"/>`;
-    return `<g class="map-measure" pointer-events="none">${line('map-measure-halo')}${line('map-measure-line')}${ends}`
-        + `<text x="${mx.toFixed(1)}" y="${my.toFixed(1)}" text-anchor="middle" class="map-label map-measure-label">${svgEsc(measureText(pts))}</text></g>`;
+    const tool = mapState.measureTool, hover = mapState.measureHover;
+    const ends = pts.map(p => { const [x, y] = xy(p); return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" class="map-measure-end"/>`; }).join('');
+    if (pts.length && tool === 'ring') {
+        const r = mapState.ringR || (hover ? SaltCore.metersBetween(pts[0], hover) : 0);
+        if (r > 0) out.push(ring(pts[0], r, mapState.ringR ? 'map-ring-now' : 'map-measure-preview'));
+        out.push(ends);
+    } else if (pts.length) {
+        const open = !mapState.measureDone && hover && (tool !== 'distance' || pts.length === 1);
+        if (open) out.push(`<path d="${d(tool === 'area' && pts.length > 1 ? [pts[pts.length - 1], hover, pts[0]] : [pts[pts.length - 1], hover])}" class="map-measure-line map-measure-preview" fill="none"/>`);
+        if (tool === 'area' && pts.length > 2) out.push(`<path d="${d(pts, true)}" class="map-measure-area"/>`);
+        if (pts.length > 1) out.push(stroke(d(pts, tool === 'area' && pts.length > 2)));
+        out.push(ends);
+        if (tool === 'distance' && pts.length > 1) out.push(label(mid(pts[0], pts[1]), measureText(pts)));
+        else if (tool === 'area' && pts.length > 2) {
+            const c = pts.map(xy).reduce((s, [x, y]) => [s[0] + x / pts.length, s[1] + y / pts.length], [0, 0]);
+            out.push(label(c, SaltCore.formatArea(SaltCore.areaMeters(pts), unitSystem)));
+        } else if (tool !== 'area' && pts.length > 1) {
+            if (pts.length - 1 <= MEASURE_LEG_LABELS) pts.slice(1).forEach((p, i) => out.push(label(mid(pts[i], p), measureText([pts[i], p]), ' map-measure-leg')));
+            const [x, y] = xy(pts[pts.length - 1]);
+            out.push(label([x, y + 18], measureTotal(pts), ' map-measure-total'));
+        }
+    }
+    return `<g class="map-measure" pointer-events="none">${out.join('')}</g>`;
+};
+// A path's total for its label: its length, and for Time-distance how long it takes.
+const measureTotal = (pts) => {
+    const m = SaltCore.pathMeters(pts);
+    if (mapState.measureTool !== 'time') return SaltCore.formatDistance(m, unitSystem);
+    const rate = measureRate();
+    return `${SaltCore.formatDistance(m, unitSystem, rate.kind)}${mapState.measureKmh > 0 ? `, ${SaltCore.formatDuration(m / 1000 / mapState.measureKmh)}` : ''}`;
+};
+// The pointer's line alone, without drawing the rest of the map again.
+const refreshMeasure = () => {
+    const g = document.querySelector('#mapSvg .map-measure');
+    if (!g || !mapState.measurePx || mapState.dragging) { redrawMap(); return; }
+    g.insertAdjacentHTML('afterend', measureLayer(mapState.measurePx));
+    g.remove();
 };
 
 // A ring round the picked report, in every mode.

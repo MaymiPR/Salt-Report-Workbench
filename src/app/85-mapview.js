@@ -138,13 +138,21 @@ const renderMapCard = () => {
     const local = timeDisplayMode === 'local';
     const row = (label, value) => (value ? `<div class="map-card-row"><span>${label}</span><div>${escapeHtml(value)}</div></div>` : '');
     const b = SaltCore.bdaSummary(r);
+    // Its rate of march when its track has times to go by: overall (or its
+    // one leg), then each leg's, in this browser's units for what it is.
+    const march = (r.history || []).length ? marchOf(r) : { legs: [] };
+    const all = march.overall, as = ` (as ${MARCH_CLASS_WORDS[march.kind]})`, legs = march.legs.map(l => marchSpeed(l, march.kind)).join(', ');
+    const marchRows = !march.legs.length ? ''
+        : !all ? row('Rate of march', `${legs}${as}`)
+        : row('Rate of march', `${marchSpeed(all, march.kind)}${march.legs.length > 1 ? ' overall' : ''}, ${SaltCore.formatDistance(all.meters, unitSystem, march.kind)} in ${SaltCore.formatDuration(all.hours)}${as}`)
+            + (march.legs.length > 1 ? row('Each leg', legs) : '');
     card.innerHTML = `
         <div class="map-card-head"><strong>${escapeHtml(formatFullId(r))}</strong>
             <button type="button" class="map-card-close" data-card-act="close" title="Close" aria-label="Close">&times;</button></div>
         ${row('Size', r.size)}${row('Activity', r.activity)}${row('Location', r.location)}
         ${row(local ? 'Time (L)' : 'Time (Z)', mapTimeFmt(r.time))}${row('Analysis', r.yourAnalysis)}
         ${b.total && (r.bda || []).length ? row('BDA', `${b.done} of ${b.total} assessed`) : ''}
-        ${(r.history || []).length ? row('Updates', String(r.history.length)) : ''}
+        ${(r.history || []).length ? row('Updates', String(r.history.length)) : ''}${marchRows}
         <div class="map-card-actions">
             <button type="button" class="text-btn" data-card-act="table">Show in Table</button>
             <button type="button" class="text-btn editor-only" data-card-act="edit">Edit</button>
