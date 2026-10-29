@@ -567,7 +567,7 @@ const summaryDetail = (kind, reps, overlays, opts) => {
             out.push(...(list.length ? list.map(f => reportLine(f, local)) : ['None in this period.']));
         }
     } else if (kind === 'narrative') {
-        const n = narrativeLines(cur, prev, { local, hrs, end: to === null ? now.getTime() : to, places: placesTop, settings: narrative, width });
+        const n = narrativeLines(cur, prev, { local, hrs, end: to === null ? now.getTime() : to, places: placesTop, settings: narrative, overlays, width });
         judgments = n.judgments.map(j => ({ ...j, line: out.length + j.line }));
         out.push(...n.lines);
     } else if (kind === 'brief') {
@@ -589,7 +589,7 @@ const summaryDetail = (kind, reps, overlays, opts) => {
 const summaryPlaces = (reps, overlays) => {
     const d = statsData(reps, overlays, {});
     // NAI, OBJ and PL only: the team's own tags name places in Location, not here.
-    const builtIn = (overlays || []).filter(o => overlayOk(o) && OVERLAY_TYPES.has(o.type));
+    const builtIn = (overlays || []).filter(o => overlayOk(o) && PLACE_TYPES.has(o.type));
     const keys = new Set([...builtIn.map(overlayKey), ...d.nai, ...d.obj, ...d.pl].map(x => x.label || x));
     const order = { NAI: 0, OBJ: 1, PL: 2 };
     return [...keys].sort((a, b) => order[a.split(' ')[0]] - order[b.split(' ')[0]] || a.localeCompare(b, undefined, { numeric: true }));

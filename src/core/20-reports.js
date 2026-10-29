@@ -240,8 +240,14 @@ const backupMachineData = (payload) =>
 // The built-in overlay types, as the server's _OVERLAY_TYPES, and how deep
 // each geometry's coordinates nest above the [lon, lat] pairs (its
 // _GEOMETRY_DEPTH). An overlay's type can also be one of the team's own tags,
-// by its id (TAG_ID, as the server's _TAG_ID_RE), or '' for none.
-const OVERLAY_TYPES = new Set(['NAI', 'OBJ', 'PL']);
+// by its id (TAG_ID, as the server's _TAG_ID_RE), or '' for none. NAI, OBJ
+// and PL name places (PLACE_TYPES); an axis of advance (AXIS) names none: it
+// gives the enemy's way of march near it (wayOfMarchAt).
+const PLACE_TYPES = new Set(['NAI', 'OBJ', 'PL']);
+const OVERLAY_TYPES = new Set([...PLACE_TYPES, 'AXIS']);
+// The names a tag of the team's can't have: the built-in tags', as the
+// server's _BUILT_IN_TAG_NAMES.
+const BUILT_IN_TAG_NAMES = new Set([...OVERLAY_TYPES, 'AXIS OF ADVANCE']);
 const TAG_ID = /^tag-[a-z0-9]{1,16}$/;
 const isOverlayType = (t) => typeof t === 'string' && (OVERLAY_TYPES.has(t) || t === '' || TAG_ID.test(t));
 const GEOMETRY_DEPTH = { Point: 0, LineString: 1, Polygon: 2, MultiLineString: 2, MultiPolygon: 3 };
@@ -293,7 +299,7 @@ const cleanTags = (value) => {
         if (!t || typeof t !== 'object' || typeof t.id !== 'string' || !TAG_ID.test(t.id) || ids.has(t.id)) return false;
         const name = typeof t.name === 'string' ? t.name.trim() : '';
         const key = name.toUpperCase();
-        if (!name || name.length > 30 || names.has(key) || OVERLAY_TYPES.has(key)) return false;
+        if (!name || name.length > 30 || names.has(key) || BUILT_IN_TAG_NAMES.has(key)) return false;
         if (typeof t.color !== 'string' || !/^#[0-9A-Fa-f]{6}$/.test(t.color)) return false;
         ids.add(t.id); names.add(key);
         return true;

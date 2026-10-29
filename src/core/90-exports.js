@@ -19,6 +19,7 @@ const SaltCore = {
     reportKey, knownVersions, changedReports, withUnsaved,
     MOVEMENT_CLASSES, formatDistance, speedUnit, kmhPerSpeedUnit, formatSpeed, formatArea, formatDuration, formatBearing,
     pathMeters, areaMeters, ringPoints, STANDARD_RATES, movementClass, MARCH_MAX_KMH, marchRates,
+    nearestSegment, AXIS_NEAR_METERS, wayOfMarchAt, axesOf, wayRelation,
 };
 
 if (typeof module === 'object' && module.exports) module.exports = SaltCore;
