@@ -7,7 +7,7 @@ const SaltCore = {
     escapeHtml, safeColor, safeFilename,
     atoPrefix, reportNum, duplicateIds, nextNum, displayId, formatFullId, reportText, normalizeLocation, mgrsPrefix, applyMgrsPrefix,
     BDA_EFFECTS, bdaElements, bdaSummary, bdaRollup, bdaCount, bdaPending,
-    backupFilename, foldOverlays, overlayKey, backupText, allWorkspacesBackupText, parseBackup,
+    backupFilename, foldOverlays, overlayKey, cleanTags, TAG_ID, backupText, allWorkspacesBackupText, parseBackup,
     parseCsv, reportsCsv, mtiCsvs,
     utmToLatLon, gridToLatLon, latLonToMgrs, findGrids, findRefs, overlayRef, geometryContains, metersToGeometry,
     webMercatorToLonLat, readDbf, shapefileProjection, parseShapefile,

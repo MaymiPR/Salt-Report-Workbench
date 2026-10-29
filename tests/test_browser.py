@@ -1398,6 +1398,113 @@ class BrowserTests(unittest.TestCase):
             page, "s => s.overlays.map(o => o.type + ' ' + o.name).join() === 'NAI 1,NAI 2'"
         )
 
+    def post_to_server(self, path, body):
+        """A save straight to the server, as the host's own machine (trusted)."""
+        req = urllib.request.Request(
+            self.editor + path,
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json", "Cookie": f"salt_access={CODE}"},
+        )
+        urllib.request.urlopen(req, timeout=5, context=ssl._create_unverified_context()).close()
+
+    def test_custom_tags_sort_draw_and_name_graphics(self):
+        # The tags and overlays are every test's: start with none, and leave none.
+        def tidy():
+            self.post_to_server("/api/save_tags", {"tags": []})
+            self.post_to_server("/api/save_overlays", {"overlays": [], "tagged": True})
+
+        tidy()
+        self.addCleanup(tidy)
+        page = self.open_editor()
+        self.import_overlays(page)
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.fill("#overlayTagNewName", "Routes")
+        page.press("#overlayTagNewName", "Enter")
+        page.wait_for_selector("#toastNotification:has-text('Tag Routes added.')")
+        self.wait_for_server(page, "s => s.tags.length === 1 && s.tags[0].name === 'Routes'")
+        tag = page.evaluate("sharedTags[0].id")
+        self.assertRegex(tag, r"^tag-[a-z0-9]+$")
+        page.click("[data-overlay-fold='open']")
+        # Checked: one, then Shift-click for the run to another, then let go.
+        picks = "#overlaysBody .overlay-pick"
+        page.click(f"{picks}[data-pick='NAI 1']")
+        page.click(f"{picks}[data-pick='OBJ BRIDGE']", modifiers=["Shift"])
+        self.assertEqual(page.text_content(".overlay-bulk-count"), "3 selected")
+        page.click("#overlayBulkClearBtn")
+        page.wait_for_selector("#overlayBulk", state="hidden")
+        # In bulk: OBJ BRIDGE and PL BLUE go to Routes, keeping their names in the file.
+        page.click(f"{picks}[data-pick='OBJ BRIDGE']")
+        page.click(f"{picks}[data-pick='PL BLUE']")
+        page.select_option("#overlayBulkTag", tag)
+        page.click("#overlayBulkAddBtn")
+        page.wait_for_selector("#toastNotification:has-text('2 graphics tagged Routes.')")
+        self.wait_for_server(
+            page,
+            f"s => s.overlays.filter(o => o.type === '{tag}').map(o => o.name).sort().join() === 'BLUE,Bridge'",
+        )
+        page.wait_for_selector(f".overlay-group[data-overlay-group='{tag}']")
+        # A report inside the area of a tag gets the area's name, as an NAI's.
+        page.click("#exportViewToggleBtn")
+        self.log(page, "3x T-72", location="38SMB4200092000")
+        cell = "#reportLogBody tr[data-id] .col-location"
+        self.assertEqual(
+            page.locator(cell).first.evaluate("td => td.firstChild.textContent"),
+            "38SMB4200092000, Bridge",
+        )
+        # Drawn in the tag's color, with a switch in the key of its own.
+        color = page.evaluate("sharedTags[0].color")
+        self.open_map(page)
+        area = f"#mapSvg .map-overlays path[fill='{color}']"
+        page.wait_for_selector(area)
+        self.assertGreater(
+            page.locator(
+                f"#mapSvg .map-overlays path[stroke='#000000'] + path[stroke='{color}']"
+            ).count(),
+            0,
+            "a line: its color on a black edge",
+        )
+        keys = page.locator("#mapLegend .map-key-tag").all_text_contents()
+        self.assertEqual(keys, ["NAI", "OBJ", "PL", "Routes"])
+        page.click(f"#mapLegend [data-map-tag='{tag}']")
+        page.wait_for_selector(area, state="detached")
+        self.assertEqual(
+            page.get_attribute(f"#mapLegend [data-map-tag='{tag}']", "aria-pressed"), "false"
+        )
+        page.click(f"#mapLegend [data-map-tag='{tag}']")
+        page.wait_for_selector(area)
+        # One at a time: BLUE back to a phase line from its row.
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.click("[data-overlay-fold='open']")
+        page.select_option("[aria-label='Tag of BLUE']", "PL")
+        page.wait_for_selector("#toastNotification:has-text('BLUE is PL BLUE now.')")
+        self.wait_for_server(
+            page, "s => s.overlays.some(o => o.type === 'PL' && o.name === 'BLUE')"
+        )
+        # Renamed and recolored for everyone.
+        page.fill(f"[data-tag-name='{tag}']", "Supply routes")
+        page.press(f"[data-tag-name='{tag}']", "Enter")
+        self.wait_for_server(page, "s => s.tags[0].name === 'Supply routes'")
+        page.locator(f"[data-tag-color='{tag}']").evaluate(
+            "i => { i.value = '#123456'; i.dispatchEvent(new Event('change', { bubbles: true })); }"
+        )
+        self.wait_for_server(page, "s => s.tags[0].color === '#123456'")
+        # Deleted on the second press: Bridge stays, with no tag; Undo gives it back.
+        page.click(f"[data-remove-tag='{tag}']")
+        page.wait_for_selector(
+            f"[data-tag-row='{tag}'] .map-base-ask:has-text('Delete for everyone?')"
+        )
+        page.click(f"[data-remove-tag='{tag}']")
+        page.wait_for_selector(
+            "#toastNotification:has-text('Tag Supply routes deleted; its graphic has no tag now.')"
+        )
+        self.wait_for_server(page, "s => !s.tags.length")
+        page.wait_for_selector(".overlay-group[data-overlay-group='none']")
+        page.click("#toastNotification .toast-undo")
+        self.wait_for_server(page, "s => s.tags.length === 1")
+        page.wait_for_selector(f".overlay-group[data-overlay-group='{tag}']")
+
     def test_an_overlay_is_removed_on_the_second_press(self):
         # Regression: one press of the × removed it for everyone.
         page = self.open_editor()

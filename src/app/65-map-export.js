@@ -74,7 +74,8 @@ const loadImage = (src, cors) => new Promise(resolve => {
 });
 const svgImage = (markup) => loadImage('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(markup), false);
 
-// The key as drawn on the canvas: the map's own key, each swatch and its words.
+// The key as drawn on the canvas: the map's own key, each swatch and its words
+// (a tag switched off in it is left out, as its graphics are).
 const drawMapKey = async (ctx, keys, x0, y0, width) => {
     let x = x0, y = y0;
     for (const k of keys) {
@@ -105,7 +106,7 @@ const drawMapKey = async (ctx, keys, x0, y0, width) => {
 const drawMapCanvas = async (withBase) => {
     const m = mapEls();
     const w = m.box.clientWidth, h = m.box.clientHeight, scale = 2;
-    const keys = [...m.legend.querySelectorAll('.map-key')];
+    const keys = [...m.legend.querySelectorAll('.map-key:not(.off)')];
     const t = mapExportTitle();
     // The key's rows, measured first, so the image is as tall as it needs.
     const probe = document.createElement('canvas').getContext('2d');
@@ -186,7 +187,7 @@ const printMap = () => {
     base.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     base.setAttribute('viewBox', `0 0 ${w} ${h}`);
     const over = mapStyledCopy(m.svg);
-    const key = [...m.legend.querySelectorAll('.map-key')].map(k => {
+    const key = [...m.legend.querySelectorAll('.map-key:not(.off)')].map(k => {
         const ramp = k.querySelector('.map-ramp'), sw = k.querySelector('svg');
         const mark = ramp ? `<span class="ramp" style="background:${getComputedStyle(ramp).backgroundImage}"></span>`
             : sw ? new XMLSerializer().serializeToString(mapStyledCopy(sw)) : '';

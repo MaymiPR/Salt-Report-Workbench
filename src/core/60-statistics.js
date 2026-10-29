@@ -588,7 +588,9 @@ const summaryDetail = (kind, reps, overlays, opts) => {
 // Every place the summaries can be about: overlays, and whatever is named.
 const summaryPlaces = (reps, overlays) => {
     const d = statsData(reps, overlays, {});
-    const keys = new Set([...(overlays || []).filter(overlayOk).map(overlayKey), ...d.nai, ...d.obj, ...d.pl].map(x => x.label || x));
+    // NAI, OBJ and PL only: the team's own tags name places in Location, not here.
+    const builtIn = (overlays || []).filter(o => overlayOk(o) && OVERLAY_TYPES.has(o.type));
+    const keys = new Set([...builtIn.map(overlayKey), ...d.nai, ...d.obj, ...d.pl].map(x => x.label || x));
     const order = { NAI: 0, OBJ: 1, PL: 2 };
     return [...keys].sort((a, b) => order[a.split(' ')[0]] - order[b.split(' ')[0]] || a.localeCompare(b, undefined, { numeric: true }));
 };

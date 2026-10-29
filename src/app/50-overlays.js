@@ -2,7 +2,8 @@
 
 // Overlays: NAI / OBJ / PL features imported from KML, KMZ, GeoJSON or a
 // shapefile (as ArcGIS exports them), reviewed, then saved as one set shared by every
-// workspace, and synced.
+// workspace, and synced. Each graphic has one tag: NAI, OBJ, PL, one of the
+// team's own (made, renamed and recolored here, shared too) or none.
 // One of the ordered scripts that make up the page (see src/app/); they
 // share one top-level scope, so names declared earlier are visible here.
 
@@ -189,19 +190,124 @@ const readOverlayFile = async (file) => {
     return geojsonFeatures(obj, name);
 };
 
+// --- Tags ---
+
+// A graphic's tag is its overlay's type. NAI, OBJ and PL are built in; the
+// team's own are shared (sharedTags: { id, name, color }, saved with
+// /api/save_tags), and a graphic of one has the tag's id as its type, so a
+// rename changes no graphic. A type no tag has any more (its tag was
+// deleted), or '', is no tag: the graphic is kept, drawn gray, and names
+// nothing. `shape` is how a tag's graphics are read: 'area' (a path is closed
+// into one: NAI, OBJ), 'line' (as drawn: PL) or 'any' (as drawn; an area
+// names the reports inside it, a line or a point doesn't). A later built-in
+// tag (an axis of advance, a line) is one more entry here, with its color in
+// MAP_COLORS and its id in the server's _OVERLAY_TYPES.
+const BUILTIN_TAGS = [
+    { id: 'NAI', name: 'NAI', title: 'NAIs', many: 'NAIs', shape: 'area' },
+    { id: 'OBJ', name: 'OBJ', title: 'Objectives', many: 'OBJs', shape: 'area' },
+    { id: 'PL', name: 'PL', title: 'Phase lines', many: 'PLs', shape: 'line' },
+];
+const OVERLAY_TYPES = BUILTIN_TAGS.map(t => t.id);
+// A type's tag, with its color: built in, the team's, or none (its key 'none').
+const tagOf = (type) => {
+    const b = BUILTIN_TAGS.find(t => t.id === type);
+    if (b) return { ...b, key: b.id, color: MAP_COLORS[b.id], builtIn: true };
+    const t = sharedTags.find(x => x.id === type);
+    if (t) return { ...t, key: t.id, title: t.name, many: t.name, shape: 'any', builtIn: false };
+    return { id: '', key: 'none', name: 'None', title: 'No tag', many: 'untagged', shape: 'any', color: MAP_COLORS.none, builtIn: false, none: true };
+};
+// Every tag a graphic can have, the built-in ones first.
+const everyTag = () => [...BUILTIN_TAGS, ...sharedTags].map(t => tagOf(t.id));
+// A tag's color as a dot, to go before a name.
+const tagDot = (type) => `<i class="tag-dot" style="background:${SaltCore.safeColor(tagOf(type).color)}" aria-hidden="true"></i>`;
+// A graphic by name, as reports name it: "NAI 1"; one of the team's tags (or
+// of none) by its own name, "Route Gold".
+const graphicName = (o) => (tagOf(o.type).builtIn ? overlayKey(o) : o.name);
+
+// A new tag's color: one no tag has yet, if there is one.
+const TAG_COLORS = ['#ff9f0a', '#bf5af2', '#ff375f', '#64d2ff', '#ffd60a', '#ac8e68', '#5e5ce6', '#30b0c7', '#ff6482', '#a2845e'];
+const nextTagColor = () => TAG_COLORS.find(c => !sharedTags.some(t => t.color === c)) || TAG_COLORS[sharedTags.length % TAG_COLORS.length];
+// What is wrong with a name for a tag (`id`: the tag being renamed), or ''.
+// The server takes the same: 30 characters, names unique, none built in.
+const tagNameProblem = (name, id = null) => {
+    if (!name) return 'Type a name for the tag first.';
+    if (name.length > 30) return 'A tag\'s name is 30 characters at most.';
+    if (OVERLAY_TYPES.includes(name.toUpperCase())) return `${name.toUpperCase()} is built in already.`;
+    if (sharedTags.some(t => t.id !== id && t.name.toUpperCase() === name.toUpperCase())) return `There is a tag named ${name} already.`;
+    return '';
+};
+// Resolves true when the server took them; refused, they're put back.
+const saveTags = (list, said = '', undo = null) => {
+    const before = sharedTags;
+    const shown = () => { storeTags(); renderOverlays(); renderLog(); renderLocationHints(); renderMapView(); };
+    sharedTags = list;
+    shown();
+    return saveShared('/api/save_tags', { tags: list }, { said, undo, older: 'Not saved: this server is from before tags. Update it to use them.', putBack: () => {
+        if (sharedTags === list) { sharedTags = before; shown(); }
+    } });
+};
+// What is being typed in the tags' boxes, kept over a redraw (a sync draws
+// the tab again): the new tag's name and color, and each rename not yet made.
+const tagDraft = { name: '', color: '' };
+const tagRenames = new Map();
+const addTag = async () => {
+    const name = tagDraft.name.trim();
+    const problem = tagNameProblem(name);
+    if (problem) { showToast(problem, true); return; }
+    if (sharedTags.length >= 30) { showToast('There are 30 tags already, the most there can be.', true); return; }
+    const color = /^#[0-9a-f]{6}$/i.test(tagDraft.color) ? tagDraft.color.toLowerCase() : nextTagColor();
+    const tag = { id: `tag-${generateUUID().replace(/-/g, '').slice(0, 12).toLowerCase()}`, name, color };
+    tagDraft.name = ''; tagDraft.color = '';
+    if (!(await saveTags([...sharedTags, tag], `Tag ${name} added.`))) { tagDraft.name = name; renderOverlays(); }
+};
+const renameTag = (id, text) => {
+    const t = sharedTags.find(x => x.id === id);
+    tagRenames.delete(id);
+    const name = String(text || '').trim();
+    if (!t || name === t.name) { renderOverlays(); return; }
+    const problem = tagNameProblem(name, id);
+    if (problem) { showToast(problem, true); renderOverlays(); return; }
+    saveTags(sharedTags.map(x => (x.id === id ? { ...x, name } : x)), `Tag ${t.name} renamed ${name}.`);
+};
+const recolorTag = (id, color) => {
+    const t = sharedTags.find(x => x.id === id);
+    if (!t || !/^#[0-9a-f]{6}$/i.test(color) || color.toLowerCase() === t.color) return;
+    saveTags(sharedTags.map(x => (x.id === id ? { ...x, color: color.toLowerCase() } : x)), `Tag ${t.name} recolored.`);
+};
+// A tag's × pressed once asks "Delete for everyone?" in its name, as an
+// overlay's does; a second press deletes it. Its graphics stay, with no tag,
+// and Undo gives it back with them.
+const putTagBack = async (t) => {
+    if (sharedTags.some(x => x.id === t.id)) { showToast('Nothing left to put back.', true); return; }
+    const problem = tagNameProblem(t.name, t.id);
+    if (problem) { showToast(problem, true); return; }
+    if (await saveTags([...sharedTags, t])) showToast(`Tag ${t.name} put back.`);
+};
+const deleteTag = (id) => {
+    const t = sharedTags.find(x => x.id === id);
+    if (!t || !askFirst(`tag|${id}`, renderOverlays)) return;
+    const n = currentOverlays().filter(o => o.type === id).length;
+    const left = n ? `; ${n === 1 ? 'its graphic has' : `its ${n} graphics have`} no tag now` : '';
+    saveTags(sharedTags.filter(x => x.id !== id), `Tag ${t.name} deleted${left}.`, () => putTagBack(t));
+};
+
 // --- Review, then save ---
 
-const OVERLAY_TYPES = ['NAI', 'OBJ', 'PL'];
 const SHAPE_LABEL = { Polygon: 'Area', MultiPolygon: 'Area', LineString: 'Line', MultiLineString: 'Line', Point: 'Point', MultiPoint: 'Point' };
 let overlayReview = null;  // { rows: [{ label, geometry, type }], files: [names] }
 
-// The overlay a review row becomes with the type picked for it.
+// The overlay a review row becomes with the tag picked for it. A built-in
+// tag's graphics are named as typed names are ("NAI 3"); the team's keep
+// their name in the file ("Route Gold").
 const reviewOverlay = (row) => {
-    if (!row.type) return null;
+    const tag = row.type ? tagOf(row.type) : null;
+    if (!tag || tag.none) return null;   // skipped, or its tag was deleted meanwhile
+    const label = row.label ? { label: row.label.slice(0, 100) } : {};
+    if (!tag.builtIn) return { type: row.type, name: (row.label || '').trim().slice(0, 40) || 'UNNAMED', ...label, geometry: row.geometry };
     const ref = SaltCore.overlayRef(row.label, row.type);
     const name = (ref ? ref.name : 'UNNAMED').slice(0, 40);
-    const geometry = row.type === 'PL' ? row.geometry : SaltCore.asArea(row.geometry);
-    return { type: row.type, name, ...(row.label ? { label: row.label.slice(0, 100) } : {}), geometry };
+    const geometry = tag.shape === 'area' ? SaltCore.asArea(row.geometry) : row.geometry;
+    return { type: row.type, name, ...label, geometry };
 };
 
 const startOverlayImport = async (files) => {
@@ -247,13 +353,15 @@ const mergeOverlays = (list, incoming) => {
     return [...list.filter(o => !keys.has(overlayKey(o))), ...incoming];
 };
 
-// Resolves true when the server took them; refused, they're put back.
+// Resolves true when the server took them; refused, they're put back. Every
+// graphic is sent, whatever its tag (`tagged`): a server keeps the ones a
+// page from before tags never saw when that page saves.
 const saveOverlays = (list, said = '', undo = null) => {
     const before = sharedOverlays;
-    const shown = () => { storeOverlays(); renderOverlays(); renderLog(); renderLocationHints(); };
+    const shown = () => { storeOverlays(); renderOverlays(); renderLog(); renderLocationHints(); renderMapView(); };
     sharedOverlays = list;
     shown();
-    return saveShared('/api/save_overlays', { overlays: list }, { said, undo, putBack: () => {
+    return saveShared('/api/save_overlays', { overlays: list, tagged: true }, { said, undo, putBack: () => {
         if (sharedOverlays === list) { sharedOverlays = before; shown(); }
     } });
 };
@@ -268,14 +376,21 @@ const finishOverlayImport = async () => {
     overlayReview = null;
     if (await saveOverlays(mergeOverlays(currentOverlays(), added))) {
         const n = t => added.filter(o => o.type === t).length;
+        const own = added.filter(o => !OVERLAY_TYPES.includes(o.type)).length;
         showToast(`Imported ${plural(added.length, 'overlay')}: ${n('NAI')} NAI, ${n('OBJ')} OBJ, ${n('PL')} PL`
+            + (own ? `, ${own} with your own tags` : '')
             + (replaced ? ` (${replaced} replaced an older one).` : '.'));
     }
 };
 
 // --- The Map tab: the ops graphics ---
 
-const overlayGroupsOpen = new Set();   // the groups opened, by type
+const overlayGroupsOpen = new Set();   // the groups opened, by their tag's key
+// The graphics checked in the list (by overlayKey), and the last one
+// clicked, where a Shift-click's range starts. Kept over a redraw.
+const overlayPicks = new Set();
+let overlayPickFrom = null;
+let overlayBulkTag = null;   // the tag picked in the bar over the list, by id
 // An overlay's × pressed once: its name asks "Remove for everyone?" in
 // place, as a basemap's does, and a second press removes it. Unload All
 // and each list's Unload ask on their own faces (askFirst, app/10-state.js).
@@ -290,28 +405,146 @@ const removeOverlays = async (gone, said) => {
     if (!gone.length) return;
     const keys = new Set(gone.map(overlayKey));
     if (await saveOverlays(currentOverlays().filter(o => !keys.has(overlayKey(o))))) {
-        undoToast(said, () => putOverlaysBack(gone, `${gone.length === 1 ? overlayKey(gone[0]) : `${gone.length} overlays`} put back.`));
+        undoToast(said, () => putOverlaysBack(gone, `${gone.length === 1 ? graphicName(gone[0]) : `${gone.length} overlays`} put back.`));
     }
 };
-const renderOverlays = () => {
-    const box = document.getElementById('overlaysBody');
-    if (!box) return;
+
+// A graphic given another tag (or none, ''): what it then is. A built-in
+// tag's graphics are named by one word, read from the name in the file as
+// an import does ("NAI 3" as an OBJ is OBJ 3); the team's by a name in full.
+// The shape stays as drawn: the map and the Location read it by its tag.
+const retagged = (o, type) => {
+    if (o.type === type) return o;
+    const name = tagOf(type).builtIn ? ((SaltCore.overlayRef(o.label || o.name, type) || {}).name || 'UNNAMED')
+        : tagOf(o.type).builtIn ? (o.label || overlayKey(o)).trim() : o.name;
+    return { ...o, type, name: name.slice(0, 40) || 'UNNAMED' };
+};
+// Give graphics a tag, or none (''). One that would then have the name of
+// another graphic with that tag is left as it is, and that is said. Undo
+// gives them back the tags they had.
+const retagGraphics = async (picked, type) => {
+    const to = tagOf(type);
+    const moves = picked.map(o => [o, retagged(o, type)]).filter(([o, n]) => n !== o);
+    if (!moves.length) {
+        showToast(to.none ? 'They have no tag already.' : `${picked.length === 1 ? 'It is' : 'They are'} in ${to.title} already.`);
+        return false;
+    }
+    const list = currentOverlays();
+    const moving = new Set(moves.map(([o]) => overlayKey(o)));
+    const taken = new Set(list.filter(o => !moving.has(overlayKey(o))).map(overlayKey));
+    const into = new Map();   // old key -> the graphic as it now is
+    let clash = 0;
+    moves.forEach(([o, n]) => {
+        const k = overlayKey(n);
+        if (taken.has(k)) { clash++; return; }
+        taken.add(k);
+        into.set(overlayKey(o), n);
+    });
+    const same = `${plural(clash, 'graphic')} would have the name of one in ${to.title} already`;
+    if (!into.size) { showToast(`Not changed: ${same}.`, true); return false; }
+    const was = new Map(list.map(o => [overlayKey(o), o]));
+    let said;
+    if (into.size === 1) {
+        const [[k, n]] = [...into];
+        const before = graphicName(was.get(k)), now = graphicName(n);
+        said = to.none ? `${before} has no tag now`
+            : to.builtIn ? `${before} is ${now} now`
+            : `${before} is in ${to.name} now${now !== before ? `, as ${now}` : ''}`;
+    } else said = to.none ? `${plural(into.size, 'graphic')} taken out of their tags` : `${plural(into.size, 'graphic')} tagged ${to.name}`;
+    if (clash) said += `; ${same}, so ${clash === 1 ? 'it is' : 'they are'} as ${clash === 1 ? 'it was' : 'they were'}`;
+    // Undo: each one still as it was made, and whose old name is free, goes back.
+    const undo = async () => {
+        const now = currentOverlays(), keys = new Set(now.map(overlayKey));
+        const back = new Map();
+        into.forEach((n, k) => {
+            const nk = overlayKey(n);
+            if (keys.has(nk) && (k === nk || !keys.has(k))) back.set(nk, was.get(k));
+        });
+        if (!back.size) { showToast('Nothing left to put back.', true); return; }
+        if (await saveOverlays(now.map(o => back.get(overlayKey(o)) || o))) {
+            showToast(back.size === 1 ? `${graphicName([...back.values()][0])} has its tag back.` : `${plural(back.size, 'graphic')} have their tags back.`);
+        }
+    };
+    moving.forEach(k => overlayPicks.delete(k));
+    return saveOverlays(list.map(o => into.get(overlayKey(o)) || o), `${said}.`, undo);
+};
+
+// Checking a graphic in the list; with Shift, every one shown from the last
+// one clicked to this one goes the same way.
+const pickOverlay = (box, range) => {
+    const boxes = [...document.querySelectorAll('#overlaysBody .overlay-pick')].filter(b => b.getClientRects().length);
+    const from = range && overlayPickFrom !== null ? boxes.findIndex(b => b.dataset.pick === overlayPickFrom) : -1;
+    const at = boxes.indexOf(box);
+    const span = from >= 0 && at >= 0 ? boxes.slice(Math.min(from, at), Math.max(from, at) + 1) : [box];
+    span.forEach(b => {
+        b.checked = box.checked;
+        if (box.checked) overlayPicks.add(b.dataset.pick); else overlayPicks.delete(b.dataset.pick);
+    });
+    overlayPickFrom = box.dataset.pick;
+    renderOverlayBulk();
+};
+// The bar over the list while graphics are checked: add them to a tag, or
+// take them out of theirs.
+const renderOverlayBulk = () => {
+    const bar = document.getElementById('overlayBulk');
+    if (!bar) return;
+    const n = overlayPicks.size;
+    bar.hidden = !n;
+    if (!n) { bar.innerHTML = ''; return; }
+    const tags = everyTag();
+    if (!tags.some(t => t.id === overlayBulkTag)) overlayBulkTag = (sharedTags[0] || BUILTIN_TAGS[0]).id;
+    bar.innerHTML = `<span class="overlay-bulk-count">${n} selected</span>
+        <select id="overlayBulkTag" aria-label="The tag to add them to">${tags.map(t => `<option value="${escapeHtml(t.id)}"${t.id === overlayBulkTag ? ' selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}</select>
+        <button type="button" id="overlayBulkAddBtn" class="set-btn">Add to Tag</button>
+        <button type="button" id="overlayBulkRemoveBtn" class="cancel-btn">Remove from Tag</button>
+        <button type="button" id="overlayBulkClearBtn" class="text-btn">Clear</button>`;
+};
+
+// The tags: the team's own, each with its color, name and ×; then a new one.
+const tagsBlock = (list) => {
+    const rows = sharedTags.map(t => {
+        const id = escapeHtml(t.id), n = list.filter(o => o.type === t.id).length;
+        const ask = isAsking(`tag|${t.id}`);
+        const name = ask
+            ? `<span class="map-base-ask overlay-ask overlay-tag-ask" role="status" title="${escapeHtml(t.name)}">Delete for everyone?</span>`
+            : `<input type="text" class="overlay-tag-name" data-tag-name="${id}" value="${escapeHtml(tagRenames.has(t.id) ? tagRenames.get(t.id) : t.name)}" maxlength="30" spellcheck="false" aria-label="Name of tag ${escapeHtml(t.name)}">`;
+        return `<div class="overlay-tag-row" data-tag-row="${id}">
+            <input type="color" class="overlay-tag-color" data-tag-color="${id}" value="${escapeHtml(t.color)}" title="Color" aria-label="Color of tag ${escapeHtml(t.name)}">
+            ${name}<span class="overlay-group-count" title="Graphics with this tag">${n}</span>
+            <button type="button" class="overlay-remove" data-remove-tag="${id}"${ask ? ' data-asking' : ''} title="Delete tag ${escapeHtml(t.name)}" aria-label="Delete tag ${escapeHtml(t.name)}">&times;</button>
+        </div>`;
+    }).join('');
+    return `<div class="overlay-tags editor-only" role="group" aria-label="Tags">
+        <div class="overlay-tags-head">Tags</div>
+        <div class="overlays-note">NAI, OBJ and PL are built in. Add your own for the other graphics: each draws in its color, and a report inside an area with one gets that area's name in its Location, as with an NAI.</div>
+        ${rows}
+        <div class="overlay-tag-row overlay-tag-new">
+            <input type="color" id="overlayTagNewColor" class="overlay-tag-color" value="${escapeHtml(tagDraft.color || nextTagColor())}" title="Color" aria-label="The new tag's color">
+            <input type="text" id="overlayTagNewName" class="overlay-tag-name" value="${escapeHtml(tagDraft.name)}" maxlength="30" spellcheck="false" placeholder="New tag, such as Routes" aria-label="The new tag's name">
+            <button type="button" id="overlayTagAddBtn" class="set-btn">Add Tag</button>
+        </div>
+    </div>`;
+};
+
+const drawOverlays = (box) => {
     const note = document.getElementById('overlaysScopeNote');
     if (note) note.textContent = 'shared by every workspace';
 
     if (overlayReview) {
         const rows = overlayReview.rows;
-        const opts = (sel) => ['', 'NAI', 'OBJ', 'PL'].map(t => `<option value="${t}"${t === sel ? ' selected' : ''}>${t || 'Skip'}</option>`).join('');
-        const count = rows.filter(r => r.type).length;
+        const opts = (sel) => [{ id: '', name: 'Skip' }, ...everyTag()].map(t => `<option value="${escapeHtml(t.id)}"${t.id === sel ? ' selected' : ''}>${escapeHtml(t.name)}</option>`).join('');
+        const count = rows.filter(r => reviewOverlay(r)).length;
         box.innerHTML = `
-            <div class="overlays-note">From ${escapeHtml(overlayReview.files.join(', '))}. Pick what each shape is. Areas place reports in NAIs and OBJs by grid, lines are phase lines, points are kept as labels.</div>
+            <div class="overlays-note">From ${escapeHtml(overlayReview.files.join(', '))}. Pick what each shape is. Areas place reports in NAIs and OBJs by grid, lines are phase lines, points are kept as labels. Your own tags are in the list too.</div>
             <table class="overlays-table">
                 <thead><tr><th>Name in file</th><th>Shape</th><th>Use as</th><th>Becomes</th></tr></thead>
                 <tbody>${rows.map((r, i) => {
                     const o = reviewOverlay(r);
+                    const becomes = !o ? '<span class="overlays-muted">skipped</span>'
+                        : tagOf(o.type).builtIn ? escapeHtml(`${o.type} ${o.name}`) : `${tagDot(o.type)}${escapeHtml(o.name)}`;
                     return `<tr><td>${escapeHtml(r.label || '(no name)')}</td><td>${SHAPE_LABEL[(o || r).geometry.type]}</td>
                         <td><select class="overlay-type-select" data-review-idx="${i}" aria-label="Use as">${opts(r.type)}</select></td>
-                        <td>${o ? escapeHtml(`${o.type} ${o.name}`) : '<span class="overlays-muted">skipped</span>'}</td></tr>`;
+                        <td>${becomes}</td></tr>`;
                 }).join('')}</tbody>
             </table>
             <div class="overlays-actions">
@@ -325,6 +558,11 @@ const renderOverlays = () => {
     // The one asking was removed meanwhile (here or by someone else): let go.
     const asked = askingAbout('overlay|');
     if (asked && !list.some(o => `overlay|${overlayKey(o)}` === asked)) forgetAsk();
+    const askedTag = askingAbout('tag|');
+    if (askedTag && !sharedTags.some(t => `tag|${t.id}` === askedTag)) forgetAsk();
+    // Checked ones that went meanwhile are let go too.
+    const keys = new Set(list.map(overlayKey));
+    overlayPicks.forEach(k => { if (!keys.has(k)) overlayPicks.delete(k); });
     const allAsk = isAsking('overlays|all');
     // The map of them is the Map view (app/85-mapview.js).
     const header = `<div class="overlays-head">
@@ -342,47 +580,72 @@ const renderOverlays = () => {
     const uses = {};
     localReports.filter(r => !r.deleted).forEach(r => {
         const a = locationInfo(r.location);
-        new Set([...a.nai.keys, ...a.obj.keys, ...a.pls]).forEach(k => { uses[k] = (uses[k] || 0) + 1; });
+        new Set([...a.nai.keys, ...a.obj.keys, ...a.pls, ...a.custom.map(c => c.key)]).forEach(k => { uses[k] = (uses[k] || 0) + 1; });
     });
-    const GROUPS = [['NAI', 'NAIs'], ['OBJ', 'Objectives'], ['PL', 'Phase lines']];
+    const tags = everyTag();
     const byName = (x, y) => x.o.name.localeCompare(y.o.name, undefined, { numeric: true });
     const row = ({ o, i }) => {
-        const key = overlayKey(o);
+        const key = overlayKey(o), tag = tagOf(o.type), name = graphicName(o);
         // The name in the file, when it says more than the overlay's own name.
         const said  = String(o.label || '').toUpperCase().replace(/\s+/g, ' ').trim();
-        const extra = said && said !== key && said !== o.name ? ` <span class="overlays-muted">${escapeHtml(o.label)}</span>` : '';
+        const extra = said && said !== name.toUpperCase() && said !== o.name.toUpperCase() ? ` <span class="overlays-muted">${escapeHtml(o.label)}</span>` : '';
         const ask = isAsking(`overlay|${key}`);
-        const name = ask
-            ? `<span class="map-base-ask overlay-ask" role="status" title="${escapeHtml(key)}">Remove for everyone?</span>`
+        const shown = ask
+            ? `<span class="map-base-ask overlay-ask" role="status" title="${escapeHtml(name)}">Remove for everyone?</span>`
             : `${escapeHtml(o.name)}${extra}`;
-        // The type comes from the server (anyone's import): only a known one names a class.
-        const type = OVERLAY_TYPES.includes(o.type) ? o.type : '';
-        return `<tr><td><span class="overlay-type${type ? ` overlay-${type.toLowerCase()}` : ''}">${escapeHtml(o.type)}</span> ${name}</td>
-            <td>${SHAPE_LABEL[o.geometry.type] || ''}</td><td>${uses[key] || 0}</td>
-            <td><button type="button" class="overlay-remove editor-only" data-remove-overlay="${i}"${ask ? ' data-asking' : ''} title="Unload ${escapeHtml(key)}" aria-label="Unload ${escapeHtml(key)}">&times;</button></td></tr>`;
+        // A built-in tag names a class; the team's (or none) is a dot of its color.
+        const badge = tag.builtIn ? `<span class="overlay-type overlay-${tag.id.toLowerCase()}">${tag.id}</span>`
+            : `<span class="overlay-type overlay-team" title="${escapeHtml(tag.title)}">${tagDot(o.type)}</span>`;
+        const options = [...tags, tagOf('')].map(t => `<option value="${escapeHtml(t.id)}"${t.key === tag.key ? ' selected' : ''}>${escapeHtml(t.name)}</option>`).join('');
+        return `<tr><td class="overlay-pick-cell"><input type="checkbox" class="overlay-pick" data-pick="${escapeHtml(key)}"${overlayPicks.has(key) ? ' checked' : ''} aria-label="Select ${escapeHtml(name)}"></td>
+            <td>${badge} ${shown}</td>
+            <td>${SHAPE_LABEL[o.geometry.type] || ''}</td><td>${uses[name] || 0}</td>
+            <td><select class="overlay-retag" data-retag="${i}" aria-label="Tag of ${escapeHtml(name)}">${options}</select></td>
+            <td><button type="button" class="overlay-remove editor-only" data-remove-overlay="${i}"${ask ? ' data-asking' : ''} title="Unload ${escapeHtml(name)}" aria-label="Unload ${escapeHtml(name)}">&times;</button></td></tr>`;
     };
-    const groups = GROUPS.map(([type, title]) => {
-        const members = list.map((o, i) => ({ o, i })).filter(x => x.o.type === type).sort(byName);
+    // A list for each tag with graphics, the built-in ones first, then the
+    // team's by name, then the graphics with none.
+    const groupTags = [...tags.filter(t => t.builtIn), ...tags.filter(t => !t.builtIn).sort((a, b) => a.name.localeCompare(b.name)), tagOf('')];
+    const groups = groupTags.map(tag => {
+        const members = list.map((o, i) => ({ o, i })).filter(x => tagOf(x.o.type).key === tag.key).sort(byName);
         if (!members.length) return '';
-        const plural = type === 'OBJ' ? 'OBJs' : type === 'PL' ? 'PLs' : 'NAIs';
-        const groupAsk = isAsking(`overlays|${type}`);
-        return `<details class="overlay-group" data-overlay-group="${type}"${overlayGroupsOpen.has(type) ? ' open' : ''}>
+        const groupAsk = isAsking(`overlays|${tag.key}`);
+        const title = tag.builtIn ? `<span class="overlay-type overlay-${tag.id.toLowerCase()}">${tag.id}</span> ${tag.title}` : `${tagDot(tag.id)} ${escapeHtml(tag.title)}`;
+        return `<details class="overlay-group" data-overlay-group="${escapeHtml(tag.key)}"${overlayGroupsOpen.has(tag.key) ? ' open' : ''}>
             <summary class="overlay-group-head">
                 <span class="overlay-group-chevron" aria-hidden="true"></span>
-                <span class="overlay-group-title"><span class="overlay-type overlay-${type.toLowerCase()}">${type}</span> ${title}</span>
+                <span class="overlay-group-title">${title}</span>
                 <span class="overlay-group-count">${members.length}</span>
-                <button type="button" class="overlay-group-unload editor-only" data-unload-group="${type}"${groupAsk ? ' data-asking' : ''}>${groupAsk ? `Unload ${plural} for everyone?` : `Unload ${plural}`}</button>
+                <button type="button" class="overlay-group-unload editor-only" data-unload-group="${escapeHtml(tag.key)}"${groupAsk ? ' data-asking' : ''}>${escapeHtml(groupAsk ? `Unload ${tag.many} for everyone?` : `Unload ${tag.many}`)}</button>
             </summary>
             <table class="overlays-table">
-                <thead><tr><th>Name</th><th>Shape</th><th>Reports${shownAto() ? ` in ${escapeHtml(shownAto())}` : ''}</th><th></th></tr></thead>
+                <thead><tr><th><span class="visually-hidden">Select</span></th><th>Name</th><th>Shape</th><th>Reports${shownAto() ? ` in ${escapeHtml(shownAto())}` : ''}</th><th>Tag</th><th></th></tr></thead>
                 <tbody>${members.map(row).join('')}</tbody>
             </table>
         </details>`;
     }).join('');
     box.innerHTML = `${header}
+        ${tagsBlock(list)}
         ${list.length ? `
-        <div class="overlays-note">One set for every workspace. Importing a shape with the same type and name replaces the old one, so an updated NAI file just updates its NAIs.</div>
+        <div class="overlays-note">One set for every workspace. Importing a shape with the same type and name replaces the old one, so an updated NAI file just updates its NAIs. Check graphics (Shift-click for a run of them) to add them to a tag or take them out of theirs, or pick one's tag beside it.</div>
+        <div id="overlayBulk" class="overlay-bulk editor-only" role="group" aria-label="Checked graphics" hidden></div>
         ${groups}` : `<div class="overlays-note">No overlays yet. Export your NAIs, OBJs and phase lines from ArcGIS as KML, KMZ, GeoJSON or a shapefile (zipped, or its .shp, .dbf and .prj picked together) and import them here. They apply to every workspace. Reports are then placed in NAIs and OBJs by their grid, and checked against what was typed.</div>`}`;
+    renderOverlayBulk();
+};
+// Drawn again on every change (a sync too): a tag's box being typed in
+// keeps its place and its caret.
+const renderOverlays = () => {
+    const box = document.getElementById('overlaysBody');
+    if (!box) return;
+    const had = document.activeElement;
+    const typing = had && box.contains(had) && had.matches('input[type="text"]')
+        ? { id: had.id, tag: had.dataset.tagName || '', from: had.selectionStart, to: had.selectionEnd } : null;
+    drawOverlays(box);
+    if (!typing) return;
+    const again = typing.id ? document.getElementById(typing.id) : box.querySelector(`[data-tag-name="${CSS.escape(typing.tag)}"]`);
+    if (!again || again === had) return;
+    again.focus({ preventScroll: true });
+    try { again.setSelectionRange(typing.from, typing.to); } catch (e) { /* not a text box any more */ }
 };
 
 // Delegated: the tab's contents are re-rendered on every change.
@@ -397,9 +660,18 @@ if (overlaysBody && overlaysFileInput) {
             if (!victim) return;
             // The first press asks; the second (on the same one) removes it.
             if (!askFirst(`overlay|${overlayKey(victim)}`, renderOverlays)) return;
-            removeOverlays([victim], `${overlayKey(victim)} removed.`);
+            removeOverlays([victim], `${graphicName(victim)} removed.`);
             return;
         }
+        const rmTag = e.target.closest('[data-remove-tag]');
+        if (rmTag) { deleteTag(rmTag.dataset.removeTag); return; }
+        if (e.target.closest('#overlayTagAddBtn')) { addTag(); return; }
+        const pick = e.target.closest('.overlay-pick');
+        if (pick) { pickOverlay(pick, e.shiftKey); return; }
+        const checked = () => currentOverlays().filter(o => overlayPicks.has(overlayKey(o)));
+        if (e.target.closest('#overlayBulkAddBtn')) { retagGraphics(checked(), overlayBulkTag); return; }
+        if (e.target.closest('#overlayBulkRemoveBtn')) { retagGraphics(checked(), ''); return; }
+        if (e.target.closest('#overlayBulkClearBtn')) { overlayPicks.clear(); overlayPickFrom = null; renderOverlays(); return; }
         if (e.target.closest('#overlaysImportBtn')) { overlaysFileInput.click(); return; }
         // Every list opened, or every list closed.
         const fold = e.target.closest('[data-overlay-fold]');
@@ -418,13 +690,18 @@ if (overlaysBody && overlaysFileInput) {
         const group = e.target.closest('[data-unload-group]');
         if (group) {
             e.preventDefault();   // in the group's header: unload, without folding it
-            const type = group.dataset.unloadGroup;
-            if (!askFirst(`overlays|${type}`, renderOverlays)) return;
-            const gone = currentOverlays().filter(o => o.type === type);
-            removeOverlays(gone, `${plural(gone.length, `${type} overlay`)} unloaded.`);
+            const key = group.dataset.unloadGroup;
+            if (!askFirst(`overlays|${key}`, renderOverlays)) return;
+            const gone = currentOverlays().filter(o => tagOf(o.type).key === key);
+            const tag = gone.length ? tagOf(gone[0].type) : null;
+            if (!tag) return;
+            removeOverlays(gone, tag.builtIn ? `${plural(gone.length, `${key} overlay`)} unloaded.`
+                : `${plural(gone.length, 'graphic')} ${tag.none ? 'with no tag' : `tagged ${tag.name}`} unloaded.`);
             return;
         }
     });
+    // A Shift-click on a checkbox selects a run of them, not the text between.
+    overlaysBody.addEventListener('mousedown', e => { if (e.shiftKey && e.target.closest('.overlay-pick')) e.preventDefault(); });
     // Opened or closed: remembered, so a redraw keeps it.
     overlaysBody.addEventListener('toggle', e => {
         const g = e.target.closest('[data-overlay-group]');
@@ -432,7 +709,30 @@ if (overlaysBody && overlaysFileInput) {
     }, true);
     overlaysBody.addEventListener('change', e => {
         const sel = e.target.closest('[data-review-idx]');
-        if (sel && overlayReview) { overlayReview.rows[+sel.dataset.reviewIdx].type = sel.value; renderOverlays(); }
+        if (sel && overlayReview) { overlayReview.rows[+sel.dataset.reviewIdx].type = sel.value; renderOverlays(); return; }
+        const retag = e.target.closest('[data-retag]');
+        if (retag) {
+            const o = currentOverlays()[+retag.dataset.retag];
+            if (o) retagGraphics([o], retag.value).then(ok => { if (!ok) renderOverlays(); });
+            return;
+        }
+        if (e.target.id === 'overlayBulkTag') { overlayBulkTag = e.target.value; return; }
+        if (e.target.dataset.tagColor) { recolorTag(e.target.dataset.tagColor, e.target.value); return; }
+        if (e.target.dataset.tagName) renameTag(e.target.dataset.tagName, e.target.value);
+    });
+    // What is typed is kept over a redraw until it is used.
+    overlaysBody.addEventListener('input', e => {
+        if (e.target.id === 'overlayTagNewName') tagDraft.name = e.target.value;
+        else if (e.target.id === 'overlayTagNewColor') tagDraft.color = e.target.value;
+        else if (e.target.dataset.tagName) tagRenames.set(e.target.dataset.tagName, e.target.value);
+    });
+    // Enter adds or renames; Escape puts a name back as it was.
+    overlaysBody.addEventListener('keydown', e => {
+        if (e.target.id === 'overlayTagNewName' && e.key === 'Enter') { e.preventDefault(); addTag(); return; }
+        const id = e.target.dataset && e.target.dataset.tagName;
+        if (!id) return;
+        if (e.key === 'Enter') { e.preventDefault(); renameTag(id, e.target.value); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); tagRenames.delete(id); renderOverlays(); }
     });
     overlaysFileInput.addEventListener('change', () => {
         const files = Array.from(overlaysFileInput.files || []);

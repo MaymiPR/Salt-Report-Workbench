@@ -216,8 +216,9 @@ const matchesBdaFilter = (r) => {
     return (r.bda || []).some(b => (BDA_EFFECTS.some(e => e.name === b.effect) ? b.effect : 'Unknown') === bdaFilter);
 };
 
-// Under the Location: the NAI or OBJ a grid falls in when none was typed, and
-// a Check where a typed one disagrees with the grid. Only with overlays loaded.
+// Under the Location: the NAI or OBJ a grid falls in when none was typed (and
+// any area of the team's tags), and a Check where a typed one disagrees with
+// the grid. Only with overlays loaded.
 const locationTags = (text, id) => {
     if (!currentOverlays().length) return '';
     const a = locationInfo(text);
@@ -225,6 +226,10 @@ const locationTags = (text, id) => {
     [a.nai, a.obj].forEach(p => {
         // The key comes from an overlay's name: only letters, digits and hyphens make the class.
         if (p.from === 'grid') p.keys.forEach(k => tags.push(`<span class="loc-tag loc-${k.split(' ')[0].toLowerCase().replace(/[^a-z0-9-]/g, '')}" title="The grid is inside ${escapeHtml(k)}">${escapeHtml(k)}</span>`));
+    });
+    // An area of one of the team's tags, in that tag's color.
+    a.custom.forEach(c => {
+        if (c.from === 'grid') tags.push(`<span class="loc-tag loc-team" title="The grid is inside ${escapeHtml(c.key)}">${tagDot(c.type)}${escapeHtml(c.key)}</span>`);
     });
     const near = a.nearestPl;
     if (near && !a.pl.includes(near.key) && a.pls.includes(near.key)) {

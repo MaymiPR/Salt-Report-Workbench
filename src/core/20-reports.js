@@ -236,9 +236,13 @@ const backupReportBlocks = (reps) => [...reps].sort((a,b) => reportNum(a) - repo
 const backupMachineData = (payload) =>
     `\n${BACKUP_DIV}\n MACHINE DATA: DO NOT EDIT BELOW THIS LINE\n${BACKUP_DIV}\n${BACKUP_START}\n${JSON.stringify(payload)}\n${BACKUP_END}\n`;
 
-// The overlay types, as the server's _OVERLAY_TYPES, and how deep each
-// geometry's coordinates nest above the [lon, lat] pairs (its _GEOMETRY_DEPTH).
+// The built-in overlay types, as the server's _OVERLAY_TYPES, and how deep
+// each geometry's coordinates nest above the [lon, lat] pairs (its
+// _GEOMETRY_DEPTH). An overlay's type can also be one of the team's own tags,
+// by its id (TAG_ID, as the server's _TAG_ID_RE), or '' for none.
 const OVERLAY_TYPES = new Set(['NAI', 'OBJ', 'PL']);
+const TAG_ID = /^tag-[a-z0-9]{1,16}$/;
+const isOverlayType = (t) => typeof t === 'string' && (OVERLAY_TYPES.has(t) || t === '' || TAG_ID.test(t));
 const GEOMETRY_DEPTH = { Point: 0, LineString: 1, Polygon: 2, MultiLineString: 2, MultiPolygon: 3 };
 // Whether an overlay is one the server would take: a known type, a name, and
 // coordinates that are all longitude / latitude, no list of them empty.
@@ -253,7 +257,7 @@ const overlayOk = (o) => {
         : Array.isArray(c) && c.length > 0 && c.every(p => coordsOk(p, depth - 1)));
     const g = o.geometry;
     const depth = g && typeof g === 'object' ? GEOMETRY_DEPTH[g.type] : undefined;
-    const ok = typeof o.type === 'string' && OVERLAY_TYPES.has(o.type) && typeof o.name === 'string' && o.name !== ''
+    const ok = isOverlayType(o.type) && typeof o.name === 'string' && o.name !== ''
         && (!('label' in o) || typeof o.label === 'string') && depth !== undefined && coordsOk(g.coordinates, depth);
     overlayChecked.set(o, ok);
     return ok;
@@ -279,19 +283,37 @@ const foldOverlays = (value) => {
 // The narrative's settings for a backup's machine data: only when there are any.
 const narrativeData = (n) => (n && typeof n === 'object' && !Array.isArray(n) && Object.keys(n).length ? { narrative: n } : {});
 
+// The team's own tags ({ id, name, color }) from what a backup or the server
+// holds: each one the server would take (as its read_tags), the rest left out.
+const cleanTags = (value) => {
+    if (!Array.isArray(value)) return [];
+    const ids = new Set(), names = new Set();
+    return value.filter(t => {
+        if (!t || typeof t !== 'object' || typeof t.id !== 'string' || !TAG_ID.test(t.id) || ids.has(t.id)) return false;
+        const name = typeof t.name === 'string' ? t.name.trim() : '';
+        const key = name.toUpperCase();
+        if (!name || name.length > 30 || names.has(key) || OVERLAY_TYPES.has(key)) return false;
+        if (typeof t.color !== 'string' || !/^#[0-9A-Fa-f]{6}$/.test(t.color)) return false;
+        ids.add(t.id); names.add(key);
+        return true;
+    }).slice(0, 30).map(t => ({ id: t.id, name: t.name.trim(), color: t.color.toLowerCase() }));
+};
+// And for a backup's machine data: only when there are any.
+const tagsData = (tags) => { const t = cleanTags(tags); return t.length ? { tags: t } : {}; };
+
 // One workspace's backup file. `reps` is exported as-is in the machine data
 // (deleted flags included); only live reports are listed for reading. The
-// shared overlays (and the narrative's settings) go in every file.
-const backupText = (ato, reps, title, profiles, formats, now = new Date(), overlays = [], narrative = null) => {
+// shared overlays (and the narrative's settings and tags) go in every file.
+const backupText = (ato, reps, title, profiles, formats, now = new Date(), overlays = [], narrative = null, tags = []) => {
     const active = reps.filter(r => !r.deleted);
     return `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH: ATO BACKUP\n ATO Designator : ${ato}\n Report Title   : ${title}\n Total Reports  : ${active.length}\n Exported       : ${backupStamp(now)}\n${BACKUP_DIV}\n\n`
         + backupReportBlocks(active)
         + backupMachineData({ workspaces: { [ato]: reps }, config: { ato, title }, profiles: profiles||{},
-            formats: formats[ato] ? { [ato]: formats[ato] } : {}, overlays: foldOverlays(overlays), ...narrativeData(narrative) });
+            formats: formats[ato] ? { [ato]: formats[ato] } : {}, overlays: foldOverlays(overlays), ...narrativeData(narrative), ...tagsData(tags) });
 };
 
 // Every given workspace in one file.
-const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats, now = new Date(), overlays = [], narrative = null) => {
+const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats, now = new Date(), overlays = [], narrative = null, tags = []) => {
     const atoKeys   = Object.keys(workspaces);
     const totalReps = atoKeys.reduce((n, k) => n + (workspaces[k]||[]).filter(r => !r.deleted).length, 0);
     let out = `${BACKUP_DIV}\n S.A.L.T. REPORT WORKBENCH: FULL BACKUP (ALL ATOs)\n ATOs Included  : ${atoKeys.join(', ')}\n Total Reports  : ${totalReps}\n Exported       : ${backupStamp(now)}\n${BACKUP_DIV}\n\n`;
@@ -301,7 +323,7 @@ const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats
         out += `${BACKUP_DIV}\n ATO: ${ato}  -  ${atoTitle}  (${plural(active.length, 'report')})\n${BACKUP_DIV}\n\n`;
         out += backupReportBlocks(active);
     });
-    return out + backupMachineData({ workspaces, config: { ato: activeAto, title }, profiles: profiles||{}, formats, overlays: foldOverlays(overlays), ...narrativeData(narrative) });
+    return out + backupMachineData({ workspaces, config: { ato: activeAto, title }, profiles: profiles||{}, formats, overlays: foldOverlays(overlays), ...narrativeData(narrative), ...tagsData(tags) });
 };
 
 // Read a backup file's payload. Returns { data } or { error } with a message
