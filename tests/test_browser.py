@@ -2050,8 +2050,10 @@ class BrowserTests(unittest.TestCase):
         box = self.start_measure(page, "time")
         page.select_option("#mapMeasureRate", "foot")
         self.assertEqual(page.input_value("#mapMeasureSpeed"), "4")
-        page.mouse.click(x, y)
-        page.mouse.click(x + 150, y)
+        # Under the options (rate and speed), which float over the map's right side.
+        low = box["y"] + box["height"] * 0.8
+        page.mouse.click(x, low)
+        page.mouse.click(x + 150, low)
         page.wait_for_selector("#mapMeasureOut:has-text('takes')")
         said = page.text_content("#mapMeasureOut")
         want = page.evaluate(
