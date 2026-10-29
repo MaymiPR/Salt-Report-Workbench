@@ -2082,7 +2082,8 @@ class BrowserTests(unittest.TestCase):
         said = page.text_content("#mapMeasureOut")
         self.assertRegex(said, r"^Path: [\d.]+ (m|km) in 2 legs \([\d.]+ (m|km) 09\d° E; ")
         self.assertIn("Double-click or press Enter to finish.", said)
-        self.assertEqual(page.locator("#mapSvg .map-measure-leg").count(), 2)
+        # Drawn on the next frame, after the readout.
+        page.wait_for_function("document.querySelectorAll('#mapSvg .map-measure-leg').length === 2")
         self.assertTrue(page.locator("#mapCard").is_hidden(), "a click measures, it opens no card")
         # The total is the legs added up, as the core reckons it.
         total = page.evaluate(
