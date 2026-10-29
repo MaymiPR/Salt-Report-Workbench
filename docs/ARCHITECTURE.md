@@ -261,7 +261,16 @@ per place and across the period; each judgment carries an ICD 203 likelihood
 firmer. Where a judgment's reports hold Russian or Chinese equipment, its
 wording and the `DOCTRINE` line under it come from that army's doctrine.
 `CAPABILITIES` says what equipment can do (bridging, breaching, a UAV) and
-the words in a report that say the same.
+the words in a report that say the same. How strong each rule's judgment is
+(EVEN plus steps, `levelBy` thresholds) is written above `narrativeJudgments`,
+and a table in `tests/js/core.test.js` fires every rule from a minimal set of
+reports and pins its level and the reports behind it.
+
+`summaryDetail` (`core/60-statistics.js`) is `summaryReport` with what is
+behind the text: for each judgment shown, its rule, level, last line and the
+reports behind it by id. The page puts *From* and those reports as buttons
+under each judgment (`showSummaryText` in `app/80-summary.js`); the text it
+copies, saves and prints is `summaryReport`'s alone, the same bytes.
 
 The team's settings (`{enemy, units, equipment, off, custom}`) are one set per
 server, like the overlays: they arrive in `/api/sync` as `narrative`, are kept

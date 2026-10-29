@@ -25,6 +25,13 @@ All notable changes to this project are documented here. The format follows
   and holds no addresses. While a report is open for Edit or Update, a line
   under its name says when someone else saves it ("CD updated this report
   just now"); the question at submit is unchanged.
+- **Each Narrative judgment shows the reports behind it**: under it on screen,
+  *From* lists them by number (eight, then *and N more*), and a tap shows that
+  report in the Report Log, its row in view and flashing. Copy, Save .txt and
+  Print stay the text alone; the lists are hidden while the text is edited.
+  The core gives them with the text (`summaryDetail`), and a test fires each of
+  the 55 built-in rules from a minimal set of reports and checks the reports
+  behind it.
 
 ### Changed
 
@@ -32,6 +39,10 @@ All notable changes to this project are documented here. The format follows
   map.
 - **Dragging the map is smooth**: the picture slides with the pointer and is
   drawn afresh once, when you let go, instead of every frame.
+- **A reserve needs contact somewhere named**: the *second echelon or reserve*
+  judgment counts contact in another NAI, OBJ, phase line or grid square, and
+  no longer counts contact with no place at all, which could have been in the
+  reserve's own area.
 
 ### Fixed
 

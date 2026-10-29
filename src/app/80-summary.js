@@ -54,15 +54,18 @@ const renderSummary = () => {
     showNarrSettings(summaryKind === 'narrative');
     document.querySelectorAll('[data-summary-kind]').forEach(b => setOn(b, b.dataset.summaryKind === summaryKind));
     const opts = summaryOpts(live);
-    summaryText = SaltCore.summaryReport(summaryKind, live, currentOverlays(), opts);
+    const full = SaltCore.summaryDetail(summaryKind, live, currentOverlays(), opts);
+    summaryText = full.text;
     // On screen the narrative is wrapped to the width it has, so no line breaks
     // twice; Copy, Save and Print keep the 100 columns.
     const fit = summaryKind === 'narrative' ? summaryFit() : 100;
-    const onScreen = fit < 100 ? SaltCore.summaryReport(summaryKind, live, currentOverlays(), { ...opts, width: fit }) : summaryText;
+    const onScreen = fit < 100 ? SaltCore.summaryDetail(summaryKind, live, currentOverlays(), { ...opts, width: fit }) : full;
     // Edited text is shown as edited; while editing, the box is left alone.
     // Another workspace (or kind) while editing: the box closes, the edit kept.
     if (summaryEditing && summaryEditingKey !== editKey()) summaryEditing = false;
-    s.text.textContent = editKey() in summaryEdits ? shownSummary() : onScreen;
+    // Your own wording has no lists: its lines aren't the judgments' anymore.
+    if (editKey() in summaryEdits) s.text.textContent = shownSummary();
+    else showSummaryText(s.text, onScreen);
     s.text.hidden = summaryEditing;
     s.editor.hidden = !summaryEditing;
     document.getElementById('summaryEditBtn').textContent = summaryEditing ? 'Done' : 'Edit Text';
@@ -70,6 +73,68 @@ const renderSummary = () => {
     s.subtitle.textContent = `${ato || 'No workspace'} · ${plural(live.length, 'report')} in the workspace`;
     s.panel.querySelectorAll('.range-mode').forEach(n => { n.textContent = timeDisplayMode === 'local' ? '(Local)' : '(Zulu)'; });
 };
+// The report on screen, and under each judgment the reports behind it:
+// "From ALPHA012, ALPHA015", each a button that shows it in the Report Log.
+// The lists are only on screen: Copy, Save and Print have the text alone.
+const SOURCES_SHOWN = 8;
+const showSummaryText = (pre, { text, judgments }) => {
+    const lines = text.split('\n');
+    const byKey = new Map(localReports.filter(r => !r.deleted).map(r => [SaltCore.reportKey(r), r]));
+    const parts = [];
+    let from = 0;
+    judgments.forEach(j => {
+        const reps = j.sources.map(k => byKey.get(k)).filter(Boolean);
+        if (!reps.length) return;
+        parts.push(lines.slice(from, j.line + 1).join('\n'), sourcesList(reps));
+        from = j.line + 1;
+    });
+    parts.push(lines.slice(from).join('\n'));
+    pre.replaceChildren(...parts);
+};
+const sourcesList = (reps) => {
+    const box = document.createElement('span');
+    box.className = 'summary-sources';
+    box.setAttribute('role', 'group');
+    box.setAttribute('aria-label', 'Reports behind this judgment');
+    box.append('From ');
+    reps.forEach((r, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'text-btn';
+        b.dataset.summarySource = SaltCore.reportKey(r);
+        b.textContent = r.displayId || formatFullId(r);
+        b.title = `Show ${formatFullId(r) || b.textContent} in the Report Log`;
+        b.hidden = i >= SOURCES_SHOWN;
+        if (i) box.append(i < SOURCES_SHOWN ? ', ' : Object.assign(document.createElement('span'), { textContent: ', ', hidden: true }));
+        box.append(b);
+    });
+    // The rest behind "and N more", which shows them.
+    if (reps.length > SOURCES_SHOWN) {
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'text-btn';
+        more.dataset.summaryMore = '';
+        more.textContent = `and ${reps.length - SOURCES_SHOWN} more`;
+        box.append(' ', more);
+    }
+    return box;
+};
+// A report from a list: the Report Log, with that report's row in view and
+// flashing. A search or BDA filter hiding it is cleared first.
+const showInLog = (key) => {
+    const row = () => [...el.log.body.rows].find(tr => tr.dataset.id === key);
+    closeSummaryView(true);
+    if (logViewMode !== 'list') { logViewMode = 'list'; writeStored('salt_log_view', logViewMode); }
+    showHomeView();
+    if (!row() && (el.log.search.value || bdaFilter)) { el.log.search.value = ''; bdaFilter = null; renderLog(); }
+    const tr = row();
+    if (!tr) { showToast("That report isn't in the Report Log anymore.", true); return; }
+    showRow(tr, tr.closest('.table-wrapper'));
+    // The keyboard goes on from there: its Identifier (a viewer's, its Copy).
+    const focus = tr.querySelector('.id-edit-btn') || tr.querySelector('.copy-btn');
+    if (focus) focus.focus({ preventScroll: true });
+};
+
 // What the report is written from: the window, the place, the workspace.
 const summaryOpts = (live) => {
     const { from, to } = windowBounds(summaryEls());
@@ -194,6 +259,18 @@ const summaryFileName = () =>
         document.getElementById('summaryEdited').hidden = !(editKey() in summaryEdits);
     });
     s.panel.addEventListener('click', e => {
+        const source = e.target.closest('[data-summary-source]');
+        if (source) { showInLog(source.dataset.summarySource); return; }
+        const more = e.target.closest('[data-summary-more]');
+        if (more) {
+            const box = more.closest('.summary-sources');
+            box.querySelectorAll('[hidden]').forEach(n => { n.hidden = false; });
+            more.previousSibling.remove();   // the space before it
+            more.remove();
+            const next = box.querySelectorAll('[data-summary-source]')[SOURCES_SHOWN];
+            if (next) next.focus();
+            return;
+        }
         const kind = e.target.closest('[data-summary-kind]');
         if (kind) { finishEditing(); summaryKind = kind.dataset.summaryKind; writeStored('salt_summary_kind', JSON.stringify(summaryKind)); renderSummary(); return; }
         const preset = e.target.closest('[data-summary-hours]');

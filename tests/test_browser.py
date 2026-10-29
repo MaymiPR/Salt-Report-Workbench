@@ -3427,6 +3427,83 @@ class BrowserTests(unittest.TestCase):
         self.assertLess(text.index("1. OBSERVED"), text.index("2. ASSESSMENT"))
         self.assertEqual(page.evaluate("summaryCharts().map(c => c.id)"), ["nai", "tags"])
 
+    def test_each_judgment_lists_its_reports_and_opens_them_in_the_log(self):
+        self.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=self.editor)
+        page = self.open_editor()
+        self.import_overlays(page)
+        # Digging in and obstacles in NAI 1: a defense, from those two; the
+        # trucks are behind nothing.
+        self.log(page, "6x PAX", activity="digging in", location="38SMB4500082000")
+        self.log(page, "4x PAX", activity="emplacing obstacles", location="38SMB4600082000")
+        self.log(page, "3x trucks", activity="moving N", location="38SMB4500083000")
+        by_size = page.evaluate(
+            "Object.fromEntries(localReports.map(r => [r.size, [r.id, r.displayId]]))"
+        )
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        page.wait_for_selector("#summaryText:has-text('2. ASSESSMENT')")
+        sources = page.locator("#summaryText .summary-sources").first
+        self.assertTrue(sources.inner_text().startswith("From "))
+        self.assertEqual(
+            sources.locator("[data-summary-source]").all_text_contents(),
+            [by_size["6x PAX"][1], by_size["4x PAX"][1]],
+        )
+        # Under the judgment, after its last line: the next judgment or the
+        # blank line before GAPS follows it.
+        self.assertEqual(
+            page.evaluate("""() => {
+                const s = document.querySelector('#summaryText .summary-sources');
+                return [/^ {6}\\S/.test(s.previousSibling.textContent.split('\\n').pop()),
+                        /^(\\n|   [b-j]\\. )/.test(s.nextSibling.textContent)];
+            }"""),
+            [True, True],
+        )
+        # Copy has the text alone.
+        page.click("#summaryCopyBtn")
+        page.wait_for_selector("#toastNotification:has-text('Report copied.')")
+        copied = page.evaluate("navigator.clipboard.readText()").replace("\r\n", "\n")
+        self.assertEqual(copied, page.evaluate("summaryText"))
+        self.assertIn("preparing a defense in NAI 1", " ".join(copied.split()))
+        self.assertNotIn("From ", copied)
+        # Editing the text: no lists while the box is open, nor under your own wording.
+        page.click("#summaryEditBtn")
+        self.assertFalse(sources.is_visible())
+        page.fill("#summaryEditor", "MY OWN WORDING")
+        page.click("#summaryEditBtn")
+        self.assertEqual(page.locator("#summaryText .summary-sources").count(), 0)
+        page.click("#summaryRevertBtn")
+        page.wait_for_selector("#summaryText .summary-sources")
+        # More than eight: the rest behind "and N more", which shows them.
+        self.assertEqual(
+            page.evaluate("""() => {
+                const pre = document.getElementById('summaryText');
+                const fake = Array.from({ length: 11 }, (_, i) => ({ ...localReports[0], id: `fake${i}`, displayId: `F${i}` }));
+                localReports.push(...fake);
+                showSummaryText(pre, { text: 'A\\nB\\n', judgments: [{ rule: 'x', level: 3, line: 0, sources: fake.map(r => r.id) }] });
+                localReports.splice(-fake.length);
+                const shown = () => [...pre.querySelectorAll('[data-summary-source]')].filter(b => !b.hidden).length;
+                const before = [shown(), pre.querySelector('[data-summary-more]').textContent];
+                pre.querySelector('[data-summary-more]').click();
+                return [...before, shown(), !!pre.querySelector('[data-summary-more]'), pre.textContent];
+            }"""),
+            [8, "and 3 more", 11, False, "AFrom F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10B\n"],
+        )
+        page.evaluate("renderSummary()")
+        # A search hiding the report is cleared; the Report Log shows its row, flashing.
+        page.click("#summaryViewToggleBtn")
+        page.fill("#searchBar", "trucks")
+        page.wait_for_function(
+            "document.querySelectorAll('#reportLogBody tr[data-id]').length === 1"
+        )
+        page.click("#summaryViewToggleBtn")
+        page.wait_for_selector("#summaryText .summary-sources")
+        page.locator("#summaryText [data-summary-source]").nth(1).click()
+        page.wait_for_selector("#summaryPanel", state="hidden")
+        flashing = page.wait_for_selector("#reportLogBody tr.flash")
+        self.assertEqual(flashing.get_attribute("data-id"), by_size["4x PAX"][0])
+        self.assertEqual(page.input_value("#searchBar"), "")
+        self.assertTrue(flashing.is_visible())
+
     def test_summary_charts_count_what_statistics_counts(self):
         # Regression: the Summary's charts always left out a report with no
         # time; Statistics only when the window has a bound.
@@ -3485,7 +3562,12 @@ class BrowserTests(unittest.TestCase):
         # wraps them to its width, so no line breaks twice.
         page.click("[data-summary-kind='narrative']")
         page.wait_for_selector("#summaryText:has-text('2. ASSESSMENT')")
-        shown = page.inner_text("#summaryText")
+        # The text shown, without the lists of reports under the judgments.
+        shown = page.evaluate("""() => {
+            const pre = document.getElementById('summaryText').cloneNode(true);
+            pre.querySelectorAll('.summary-sources').forEach(n => n.remove());
+            return pre.textContent;
+        }""")
         page.click("#summaryEditBtn")
         edited = page.input_value("#summaryEditor")
         self.assertEqual(" ".join(edited.split()), " ".join(shown.split()))
