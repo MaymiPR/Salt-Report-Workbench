@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Draw an axis of advance on the map** (editors): *Draw axis* among the
+  ruler's tools. Click from where the enemy comes from to where it heads,
+  finish with a double-click or Enter, name it and Save: it is saved for
+  everyone like an imported axis, with Undo.
 - **A folder named as one of your tags** (or a layer or file: "Routes" or
   "Route" for the tag Routes) puts its graphics in that tag when imported.
 - **FMV mode**: a team-wide switch in Settings, *FMV Mode: On / Off*. On, the
