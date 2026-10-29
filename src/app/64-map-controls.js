@@ -410,7 +410,9 @@ const renderMeasureTools = () => {
             <span class="map-measure-speed"><input type="number" id="mapMeasureSpeed" min="0" step="any" inputmode="decimal" placeholder="Speed" value="${escapeHtml(mapState.measureSpeed)}">
             <select id="mapMeasureUnit" aria-label="Speed unit">${(SPEED_UNITS[unitSystem] || SPEED_UNITS.metric).map(u => `<option value="${u.id}"${u.id === unit.id ? ' selected' : ''}>${escapeHtml(u.label)}</option>`).join('')}</select></span>`;
     } else if (tool === 'axis' && mapState.measureDone && mapState.measure.length > 1 && !isReadOnly) {
-        panel.innerHTML = `<label for="mapAxisName">Name</label>
+        // Drawn again while the name is being typed (a sync came in): left as
+        // it is, the name typed and the keyboard where they were.
+        if (!document.getElementById('mapAxisName')) panel.innerHTML = `<label for="mapAxisName">Name</label>
             <span class="map-measure-speed"><span aria-hidden="true">AXIS</span><input type="text" id="mapAxisName" maxlength="20" spellcheck="false" value="${escapeHtml(nextAxisName())}" aria-label="Name, after AXIS"></span>
             <button type="button" id="mapAxisSave" class="text-btn">Save axis</button>`;
     } else if (tool === 'ring') {
