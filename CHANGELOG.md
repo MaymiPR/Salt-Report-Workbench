@@ -25,6 +25,14 @@ All notable changes to this project are documented here. The format follows
   `.node-version`. Dependabot proposes updates to the tools as it does to the
   CI actions.
 
+### Fixed
+
+- **A release built on Windows is the same bytes as one built on Linux.** The
+  build wrote the page with Windows line endings there, and the zip recorded
+  the system that made it, so the release workflow's build differed from one
+  made by hand. The page is written with LF and the zip says Unix wherever it
+  is made.
+
 ## [2.23.0] - 2026-10-28
 
 ### Changed

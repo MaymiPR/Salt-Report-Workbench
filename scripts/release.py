@@ -137,6 +137,9 @@ def write_zip(path: Path, version: str, files: dict[str, bytes], stamp: tuple) -
             info = zipfile.ZipInfo(f"{folder}/{name}", date_time=stamp)
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o644 << 16
+            # Made on Unix, whatever made it (zipfile writes the machine's own
+            # otherwise), so a release built anywhere is the same bytes.
+            info.create_system = 3
             zf.writestr(info, files[name])
 
 

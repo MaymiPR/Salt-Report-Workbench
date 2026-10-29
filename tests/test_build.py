@@ -230,6 +230,8 @@ class MainTests(unittest.TestCase):
         html = (self.tmp / "dist" / "index.html").read_text(encoding="utf-8")
         self.assertIn("<style>", html)
         self.assertNotIn("<script src=", html)
+        # LF on every machine: a release built on Windows is the same bytes.
+        self.assertNotIn(b"\r\n", (self.tmp / "dist" / "index.html").read_bytes())
         self.assertIn("SaltCore", html)
         self.assertTrue((self.tmp / "dist" / "salt_sync_server.py").is_file())
         launcher = (self.tmp / "dist" / build.LAUNCHER.name).read_bytes()

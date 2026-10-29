@@ -160,7 +160,8 @@ def main(dist: Path | None = None) -> int:
 
     dist.mkdir(parents=True, exist_ok=True)
     out_html = dist / "index.html"
-    out_html.write_text(html, encoding="utf-8")
+    # LF however this machine ends lines: the same page built anywhere.
+    out_html.write_text(html, encoding="utf-8", newline="\n")
     shutil.copy2(SERVER, dist / SERVER.name)
     # cmd.exe misreads batch files with bare LF endings, so force CRLF however
     # the source was checked out.

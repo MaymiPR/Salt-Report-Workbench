@@ -112,6 +112,14 @@ class ReleaseTests(unittest.TestCase):
             digest, name = line.split("  ")
             self.assertEqual(hashlib.sha256((out / name).read_bytes()).hexdigest(), digest, name)
 
+    def test_the_zip_is_the_same_bytes_on_any_machine(self):
+        # Built on Windows, it said so in every entry (and the page had CRLF
+        # line ends), so the release workflow's Linux build differed.
+        with zipfile.ZipFile(self.tmp / "a" / f"{self.name}.zip") as zf:
+            self.assertEqual({i.create_system for i in zf.infolist()}, {3})
+            page = zf.read(f"{self.name}/index.html")
+        self.assertNotIn(b"\r\n", page)
+
     def test_the_txt_holds_exactly_the_zips_files(self):
         out = self.tmp / "a"
         with zipfile.ZipFile(out / f"{self.name}.zip") as zf:
