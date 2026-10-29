@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.27.0] - 2026-10-28
+
 ### Added
 
 - **Who changed what, lately**: Manage > Workspaces has an Activity list of
@@ -1183,7 +1185,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.26.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.27.0...HEAD
+[2.27.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.26.0...v2.27.0
 [2.26.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.25.0...v2.26.0
 [2.25.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.24.0...v2.25.0
 [2.24.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.23.0...v2.24.0
