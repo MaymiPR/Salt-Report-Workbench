@@ -85,6 +85,7 @@ const el = {
         sepBtn:    document.getElementById('toggleSepBtn'),
         bdaBtn:    document.getElementById('toggleBdaBtn'),
         mgrsLockBtn: document.getElementById('toggleMgrsLockBtn'),
+        nearbyBtn: document.getElementById('toggleNearbyBtn'),
         exportBtn: document.getElementById('exportViewToggleBtn'),
         clearBtn:  document.getElementById('clearAllBtn'),
     },
@@ -414,6 +415,10 @@ let bdaMode = readRaw('salt_bda_mode') === 'on';
 // MGRS Lock (per browser): a grid zone and 100 km square ("11S NV") put in
 // front of grids typed as digits alone, so operators type "39697 06762".
 let mgrsLock = readRaw('salt_mgrs_lock') === 'on';
+// Whether Log and Update add the NAIs, OBJs and PLs a grid is in or near to
+// its Location (this browser's choice; on unless turned off). Off, they are
+// only offered under the box, to add with a click.
+let addNearby = readRaw('salt_add_nearby') !== 'off';
 let mgrsLockPrefix = SaltCore.mgrsPrefix(readRaw('salt_mgrs_prefix', '')) || '';
 document.body.classList.toggle('mgrs-lock', mgrsLock);
 // The Location as it will be logged: with the locked prefix, when it is on.

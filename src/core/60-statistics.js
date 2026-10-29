@@ -18,9 +18,19 @@ const sizeCount = (part) => {
     return { count, text: type.replace(/^of\s+/i, '').trim(), counted };
 };
 // One element as the Statistics count it: its type upper-cased and singular.
+// "2x possible tanks", "poss 3x APCs", "1x probable heli", "2x likely a heli":
+// how sure the observer was, before the type or the count. The type is read
+// without it; the element keeps it as `hedge` ('possible', 'probable' or
+// 'likely'), so the narrative can weigh it less.
+const HEDGE = /^(poss(?:ible|ibly)?|psbl|suspected|susp|prob(?:able|ably)?|likely)\.?\s+(?:an?\s+)?/i;
+const hedgeOf = (word) => (!word ? null : /^l/i.test(word) ? 'likely' : /^prob/i.test(word) ? 'probable' : 'possible');
 const sizePart = (part, team = null) => {
-    const { count, text, counted } = sizeCount(part);
-    return { count, type: singularType(text, team).toUpperCase(), counted };
+    const before = HEDGE.exec(part.trim());
+    const { count, text: rest, counted } = sizeCount(before ? part.trim().slice(before[0].length) : part);
+    const after = before ? null : HEDGE.exec(rest);
+    const text = after ? rest.slice(after[0].length) : rest;
+    const hedge = hedgeOf((before || after || [])[1]);
+    return { count, type: singularType(text, team).toUpperCase(), counted, ...(hedge && text ? { hedge } : {}) };
 };
 // A plural made singular, so "TANKS" and "tank" are one type. The last word
 // loses its "s" (or "es", or "ies" for "y": buses, lorries) when the
@@ -59,7 +69,7 @@ const sizeListOf = (text, team = null) => text.split(/\s*(?:[,;+&]|\band\b|\bwit
 // types fold their plurals too ("3X WIDGETS" and "2x widget").
 const sizeElements = (size, team = null) => {
     const text = String(size || '').trim();
-    const plain = ({ count, type }) => ({ count, type });
+    const plain = ({ count, type, hedge }) => (hedge ? { count, type, hedge } : { count, type });
     const sizeList = (t) => sizeListOf(t, team);
     // The breakdown, and what it leaves of the total; null when it isn't one.
     const breakdown = (headText, tailText) => {

@@ -109,7 +109,7 @@ const EQUIPMENT_CATALOGUE = [
         ['Infauna', 'RB-531B'], ['Rtut-BM', 'Rtut-B', '1L262', 'SPR-2', 'Rtut'], 'Silok', ['Tirada-2', 'Tirada'], ['Bylina', 'RB-109A'],
         ['Shipovnik-Aero', 'Shipovnik'], ['Torn', 'R-381T'], 'Repellent-1', 'Stupor', ['1L222', 'Avtobaza', 'Avtobaza-M'],
         ['RB-636', 'RB-636AM2', 'Svet-KU'], ['R-934B', 'R-934BMV', 'Sinitsa'], ['RP-377', 'RP-377A', 'Lesochek'], ['RP-377LA', 'Lorandit'],
-        ['R-330M1P', 'Diabazol'], 'Dzyudoist', 'Altayets', 'ZS-82', 'ZS-88',
+        ['R-330M1P', 'Diabazol'], ['R-330', 'R-330T', 'R-330K'], 'Dzyudoist', 'Altayets', 'ZS-82', 'ZS-88',
         // Radar jammers against airborne radars, strategic and tactical
         // systems, and the drone jammers fitted to vehicles and carried.
         ['SPN-2', '1RL248-2'], 'SPN-3', ['SPN-4', '1RL248-4'], 'SPN-30', ['Tobol', '14Ts227'], 'Divnomorye', 'Samarkand',
@@ -207,7 +207,7 @@ const EQUIPMENT_CATALOGUE = [
         ['ambulance', 'AMBULANCE', 'MEDEVAC']]),
     ...eqp('c2', '', [['command post', 'COMMAND POST', 'CP', 'HQ', 'C2', 'ANTENNA', 'RADIO RELAY', 'SATCOM']]),
     ...eqp('ew', '', [['jammer', 'JAMMER', 'EW', 'REB', 'ANTI-DRONE', 'DRONE GUN']]),
-    ...eqp('air', '', [['helicopter', 'HELICOPTER', 'HELO', 'AIRCRAFT', 'JET']]),
+    ...eqp('air', '', [['helicopter', 'HELICOPTER', 'HELO', 'HELI', 'AIRCRAFT', 'JET']]),
     ...eqp('infantry', '', [['PAX', 'PAX', 'PERSONNEL', 'PERSON', 'PEOPLE', 'TROOP', 'SOLDIER', 'INFANTRY', 'DISMOUNT', 'MAN', 'MEN',
         'FIGHTER', 'SQUAD', 'TEAM', 'INDIVIDUAL']]),
     ...eqp('light', '', [['light vehicle', 'LIGHT VEHICLE', 'CAR', 'JEEP', 'PICKUP', 'SUV', 'TECHNICAL', 'MOTORCYCLE', 'MOTORBIKE', 'ATV', 'UTV', 'VAN', 'SEDAN',

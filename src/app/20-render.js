@@ -495,6 +495,7 @@ const updateTimeBtnText   = () => { el.menu.timeBtn.textContent   = timeDisplayM
 // Label shows the option you switch TO (same convention as the time/layout buttons).
 const updateSepBtnText    = () => { el.menu.sepBtn.textContent    = atoTitleSep === 'dash' ? 'Title Separator: Space' : 'Title Separator: Dash'; };
 const updateBdaBtnText    = () => { el.menu.bdaBtn.textContent    = bdaMode ? 'Hide BDA' : 'Show BDA'; };
+const updateNearbyBtnText = () => { el.menu.nearbyBtn.textContent = addNearby ? 'Add Nearby Places: On' : 'Add Nearby Places: Off'; };
 const updateMgrsLockUI    = () => {
     el.menu.mgrsLockBtn.textContent = mgrsLock ? `MGRS Lock: On${mgrsLockPrefix ? ` (${mgrsLockPrefix})` : ''}` : 'MGRS Lock: Off';
     document.body.classList.toggle('mgrs-lock', mgrsLock);

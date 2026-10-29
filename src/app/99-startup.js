@@ -38,6 +38,7 @@ updateTimeBtnText();
 updateSepBtnText();
 updateBdaBtnText();
 updateMgrsLockUI();
+updateNearbyBtnText();
 updateSortIcons();
 if (readRaw('salt_layout')==='horizontal') el.layout.grid.classList.add('horizontal-layout');
 applyLayoutMode();

@@ -32,6 +32,10 @@ const narrativeFacts = (f, team) => {
     const sq = f.a.points.length ? gridSquare(f.a.points[0].mgrs, 1) : null;
     return {
         ...f, els, groups,
+        // Every element seen as possible, probable or likely ("2x poss T-72"): the
+        // least sure of those words, else empty;
+        // a weaker sign (see judge in narrativeJudgments).
+        hedged: els.length > 0 && els.every(e => e.hedge) ? ['possible', 'probable', 'likely'].find(h => els.some(e => e.hedge === h)) : '',
         roles: new Set(els.filter(e => e.kit).map(e => e.kit.role)),
         areas: f.places.length ? f.places : sq ? [sq.replace(/ (\d) (\d)$/, ' $1$2')] : [],
         id: f.r.displayId || f.r.id || '',
@@ -173,7 +177,11 @@ const mostIn = (list) => {
 //     withdrawal).
 // The table of rules in tests/js/core.test.js fires each one from a minimal
 // set of reports and pins the level it gets, so a change to the tuning shows
-// there. The judgments are sorted by level, then by how many reports are
+// there.
+//   - A sign seen only in hedged reports ("2x possible T-72") still lets a
+//     rule fire, but adds no strength: each such sign takes a step off the
+//     level, down to roughly even chance at least.
+// The judgments are sorted by level, then by how many reports are
 // behind them, then by NARRATIVE_RULES' order; the narrative shows ten.
 const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) => {
     const out = [];
@@ -183,8 +191,9 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
     const judge = (rule, level, what, signs, places = null) => {
         const seen = signs.filter(([, l]) => l.length);
         const list = byTime(seen.flatMap(([, l]) => l));
+        const unsure = seen.filter(([, l]) => l.every(f => f.hedged)).length;
         out.push({
-            rule, order: RULE_ORDER[rule] ?? NARRATIVE_RULES.length, level: Math.min(level, VERY_LIKELY), what,
+            rule, order: RULE_ORDER[rule] ?? NARRATIVE_RULES.length, level: Math.max(Math.min(level, VERY_LIKELY) - unsure, Math.min(level, EVEN)), what,
             key: typeof what === 'string' ? what : what[''],
             places: places || [...new Set(list.flatMap(f => f.areas))],
             basis: seen.map(([s, l]) => `${s} (${cite(l)})`).join('; '),
@@ -905,7 +914,7 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, width = 
     const say = (text, first = '   ', rest = '   ') => out.push(...wrapText(text, first, rest, width));
     const cite = (list, max = 4) => {
         const l = byTime(list);
-        return l.slice(0, max).map(f => `${f.id} ${dayTime(f.ms, local)}`).join(', ') + (l.length > max ? ` and ${l.length - max} more` : '');
+        return l.slice(0, max).map(f => `${f.hedged ? `${f.hedged} ` : ''}${f.id} ${dayTime(f.ms, local)}`).join(', ') + (l.length > max ? ` and ${l.length - max} more` : '');
     };
 
     out.push('1. OBSERVED');

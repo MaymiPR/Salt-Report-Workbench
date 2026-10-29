@@ -179,21 +179,34 @@ const refOf = (prefix, word) => {
     const name = refName(word);
     return { type, name, key: `${type} ${name}` };
 };
+// "PC-12344", "PC 12344", "pc12344": an NAI by its number alone, named
+// PC-12344 (with or without "NAI" before it). PC is also a 100 km square, so
+// not after a grid zone ("38S PC 12345 67890") or before a second number.
+const PC_RE = /(^|[^A-Za-z0-9])(?:NAI\s*[-#:.]?\s*)?(PC)\s*-?\s*(\d+)(?![A-Za-z0-9]|\s+\d)/gi;
+const pcRef = (digits) => { const name = `PC-${digits}`; return { type: 'NAI', name, key: `NAI ${name}` }; };
+const afterZone = (before) => /\d{1,2}\s*[C-HJ-NP-X]\s*$/i.test(before);
 // Every place named in some text, in order, with where its prefix starts and
 // its name ends.
 const refMatches = (text) => {
     const s = String(text || ''), out = [];
-    const re = new RegExp(REF_RE.source, 'gid');
+    const pcs = [];
+    const pc = new RegExp(PC_RE.source, 'gid');
     let m;
+    while ((m = pc.exec(s))) {
+        if (!afterZone(s.slice(0, m.index + m[1].length))) pcs.push({ ...pcRef(m[3]), start: m.indices[0][0] + m[1].length, end: m.indices[3][1] });
+    }
+    const re = new RegExp(REF_RE.source, 'gid');
     while ((m = re.exec(s))) {
         const ref = refOf(m[2], m[3]);
         if (!ref) continue;
+        // "NAI PC-12344" is the PC's NAI, not one named PC.
+        if (pcs.some(p => m.indices[2][0] >= p.start && m.indices[2][0] < p.end)) continue;
         // "38S PL 12345": the 100 km square of a grid that didn't read as one
         // (a typo), not a phase line.
         if (ref.type === 'PL' && /\d{1,2}\s*[C-HJ-NP-X]\s*$/i.test(s.slice(0, m.index + m[1].length))) continue;
         out.push({ ...ref, start: m.indices[2][0], end: m.indices[3][1] });
     }
-    return out;
+    return [...out, ...pcs].sort((x, y) => x.start - y.start);
 };
 const findRefs = (text) => {
     const out = [], seen = new Set();
@@ -207,6 +220,8 @@ const findRefs = (text) => {
 // first word that isn't a common one; null when neither does.
 const overlayRef = (rawName, fallbackType) => {
     const s = String(rawName || '').trim();
+    const pc = new RegExp(`^${PC_RE.source.slice('(^|[^A-Za-z0-9])'.length)}`, 'i').exec(s);
+    if (pc) return pcRef(pc[2]);
     const m = /^(NAI|OBJECTIVE|OBJ|PHASE\s+LINE|PL)(?:\s*[-#:.]\s*|\s+|(?=\d))([A-Za-z0-9]+)/i.exec(s);
     const own = m && refOf(m[1], m[2]);
     if (own) return own;

@@ -1738,6 +1738,59 @@ test('a reserve is armor halted while there is contact somewhere else: a named p
     assert.ok(both.text.replace(/\s+/g, ' ').includes('Basis: contact elsewhere (T1 250010Z); armor or mechanized forces halted away from it (T2 250100Z).'), both.text);
 });
 
+test('a Size line says how sure the observer was: possible, probable, likely; the type is read without it', () => {
+    const els = (s) => core.sizeElements(s).map(e => [e.count, e.type, e.hedge || '']);
+    assert.deepEqual(els('2x possible tanks'), [[2, 'TANK', 'possible']]);
+    assert.deepEqual(els('3x poss apcs'), [[3, 'APC', 'possible']]);
+    assert.deepEqual(els('1x probable Heli'), [[1, 'HELI', 'probable']]);
+    assert.deepEqual(els('2x likely a heli'), [[2, 'HELI', 'likely']]);
+    assert.deepEqual(els('2x prob. T-72'), [[2, 'T-72', 'probable']]);
+    assert.deepEqual(els('poss 3x BTR-82A'), [[3, 'BTR-82A', 'possible']], 'before the count too');
+    assert.deepEqual(els('susp 2x Mi-8'), [[2, 'MI-8', 'possible']]);
+    assert.deepEqual(els('2x T-72, 1x psbl BMP-2'), [[2, 'T-72', ''], [1, 'BMP-2', 'possible']]);
+    // Not a qualifier: a word that only starts like one, or one with no type after it.
+    assert.deepEqual(els('probe vehicle'), [[1, 'PROBE VEHICLE', '']]);
+    assert.deepEqual(els('2x likely'), [[2, 'LIKELY', '']]);
+    // The equipment is known through it, and counted in the Statistics as the type.
+    assert.equal(core.lookupEquipment('HELI').role, 'air');
+    assert.equal(core.lookupEquipment(core.sizeElements('1x poss BMP-2')[0].type).name, 'BMP-2');
+    const stats = core.statsData(tableReps([['2x possible T-72', 'moving N', NAI1, 0], ['1x T-72', 'halted', NAI1, 30]]), OVERLAYS, {});
+    assert.deepEqual(stats.equipment.find(e => e.label === 'T-72'), { label: 'T-72', value: 3 });
+});
+
+test('an overlay named PC and a number is an NAI, and so is the name typed in a report; a PC grid square is not', () => {
+    ['PC-12344', 'PC 12344', 'pc12344', 'NAI PC-12344', 'PC-12344 (bridge)'].forEach(s =>
+        assert.deepEqual(core.overlayRef(s, null), { type: 'NAI', name: 'PC-12344', key: 'NAI PC-12344' }, s));
+    assert.equal(core.overlayRef('PCS 5', null), null);
+    assert.equal(core.overlayRef('EPC-12', null), null);
+    assert.deepEqual(core.findRefs('vic PC-12344 and NAI 2').map(r => r.key), ['NAI PC-12344', 'NAI 2']);
+    assert.equal(core.overlayKey({ type: 'NAI', name: 'PC-12344' }), 'NAI PC-12344', 'the overlay and the typed name are one place');
+    // A grid in the PC square stays a grid.
+    ['38S PC 12345 67890', '38SPC1234567890', 'PC 12345 67890', '38S PC12345'].forEach(s => assert.deepEqual(core.findRefs(s), [], s));
+    assert.deepEqual(core.findRefs('38S PC 1234 5678, near PC-77').map(r => r.key), ['NAI PC-77']);
+});
+
+test('the R-330 family is electronic warfare', () => {
+    ['R-330', 'R330', 'R 330', 'R-330T', 'R-330K'].forEach(t => assert.equal((core.lookupEquipment(t) || {}).role, 'ew', t));
+    assert.equal(core.lookupEquipment('R-330Zh').name, 'Zhitel');
+    assert.equal(core.lookupEquipment('R-330BMV').name, 'Borisoglebsk-2');
+    const ew = judgedBy([['1x R-330', 'halted', NAI1, 0], ['2x T-72', 'moving N', NAI1, 60]]);
+    assert.ok(ew.judgments.some(j => j.rule === 'ew'), ew.text);
+});
+
+test('a sign seen only as possible lets a rule fire, but adds no strength, and its report is cited as possible', () => {
+    const level = (rows, rule) => { const d = judgedBy(rows); const j = d.judgments.find(x => x.rule === rule); return [j && core.ICD203[j.level][0], d.text]; };
+    const firm = [['6x PAX', 'digging in', NAI1, 0], ['1x MTU-20', 'emplacing obstacles', NAI1, 60]];
+    assert.equal(level(firm, 'defense')[0], 'likely');
+    const [unsure, text] = level([firm[0], ['1x poss MTU-20', 'emplacing obstacles', NAI1, 60]], 'defense');
+    assert.equal(unsure, 'roughly even chance');
+    assert.ok(text.replace(/\s+/g, ' ').includes('(possible T1 250100Z)'), text);
+    // Another report seeing it for sure: full strength again.
+    assert.equal(level([...firm, ['1x poss MTU-20', 'emplacing obstacles', NAI1, 90]], 'defense')[0], 'likely');
+    // Only possible reports: it still fires, at roughly even chance.
+    assert.equal(level([['6x poss PAX', 'digging in', NAI1, 0], ['1x prob MTU-20', 'emplacing obstacles', NAI1, 60]], 'defense')[0], 'roughly even chance');
+});
+
 test('a counterattack cites the contact the armor arrived after, at the same strength; a logistics point knows tankers', () => {
     const counter = judgedBy([['6x PAX', 'firing at OP', NAI1, 0], ['2x T-72', 'moving N', NAI1, 60]]);
     const j = counter.judgments.find(x => x.rule === 'counterattack');
