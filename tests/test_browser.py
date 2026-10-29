@@ -1678,6 +1678,28 @@ class BrowserTests(unittest.TestCase):
             "s => s.overlays.map(o => o.type + ' ' + o.name).sort().join() === 'OBJ CHARLIE,PL ECHO,tag-routes Alpha,tag-routes Bravo'",
         )
 
+    def test_shapes_with_no_name_are_numbered_each_its_own(self):
+        self.tidy_tags_and_overlays()
+        page = self.open_editor()
+        ring = self.ring(44.3558, 33.2573, 44.4632, 33.3480)
+        path = self.overlay_geojson(("", ring), ("", ring))
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.set_input_files("#overlaysFileInput", str(path))
+        page.click("#overlaysReviewAddBtn")
+        self.wait_for_server(
+            page,
+            "s => s.overlays.filter(o => o.type === '').map(o => o.name).sort().join() === 'UNNAMED,UNNAMED 2'",
+        )
+        # Again: two more, numbered past those, nothing replaced.
+        page.set_input_files("#overlaysFileInput", str(path))
+        page.click("#overlaysReviewAddBtn")
+        self.wait_for_server(page, "s => s.overlays.filter(o => o.type === '').length === 4")
+        self.assertEqual(
+            page.evaluate("sharedOverlays.filter(o => o.type === '').map(o => o.name).sort()"),
+            ["UNNAMED", "UNNAMED 2", "UNNAMED 3", "UNNAMED 4"],
+        )
+
     def test_unknown_graphics_are_listed_first_and_not_drawn(self):
         self.tidy_tags_and_overlays()
         page = self.open_editor()

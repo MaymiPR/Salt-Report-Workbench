@@ -410,6 +410,15 @@ const finishOverlayImport = async () => {
     if (!overlayReview) return;
     const added = overlayReview.rows.map(reviewOverlay).filter(Boolean);
     if (!added.length) { showToast('Pick a type for at least one shape, or Cancel.', true); return; }
+    // Shapes with no name are numbered (UNNAMED, UNNAMED 2...) past those already
+    // there, so each is one of its own: checked, removed and kept apart.
+    const taken = new Set(currentOverlays().map(overlayKey));
+    added.forEach(o => {
+        if (o.name !== 'UNNAMED') return;
+        let n = 1;
+        while (taken.has(overlayKey(o))) o.name = `UNNAMED ${++n}`;
+        taken.add(overlayKey(o));
+    });
     // Same type and name replaces: re-importing an updated NAI file updates it.
     const have = new Set(currentOverlays().map(overlayKey));
     const replaced = added.filter(o => have.has(overlayKey(o))).length;
