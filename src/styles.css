@@ -1330,10 +1330,12 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .overlays-table td { padding: 6px 8px; border-bottom: 1px solid var(--divider); vertical-align: middle; overflow-wrap: anywhere; }
 .overlays-table select { padding: 5px 30px 5px 10px; min-width: 96px; font-size: 0.95em; margin: 0; width: auto; background-position: right 10px center; }
 .overlay-type { display: inline-block; min-width: 30px; text-align: center; font-size: 0.78em; font-weight: 700; padding: 1px 6px; border-radius: 6px; margin-right: 4px; }
-/* The map's colors: NAI green, OBJ blue, PL black (a neutral chip here, on the dark panel). */
+/* The map's colors: NAI green, OBJ blue, PL black (a neutral chip here, on the dark panel), AXIS red. */
 .overlay-nai { background: var(--green-soft); color: var(--system-green); }
 .overlay-obj { background: var(--blue-soft); color: var(--system-blue); }
 .overlay-pl  { background: var(--white-soft); color: var(--text-primary); }
+/* An axis of advance: the enemy's red. */
+.overlay-axis { background: var(--red-soft); color: var(--system-red); }
 .overlay-remove { background: none; border: none; color: var(--text-secondary); font-size: 1.2em; line-height: 1; padding: 2px 6px; margin: 0; width: auto; cursor: pointer; }
 .overlay-remove:hover { color: var(--system-red); }
 /* One group per type, each with its own Unload. */
@@ -1786,6 +1788,8 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .narr-call { display: flex; align-items: center; gap: 10px; margin: 2px 0 0; font-weight: 400; color: var(--text-secondary); }
 .narr-call input { flex: 1; min-width: 0; margin: 0; padding: 8px 12px; font-size: 0.95em; background: var(--panel-bg); }
 .narr-call-hint { margin: -4px 0 4px; }
+/* Enemy moves toward: the AO's way of march, a compass point or none. */
+.narr-call select { flex: 0 0 auto; width: auto; min-width: 96px; margin: 0 0 0 auto; padding: 8px 32px 8px 12px; font-size: 0.95em; background-color: var(--panel-bg); }
 .narr-tabs { display: flex; align-self: stretch; margin: 0; background-color: var(--panel-bg); }
 .narr-tabs .ws-tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; position: relative; padding: 6px 8px; }
 .narr-count { min-width: 16px; padding: 0 5px; border-radius: 8px; background: var(--input-bg); color: var(--text-secondary); font-size: 0.82em; font-weight: 600; line-height: 16px; }

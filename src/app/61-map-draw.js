@@ -97,10 +97,25 @@ const lineLabelAt = (parts, w, h) => {
     return best;
 };
 
+// An axis of advance's arrowhead, at the end of a line (in pixels) where the
+// enemy heads, pointing the way its last leg runs.
+const axisHead = (pts, color) => {
+    const [ex, ey] = pts[pts.length - 1];
+    let k = pts.length - 2;
+    while (k > 0 && Math.hypot(ex - pts[k][0], ey - pts[k][1]) < 1) k--;
+    const dx = ex - pts[k][0], dy = ey - pts[k][1], len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len, s = 16, half = 9;
+    const bx = ex - ux * s, by = ey - uy * s;
+    const p = [[ex + ux * 4, ey + uy * 4], [bx - uy * half, by + ux * half], [bx + uy * half, by - ux * half]];
+    return `<path d="M${p.map(q => `${q[0].toFixed(1)},${q[1].toFixed(1)}`).join('L')}Z" fill="${color}" stroke="#ffffff" stroke-width="2" stroke-linejoin="round" class="map-axis-head"/>`;
+};
+
 // Each graphic in its tag's color (app/50-overlays.js), unless its tag is
 // switched off in the key: areas filled and outlined; a phase line black on a
-// white edge; a line of the team's tags in its color on a black edge; a point
-// a dot (NAI, OBJ, PL) or a diamond (the team's). With no tag, gray and dashed.
+// white edge; an axis of advance in its color on a white edge, wider, with an
+// arrowhead at its end; a line of the team's tags in its color on a black
+// edge; a point a dot (NAI, OBJ, PL) or a diamond (the team's). With no tag,
+// gray and dashed.
 const overlayLayer = (px, w, h) => {
     const fill = [], lines = [], labels = [];
     const label = (at, text) => at && labels.push(`<text x="${at[0].toFixed(1)}" y="${at[1].toFixed(1)}" class="map-label" text-anchor="middle">${svgEsc(text)}</text>`);
@@ -120,6 +135,13 @@ const overlayLayer = (px, w, h) => {
         } else if (/LineString/.test(g.type)) {
             const parts = g.type === 'LineString' ? [g.coordinates] : g.coordinates;
             const d = parts.map(l => pathOf(l, px, false)).join('');
+            if (tag.axis) {
+                const heads = parts.map(l => l.map(c => px(c[0], c[1]))).filter(l => l.length >= 2).map(l => axisHead(l, color));
+                lines.push(`<g class="map-axis"><path d="${d}" fill="none" stroke="#ffffff" stroke-width="8" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`
+                    + `<path d="${d}" fill="none" stroke="${color}" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"/>${heads.join('')}</g>`);
+                label(lineLabelAt(parts.map(l => l.map(c => px(c[0], c[1]))), w, h), key);
+                return;
+            }
             // A phase line: black, on a white edge, so it shows on dark imagery
             // and on the plain background. The team's: its color, on a black edge.
             const edge = tag.builtIn ? '#ffffff' : MAP_COLORS.edge;
@@ -351,6 +373,8 @@ const tagKeys = () => {
     const ovs = currentOverlays();
     const swatch = (color, kind) => `<svg width="18" height="10" aria-hidden="true">${kind === 'pl'
         ? `<line x1="1" y1="5" x2="17" y2="5" stroke="#fff" stroke-width="4"/><line x1="1" y1="5" x2="17" y2="5" stroke="${color}" stroke-width="2"/>`
+        : kind === 'axis' ? `<line x1="1" y1="5" x2="12" y2="5" stroke="#fff" stroke-width="5"/><line x1="1" y1="5" x2="12" y2="5" stroke="${color}" stroke-width="2.6"/>`
+            + `<path d="M17.5,5L10.5,0.8L10.5,9.2Z" fill="${color}" stroke="#fff" stroke-width="1"/>`
         : kind === 'line' ? `<line x1="1" y1="5" x2="17" y2="5" stroke="${MAP_COLORS.edge}" stroke-width="4.5"/><line x1="1" y1="5" x2="17" y2="5" stroke="${color}" stroke-width="2.2"/>`
         : kind === 'point' ? `<path d="M9,0.5L13.5,5L9,9.5L4.5,5Z" fill="${color}" stroke="${MAP_COLORS.edge}" stroke-width="1"/>`
         : `<rect x="1" y="1" width="16" height="8" rx="2" fill="${color}" fill-opacity="0.3" stroke="${color}" stroke-width="1.5"/>`}</svg>`;
@@ -358,10 +382,11 @@ const tagKeys = () => {
     const kindOf = (list) => (list.some(o => /Polygon/.test(o.geometry.type)) ? 'area'
         : list.some(o => /LineString/.test(o.geometry.type)) ? 'line' : 'point');
     return [...everyTag(), tagOf('')].map(tag => {
-        const held = tag.builtIn ? null : ovs.filter(o => tagOf(o.type).key === tag.key);
+        // NAI, OBJ and PL always; an axis of advance, as the team's, when there is one.
+        const held = tag.builtIn && !tag.axis ? null : ovs.filter(o => tagOf(o.type).key === tag.key);
         if (held && !held.length) return '';
         const off = mapState.tagsOff.has(tag.key);
-        const kind = tag.builtIn ? (tag.shape === 'line' ? 'pl' : 'area') : kindOf(held);
+        const kind = tag.axis ? 'axis' : tag.builtIn ? (tag.shape === 'line' ? 'pl' : 'area') : kindOf(held);
         const what = tag.builtIn ? tag.title : tag.none ? 'the graphics with no tag' : `the ${tag.name} graphics`;
         return `<button type="button" class="map-key map-key-tag${off ? ' off' : ''}" data-map-tag="${escapeHtml(tag.key)}" aria-pressed="${!off}" title="${off ? 'Show' : 'Hide'} ${escapeHtml(what)} on the map">`
             + `${swatch(SaltCore.safeColor(tag.color), kind)}${escapeHtml(tag.none ? 'No tag' : tag.name)}</button>`;
