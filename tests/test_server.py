@@ -73,6 +73,7 @@ def reset_state() -> None:
             "basemaps": [],
             "drones": [],
             "narrative": {},
+            "tags": [],
         }
     )
     srv.workspace_sources.clear()
@@ -330,7 +331,7 @@ class ValidatorTests(unittest.TestCase):
         self.assertIsNone(v({"ato": "A", "overlays": [NAI1, PL_BLUE]}))
         self.assertIsNone(v({"ato": "A", "overlays": []}), "an empty list clears")
         self.assertRejects(v, {"ato": "A", "overlays": {}}, "list")
-        self.assertRejects(v, {"ato": "A", "overlays": [{**NAI1, "type": "AO"}]}, "NAI, OBJ or PL")
+        self.assertRejects(v, {"ato": "A", "overlays": [{**NAI1, "type": "AO"}]}, "NAI, OBJ, PL")
         self.assertRejects(v, {"ato": "A", "overlays": [{**NAI1, "name": ""}]}, "name")
         self.assertRejects(v, {"ato": "A", "overlays": [{**NAI1, "name": "N" * 41}]}, "name")
         bad_geoms = [
@@ -391,6 +392,35 @@ class ValidatorTests(unittest.TestCase):
     # --------------------------------------------------------------------------- #
     # Rate limiting and access control
     # --------------------------------------------------------------------------- #
+    def test_tags_are_checked(self):
+        v = srv._v_save_tags
+        routes = {"id": "tag-a1", "name": "Routes", "color": "#ff9f0a"}
+        self.assertIsNone(v({"tags": []}))
+        self.assertIsNone(
+            v({"tags": [routes, {"id": "tag-b2", "name": "EAs", "color": "#BF5AF2"}]})
+        )
+        self.assertRejects(v, {"tags": routes}, "list")
+        self.assertRejects(v, {"tags": [routes, {**routes, "name": "Other"}]}, "id is used twice")
+        self.assertRejects(
+            v, {"tags": [routes, {**routes, "id": "tag-c3", "name": " routes "}]}, "used twice"
+        )
+        for bad in ("NAI", "a1", "tag-", "tag-ABC", "tag-" + "a" * 17, 5):
+            self.assertRejects(v, {"tags": [{**routes, "id": bad}]}, "id")
+        self.assertRejects(v, {"tags": [{**routes, "name": " "}]}, "name")
+        self.assertRejects(v, {"tags": [{**routes, "name": "R" * 31}]}, "name")
+        self.assertRejects(v, {"tags": [{**routes, "name": "obj"}]}, "built in")
+        for bad in ("orange", "#fff", "#ff9f0a; x", None):
+            self.assertRejects(v, {"tags": [{**routes, "color": bad}]}, "color")
+        many = [{**routes, "id": f"tag-{i}", "name": f"T{i}"} for i in range(31)]
+        self.assertRejects(v, {"tags": many}, "too many")
+        # A graphic's type: built in, a tag's id, or none.
+        ov = srv._v_save_overlays
+        self.assertIsNone(ov({"overlays": [{**NAI1, "type": "tag-a1"}, {**PL_BLUE, "type": ""}]}))
+        self.assertIsNone(ov({"overlays": [NAI1], "tagged": True}))
+        self.assertRejects(ov, {"overlays": [{**NAI1, "type": "tag-A1"}]}, "a tag's id")
+        self.assertRejects(ov, {"overlays": [{**NAI1, "type": None}]}, "a tag's id")
+        self.assertRejects(ov, {"overlays": [NAI1], "tagged": "yes"}, "tagged")
+
     def test_drones_are_checked(self):
         v = srv._v_save_drones
         ge = {"name": "GE 1", "grid": "11S NV 39697 06762", "at": 1793018940000}
@@ -1058,7 +1088,8 @@ class RestoreTests(unittest.TestCase):
 
 
 # What the server wrote and served for every_setting_saved in 2.21.0, before
-# SHARED_SECTIONS and the route table: they must not change by a byte. Shared
+# SHARED_SECTIONS and the route table: they must not change by a byte (but for
+# the tags, a section of 2.30.0, written empty at the end). Shared
 # settings.json is the same values as /api/sync, indented (see the test).
 EVERY_SETTING_SAVED = {
     "ALPHA_Patrol.txt": (
@@ -1101,7 +1132,7 @@ EVERY_SETTING_SAVED = {
         "\",\"at\":1}],\"narrative\":{\"enemy\":\"OPFOR\",\"units\":[{\"name\":\"1st Tank\",\"places\":[\"Hill "
         "1\"],\"kinds\":[\"armor\"]}],\"equipment\":[{\"type\":\"T-90M\",\"role\":\"armor\",\"origin\":\"RU\"}],"
         "\"off\":[\"axes\",\"deep\"],\"custom\":[{\"what\":\"Bridge\",\"words\":\"bridge, crossing\",\"min\":2,"
-        "\"hours\":6}]}}\n"
+        "\"hours\":6}]},\"tags\":[]}\n"
         "##SALT_BACKUP_END##\n"
     ),
     "BRAVO_Screen.txt": (
@@ -1142,7 +1173,7 @@ EVERY_SETTING_SAVED = {
         " NV 40000 07000\",\"range\":5},{\"name\":\"Puma\",\"grid\":\"11S NV 1 2\",\"at\":1}],\"narrative\":"
         "{\"enemy\":\"OPFOR\",\"units\":[{\"name\":\"1st Tank\",\"places\":[\"Hill 1\"],\"kinds\":[\"armor\"]}]"
         ",\"equipment\":[{\"type\":\"T-90M\",\"role\":\"armor\",\"origin\":\"RU\"}],\"off\":[\"axes\",\"deep\"],\""
-        "custom\":[{\"what\":\"Bridge\",\"words\":\"bridge, crossing\",\"min\":2,\"hours\":6}]}}\n"
+        "custom\":[{\"what\":\"Bridge\",\"words\":\"bridge, crossing\",\"min\":2,\"hours\":6}]},\"tags\":[]}\n"
         "##SALT_BACKUP_END##\n"
     ),
     "audit": (
@@ -1175,7 +1206,7 @@ EVERY_SETTING_SAVED = {
         "40000 07000\",\"range\":5},{\"name\":\"Puma\",\"grid\":\"11S NV 1 2\",\"at\":1}],\"narrative\":{\"en"
         "emy\":\"OPFOR\",\"units\":[{\"name\":\"1st Tank\",\"places\":[\"Hill 1\"],\"kinds\":[\"armor\"]}],\"eq"
         "uipment\":[{\"type\":\"T-90M\",\"role\":\"armor\",\"origin\":\"RU\"}],\"off\":[\"axes\",\"deep\"],\"cust"
-        "om\":[{\"what\":\"Bridge\",\"words\":\"bridge, crossing\",\"min\":2,\"hours\":6}]},\"sources\":{\"AL"
+        "om\":[{\"what\":\"Bridge\",\"words\":\"bridge, crossing\",\"min\":2,\"hours\":6}]},\"tags\":[],\"sources\":{\"AL"
         "PHA\":\"In-session\",\"BRAVO\":\"In-session\"},\"unloaded\":[]"
     ),
 }
@@ -1384,7 +1415,7 @@ class HttpApiTests(unittest.TestCase):
             self.assertNotIn("_bad_request", inspect.getsource(handler), route.path)
 
     def test_every_post_route_has_a_validator(self):
-        self.assertEqual(len(self.post_routes()), 12)
+        self.assertEqual(len(self.post_routes()), 13)
         for route in self.post_routes():
             self.assertTrue(callable(route.validator), route.path)
         # A shared setting's route has its section's validator.
@@ -2096,6 +2127,57 @@ class HttpApiTests(unittest.TestCase):
         status, _ = self.post("/api/save_basemaps", {"basemaps": clean}, base=self.viewer_base)
         self.assertEqual(status, 405, "viewers cannot change them")
 
+    def test_tags_sync_and_survive_a_restart(self):
+        shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        sent = {"id": "tag-a1", "name": " Routes ", "color": "#FF9F0A", "x": 1}
+        self.assertEqual(self.post("/api/save_tags", {"tags": [sent]})[0], 200)
+        clean = [{"id": "tag-a1", "name": "Routes", "color": "#ff9f0a"}]
+        self.assertEqual(self.sync()["tags"], clean, "trimmed, known fields only")
+        route = {**PL_BLUE, "type": "tag-a1", "name": "Route Gold"}
+        self.post("/api/save_overlays", {"overlays": [NAI1, route], "tagged": True})
+        srv.flush_pending_save()
+        for f in self.backup_files():
+            data = srv._extract_json_from_file(f.read_text("utf-8"))
+            self.assertEqual((data["tags"], data["overlays"]), (clean, [NAI1, route]), f.name)
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual((self.sync()["tags"], self.sync()["overlays"]), (clean, [NAI1, route]))
+        status, _ = self.post("/api/save_tags", {"tags": []}, base=self.viewer_base)
+        self.assertEqual(status, 405, "viewers cannot change them")
+        self.assertEqual(self.post("/api/save_tags", {"tags": []})[0], 200)
+        self.assertEqual(self.sync()["tags"], [])
+        self.assertEqual(self.sync()["overlays"], [NAI1, route], "a tag's graphics stay, untagged")
+
+    def test_a_page_from_before_tags_leaves_the_tagged_graphics_alone(self):
+        route = {**PL_BLUE, "type": "tag-a1", "name": "Route Gold"}
+        loose = {**NAI1, "type": "", "name": "Hill"}
+        self.post("/api/save_overlays", {"overlays": [NAI1, route, loose], "tagged": True})
+        # An older page sees NAI 1 alone; it adds PL BLUE, then unloads everything.
+        self.post("/api/save_overlays", {"overlays": [NAI1, PL_BLUE]})
+        self.assertEqual(self.sync()["overlays"], [NAI1, PL_BLUE, route, loose])
+        self.post("/api/save_overlays", {"ato": "ALPHA", "overlays": []})
+        self.assertEqual(self.sync()["overlays"], [route, loose])
+        # A page that knows tags sends them all, and what it leaves out goes.
+        self.post("/api/save_overlays", {"overlays": [route], "tagged": True})
+        self.assertEqual(self.sync()["overlays"], [route])
+
+    def test_a_backup_keeps_only_the_tags_the_server_would_take(self):
+        good = {"id": "tag-a1", "name": "Routes", "color": "#ff9f0a"}
+        held = [
+            good,
+            {**good, "name": "Again"},
+            {**good, "id": "tag-b2", "name": "PL"},
+            "x",
+            {"id": "tag-c3"},
+        ]
+        self.assertEqual(srv.read_tags(held), [good])
+        self.assertIsNone(srv.read_tags(None), "a file from before tags decides nothing")
+        _, text = srv.render_backup({"ALPHA": [report()]}, {}, {}, {}, tags=held)
+        self.assertEqual(srv._extract_json_from_file(text)["tags"], [good])
+        _, old = srv.render_backup({"ALPHA": [report()]}, {}, {}, {})
+        self.assertEqual(srv._extract_json_from_file(old)["tags"], [], "written empty")
+
     def test_drones_sync_and_survive_a_restart(self):
         shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
         self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
@@ -2396,7 +2478,8 @@ class HttpApiTests(unittest.TestCase):
         sync = json.loads(EVERY_SETTING_SAVED["sync"] + "}")
         keys = [s.key for s in srv.SHARED_SECTIONS]
         self.assertEqual(
-            keys, ["config", "profiles", "format", "overlays", "basemaps", "drones", "narrative"]
+            keys,
+            ["config", "profiles", "format", "overlays", "basemaps", "drones", "narrative", "tags"],
         )
         self.assertEqual(
             shared, json.dumps({k: sync[k] for k in keys}, indent=1, ensure_ascii=False) + "\n"
@@ -3013,6 +3096,30 @@ class HttpApiTests(unittest.TestCase):
                 "removed drone GE 2",
                 "changed the drones",
                 "changed the drones",
+            ],
+        )
+
+    def test_the_activity_list_names_the_tag(self):
+        routes = {"id": "tag-a1", "name": "Routes", "color": "#ff9f0a"}
+        eas = {"id": "tag-b2", "name": "EAs", "color": "#bf5af2"}
+        for tags in (
+            [routes],
+            [routes, eas],
+            [routes, {**eas, "name": "Engagement areas"}],
+            [routes, {**eas, "name": "Engagement areas", "color": "#000000"}],
+            [routes],
+            [],
+        ):
+            self.assertEqual(self.post("/api/save_tags", {"tags": tags})[0], 200)
+        self.assertEqual(
+            [what for _, what, _ in self.said()],
+            [
+                "added tag Routes",
+                "added tag EAs",
+                "renamed tag EAs to Engagement areas",
+                "recolored tag Engagement areas",
+                "removed tag Engagement areas",
+                "removed tag Routes",
             ],
         )
 
