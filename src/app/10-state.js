@@ -11,6 +11,7 @@ const el = {
         reportId:  document.getElementById('reportId'),
         title:     document.getElementById('formTitle'),
         editingNote: document.getElementById('formEditingNote'),
+        peerNote:  document.getElementById('formPeerNote'),
         logBtn:    document.getElementById('logButton'),
         editBtn:   document.getElementById('editButton'),
         updateBtn: document.getElementById('updateButton'),
@@ -119,6 +120,8 @@ const el = {
     workspaces: {
         list:        document.getElementById('workspacesList'),
         sidebarList: document.getElementById('workspacesSidebarList'),
+        activity:    document.getElementById('activityList'),
+        sidebarActivity: document.getElementById('activitySidebarList'),
         tabs:        document.querySelectorAll('#exportPanel .ws-tabs .ws-tab'),
         tabPanels:   document.querySelectorAll('#exportPanel .ws-tab-panel'),
     },
@@ -239,6 +242,8 @@ let userProfile   = null;
 let workspaceSources = {};
 // Initials -> workspace of each connected editor who is in one (no IPs).
 let connectedWhere = {};
+// The server's last changes, oldest first: [{at, who, what, ato}] (no IPs).
+let peerActivity = [];
 // Editor-port access code: cached in localStorage + carried via cookie so
 // fetch + EventSource include it automatically. Cleared on 401 → re-prompts.
 let accessCode = '';

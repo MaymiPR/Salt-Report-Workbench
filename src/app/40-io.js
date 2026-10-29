@@ -144,6 +144,29 @@ const renderWorkspacesList = () => {
     });
 };
 
+// What editors changed since the server started, newest first: "CD logged
+// ALPHA012 · 2 min ago", from /api/sync's `activity`. In the Workspaces tab,
+// and for viewers in their sidebar. A change in another workspace than the
+// one on screen says which, unless its words name it already.
+const renderActivity = () => {
+    if (!el.workspaces.activity && !el.workspaces.sidebarActivity) return;
+    const shown = isReadOnly ? viewerShowingAto : activeAto;
+    const rows = peerActivity.filter(e => e && typeof e.what === 'string').slice(-50).reverse().map(e => {
+        const where = e.ato && e.ato !== shown && !e.what.endsWith(e.ato) ? ` in ${e.ato}` : '';
+        return `<li class="peer-activity-row"><span class="peer-activity-what">${escapeHtml(`${e.who || 'Someone'} ${e.what}${where}`)}</span>`
+            + `<span class="peer-activity-when"> · ${timeAgo(Number(e.at) || 0)}</span></li>`;
+    });
+    const html = rows.length ? `<ul class="peer-activity-rows">${rows.join('')}</ul>`
+        : `<div class="workspaces-empty">Nothing yet since the server started.</div>`;
+    // Unchanged, left as it is, like the workspaces list.
+    [el.workspaces.activity, el.workspaces.sidebarActivity].forEach(box => {
+        if (box && workspacesDrawn.get(box) !== html) { box.innerHTML = html; workspacesDrawn.set(box, html); }
+    });
+};
+// "2 min ago" moves on without a sync: the list and the form's line are
+// drawn again each half minute.
+setInterval(() => { renderActivity(); renderPeerChange(); }, 30000);
+
 // This editor is in no workspace now (theirs was unloaded): they set one
 // to log again.
 function leaveWorkspace() {
@@ -248,7 +271,7 @@ const switchManageTab = (tabName) => {
     writeStored('salt_workspaces_tab', tabName);
     // Refresh derived state on switch so filter counts / list aren't stale.
     if (tabName === 'export')          renderExportPreview();
-    else if (tabName === 'workspaces') renderWorkspacesList();
+    else if (tabName === 'workspaces') { renderWorkspacesList(); renderActivity(); }
     else if (tabName === 'builder')    renderBuilder();
     else if (tabName === 'overlays')   { renderOverlays(); renderBasemapManager(); }
 };

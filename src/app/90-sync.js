@@ -216,6 +216,8 @@ function applyServerUpdate(state) {
     workspaceSources  = sources       || {};
     connectedWhere    = state.connected_where && typeof state.connected_where === 'object' ? state.connected_where : {};
     renderWhoIsWhere();
+    // A server from before the Activity list sends none: it stays empty.
+    peerActivity      = Array.isArray(state.activity) ? state.activity : [];
     // A page from another release than the server's: it may send what the
     // server no longer takes, or miss what it now sends.
     serverRelease = typeof state.server_version === 'string' ? state.server_version : null;
@@ -282,6 +284,9 @@ function applyServerUpdate(state) {
     // so an editor's live workspace switch updates the ACTIVE / SHOWING tags
     // in real time on every viewer's sidebar.
     renderWorkspacesList();
+    renderActivity();
+    // The report in the form, if someone else has just saved it.
+    renderPeerChange();
     // If the startup modal is open, refresh its chips with the fresh
     // profiles + workspaces that just synced in, and the workspace fields
     // not yet typed in with the server's: they opened with this browser's.
@@ -309,6 +314,7 @@ function switchWorkspaceLocal(ato) {
     localReports     = reportsByAto[ato] || [];
     renderLog(el.log.search.value.toLowerCase());
     renderWorkspacesList();
+    renderActivity();
 }
 
 // Returns the push promise; callers `await` when they need server confirmation

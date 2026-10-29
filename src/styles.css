@@ -169,6 +169,8 @@ button:hover { opacity: 0.85; }
 .form-title-block { display: flex; flex-direction: column; min-width: 0; flex: 0 1 auto; }
 .form-editing-note { margin-top: 2px; font-size: 0.78em; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .form-editing-note[hidden] { display: none; }
+.form-peer-note { margin-top: 2px; font-size: 0.78em; font-weight: 600; color: var(--system-orange); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.form-peer-note[hidden] { display: none; }
 
 /* Search bar fills the slack between title and the right-hand button cluster. */
 .search-bar-wrapper { position: relative; flex: 1 1 auto; min-width: 0; margin: 0; display: flex; align-items: center; }
@@ -1038,6 +1040,12 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
     background-color: var(--input-bg);
     border-radius: 10px;
 }
+/* --- Activity: the server's last changes, newest first; scrolls past a few. --- */
+.peer-activity-list { max-height: 220px; overflow-y: auto; padding-right: 4px; flex: 0 0 auto; }
+.peer-activity-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.peer-activity-row { font-size: 0.82em; padding: 5px 10px; border-radius: 8px; background-color: var(--input-bg); overflow-wrap: anywhere; }
+.peer-activity-when { color: var(--text-secondary); white-space: nowrap; }
+.workspaces-sidebar .peer-activity-label { margin-top: 16px; }
 .workspace-row {
     display: flex;
     align-items: center;
