@@ -1884,3 +1884,116 @@ test('a summary of a kind it does not know is a rollup', () => {
     assert.ok(text.startsWith('ROLLUP - ALPHA\n'), text);
     assert.ok(!text.includes('undefined'));
 });
+
+// --- Measuring: units, areas, rates of march ---
+
+test('distances read in the units and for the class given', () => {
+    const d = core.formatDistance;
+    assert.equal(d(850), '850 m');
+    assert.equal(d(2449.6), '2.45 km');
+    assert.equal(d(12345), '12.3 km');
+    assert.equal(d(850, 'imperial'), '930 yd');
+    assert.equal(d(2449.6, 'imperial'), '1.52 mi');
+    assert.equal(d(20000, 'imperial'), '12.4 mi');
+    // Dismounts in m or yd up to ten thousand; aircraft in km or nautical miles.
+    assert.equal(d(1250, 'metric', 'dismount'), '1,250 m');
+    assert.equal(d(1250, 'imperial', 'dismount'), '1,367 yd');
+    assert.equal(d(12000, 'metric', 'dismount'), '12.0 km');
+    assert.equal(d(500, 'metric', 'aircraft'), '0.50 km');
+    assert.equal(d(18520, 'imperial', 'aircraft'), '10.0 nm');
+    assert.equal(d(-5), '0 m', 'never negative');
+});
+
+test('speeds, areas, durations and bearings read plainly', () => {
+    const s = core.formatSpeed;
+    assert.equal(s(4), '4 km/h');
+    assert.equal(s(3.6, 'imperial', 'dismount'), '2.2 mph');
+    assert.equal(s(40, 'imperial', 'vehicle'), '25 mph');
+    assert.equal(s(222.24, 'imperial', 'aircraft'), '120 knots');
+    assert.equal(s(222.24, 'metric', 'aircraft'), '222 km/h');
+    assert.equal(core.speedUnit('imperial', 'aircraft'), 'knots');
+    assert.equal(core.speedUnit('metric', 'aircraft'), 'km/h');
+    assert.equal(core.formatArea(12500), '12,500 m²');
+    assert.equal(core.formatArea(2.5e6), '2.50 km²');
+    assert.equal(core.formatArea(12500, 'imperial'), '14,950 yd²');
+    assert.equal(core.formatArea(2.5e7, 'imperial'), '9.65 mi²');
+    assert.equal(core.formatDuration(25 / 60), '25 min');
+    assert.equal(core.formatDuration(80 / 60), '1 h 20 min');
+    assert.equal(core.formatDuration(3), '3 h');
+    assert.equal(core.formatDuration(0.001), 'under a minute');
+    assert.equal(core.formatBearing(47.4), '047° NE');
+    assert.equal(core.formatBearing(359.8), '000° N');
+});
+
+test('a path is its legs added up, and an area is what a ring holds, on the sphere', () => {
+    const a = { lon: 44, lat: 33 }, b = { lon: 44.01, lat: 33 }, c = { lon: 44.01, lat: 33.01 };
+    assert.equal(core.pathMeters([a, b, c]), core.metersBetween(a, b) + core.metersBetween(b, c));
+    assert.equal(core.pathMeters([a]), 0);
+    // A degree square at the equator: R² Δλ sin(1°), about 12,364 km².
+    const sq = [{ lon: 0, lat: 0 }, { lon: 1, lat: 0 }, { lon: 1, lat: 1 }, { lon: 0, lat: 1 }];
+    const want = 6371008.8 ** 2 * (Math.PI / 180) * Math.sin(Math.PI / 180);
+    assert.ok(Math.abs(core.areaMeters(sq) - want) < 1, core.areaMeters(sq));
+    assert.equal(core.areaMeters([...sq, sq[0]]), core.areaMeters(sq), 'closed or not');
+    assert.equal(core.areaMeters([...sq].reverse()), core.areaMeters(sq), 'either way round');
+    assert.equal(core.areaMeters(sq.slice(0, 2)), 0);
+    // A small square, 1 km a side near 33N: about 1 km².
+    const k = 0.009, e = k / Math.cos(33 * Math.PI / 180);
+    const ring = [{ lon: 44, lat: 33 }, { lon: 44 + e, lat: 33 }, { lon: 44 + e, lat: 33 + k }, { lon: 44, lat: 33 + k }];
+    assert.ok(Math.abs(core.areaMeters(ring) / 1e6 - 1) < 0.01, core.areaMeters(ring));
+    // A range ring's points are all its radius from the center, the first due north.
+    const center = { lon: 44, lat: 33 }, pts = core.ringPoints(center, 5000, 36);
+    assert.equal(pts.length, 36);
+    pts.forEach(p => assert.ok(Math.abs(core.metersBetween(center, p) - 5000) < 0.01));
+    assert.ok(Math.abs(pts[0].lon - 44) < 1e-9 && pts[0].lat > 33);
+    assert.ok(Math.abs(core.bearingBetween(center, pts[9]) - 90) < 0.01, 'a quarter round is east');
+    assert.deepEqual(core.STANDARD_RATES.map(r => r.kind), ['vehicle', 'dismount', 'dismount', 'aircraft']);
+});
+
+test('what a report moves as comes from the catalogue', () => {
+    const k = core.movementClass;
+    assert.equal(k('2x T-72'), 'vehicle');
+    assert.equal(k('2x BMP, 6x PAX'), 'vehicle', 'troops with vehicles ride');
+    assert.equal(k('6x PAX'), 'dismount');
+    assert.equal(k('4x soldiers w/ RPG'), 'dismount', 'with what they carry');
+    assert.equal(k('2x Kornet'), 'vehicle', 'a weapon alone is not people');
+    assert.equal(k('1x Mi-8'), 'aircraft');
+    assert.equal(k('2x Ka-52'), 'aircraft');
+    assert.equal(k('1x helicopter w/ 10x PAX'), 'aircraft');
+    assert.equal(k('1x Mi-8, 2x T-72'), 'vehicle');
+    assert.equal(k('3x widgets'), 'vehicle', 'equipment the catalogue does not know');
+    assert.equal(k(''), 'vehicle');
+    // The team's own entries count.
+    assert.equal(k('2x Gizmo', core.teamEquipment([{ type: 'Gizmo', role: 'air' }])), 'aircraft');
+});
+
+test('a track gives its rate of march by leg and overall, and says nothing silly', () => {
+    const v = (location, time, lastModified) => ({ location, time, lastModified, size: '2x BMP' });
+    const h1 = v('38SMB4500082000', '2026-10-24T08:00:00Z', 1);
+    const h2 = v('38SMB4500084000', '2026-10-24T08:30:00Z', 2);   // 2 km north in 30 min
+    const h3 = v('38SMB4500084000', '2026-10-24T09:00:00Z', 3);   // a halt there
+    const r = { ...v('38SMB4500086000', '2026-10-24T09:15:00Z', 4), id: 'm1', history: [h3, h1, h2] };
+    const got = core.marchRates(r, 'vehicle');
+    assert.equal(got.legs.length, 2);
+    assert.equal(got.legs[0].from, h1);
+    assert.equal(got.legs[0].to, h2);
+    assert.ok(Math.abs(got.legs[0].kmh - 4) < 0.05, got.legs[0].kmh);
+    // Each leg from leaving one grid to reaching the next: the halt isn't in it.
+    assert.equal(got.legs[1].from, h3);
+    assert.equal(got.legs[1].to, r);
+    assert.ok(Math.abs(got.legs[1].kmh - 8) < 0.1, got.legs[1].kmh);
+    // Overall from leaving the first grid to reaching the last, halt included.
+    assert.ok(Math.abs(got.overall.meters - 4000) < 20, got.overall.meters);
+    assert.equal(got.overall.hours, 1.25);
+    assert.ok(Math.abs(got.overall.kmh - 3.2) < 0.05, got.overall.kmh);
+    // Under a minute between them, a time that can't be read, or no grid: no rate.
+    const none = { legs: [], overall: null };
+    assert.deepEqual(core.marchRates({ ...v('38SMB4500084000', '2026-10-24T08:00:30Z', 2), history: [h1] }), none);
+    assert.deepEqual(core.marchRates({ ...v('38SMB4500084000', 'soon', 2), history: [h1] }), none);
+    assert.deepEqual(core.marchRates({ ...v('near the bridge', '2026-10-24T09:00:00Z', 2), history: [h1] }), none);
+    assert.deepEqual(core.marchRates({ ...h1, history: [] }), none);
+    assert.deepEqual(core.marchRates(null), none);
+    // 2 km in two minutes is 60 km/h: a vehicle's rate, not troops on foot.
+    const fast = { ...v('38SMB4500084000', '2026-10-24T08:02:00Z', 2), history: [h1] };
+    assert.equal(core.marchRates(fast, 'vehicle').legs.length, 1);
+    assert.deepEqual(core.marchRates(fast, 'dismount'), none);
+});

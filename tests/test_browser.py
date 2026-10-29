@@ -1920,7 +1920,14 @@ class BrowserTests(unittest.TestCase):
         self.open_map(page)
         page.click("#mapMeasureBtn")
         self.assertEqual(page.get_attribute("#mapMeasureBtn", "aria-pressed"), "true")
+        # Its tools slide out, Distance picked, today's two-point tool.
+        page.wait_for_selector("#mapMeasureTools.open:not([inert])")
+        self.assertEqual(
+            page.get_attribute("[data-measure-tool='distance']", "aria-pressed"), "true"
+        )
+        self.assertEqual(page.get_attribute("#mapMeasureTools", "role"), "toolbar")
         page.wait_for_selector("#mapMeasureOut:has-text('click a point')")
+        self.assertEqual(page.get_attribute("#mapMeasureOut", "role"), "status")
         box = page.locator("#mapBox").bounding_box()
         x, y = box["x"] + box["width"] * 0.4, box["y"] + box["height"] * 0.6
         page.mouse.click(x, y)
@@ -1939,6 +1946,228 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.get_attribute("#mapMeasureBtn", "aria-pressed"), "false")
         page.wait_for_function("!document.querySelector('#mapSvg .map-measure-line')")
         self.assertTrue(page.locator("#mapMeasureOut").is_hidden())
+        # The tools slide back, out of reach of Tab and screen readers.
+        page.wait_for_selector("#mapMeasureTools[inert]:not(.open)", state="attached")
+
+    def start_measure(self, page, tool):
+        """The map with a measure tool picked; its box, for clicking on."""
+        if page.get_attribute("#mapMeasureBtn", "aria-pressed") != "true":
+            page.click("#mapMeasureBtn")
+        page.click(f"[data-measure-tool='{tool}']")
+        self.assertEqual(
+            page.get_attribute(f"[data-measure-tool='{tool}']", "aria-pressed"), "true"
+        )
+        return page.locator("#mapBox").bounding_box()
+
+    def test_the_measure_tools_path_area_ring_and_time(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        self.open_map(page)
+        box = self.start_measure(page, "path")
+        # Clear of the sidebar on the left and the tools' options on the right.
+        x, y = box["x"] + 260, box["y"] + box["height"] * 0.55
+        page.wait_for_selector("#mapMeasureOut:has-text('Path: click points')")
+        page.mouse.click(x, y)
+        page.mouse.click(x + 100, y)
+        page.mouse.click(x + 100, y - 80)
+        page.wait_for_selector("#mapMeasureOut:has-text('in 2 legs')")
+        said = page.text_content("#mapMeasureOut")
+        self.assertRegex(said, r"^Path: [\d.]+ (m|km) in 2 legs \([\d.]+ (m|km) 09\d° E; ")
+        self.assertIn("Double-click or press Enter to finish.", said)
+        self.assertEqual(page.locator("#mapSvg .map-measure-leg").count(), 2)
+        self.assertTrue(page.locator("#mapCard").is_hidden(), "a click measures, it opens no card")
+        # The total is the legs added up, as the core reckons it.
+        total = page.evaluate(
+            "SaltCore.formatDistance(SaltCore.pathMeters(mapState.measure), 'metric')"
+        )
+        self.assertTrue(said.startswith(f"Path: {total} in"), (said, total))
+        self.assertEqual(page.text_content("#mapSvg .map-measure-total"), total)
+        # Enter finishes it; the next click starts another.
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#mapMeasureOut:has-text('Click to start another.')")
+        page.mouse.click(x, y + 40)
+        page.wait_for_selector("#mapMeasureOut:has-text('click the next point')")
+
+        # Area: a double-click finishes it, and doesn't zoom.
+        self.start_measure(page, "area")
+        mpp = page.evaluate("mapState.view.mpp")
+        page.mouse.click(x, y)
+        page.mouse.click(x + 100, y)
+        page.mouse.click(x + 100, y - 100)
+        page.mouse.dblclick(x, y - 100)
+        page.wait_for_selector("#mapMeasureOut:has-text('Click to start another.')")
+        said = page.text_content("#mapMeasureOut")
+        self.assertRegex(said, r"^Area: [\d.,]+ (m|km)², perimeter [\d.]+ (m|km) \(4 points\)\.")
+        self.assertEqual(page.evaluate("mapState.measure.length"), 4)
+        self.assertEqual(page.evaluate("mapState.view.mpp"), mpp)
+        page.wait_for_selector("#mapSvg .map-measure-area")
+        area = page.evaluate("SaltCore.formatArea(SaltCore.areaMeters(mapState.measure), 'metric')")
+        self.assertIn(area, said)
+
+        # Range ring: a center, then a radius; kept, it stays after measuring.
+        self.start_measure(page, "ring")
+        self.assertTrue(page.locator("#mapRingKeep").is_disabled())
+        page.mouse.click(x, y)
+        page.wait_for_selector("#mapMeasureOut:has-text('click the radius')")
+        page.mouse.click(x + 80, y)
+        page.wait_for_selector("#mapMeasureOut:has-text('Range ring: radius')")
+        page.wait_for_selector("#mapSvg .map-ring-now")
+        page.click("#mapRingKeep")
+        page.wait_for_selector("#mapSvg .map-ring-kept")
+        self.assertEqual(page.locator(".map-ring-list li").count(), 1)
+        # Dragged out from its center, another.
+        page.mouse.move(x, y + 80)
+        page.mouse.down()
+        page.mouse.move(x + 40, y + 80, steps=4)
+        page.wait_for_selector("#mapSvg .map-measure-preview")
+        page.mouse.move(x + 60, y + 80, steps=2)
+        page.mouse.up()
+        page.wait_for_selector("#mapMeasureOut:has-text('Range ring: radius')")
+        page.click("#mapRingKeep")
+        page.wait_for_function("document.querySelectorAll('.map-ring-list li').length === 2")
+        self.assertEqual(
+            page.evaluate("JSON.parse(localStorage.getItem('salt_range_rings')).length"), 2
+        )
+        page.focus("#mapBox")
+        page.keyboard.press("Escape")
+        # Drawn again (on the next frame) with both kept rings, and no ring in progress.
+        page.wait_for_function(
+            "document.querySelectorAll('#mapSvg .map-ring-kept.map-measure-line').length === 2"
+            " && !document.querySelector('#mapSvg .map-ring-now')"
+        )
+        # Kept in this browser: a reload still shows them; x removes one, Clear all the rest.
+        page.reload()
+        self.assert_in_workspace(page, self.ato)
+        self.open_map(page)
+        page.wait_for_function(
+            "document.querySelectorAll('#mapSvg .map-ring-kept.map-measure-line').length === 2"
+        )
+        self.start_measure(page, "ring")
+        page.click("[data-ring-remove='0']")
+        page.wait_for_function("document.querySelectorAll('.map-ring-list li').length === 1")
+        page.click("#mapRingClear")
+        page.wait_for_function("!document.querySelector('#mapSvg .map-ring-kept')")
+        self.assertEqual(page.evaluate("localStorage.getItem('salt_range_rings')"), "[]")
+
+        # Time-distance: a standard rate, or a speed typed.
+        box = self.start_measure(page, "time")
+        page.select_option("#mapMeasureRate", "foot")
+        self.assertEqual(page.input_value("#mapMeasureSpeed"), "4")
+        # Under the options (rate and speed), which float over the map's right side.
+        low = box["y"] + box["height"] * 0.8
+        page.mouse.click(x, low)
+        page.mouse.click(x + 150, low)
+        page.wait_for_selector("#mapMeasureOut:has-text('takes')")
+        said = page.text_content("#mapMeasureOut")
+        want = page.evaluate(
+            "SaltCore.formatDuration(SaltCore.pathMeters(mapState.measure) / 1000 / 4)"
+        )
+        self.assertRegex(said, r"^Time-distance: [\d,.]+ (m|km) at 4 km/h takes ")
+        self.assertIn(f"takes {want}, from 38S MB", said)
+        page.fill("#mapMeasureSpeed", "8")
+        page.wait_for_selector("#mapMeasureOut:has-text('at 8 km/h takes')")
+        # From the keyboard: the map focused, Space puts a point at its middle.
+        self.start_measure(page, "path")
+        page.focus("#mapBox")
+        page.keyboard.press("Space")
+        page.wait_for_selector("#mapMeasureOut:has-text('click the next point')")
+        center = page.evaluate(
+            "(() => { const [lon, lat] = SaltCore.mercToLonLat(mapState.view.cx, mapState.view.cy); return SaltCore.latLonToMgrs(lat, lon); })()"
+        )
+        self.assertIn(f"From {center}:", page.text_content("#mapMeasureOut"))
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("Space")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#mapMeasureOut:has-text('in 1 leg')")
+        page.wait_for_selector("#mapMeasureOut:has-text('Click to start another.')")
+
+    def test_units_metric_or_imperial_per_browser(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        page.click("#dataMgmtBtn")
+        self.assertEqual(page.text_content("#toggleUnitsBtn"), "Units: Metric")
+        page.click("#toggleUnitsBtn")
+        page.wait_for_selector("#toastNotification:has-text('Units: imperial')")
+        self.assertEqual(page.text_content("#toggleUnitsBtn"), "Units: Imperial")
+        self.assertEqual(page.evaluate("localStorage.getItem('salt_units')"), "imperial")
+        self.open_map(page)
+        box = self.start_measure(page, "distance")
+        x, y = box["x"] + box["width"] * 0.4, box["y"] + box["height"] * 0.6
+        page.mouse.click(x, y)
+        page.mouse.click(x + 120, y - 120)
+        page.wait_for_selector("#mapSvg .map-measure-line")
+        said = page.text_content("#mapMeasureOut")
+        self.assertRegex(said, r"^[\d.,]+ (yd|mi), \d{3}° [NESW]+, from 38S MB")
+        # Aircraft in nautical miles and knots; vehicles in miles and mph.
+        self.start_measure(page, "time")
+        page.select_option("#mapMeasureRate", "air")
+        self.assertEqual(page.input_value("#mapMeasureSpeed"), "120")
+        x = box["x"] + 260  # clear of the sidebar and the tools' options
+        page.mouse.click(x, y)
+        page.mouse.click(x + 150, y)
+        page.wait_for_selector("#mapMeasureOut:has-text('at 120 knots takes')")
+        self.assertRegex(page.text_content("#mapMeasureOut"), r"^Time-distance: [\d.]+ nm at ")
+        page.select_option("#mapMeasureRate", "road")
+        page.wait_for_selector("#mapMeasureOut:has-text('at 25 mph takes')")
+        self.assertIn("(25 mph)", page.text_content("#mapMeasureRate option[value='road']"))
+        # Per browser: a reload keeps it; the toggle puts metric back.
+        page.reload()
+        self.assert_in_workspace(page, self.ato)
+        page.click("#dataMgmtBtn")
+        self.assertEqual(page.text_content("#toggleUnitsBtn"), "Units: Imperial")
+        page.click("#toggleUnitsBtn")
+        self.assertEqual(page.evaluate("localStorage.getItem('salt_units')"), "metric")
+
+    def test_a_track_gives_its_rate_of_march_on_its_card_and_in_its_history(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        # Times in the past, ten minutes, then five apart (Zulu), a km each.
+        now = page.evaluate("Date.now()")
+
+        def zulu(minutes_ago):
+            t = time.gmtime(now / 1000 - minutes_ago * 60)
+            return f"{t.tm_hour:02d}:{t.tm_min:02d}"
+
+        page.fill("#time", zulu(180))
+        self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
+        for grid, ago in (("38SMB4500083000", 170), ("38SMB4500084000", 165)):
+            page.click("#reportLogBody tr[data-id] .col-size:has-text('2x BMP')")
+            page.fill("#location", grid)
+            page.fill("#time", zulu(ago))
+            page.click("#updateButton")
+            page.wait_for_selector(f"#reportLogBody .col-location:has-text('{grid}')")
+        # Its updates opened in the Report Log: the rate from the grid before
+        # under each time, and overall on the report.
+        page.click("#reportLogBody .history-btn[data-history-id]")
+        page.wait_for_selector("#reportLogBody .history-sub-row >> nth=1")
+        main = page.locator("#reportLogBody tr[data-id] .col-time .march-rate").all_text_contents()
+        self.assertEqual(
+            main,
+            [
+                "12 km/h from the grid before (rate of march, vehicles)",
+                "8 km/h overall (rate of march, vehicles)",
+            ],
+        )
+        subs = page.locator("#reportLogBody .history-sub-row").evaluate_all(
+            "rows => rows.map(r => [...r.querySelectorAll('.march-rate')].map(s => s.textContent))"
+        )
+        self.assertEqual(subs, [["6 km/h from the grid before (rate of march, vehicles)"], []])
+        # Its card on the map says the same, with the distance and time.
+        self.open_map(page)
+        page.click("#mapTableBody tr[data-map-row]:has-text('2x BMP')")
+        page.wait_for_selector("#mapCard:not([hidden])")
+        card = page.text_content("#mapCard")
+        self.assertIn("Rate of march8 km/h overall, 2.01 km in 15 min (as vehicles)", card)
+        self.assertIn("Each leg6 km/h, 12 km/h", card)
+        # In imperial units, mph.
+        page.click("#dataMgmtBtn")
+        page.click("#toggleUnitsBtn")
+        page.wait_for_selector("#mapCard:has-text('5 mph overall, 1.25 mi in 15 min')")
+        self.assertIn("Each leg3.7 mph, 7.5 mph", page.text_content("#mapCard"))
+        page.click("#dataMgmtBtn")
+        page.click("#toggleUnitsBtn")
 
     def test_play_walks_the_time_slider_and_drones_say_their_age(self):
         page = self.open_editor()

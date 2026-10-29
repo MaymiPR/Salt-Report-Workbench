@@ -17,6 +17,8 @@ const SaltCore = {
     sizeElements, gridSquare, statsData, statsCsv, PL_NEAR_METERS, workbookReportRows, statsXlsx, excelSerial, colName,
     dtg, summaryReport, summaryDetail, summaryPlaces, EQUIPMENT_CATALOGUE, EQUIPMENT_ROLES, lookupEquipment, teamEquipment, ECHELONS, echelonOf, ICD203, NARRATIVE_RULES, DOCTRINE,
     reportKey, knownVersions, changedReports, withUnsaved,
+    MOVEMENT_CLASSES, formatDistance, speedUnit, kmhPerSpeedUnit, formatSpeed, formatArea, formatDuration, formatBearing,
+    pathMeters, areaMeters, ringPoints, STANDARD_RATES, movementClass, MARCH_MAX_KMH, marchRates,
 };
 
 if (typeof module === 'object' && module.exports) module.exports = SaltCore;

@@ -32,7 +32,7 @@ const renderMapPanel = (box) => {
         box.innerHTML = `
             <div class="map-pane" id="mapPane">
             <div class="map-box" id="mapBox" tabindex="0" role="region" aria-label="Map" aria-describedby="mapKeys">
-                <span id="mapKeys" class="visually-hidden">Arrow keys move the map, plus and minus zoom, 0 shows all, and Escape closes a report's card.</span>
+                <span id="mapKeys" class="visually-hidden">Arrow keys move the map, plus and minus zoom, 0 shows all, and Escape closes a report's card. While measuring, Space adds a point at the middle of the map, Enter finishes, and Escape ends it.</span>
                 <svg class="map-base" aria-hidden="true"><g id="mapBase"></g></svg>
                 <svg id="mapSvg" class="map-svg" role="img" aria-label="Map of the overlays and reports"></svg>
                 <!-- Pinned to the corner, open or closed, for an easy click either way. -->
@@ -61,7 +61,14 @@ const renderMapPanel = (box) => {
                     <button type="button" data-map-zoom="full" id="mapFullBtn" title="Full screen" aria-label="Full screen">${FULL_ICON}</button>
                     <button type="button" id="mapBaseBtn" title="Basemap" aria-label="Basemap" aria-expanded="false"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2 1.8 5.2 8 8.4l6.2-3.2z"/><path d="m1.8 8 6.2 3.2L14.2 8"/><path d="m1.8 10.8 6.2 3.2 6.2-3.2"/></svg></button>
                     <button type="button" id="mapExportBtn" title="Save or print the map" aria-label="Save or print the map" aria-expanded="false"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 11.5v2h11v-2"/></svg></button>
-                    <button type="button" id="mapMeasureBtn" title="Measure: click two points on the map" aria-label="Measure" aria-pressed="false"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 11.5 11.5 2 14 4.5 4.5 14Z"/><path d="M5 9.5l1.2 1.2M7 7.5l1.2 1.2M9 5.5l1.2 1.2"/></svg></button>
+                    <!-- The measure tools slide out of the ruler, to its left; their options below them. -->
+                    <div class="map-measure-wrap">
+                        <button type="button" id="mapMeasureBtn" title="Measure" aria-label="Measure" aria-pressed="false" aria-controls="mapMeasureTools"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 11.5 11.5 2 14 4.5 4.5 14Z"/><path d="M5 9.5l1.2 1.2M7 7.5l1.2 1.2M9 5.5l1.2 1.2"/></svg></button>
+                        <div id="mapMeasureTools" class="map-measure-tools" role="toolbar" aria-label="Measure tools" inert>
+                            ${MEASURE_TOOLS.map(([k, t, tip]) => `<button type="button" class="map-measure-tool" data-measure-tool="${k}" title="${tip}" aria-pressed="false">${t}</button>`).join('')}
+                        </div>
+                        <div id="mapMeasurePanel" class="map-measure-panel" hidden></div>
+                    </div>
                     <button type="button" id="mapDroneBtn" title="Drones" aria-label="Drones" aria-expanded="false"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M8 1.5 9.3 5.6 14.5 7.6v1.6L9.3 8.4 9 11.8l1.9 1.4v1.1L8 13.6l-2.9.7v-1.1L7 11.8l-.3-3.4-5.2.8V7.6l5.2-2z"/></svg></button>
                 </div>
                 <!-- The basemap: which one to show. Editors add and change them in Manage > Map. -->
@@ -102,6 +109,7 @@ const renderMapPanel = (box) => {
     // Grayed out, not hidden, when neither layer it changes is on: the tools don't move.
     box.querySelectorAll('[data-map-grids]').forEach(b => { b.disabled = !mapState.layers.heat && !mapState.layers.reports; });
     box.querySelectorAll('[data-map-hours]').forEach(b => setOn(b, +b.dataset.mapHours === mapState.hours));
+    renderMeasureTools();
     const pick = document.getElementById('mapBaseSelect');
     pick.innerHTML = basemapOptions();
     pick.hidden = !sharedBasemaps.length;
@@ -149,7 +157,7 @@ const trackTip = (t) => {
     const first = t.points[0], last = t.points[t.points.length - 1];
     const lines = [`<strong>${escapeHtml(formatFullId(r))}</strong>`, escapeHtml([r.size, r.activity].filter(Boolean).join(' · '))];
     if (t.moved) {
-        lines.push(`${t.points.length} positions, ${(t.lengthM / 1000).toFixed(1)} km toward ${SaltCore.compass16(t.bearingDeg)}`);
+        lines.push(`${t.points.length} positions, ${escapeHtml(SaltCore.formatDistance(t.lengthM, unitSystem))} toward ${SaltCore.compass16(t.bearingDeg)}`);
         lines.push(`${escapeHtml(SaltCore.toTimeString(first.time, local))} to ${escapeHtml(SaltCore.toTimeString(last.time, local))}`);
     } else lines.push(`At ${escapeHtml(last.mgrs)}, ${escapeHtml(SaltCore.toTimeString(last.time, local))}`);
     return lines.join('<br>');
@@ -282,32 +290,236 @@ const togglePop = (popId, btnId) => (open) => {
     pop.hidden = open === undefined ? !pop.hidden : !open;
     setOn(btn, !pop.hidden, 'aria-expanded');
 };
-// The measure tool: on, its button says so and the cursor is a crosshair;
-// off, the line goes. Each click adds a point; a third starts again.
+// --- Measure ---
+
+// The tools that slide out of the ruler: [key, name, what it does].
+const MEASURE_TOOLS = [
+    ['distance', 'Distance', 'Two points: the distance and bearing between them'],
+    ['path', 'Path', 'Click along a way: its length, and each leg\'s distance and bearing'],
+    ['area', 'Area', 'Click round a shape: its area and perimeter'],
+    ['ring', 'Range ring', 'Click a center, then the radius (or drag it out)'],
+    ['time', 'Time-distance', 'Click along a route: how long it takes at a speed'],
+];
+const MAX_RINGS = 20;
+// The time-distance tool's rate: a standard one, or the speed typed with its class.
+const measureRate = () => SaltCore.STANDARD_RATES.find(r => r.id === mapState.measureRate) || SaltCore.STANDARD_RATES[0];
+// On, the ruler says so, its tools slide out and the cursor is a crosshair;
+// off, they slide back and what was measured goes (kept rings stay).
 const setMapMeasuring = (on) => {
     mapState.measuring = on;
-    mapState.measure = [];
+    resetMeasure();
     const btn = document.getElementById('mapMeasureBtn'), box = document.getElementById('mapBox');
+    // Focus in the tools as they go goes back to the ruler.
+    if (!on && btn && btn !== document.activeElement && btn.parentNode.contains(document.activeElement)) btn.focus();
     setOn(btn, on, 'aria-pressed', 'active');
     if (box) box.classList.toggle('measuring', on);
+    renderMeasureTools();
     showMeasure();
     redrawMap();
 };
+const resetMeasure = () => {
+    mapState.measure = [];
+    mapState.measureDone = false;
+    mapState.ringR = 0;
+    mapState.measureHover = null;
+};
+const pickMeasureTool = (tool) => {
+    mapState.measureTool = tool;
+    resetMeasure();
+    renderMeasureTools();
+    showMeasure();
+    redrawMap();
+};
+// The toolbar (open while measuring, the tool in use pressed), and under
+// it the time-distance tool's speed or the range rings kept.
+const renderMeasureTools = () => {
+    const tools = document.getElementById('mapMeasureTools'), panel = document.getElementById('mapMeasurePanel');
+    if (!tools || !panel) return;
+    tools.classList.toggle('open', mapState.measuring);
+    tools.inert = !mapState.measuring;
+    tools.querySelectorAll('[data-measure-tool]').forEach(b => setOn(b, b.dataset.measureTool === mapState.measureTool));
+    const tool = mapState.measuring ? mapState.measureTool : '';
+    if (tool === 'time') {
+        const rate = measureRate(), per = SaltCore.kmhPerSpeedUnit(unitSystem, rate.kind);
+        const typed = Math.round(mapState.measureKmh / per * 10) / 10;
+        panel.innerHTML = `<label for="mapMeasureRate">Speed</label>
+            <select id="mapMeasureRate">${SaltCore.STANDARD_RATES.map(r => `<option value="${r.id}"${r.id === rate.id ? ' selected' : ''}>${escapeHtml(r.label)} (${escapeHtml(SaltCore.formatSpeed(r.kmh, unitSystem, r.kind))})</option>`).join('')}</select>
+            <span class="map-measure-speed"><input type="number" id="mapMeasureSpeed" min="0" step="any" inputmode="decimal" value="${typed}" aria-label="Speed in ${SaltCore.speedUnit(unitSystem, rate.kind)}">
+            <span aria-hidden="true">${SaltCore.speedUnit(unitSystem, rate.kind)}</span></span>`;
+    } else if (tool === 'ring') {
+        const done = mapState.measure.length && mapState.ringR > 0;
+        panel.innerHTML = `<button type="button" id="mapRingKeep" class="text-btn"${done ? '' : ' disabled'}>Keep ring on the map</button>
+            ${mapState.rings.length ? `<div class="map-base-pop-head">Kept rings</div>
+            <ul class="map-ring-list">${mapState.rings.map((g, i) => `<li><span>${escapeHtml(SaltCore.formatDistance(g.r, unitSystem))} round ${escapeHtml(SaltCore.latLonToMgrs(g.lat, g.lon) || '')}</span>
+                <button type="button" class="map-ring-remove" data-ring-remove="${i}" title="Remove this ring" aria-label="Remove the ${escapeHtml(SaltCore.formatDistance(g.r, unitSystem))} ring">&times;</button></li>`).join('')}</ul>
+            <button type="button" id="mapRingClear" class="text-btn">Clear all</button>` : ''}`;
+    } else panel.innerHTML = '';
+    panel.hidden = !panel.innerHTML;
+};
+// A point clicked (or Space with the map focused) for the tool in use.
 const addMeasurePoint = ([lon, lat]) => {
-    mapState.measure = mapState.measure.length >= 2 ? [{ lon, lat }] : [...mapState.measure, { lon, lat }];
+    const p = { lon, lat }, pts = mapState.measure;
+    if (mapState.measureTool === 'distance') mapState.measure = pts.length >= 2 ? [p] : [...pts, p];
+    else if (mapState.measureTool === 'ring') {
+        if (!pts.length || mapState.ringR) { mapState.measure = [p]; mapState.ringR = 0; }
+        else mapState.ringR = SaltCore.metersBetween(pts[0], p);
+        renderMeasureTools();
+    } else if (mapState.measureDone) { mapState.measure = [p]; mapState.measureDone = false; }
+    else mapState.measure = [...pts, p];
     showMeasure();
     redrawMap();
 };
-// What the line measures, with both ends' grids, for reading and copying.
+// Double-click or Enter: a path, area or route is finished (a click then
+// starts another). The second click of a double-click added a point where
+// the first did; it goes.
+const finishMeasure = (dbl) => {
+    const tool = mapState.measureTool, pts = mapState.measure, px = mapState.measurePx;
+    if (!mapState.measuring || tool === 'distance' || tool === 'ring' || mapState.measureDone) return;
+    if (dbl && pts.length > 1 && px) {
+        const [a, b] = [pts[pts.length - 2], pts[pts.length - 1]].map(p => px(p.lon, p.lat));
+        if (Math.hypot(a[0] - b[0], a[1] - b[1]) <= 6) pts.pop();
+    }
+    if (pts.length < (tool === 'area' ? 3 : 2)) return;
+    mapState.measureDone = true;
+    mapState.measureHover = null;
+    showMeasure();
+    redrawMap();
+};
+// What is measured, with its grids, for reading and copying; a screen
+// reader hears it (role=status).
 const showMeasure = () => {
     const out = document.getElementById('mapMeasureOut');
     if (!out) return;
     const pts = mapState.measure, grid = p => SaltCore.latLonToMgrs(p.lat, p.lon);
+    const dist = (m, kind) => SaltCore.formatDistance(m, unitSystem, kind);
+    const finish = mapState.measureDone ? ' Click to start another.' : ' Double-click or press Enter to finish.';
+    const legs = () => {
+        const each = pts.slice(1).map((p, i) => `${dist(SaltCore.metersBetween(pts[i], p))} ${SaltCore.formatBearing(SaltCore.bearingBetween(pts[i], p))}`);
+        return each.length > 10 ? `${each.slice(0, 10).join('; ')}; and ${each.length - 10} more` : each.join('; ');
+    };
     out.hidden = !mapState.measuring;
-    out.textContent = !pts.length ? 'Measure: click a point on the map, then another.'
-        : pts.length === 1 ? `From ${grid(pts[0])}: click the second point.`
-        : `${measureText(pts)}, from ${grid(pts[0])} to ${grid(pts[1])}.`;
+    const tool = mapState.measureTool;
+    if (tool === 'distance') {
+        out.textContent = !pts.length ? 'Measure: click a point on the map, then another.'
+            : pts.length === 1 ? `From ${grid(pts[0])}: click the second point.`
+            : `${measureText(pts)}, from ${grid(pts[0])} to ${grid(pts[1])}.`;
+    } else if (tool === 'ring') {
+        out.textContent = !pts.length ? 'Range ring: click the center, then click the radius (or drag it out from the center).'
+            : !mapState.ringR ? `Center ${grid(pts[0])}: click the radius.`
+            : `Range ring: radius ${dist(mapState.ringR)} round ${grid(pts[0])}. Click for a new center.`;
+    } else if (tool === 'area') {
+        out.textContent = pts.length < 3 ? `Area: click round the shape, three points or more.${pts.length ? ` ${plural(pts.length, 'point')} so far.` : ''}`
+            : `Area: ${SaltCore.formatArea(SaltCore.areaMeters(pts), unitSystem)}, perimeter ${dist(SaltCore.pathMeters([...pts, pts[0]]))} (${plural(pts.length, 'point')}).${finish}`;
+    } else if (tool === 'path') {
+        out.textContent = !pts.length ? 'Path: click points along the way.'
+            : pts.length === 1 ? `From ${grid(pts[0])}: click the next point.`
+            : `Path: ${dist(SaltCore.pathMeters(pts))} in ${plural(pts.length - 1, 'leg')} (${legs()}), from ${grid(pts[0])} to ${grid(pts[pts.length - 1])}.${finish}`;
+    } else {
+        const rate = measureRate(), m = SaltCore.pathMeters(pts), kmh = mapState.measureKmh;
+        out.textContent = pts.length < 2 ? `Time-distance: pick or type a speed, then click points along the route.${pts.length ? ` From ${grid(pts[0])}: click the next point.` : ''}`
+            : !(kmh > 0) ? `Time-distance: ${dist(m, rate.kind)}. Type a speed above 0.`
+            : `Time-distance: ${dist(m, rate.kind)} at ${SaltCore.formatSpeed(kmh, unitSystem, rate.kind)} takes ${SaltCore.formatDuration(m / 1000 / kmh)}, from ${grid(pts[0])} to ${grid(pts[pts.length - 1])}.${finish}`;
+    }
 };
+// Range rings kept on the map, in this browser only.
+const saveRings = (rings, said) => {
+    mapState.rings = rings;
+    writeStored('salt_range_rings', JSON.stringify(rings));
+    renderMeasureTools();
+    redrawMap();
+    if (said) showToast(said);
+};
+// The pointer over the map while a point is still to be placed: the line
+// (or ring) to it follows, drawn alone, once a frame.
+let measureHoverFrame = 0;
+const hoverMeasure = (lonLat) => {
+    const pts = mapState.measure, tool = mapState.measureTool;
+    const wants = mapState.measuring && pts.length && !mapState.measureDone
+        && (tool === 'ring' ? !mapState.ringR : tool !== 'distance' || pts.length === 1);
+    if (!wants && !mapState.measureHover) return;
+    mapState.measureHover = wants && lonLat ? { lon: lonLat[0], lat: lonLat[1] } : null;
+    cancelAnimationFrame(measureHoverFrame);
+    measureHoverFrame = requestAnimationFrame(refreshMeasure);
+};
+if (mapBody) {
+    mapBody.addEventListener('click', e => {
+        const tool = e.target.closest('[data-measure-tool]');
+        if (tool) { pickMeasureTool(tool.dataset.measureTool); return; }
+        if (e.target.closest('#mapRingKeep')) {
+            const c = mapState.measure[0];
+            if (!c || !mapState.ringR) return;
+            if (mapState.rings.length >= MAX_RINGS) { showToast(`${MAX_RINGS} kept rings at most. Remove one first.`, true); return; }
+            const r = Math.round(mapState.ringR);
+            resetMeasure();
+            showMeasure();
+            saveRings([...mapState.rings, { lon: c.lon, lat: c.lat, r }], `Ring of ${SaltCore.formatDistance(r, unitSystem)} kept on the map, in this browser.`);
+            return;
+        }
+        const gone = e.target.closest('[data-ring-remove]');
+        if (gone) {
+            const at = +gone.dataset.ringRemove;
+            saveRings(mapState.rings.filter((_, i) => i !== at), 'Ring removed.');
+            const next = document.querySelector('[data-ring-remove]') || document.getElementById('mapRingKeep');
+            if (next) next.focus();
+            return;
+        }
+        if (e.target.closest('#mapRingClear')) {
+            saveRings([], 'Kept rings cleared.');
+            const keep = document.getElementById('mapRingKeep');
+            if (keep) keep.focus();
+        }
+    });
+    // The time-distance tool's speed: a standard rate fills the box, in its
+    // class's unit; a speed typed there is used as it is.
+    mapBody.addEventListener('change', e => {
+        if (e.target.id !== 'mapMeasureRate') return;
+        mapState.measureRate = e.target.value;
+        mapState.measureKmh = measureRate().kmh;
+        renderMeasureTools();
+        showMeasure();
+        refreshMeasure();
+        document.getElementById('mapMeasureRate').focus();
+    });
+    mapBody.addEventListener('input', e => {
+        if (e.target.id !== 'mapMeasureSpeed') return;
+        const v = Number(e.target.value);
+        mapState.measureKmh = v > 0 ? v * SaltCore.kmhPerSpeedUnit(unitSystem, measureRate().kind) : 0;
+        showMeasure();
+        refreshMeasure();
+    });
+}
+// Enter finishes a path, area or route, from the map or from nowhere in
+// particular (not from a button or box, where Enter is theirs).
+document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || !mapState.measuring) return;
+    const at = document.activeElement;
+    if (at && at !== document.body && at.id !== 'mapBox') return;
+    if (mapState.measureTool === 'distance' || mapState.measureTool === 'ring') return;
+    e.preventDefault();
+    finishMeasure(false);
+});
+
+// --- Units ---
+
+// Settings > Units: metric or imperial, for this browser. The button says
+// which is on, like MGRS Lock.
+const unitsBtn = document.getElementById('toggleUnitsBtn');
+const updateUnitsBtnText = () => { if (unitsBtn) unitsBtn.textContent = unitSystem === 'imperial' ? 'Units: Imperial' : 'Units: Metric'; };
+updateUnitsBtnText();
+if (unitsBtn) {
+    unitsBtn.addEventListener('click', () => {
+        unitSystem = unitSystem === 'imperial' ? 'metric' : 'imperial';
+        writeStored('salt_units', unitSystem);
+        updateUnitsBtnText();
+        el.menu.panel.style.display = 'none';
+        showToast(unitSystem === 'imperial' ? 'Units: imperial (mi and yd, mph, knots for aircraft).' : 'Units: metric (km and m, km/h).');
+        renderLog();
+        renderMapCard();
+        renderMeasureTools();
+        showMeasure();
+        redrawMap();
+    });
+}
 const toggleBasePop = togglePop('mapBasePop', 'mapBaseBtn');
 const toggleDronePop = togglePop('mapDronePop', 'mapDroneBtn');
 const toggleExportPop = togglePop('mapExportPop', 'mapExportBtn');
@@ -344,6 +556,11 @@ document.addEventListener('click', e => {
 const wireMapBox = () => {
     const m = mapEls();
     const at = (e) => { const r = m.box.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    // The longitude and latitude under the pointer.
+    const lonLatAt = (e) => {
+        const [x, y] = at(e), w = m.box.clientWidth, h = m.box.clientHeight;
+        return SaltCore.mercToLonLat(mapState.view.cx + (x - w / 2) * mapState.view.mpp, mapState.view.cy - (y - h / 2) * mapState.view.mpp);
+    };
     const zoomAt = (e, factor) => {
         if (!mapState.view) return;
         const [x, y] = at(e), w = m.box.clientWidth, h = m.box.clientHeight;
@@ -379,21 +596,32 @@ const wireMapBox = () => {
         else if (e.key === '+' || e.key === '=') mapState.view.mpp *= 0.5;
         else if (e.key === '-' || e.key === '_') mapState.view.mpp *= 2;
         else if (e.key === '0') mapState.view.mpp = Infinity;
+        // Measuring: Space puts a point at the middle of the map (its crosshair).
+        else if (e.key === ' ' && mapState.measuring) { e.preventDefault(); addMeasurePoint(SaltCore.mercToLonLat(mapState.view.cx, mapState.view.cy)); return; }
         else return;
         e.preventDefault();
         redrawMap();
     });
-    m.box.addEventListener('dblclick', e => { if (!e.target.closest('.map-zoom, .map-card, .map-bottom, .map-base-pop, .map-tools, .map-side-btn')) zoomAt(e, 0.5); });
+    // Measuring, a double-click finishes a path, area or route instead.
+    m.box.addEventListener('dblclick', e => {
+        if (e.target.closest('.map-zoom, .map-card, .map-bottom, .map-base-pop, .map-tools, .map-side-btn')) return;
+        if (mapState.measuring) finishMeasure(true); else zoomAt(e, 0.5);
+    });
     let drag = null;
     m.box.addEventListener('pointerdown', e => {
         if (e.button !== 0 || e.target.closest('.map-zoom, .map-card, .map-bottom, .map-base-pop, .map-tools, .map-side-btn') || !mapState.view) return;
-        drag = { x: e.clientX, y: e.clientY, cx: mapState.view.cx, cy: mapState.view.cy, item: e.target.closest('[data-map-item]') };
+        // A range ring is dragged out from its center rather than the map moved.
+        const ring = mapState.measuring && mapState.measureTool === 'ring' && !e.shiftKey && (!mapState.measure.length || mapState.ringR > 0);
+        drag = { x: e.clientX, y: e.clientY, cx: mapState.view.cx, cy: mapState.view.cy, item: e.target.closest('[data-map-item]'), ring };
         m.box.setPointerCapture(e.pointerId);
-        m.box.classList.add('dragging');
+        if (ring) addMeasurePoint(lonLatAt(e));
+        else m.box.classList.add('dragging');
     });
     m.box.addEventListener('pointermove', e => {
         mapState.pointer = { clientX: e.clientX, clientY: e.clientY, target: e.target };
         showGridReadout(e, e.shiftKey && !drag);
+        if (drag && drag.ring) { hoverMeasure(lonLatAt(e)); return; }
+        if (!drag && mapState.measuring && mapState.view) hoverMeasure(lonLatAt(e));
         if (drag) {
             const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
             mapState.view.cx = drag.cx - dx * mapState.view.mpp;
@@ -406,7 +634,7 @@ const wireMapBox = () => {
         }
         const g = e.target.closest('[data-map-item]');
         const item = g && mapState.items[+g.dataset.mapItem];
-        if (!item || !m.card.hidden || e.shiftKey) { m.tip.hidden = true; return; }
+        if (!item || !m.card.hidden || e.shiftKey || mapState.measuring) { m.tip.hidden = true; return; }
         m.tip.innerHTML = item.kind === 'drone' ? droneTip(item.d) : trackTip(item.t);
         const [x, y] = at(e);
         m.tip.hidden = false;
@@ -427,6 +655,8 @@ const wireMapBox = () => {
     m.box.addEventListener('pointerup', e => {
         const d = drag;
         end();
+        // A ring dragged out: its radius is where the pointer was let go.
+        if (d && d.ring) { if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) addMeasurePoint(lonLatAt(e)); return; }
         // A press that didn't move is a click: on a report, a place, or nothing.
         if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return;
         if (e.shiftKey) {
@@ -450,6 +680,7 @@ const wireMapBox = () => {
     m.box.addEventListener('pointerleave', () => {
         if (!drag) m.tip.hidden = true;
         mapState.pointer = null;
+        if (!drag) hoverMeasure(null);
         showGridReadout(null, false);
     });
     new ResizeObserver(() => redrawMap()).observe(m.box);

@@ -1438,6 +1438,37 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-measure-label { fill: var(--on-color); font-weight: 700; }
 .map-note.map-measure-out { top: auto; bottom: 10px; color: var(--text-primary); }
 .map-measure-out[hidden] { display: none; }
+/* The line to the pointer, still to be placed: fainter, and a kept ring quieter than the one in hand. */
+.map-measure-preview { stroke-opacity: 0.6; }
+.map-measure-area { fill: var(--on-color); fill-opacity: 0.12; stroke: none; }
+.map-ring-kept { stroke-dasharray: 2 4; stroke-opacity: 0.85; }
+.map-measure-total { font-size: 12px; }
+/* While measuring with the map focused from the keyboard: a crosshair in its
+   middle, where Space puts a point. */
+.map-box.measuring:focus-visible::after { content: ""; position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%); pointer-events: none; z-index: 1;
+    background: linear-gradient(var(--on-color), var(--on-color)) center / 2px 100% no-repeat, linear-gradient(var(--on-color), var(--on-color)) center / 100% 2px no-repeat; filter: drop-shadow(0 0 1.5px var(--map-halo)); }
+/* The measure tools slide out of the ruler to its left (instantly with
+   reduced motion, by the rule for every transition), their options under them. */
+.map-measure-wrap { position: relative; width: 30px; height: 30px; }
+.map-measure-tools { position: absolute; right: calc(100% + 6px); top: 0; display: flex; gap: 4px; padding: 0; white-space: nowrap; transform-origin: right center;
+    opacity: 0; visibility: hidden; transform: translateX(14px) scaleX(0.4); transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.18s ease, visibility 0s linear 0.24s; }
+.map-measure-tools.open { opacity: 1; visibility: visible; transform: none; transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.18s ease, visibility 0s linear 0s; }
+.map-zoom .map-measure-tools button { width: auto; padding: 0 10px; font-size: 0.8em; font-weight: 600; color: var(--text-secondary); }
+.map-zoom .map-measure-tools button:hover { color: var(--text-primary); }
+.map-zoom .map-measure-tools button[aria-pressed="true"] { background: var(--blue-hover); border-color: var(--blue-outline); color: var(--system-blue); }
+.map-measure-panel { position: absolute; right: calc(100% + 6px); top: 36px; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; width: max-content; max-width: 320px; box-sizing: border-box; padding: 8px 10px; border-radius: 12px;
+    background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px var(--shadow); font-size: 0.8em; color: var(--text-primary); cursor: default; }
+.map-measure-panel[hidden] { display: none; }
+.map-measure-panel select { width: auto; max-width: 100%; margin: 0; padding: 6px 30px 6px 10px; font-size: 1em; }
+.map-measure-speed { display: inline-flex; align-items: center; gap: 6px; }
+.map-measure-panel input { width: 80px; margin: 0; padding: 6px 8px; font-size: 1em; }
+.map-measure-panel .map-base-pop-head { flex-basis: 100%; }
+.map-zoom .map-measure-panel button { width: auto; height: auto; padding: 2px 0; border: none; background: none; backdrop-filter: none; font-size: 1em; }
+.map-ring-list { flex-basis: 100%; margin: 0; padding: 0; list-style: none; }
+.map-ring-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 0; }
+.map-zoom .map-ring-list .map-ring-remove { width: 22px; height: 22px; padding: 0; border-radius: 50%; background: var(--input-bg); color: var(--text-secondary); font-size: 1.05em; }
+/* A report's rate of march under its time in the Report Log, with its updates open. */
+.march-rate { display: block; font-size: 0.82em; color: var(--text-secondary); }
 .map-drone { cursor: default; }
 /* Full screen: the controls on top, the map filling the rest, the key below. */
 .map-pane:fullscreen { display: flex; flex-direction: column; padding: 20px; background: var(--panel-bg); box-sizing: border-box; }
