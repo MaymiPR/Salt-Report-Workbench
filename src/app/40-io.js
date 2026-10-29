@@ -45,17 +45,10 @@ const renderExportPreview = () => {
     const allLive = localReports.filter(r => !r.deleted);
     const total   = allLive.length;
     const modeLb  = timeDisplayMode === 'local' ? '(Local)' : '(Zulu)';
-<<<<<<< HEAD
     el.manage.subtitle.textContent = `ATO: ${activeAto||'-'} · ${plural(total, 'report')}`;
     el.manage.fromMode.textContent = modeLb;
     el.manage.toMode.textContent   = modeLb;
     const hasFilter = !!(el.manage.fromDate.value || el.manage.toDate.value || el.manage.fromTime.value || el.manage.toTime.value);
-=======
-    el.exp.subtitle.textContent = `ATO: ${activeAto||'-'} · ${plural(total, 'report')}`;
-    el.exp.fromMode.textContent = modeLb;
-    el.exp.toMode.textContent   = modeLb;
-    const hasFilter = !!(el.exp.fromDate.value || el.exp.toDate.value || el.exp.fromTime.value || el.exp.toTime.value);
->>>>>>> main
     // Stacked counts matching the report-log header style.
     const totalAllHistory  = allLive.reduce((s, r) => s + 1 + ((r.history && r.history.length) || 0), 0);
     const totalWithHistory = reps.reduce((s, r) => s + 1 + ((r.history && r.history.length) || 0), 0);
