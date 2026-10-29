@@ -157,6 +157,24 @@ const mostIn = (list) => {
 // the places it is about, the signs seen (and the reports behind them), and
 // the signs that would make it firmer. Every rule looks only at the reports
 // given; rules in `off` are skipped, and the team's `custom` rules run too.
+//
+// How strong a judgment is (its level, an index into ICD203): a rule that
+// fires is at least roughly even chance (EVEN), and `judge` caps it at very
+// likely (VERY_LIKELY). Each rule raises it one of three ways, tuned per rule:
+//   - EVEN + steps: one for each thing beyond the minimum that makes it
+//     firmer (antitank: two or more ATGM positions +1; obstacles or tanks in
+//     hides with them +1).
+//   - levelBy(n, likely, veryLikely): n is a count, of reports (deception),
+//     of places (axes, fortline) or of the kinds of signs seen (kindsOf:
+//     crossing, cp), sometimes plus one for a bonus (assembly: armor halted
+//     in five reports or more); at `likely` it is likely, at `veryLikely`
+//     very likely.
+//   - The same thresholds written out (defense, logistics, offense, firing,
+//     withdrawal).
+// The table of rules in tests/js/core.test.js fires each one from a minimal
+// set of reports and pins the level it gets, so a change to the tuning shows
+// there. The judgments are sorted by level, then by how many reports are
+// behind them, then by NARRATIVE_RULES' order; the narrative shows ten.
 const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) => {
     const out = [];
     const byArea = new Map();
@@ -317,7 +335,7 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             judge('logistics', supply.length >= 5 ? VERY_LIKELY : supply.length >= 3 ? LIKELY : EVEN,
                 `have a logistics or resupply point in ${area}`,
                 [['supply vehicles halted or resupplying within 12 hrs', supply],
-                    ['fuel or ammunition vehicles', supply.filter(f => /\b(fuel|tanker|pol|ammo|ammunition|atz)\b/i.test(textOf(f)))]], [area]);
+                    ['fuel or ammunition vehicles', supply.filter(f => FUEL_AMMO.test(textOf(f)))]], [area]);
         }
         // Counter-battery: radar or counter-battery fire, or drones on guns, with artillery here.
         const cb = at(f => can(f, 'cbRadar'));
@@ -369,8 +387,13 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
         if (on('counterattack') && (counter.length || arrivals.length)) {
             const signs = [['a counterattack reported', counter], ['armor or mechanized forces arriving within 6 hrs after contact here', arrivals],
                 ['artillery fire in support', firesHere]];
+            // The contact the armor arrived after is cited too, though, as in
+            // regroup, it adds no strength: the arrivals already count it.
+            const last = arrivals.length ? Math.max(...arrivals.map(f => f.ms)) : null;
+            const contactBefore = last === null ? [] : at(f => shot(f) && !isManeuver(f) && f.ms <= last);
             judge('counterattack', levelBy(kindsOf(signs), 2, 3),
-                counter.length ? `are counterattacking in ${area}` : `are reinforcing or counterattacking in ${area}`, signs, [area]);
+                counter.length ? `are counterattacking in ${area}` : `are reinforcing or counterattacking in ${area}`,
+                [signs[0], ['contact here', contactBefore], ...signs.slice(1)], [area]);
         }
         // Casualty evacuation: ambulances or wounded, after fighting here.
         const cas = at(f => can(f, 'medevac'));
@@ -558,15 +581,19 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
         }, [['small dismounted groups moving or observing within 12 hrs', small]]);
     }
     // A second echelon or reserve: armor halted in one place during contact in another.
+    // Elsewhere is a named place (NAI, OBJ, phase line) or a grid square other
+    // than the reserve's; contact with no place at all could be anywhere, so
+    // it doesn't count.
     const contact = facts.filter(f => shot(f));
+    const elsewhere = (c, area) => { const where = [...c.areas, ...c.pls]; return where.length > 0 && !where.includes(area); };
     let reserve = [], reserveAt = null;
     for (const [area, list] of byArea) {
         const held = list.filter(f => isManeuver(f) && has(f, 'Stationary')
-            && contact.some(c => !c.areas.includes(area) && Math.abs(c.ms - f.ms) <= 6 * HOUR));
+            && contact.some(c => elsewhere(c, area) && Math.abs(c.ms - f.ms) <= 6 * HOUR));
         if (held.length > reserve.length) { reserve = held; reserveAt = area; }
     }
     if (on('reserve') && reserve.length) {
-        const fights = contact.filter(c => !c.areas.includes(reserveAt) && reserve.some(f => Math.abs(c.ms - f.ms) <= 6 * HOUR));
+        const fights = contact.filter(c => elsewhere(c, reserveAt) && reserve.some(f => Math.abs(c.ms - f.ms) <= 6 * HOUR));
         const big = reserve.reduce((n, f) => n + (f.groups.maneuver || 0), 0) >= 10 || reserve.length >= 2;
         judge('reserve', EVEN + (big ? 1 : 0), {
             RU: `are holding a second echelon or reserve in ${reserveAt}`,
@@ -869,10 +896,12 @@ const confidenceOf = (list) => {
 // The narrative's sections, for the reports in the period (`cur`, in time
 // order) and the period before (`prev`, or null). `settings` are the team's
 // (what the enemy is called, units, equipment, rules: narrativeSettings).
+// Gives { lines, judgments }: the lines, and for each judgment shown its rule,
+// the index of its last line, and the reports behind it (summaryDetail).
 const narrativeLines = (cur, prev, { local, hrs, end, places, settings, width = 100 }) => {
     const set = narrativeSettings(settings);
     const facts = cur.map(f => narrativeFacts(f, set.team));
-    const out = [];
+    const out = [], shown = [];
     const say = (text, first = '   ', rest = '   ') => out.push(...wrapText(text, first, rest, width));
     const cite = (list, max = 4) => {
         const l = byTime(list);
@@ -883,7 +912,7 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, width = 
     if (!facts.length) {
         say(`No reports in this period${prev ? ` (previous ${hrs} hrs: ${prev.length})` : ''}.`);
         out.push('', '2. ASSESSMENT', '   None: no reports to assess.', '');
-        return out;
+        return { lines: out, judgments: shown };
     }
     const who = new Set(facts.map(f => f.who).filter(Boolean)).size;
     const placed = facts.filter(f => f.places.length).length;
@@ -964,6 +993,7 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, width = 
         }
         say(`Confidence: ${confidenceOf(j.list)}.`, '      ', '      ');
         if (j.watch.length) say(`Watch for: ${j.watch.join('; ')}.`, '      ', '      ');
+        shown.push({ rule: j.rule, level: j.level, line: out.length - 1, sources: [...new Set(j.list.map(f => reportKey(f.r)))] });
     });
     if (all.length > judgments.length) {
         say(`${plural(all.length - judgments.length, 'more judgment')} at ${ICD203[all[judgments.length].level][0]} or less not shown; a shorter window, or rules switched off in the settings, narrows them.`);
@@ -990,5 +1020,5 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, width = 
         + `${ICD203.map(([t, p]) => `${t} ${p}`).join(', ')}. Confidence (high, moderate, low) rests on how many reports and observers support a judgment.`
         + ' Doctrine follows the design of the equipment in each judgment\'s reports (Russian or Chinese), else the period\'s.'
         + `${set.units.length ? ' Units are named from the unit list, not from the reports.' : ''}`, '', '');
-    return out;
+    return { lines: out, judgments: shown };
 };

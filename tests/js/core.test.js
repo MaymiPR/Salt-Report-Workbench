@@ -1540,6 +1540,217 @@ test('the new rules: fires, maneuver, defense and support, each from its own sig
     assert.ok(lift.includes('air assault'), lift);
 });
 
+// --- The rules, one by one ---
+
+// Reports for the table: [size, activity, location, minutes after 250000Z],
+// T0, T1, ... in the order given, over three days (some rules need 12 hrs or more).
+const T_DAY = Date.parse('2026-10-25T00:00:00Z');
+const tableReps = (rows) => rows.map(([size, activity, location, min], i) => report({ id: `t${i}`, displayId: `T${i}`, size, activity, location,
+    time: new Date(T_DAY + min * 60000).toISOString(), user: { initials: i % 2 ? 'AB' : 'CD' } }));
+const TABLE_OPTS = { ...SUMMARY_OPTS, now: new Date('2026-10-27T00:00:00Z'), from: Date.parse('2026-10-24T00:00:00Z'), to: Date.parse('2026-10-27T00:00:00Z') };
+const judgedBy = (rows, opts = {}) => core.summaryDetail('narrative', tableReps(rows), OVERLAYS, { ...TABLE_OPTS, ...opts });
+const OBJ1 = '38SMB4200092000', NOWHERE = 'vic hill 220';
+const TRUCKS = ['3x trucks', 'moving N', NAI1, 30];   // behind nothing, so never a source
+// For every built-in rule: the level it gets from a minimal set of reports
+// that makes it fire, which of them are behind it (T0, T1, ...), and a set
+// one sign short that doesn't fire it.
+const RULE_TABLE = {
+    // Maneuver
+    offense: ['roughly even chance', [['2x 2S19', 'firing', NAI1, 0], ['1x Pantsir-S1', 'moving N', NAI1, 30], ['6x PAX', 'halted', NAI1, 60]], [0, 1],
+        [['1x Pantsir-S1', 'moving N', NAI1, 30], ['1x Krasukha-4', 'jamming', NAI1, 60]]],
+    axes: ['roughly even chance', [['2x T-72', 'moving N', NAI1, 0], ['3x BMP-2', 'moving W', NAI2, 60], TRUCKS], [0, 1],
+        [['2x T-72', 'moving N', NAI1, 0], ['3x BMP-2', 'moving W', NAI2, 420]]],
+    fixing: ['likely', [['4x PAX', 'firing at OP', NAI1, 0], ['10x T-72', 'moving W', NAI2, 60], TRUCKS], [0, 1],
+        [['4x PAX', 'firing at OP', NAI1, 0], ['10x T-72', 'moving W', NAI2, 240]]],
+    forward: ['roughly even chance', [['2x T-72', 'moving N', NAI1, 0], ['1x 2S19', 'moving N', NAI1, 60], TRUCKS], [0, 1],
+        [['2x T-72', 'moving N', NAI1, 0], ['1x 2S19', 'moving N', NAI1, 180]]],
+    recon: ['roughly even chance', [['2x BRDM-2', 'observing', NAI1, 0], ['2x T-72', 'moving N', NAI1, 60], ['3x trucks', 'halted', NAI1, 90]], [0, 1],
+        [['2x T-72', 'moving N', NAI1, 0], ['2x BRDM-2', 'observing', NAI1, 60]]],
+    reconforce: ['roughly even chance', [['4x BMP-2', 'firing on our positions', NAI1, 0], ['4x BMP-2', 'withdrawing to the east', NAI1, 60], TRUCKS], [0, 1],
+        [['4x BMP-2', 'firing on our positions', NAI1, 0], ['4x BMP-2', 'withdrawing to the east', NAI1, 240]]],
+    assembly: ['roughly even chance', [['2x T-72', 'halted', NAI1, 0], ['3x BMP-2', 'parked', NAI1, 60], ['3x trucks', 'resupplying', NAI1, 90], ['1x 2S19', 'moving N', NAI1, 100]], [0, 1, 2],
+        [['2x T-72', 'halted', NAI1, 0], ['3x trucks', 'resupplying', NAI1, 90]]],
+    reserve: ['roughly even chance', [['6x PAX', 'firing at OP', NAI2, 0], ['2x T-72', 'halted', NAI1, 60], ['3x trucks', 'moving N', NAI1, 90]], [0, 1],
+        [['6x PAX', 'firing at OP', NOWHERE, 0], ['2x T-72', 'halted', NAI1, 60]]],
+    firing: ['roughly even chance', [['6x PAX', 'firing at OP', NAI1, 0], ['4x PAX', 'engaging', NAI1, 60], TRUCKS], [0, 1],
+        [['6x PAX', 'firing at OP', NAI1, 0], TRUCKS]],
+    dismount: ['roughly even chance', [['2x BMP-3', 'dismounted infantry at the treeline', NAI1, 0], ['10x PAX', 'moving W, firing', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
+        [['2x BMP-3', 'dismounted infantry at the treeline', NAI1, 0], ['10x PAX', 'moving W, firing', NAI1, 180]]],
+    buildup: ['roughly even chance', [['3x PAX', 'hiding in the treeline', NAI1, 0], ['2x PAX', 'observing', NAI1, 60], ['3x PAX', 'stationary in a basement', NAI1, 120],
+        ['3x trucks', 'moving N', NAI1, 90]], [0, 1, 2],
+    [['3x PAX', 'hiding in the treeline', NAI1, 0], ['2x PAX', 'observing', NAI1, 60]]],
+    infiltration: ['roughly even chance', [['4x PAX', 'moving W', NAI1, 0], ['3x PAX', 'on foot', NAI1, 60], TRUCKS], [0, 1],
+        [['4x PAX', 'moving W', NAI1, 0], ['3x PAX', 'on foot', NAI1, 800]]],
+    lightassault: ['roughly even chance', [['3x motorcycles, 6x PAX', 'moving W', NAI1, 0], ['2x buggy, 4x PAX', 'moving W', NAI1, 60], TRUCKS], [0, 1],
+        [['3x motorcycles, 6x PAX', 'moving W', NAI1, 0], TRUCKS]],
+    urban: ['likely', [['6x PAX', 'moving into the village', NAI1, 0], ['2x T-72', 'halted', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
+        [['6x PAX', 'moving N', NAI1, 0], ['2x T-72', 'halted', NAI1, 30]]],
+    // NAI 2 had a report before the contact: not new ground.
+    exploit: ['roughly even chance', [['4x PAX', 'firing at OP', NAI1, 0], ['2x T-72', 'moving W', NAI1, 60], ['2x T-72', 'moving W', NAI2, 120], TRUCKS], [0, 1, 2],
+        [['3x trucks', 'halted', NAI2, -60], ['4x PAX', 'firing at OP', NAI1, 0], ['2x T-72', 'moving W', NAI1, 60], ['2x T-72', 'moving W', NAI2, 120]]],
+    // Three 10 km squares around 38S MB 77 (66, 68 and 86), or only two.
+    encircle: ['roughly even chance', [['2x T-72', 'moving N', '38SMB6500062000', 0], ['2x T-72', 'moving N', '38SMB6500082000', 60],
+        ['2x T-72', 'moving N', '38SMB8500062000', 120], ['3x trucks', 'moving N', '38SMB6500062000', 30]], [0, 1, 2],
+    [['2x T-72', 'moving N', '38SMB6500062000', 0], ['2x T-72', 'moving N', '38SMB6500082000', 60]]],
+    pursuit: ['roughly even chance', [['2x T-72', 'pursuing our patrol', NAI1, 0], TRUCKS], [0],
+        [['3x trucks', 'pursuing our patrol', NAI1, 0]]],
+    // The contact (T0) is cited with the armor that arrives after it.
+    counterattack: ['roughly even chance', [['6x PAX', 'firing at OP', NAI1, 0], ['2x T-72', 'moving N', NAI1, 60], ['3x trucks', 'moving N', NAI1, 90]], [0, 1],
+        [['2x T-72', 'moving N', NAI1, -30], ['6x PAX', 'firing at OP', NAI1, 0], ['2x T-72', 'moving N', NAI1, 60]]],
+    withdrawal: ['roughly even chance', [['2x T-72', 'withdrawing to the east', NAI1, 0], TRUCKS], [0],
+        [['2x T-72', 'moving E', NAI1, 0]]],
+    airassault: ['likely', [['4x Mi-8', 'landing troops', NAI1, 0], ['2x Ka-52', 'orbiting', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
+        [['2x Il-76', 'landed', NAI1, 0], ['2x Ka-52', 'orbiting', NAI1, 30]]],
+    amphibious: ['likely', [['2x ZBD-05', 'swimming the river', NAI1, 0], ['1x 2S19', 'halted', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
+        [['2x BMP-2', 'moving N', NAI1, 0], ['1x 2S19', 'halted', NAI1, 30]]],
+    // Defense
+    defense: ['likely', [['6x PAX', 'digging in', NAI1, 0], ['1x MTU-20', 'emplacing obstacles', NAI1, 60], TRUCKS], [0, 1],
+        [['6x PAX', 'stationary', NAI1, 0], TRUCKS]],
+    strongpoint: ['roughly even chance', [['2x T-72', 'dug in', NAI1, 0], ['6x PAX', 'holding', NAI1, 780], TRUCKS], [0, 1],
+        [['2x T-72', 'dug in', NAI1, 0], ['6x PAX', 'holding', NAI1, 600]]],
+    fortline: ['roughly even chance', [['6x PAX', 'digging in', NAI1, 0], ['6x PAX', 'digging in', NAI2, 60], ['6x PAX', 'digging in', OBJ1, 120], TRUCKS], [0, 1, 2],
+        [['6x PAX', 'digging in', NAI1, 0], ['6x PAX', 'digging in', NAI2, 60]]],
+    screen: ['roughly even chance', [['2x BRDM-2', 'observing', NAI1, 0], ['3x PAX', 'observing', NAI2, 60], TRUCKS], [0, 1],
+        [['2x BRDM-2', 'observing', NAI1, 0], ['3x PAX', 'observing', NAI2, 420]]],
+    antitank: ['likely', [['2x Kornet', 'in position', NAI1, 0], ['2x T-72', 'halted', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
+        [['2x Kornet', 'moving N', NAI1, 0], ['2x T-72', 'halted', NAI1, 30]]],
+    remotemine: ['likely', [['1x Zemledeliye', 'stationary', NAI1, 0], ['1x BM-21', 'firing', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
+        [['1x BM-21', 'firing', NAI1, 30]]],
+    deception: ['roughly even chance', [['2x T-72', 'camouflaged in the treeline', NAI1, 0], TRUCKS], [0],
+        [['2x T-72', 'moving N', NAI1, 0]]],
+    // Fires
+    artillery: ['roughly even chance', [['2x 2S19', 'firing', NAI1, 0], ['1x BM-21', 'firing', NAI1, 60], ['6x PAX', 'halted', NAI1, 90]], [0, 1],
+        [['2x 2S19', 'firing', NAI1, 0], ['1x BM-21', 'firing', NAI1, 240]]],
+    reconfire: ['roughly even chance', [['1x Orlan-10', 'overhead', NAI1, 0], ['2x 2S19', 'firing', NAI1, 30], ['3x trucks', 'halted', NAI1, 40]], [0, 1],
+        [['1x Orlan-10', 'overhead', NAI1, 0], ['2x 2S19', 'firing', NAI1, 90]]],
+    // Fire following the UAVs makes it spotting, not surveillance.
+    isr: ['roughly even chance', [['1x Orlan-10', 'overhead', NAI1, 0], ['1x Orlan-10', 'overhead', NAI1, 60], ['1x Orlan-10', 'overhead', NAI1, 120],
+        ['3x trucks', 'moving N', NAI1, 90]], [0, 1, 2],
+    [['1x Orlan-10', 'overhead', NAI1, 0], ['1x Orlan-10', 'overhead', NAI1, 60], ['1x Orlan-10', 'overhead', NAI1, 120], ['2x 2S19', 'firing', NAI1, 150]]],
+    counterbattery: ['roughly even chance', [['1x 1L219', 'emplaced', NAI1, 0], ['2x 2S19', 'firing', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
+        [['1x 1L219', 'emplaced', NAI1, 0], ['2x 2S19', 'halted', NAI1, 30]]],
+    shootscoot: ['roughly even chance', [['2x 2S19', 'firing', NAI1, 0], ['2x 2S19', 'moving N', NAI1, 30], ['3x trucks', 'moving N', NAI1, 40]], [0, 1],
+        [['2x 2S19', 'firing', NAI1, 0], ['2x 2S19', 'moving N', NAI1, 90]]],
+    tankfire: ['likely', [['2x T-72', 'halted, firing at our positions', NAI1, 0], ['6x PAX', 'moving W', NAI1, 120], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
+        [['2x T-72', 'halted, firing at our positions', NAI1, 0], ['3x BMP-2', 'moving W', NAI1, 30]]],
+    thermobaric: ['likely', [['1x TOS-1A', 'firing at the village', NAI1, 0], ['10x PAX', 'moving W into the village', NAI1, 60], TRUCKS], [0, 1],
+        [['1x 2S19', 'firing at the village', NAI1, 0], ['10x PAX', 'moving W into the village', NAI1, 60]]],
+    deep: ['roughly even chance', [['1x Iskander', 'moving N', NAI1, 0], ['1x Orlan-10', 'overhead', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
+        [['1x 2S19', 'moving N', NAI1, 0], ['1x Orlan-10', 'overhead', NAI1, 30]]],
+    c2strike: ['roughly even chance', [['2x 2S19', 'shelling the command post', NAI1, 0], TRUCKS], [0],
+        [['2x 2S19', 'shelling the treeline', NAI1, 0]]],
+    sead: ['likely', [['1x ASN-301', 'launching', NAI1, 0], ['1x Krasukha-4', 'jamming', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
+        [['1x Lancet', 'struck a bunker', NAI1, 0], ['1x Krasukha-4', 'jamming', NAI1, 30]]],
+    drones: ['roughly even chance', [['1x FPV', 'struck a bunker', NAI1, 0], ['1x Orlan-10', 'overhead', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
+        [['1x Orlan-10', 'overhead', NAI1, 30]]],
+    interdict: ['roughly even chance', [['2x Lancet', 'struck trucks on the MSR', NAI1, 0], ['3x trucks', 'moving N', NAI1, 60]], [0],
+        [['2x Lancet', 'struck a bunker', NAI1, 0]]],
+    glidebomb: ['roughly even chance', [['2x KAB-500', 'struck positions', NAI1, 0], TRUCKS], [0],
+        [['2x Su-25', 'struck positions', NAI1, 0]]],
+    aviation: ['roughly even chance', [['2x Su-25', 'overhead', NAI1, 0], ['2x T-72', 'firing on our positions', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
+        [['2x Mi-8', 'overhead', NAI1, 0], ['2x T-72', 'firing on our positions', NAI1, 30]]],
+    // Support
+    crossing: ['likely', [['1x PMP', 'emplacing at the river', NAI1, 0], ['1x Pantsir-S1', 'halted', NAI1, 30], ['6x PAX', 'moving N', NAI1, 60]], [0, 1],
+        [['1x UR-77', 'moving N', NAI1, 0], ['1x Pantsir-S1', 'halted', NAI1, 30]]],
+    breach: ['likely', [['1x UR-77', 'stationary', NAI1, 0], ['2x T-72', 'halted', NAI1, 30], ['3x trucks', 'halted', NAI1, 60]], [0, 1],
+        [['1x MTU-20', 'stationary', NAI1, 0], ['2x T-72', 'halted', NAI1, 30]]],
+    cbrn: ['likely', [['1x TDA-2K', 'laying smoke', NAI1, 0], ['1x TOS-1A', 'halted', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
+        [['2x T-72', 'laying smoke', NAI1, 0], ['1x TOS-1A', 'halted', NAI1, 30]]],
+    cp: ['likely', [['1x R-149', 'halted, antennas up', NAI1, 0], ['1x Pantsir-S1', 'halted', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
+        [['1x Pantsir-S1', 'halted', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]]],
+    adsite: ['roughly even chance', [['1x Pantsir-S1', 'halted', NAI1, 0], ['3x trucks', 'parked', NAI1, 30], ['2x T-72', 'moving N', NAI1, 60]], [0, 1],
+        [['1x Pantsir-S1', 'halted', NAI1, 0], ['3x trucks', 'moving N', NAI1, 30]]],
+    ew: ['roughly even chance', [['1x Krasukha-4', 'halted', NAI1, 0], ['2x T-72', 'moving N', NAI1, 60], ['3x trucks', 'halted', NAI1, 30]], [0, 1],
+        [['2x T-72', 'moving N', NAI1, 60]]],
+    logistics: ['roughly even chance', [['3x trucks', 'parked', NAI1, 0], ['1x ATZ fuel truck', 'refueling', NAI1, 60], ['2x T-72', 'moving N', NAI1, 90]], [0, 1],
+        [['3x trucks', 'parked', NAI1, 0], ['3x trucks', 'parked', NAI1, 800]]],
+    logforward: ['roughly even chance', [['3x trucks', 'moving N', NAI1, 0], ['1x ATZ fuel truck', 'moving N', NAI1, 60], ['2x T-72', 'halted', NAI1, 30]], [0, 1],
+        [['3x trucks', 'moving N', NAI1, 0], ['3x trucks', 'moving N', NAI1, 60]]],
+    railhead: ['likely', [['10x T-72', 'unloading from trains', NAI1, 0], TRUCKS], [0],
+        [['6x PAX', 'unloading from trains', NAI1, 0]]],
+    droneresupply: ['roughly even chance', [['1x Mavic', 'drone dropping supplies', NAI1, 0], ['3x PAX', 'holding', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
+        [['1x Mavic', 'overhead', NAI1, 0], ['3x PAX', 'holding', NAI1, 30]]],
+    // Helicopters, not fixed-wing aircraft, make a FARP.
+    farp: ['roughly even chance', [['2x Mi-24', 'landed, refueling', NAI1, 0], ['1x ATZ fuel truck', 'stationary', NAI1, 30], ['2x T-72', 'moving N', NAI1, 60]], [0, 1],
+        [['2x Su-25', 'landed, refueling', NAI1, 0], ['1x ATZ fuel truck', 'stationary', NAI1, 30]]],
+    casevac: ['likely', [['4x PAX', 'firing at OP', NAI1, 0], ['1x MT-LB', 'evacuating wounded', NAI1, 60], ['3x trucks', 'moving N', NAI1, 90]], [0, 1],
+        [['4x PAX', 'firing at OP', NAI1, 0], ['1x MT-LB', 'moving N', NAI1, 60]]],
+    regroup: ['roughly even chance', [['6x PAX', 'firing at OP', NAI1, 0], ['2x T-72', 'halted', NAI1, 60], ['3x trucks', 'resupplying', NAI1, 90], ['2x BMP-2', 'moving N', NAI1, 120]], [0, 1, 2],
+        [['6x PAX', 'firing at OP', NAI1, 0], ['2x T-72', 'halted', NAI1, 60]]],
+};
+
+test('the table has a row for every built-in rule, in their order', () => {
+    assert.deepEqual(Object.keys(RULE_TABLE), core.NARRATIVE_RULES.map(([id]) => id));
+});
+
+Object.entries(RULE_TABLE).forEach(([rule, [level, fires, behind, doesNot]]) => {
+    test(`rule ${rule}: fires from its signs, with the reports behind it; one sign short, it doesn't`, () => {
+        const yes = judgedBy(fires), j = yes.judgments.find(x => x.rule === rule);
+        assert.ok(j, `${rule} fires\n${yes.text}`);
+        assert.equal(core.ICD203[j.level][0], level, `${rule}: its level\n${yes.text}`);
+        assert.deepEqual(j.sources, behind.map(i => `t${i}`), `${rule}: the reports behind it`);
+        // Switched off, it doesn't fire however strong the signs.
+        assert.ok(!judgedBy(fires, { narrative: { off: [rule] } }).judgments.some(x => x.rule === rule), `${rule}: off`);
+        const no = judgedBy(doesNot);
+        assert.ok(!no.judgments.some(x => x.rule === rule), `${rule} doesn't fire\n${no.text}`);
+    });
+});
+
+test("each judgment's detail points at its last line, and the text is summaryReport's", () => {
+    const reps = tableReps([...RULE_TABLE.defense[1], ...RULE_TABLE.recon[1].map(([s, a, l, m]) => [s, a, l, m + 300])]);
+    [100, 60, Infinity].forEach(width => {
+        const d = core.summaryDetail('narrative', reps, OVERLAYS, { ...TABLE_OPTS, width });
+        assert.equal(d.text, core.summaryReport('narrative', reps, OVERLAYS, { ...TABLE_OPTS, width }));
+        const lines = d.text.split('\n');
+        assert.ok(d.judgments.length >= 2);
+        d.judgments.forEach((j, i) => {
+            assert.ok(/^ {6}\S/.test(lines[j.line]), lines[j.line]);
+            // The next line opens the next judgment, or ends the section.
+            assert.ok(lines[j.line + 1] === '' || lines[j.line + 1].startsWith(`   ${String.fromCharCode(98 + i)}. `), `${j.rule}: ${lines[j.line + 1]}`);
+        });
+    });
+    // Other kinds have none; with no reports, none either.
+    assert.deepEqual(core.summaryDetail('rollup', reps, OVERLAYS, TABLE_OPTS).judgments, []);
+    assert.deepEqual(core.summaryDetail('narrative', [], OVERLAYS, TABLE_OPTS).judgments, []);
+    // A team rule is 'custom'; a report without an id is known by its number.
+    const own = core.summaryDetail('narrative', tableReps([['2x trucks', 'carrying water', NAI1, 0]]).map(r => ({ ...r, id: '' })), OVERLAYS,
+        { ...TABLE_OPTS, narrative: { custom: [{ what: 'are moving water', words: 'water', min: 1, hours: 12 }] } });
+    assert.deepEqual(own.judgments.map(j => [j.rule, j.sources]), [['custom', ['T0']]]);
+});
+
+test('a reserve is armor halted while there is contact somewhere else: a named place or another square, never no place at all', () => {
+    const reserve = (contactAt) => {
+        const d = judgedBy([['6x PAX', 'firing at OP', contactAt, 0], ['2x T-72', 'halted', NAI1, 60]]);
+        const j = d.judgments.find(x => x.rule === 'reserve');
+        return j ? j.sources : null;
+    };
+    assert.deepEqual(reserve(NAI2), ['t0', 't1'], 'another NAI');
+    assert.deepEqual(reserve(OBJ1), ['t0', 't1'], 'an OBJ');
+    assert.deepEqual(reserve('PL RED'), ['t0', 't1'], 'a phase line, typed with no grid');
+    assert.deepEqual(reserve('38SMB7500082000'), ['t0', 't1'], 'another 10 km square');
+    assert.equal(reserve(NOWHERE), null, 'no place: it could be anywhere');
+    assert.equal(reserve(''), null, 'an empty Location');
+    assert.equal(reserve(NAI1), null, 'the same place');
+    assert.equal(reserve('38SMB4500082000, PL BLUE'), null, 'the same place, near a phase line');
+    // Contact with no place beside contact elsewhere: only the placed one is behind it.
+    const both = judgedBy([['6x PAX', 'firing at OP', NOWHERE, 0], ['4x PAX', 'engaging', NAI2, 10], ['2x T-72', 'halted', NAI1, 60]]);
+    assert.deepEqual(both.judgments.find(x => x.rule === 'reserve').sources, ['t1', 't2']);
+    assert.ok(both.text.replace(/\s+/g, ' ').includes('Basis: contact elsewhere (T1 250010Z); armor or mechanized forces halted away from it (T2 250100Z).'), both.text);
+});
+
+test('a counterattack cites the contact the armor arrived after, at the same strength; a logistics point knows tankers', () => {
+    const counter = judgedBy([['6x PAX', 'firing at OP', NAI1, 0], ['2x T-72', 'moving N', NAI1, 60]]);
+    const j = counter.judgments.find(x => x.rule === 'counterattack');
+    assert.equal(core.ICD203[j.level][0], 'roughly even chance', 'the contact adds no strength');
+    assert.ok(counter.text.replace(/\s+/g, ' ').includes('Basis: contact here (T0 250000Z); armor or mechanized forces arriving within 6 hrs after contact here (T1 250100Z).'), counter.text);
+    // Contact after the armor arrived isn't what it arrived after.
+    const late = judgedBy([['6x PAX', 'firing at OP', NAI1, 0], ['2x T-72', 'moving N', NAI1, 60], ['4x PAX', 'engaging', NAI1, 120]]);
+    assert.deepEqual(late.judgments.find(x => x.rule === 'counterattack').sources, ['t0', 't1']);
+    // "tankers", plural, as the shared word list has it.
+    const fuel = judgedBy([['3x trucks', 'parked', NAI1, 0], ['2x tankers', 'resupplying', NAI1, 60]]);
+    assert.ok(fuel.text.replace(/\s+/g, ' ').includes('fuel or ammunition vehicles (T1 250100Z)'), fuel.text);
+});
+
 test('a point becomes the MGRS grid it is in, and back', () => {
     // Round trips across zones, hemispheres and the Norway and Svalbard exceptions.
     ['11S NV 39697 06762', '38S MB 44880 82000', '32V NM 12345 67890', '33X VC 12345 12345', '55H FA 12345 67890', '18S UJ 23487 06483'].forEach(g => {

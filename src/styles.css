@@ -1587,7 +1587,7 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .map-table tr[data-map-row]:focus { outline: none; }
 .map-table tr[data-map-row]:focus-visible { outline: 2px solid var(--system-blue); outline-offset: -2px; }
 .map-table tr.selected-row td { background: var(--blue-soft); }
-.map-table tr.flash td { animation: map-row-flash 1.5s ease; }
+.map-table tr.flash td, #reportLogTable tr.flash td { animation: map-row-flash 1.5s ease; }
 @keyframes map-row-flash { 0%, 40% { background: var(--blue-strong); } }
 .map-table-empty td { padding: 18px; color: var(--text-secondary); text-align: center; }
 /* The card of a report clicked on the map. */
@@ -1751,6 +1751,10 @@ input[type="checkbox"].narr-switch:checked { background: var(--system-green); ba
 #summaryPlaceRow[hidden] { display: none; }
 #summaryPlace { width: auto; margin: 0; padding: 6px 30px 6px 10px; font-size: 0.85em; background-position: right 10px center; }
 .summary-text { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 14px 16px; background: var(--input-bg); border-radius: 12px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.82em; line-height: 1.5; color: var(--text-primary); white-space: pre; }
+/* Under each judgment, the reports behind it: on screen only, so not selected with the text. */
+.summary-sources { display: block; padding-left: 6ch; white-space: normal; color: var(--text-secondary); user-select: none; -webkit-user-select: none; }
+.summary-sources .text-btn { font: inherit; }
+.summary-sources [hidden] { display: none; }
 
 /* --- BDA (hidden until ellipsis toggle) --- */
 /* Roll-up strip between the header and the table: one chip per outcome,

@@ -608,6 +608,16 @@ const setViewIcon = (id, on) => {
     setOn(b, on);
 };
 
+// A table row brought to the middle of `view`, the box that scrolls it, and
+// flashed (scrollIntoView would move the page too).
+const showRow = (tr, view) => {
+    const vr = view.getBoundingClientRect(), r = tr.getBoundingClientRect();
+    const still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    view.scrollBy({ top: r.top - vr.top - (view.clientHeight - r.height) / 2, behavior: still ? 'auto' : 'smooth' });
+    tr.classList.add('flash');
+    setTimeout(() => tr.classList.remove('flash'), 1500);
+};
+
 // --- 4. Notifications (toasts + confirmation dialog) ---
 let toastTimer = null;
 let toastsShown = 0;   // so a late toast can tell whether another came first

@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Each Narrative judgment shows the reports behind it**: under it on screen,
+  *From* lists them by number (eight, then *and N more*), and a tap shows that
+  report in the Report Log, its row in view and flashing. Copy, Save .txt and
+  Print stay the text alone; the lists are hidden while the text is edited.
+  The core gives them with the text (`summaryDetail`), and a test fires each of
+  the 55 built-in rules from a minimal set of reports and checks the reports
+  behind it.
+
+### Changed
+
+- **A reserve needs contact somewhere named**: the *second echelon or reserve*
+  judgment counts contact in another NAI, OBJ, phase line or grid square, and
+  no longer counts contact with no place at all, which could have been in the
+  reserve's own area.
+
+### Fixed
+
+- **The Narrative's counterattack and logistics rules cite all they read**: a
+  counterattack seen as armor arriving after contact now cites that contact
+  too, at the same strength; a logistics point counts "tankers" as fuel
+  vehicles, as the other rules already did.
+
 ## [2.27.0] - 2026-10-28
 
 ### Added

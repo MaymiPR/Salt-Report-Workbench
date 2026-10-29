@@ -474,7 +474,14 @@ const SUMMARY_KINDS = {
 //   team: the team's equipment (teamEquipment) for counting types, by
 //   default the one in the narrative settings)
 // A kind it doesn't know is a rollup.
-const summaryReport = (kind, reps, overlays, opts) => {
+const summaryReport = (kind, reps, overlays, opts) => summaryDetail(kind, reps, overlays, opts).text;
+// The same report with what is behind it: { text, judgments }, `text` being
+// summaryReport's, and for the narrative one entry per judgment shown,
+// { rule, level, line, sources }: its rule's id ('custom' for the team's
+// own), its likelihood (an index into ICD203), the index of its last line in
+// the text's lines, and the reports behind it by id (reportKey), in time
+// order. Other kinds have no judgments.
+const summaryDetail = (kind, reps, overlays, opts) => {
     const { local, from = null, to = null, now = new Date(), ato = '', title = '', by = '', place = '', squareDigits = 2, narrative = null, width = 100 } = opts;
     if (!Object.prototype.hasOwnProperty.call(SUMMARY_KINDS, kind)) kind = 'rollup';
     const team = opts.team !== undefined ? opts.team : narrative ? narrativeSettings(narrative).team : null;
@@ -501,6 +508,7 @@ const summaryReport = (kind, reps, overlays, opts) => {
     const prevCount = (key) => prev ? prev.filter(f => f.places.includes(key) || f.pls.includes(key)).length : null;
     const atPlace = (key) => cur.filter(f => f.places.includes(key) || f.pls.includes(key));
     const unassessed = d.kpis.bdaTotal - d.kpis.bdaDone;
+    let judgments = [];
 
     if (kind === 'rollup') {
         out.push('1. SUMMARY',
@@ -549,7 +557,9 @@ const summaryReport = (kind, reps, overlays, opts) => {
             out.push(...(list.length ? list.map(f => reportLine(f, local)) : ['None in this period.']));
         }
     } else if (kind === 'narrative') {
-        out.push(...narrativeLines(cur, prev, { local, hrs, end: to === null ? now.getTime() : to, places: placesTop, settings: narrative, width }));
+        const n = narrativeLines(cur, prev, { local, hrs, end: to === null ? now.getTime() : to, places: placesTop, settings: narrative, width });
+        judgments = n.judgments.map(j => ({ ...j, line: out.length + j.line }));
+        out.push(...n.lines);
     } else if (kind === 'brief') {
         const last = cur[cur.length - 1];
         out.push(
@@ -562,7 +572,7 @@ const summaryReport = (kind, reps, overlays, opts) => {
             ...(cur.length ? cur.slice(-5).reverse().map(f => `  ${reportLine(f, local)}`) : ['  None.']),
         );
     }
-    return out.join('\n') + '\n';
+    return { text: out.join('\n') + '\n', judgments };
 };
 
 // Every place the summaries can be about: overlays, and whatever is named.

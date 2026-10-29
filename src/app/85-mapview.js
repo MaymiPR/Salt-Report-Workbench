@@ -336,14 +336,7 @@ const hideHomeViews = () => {
                 const row = () => s.body.querySelector(`[data-map-row="${CSS.escape(id)}"]`);
                 if (!row()) { mapState.place = ''; mapOnlyInView = false; writeStored('salt_map_only_in_view', 'off'); renderMapTable(mapListReports()); }
                 const tr = row();
-                if (tr) {
-                    // Scroll the view only (scrollIntoView would move the page too).
-                    const view = tr.closest('.map-view'), vr = view.getBoundingClientRect(), r = tr.getBoundingClientRect();
-                    const still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-                    view.scrollBy({ top: r.top - vr.top - (view.clientHeight - r.height) / 2, behavior: still ? 'auto' : 'smooth' });
-                    tr.classList.add('flash');
-                    setTimeout(() => tr.classList.remove('flash'), 1500);
-                }
+                if (tr) showRow(tr, tr.closest('.map-view'));
             }
             return;
         }
