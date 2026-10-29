@@ -1,0 +1,28 @@
+name: PR title
+
+# A pull request's title becomes its commit on main (squash merges), so it
+# follows the same form: type(optional scope): summary.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  title:
+    name: PR title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the title
+        # Read from the environment, never pasted into the script.
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|refactor|docs|test|chore|ci|build|perf|style|a11y|revert)(\([a-z0-9._/-]+\))?!?: [^ ].*$'
+          if [[ "$TITLE" =~ $pattern ]]; then
+            echo "Title ok: $TITLE"
+          else
+            echo "::error::The title should read type(optional scope): summary, with type one of feat, fix, refactor, docs, test, chore, ci, build, perf, style, a11y, revert. It reads: $TITLE"
+            exit 1
+          fi

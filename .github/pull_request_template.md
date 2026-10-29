@@ -1,3 +1,6 @@
+<!-- Title: type(optional scope): summary, e.g. "fix: the map keeps its zoom".
+     Types: feat, fix, refactor, docs, test, chore, ci, build, perf, style, a11y, revert. -->
+
 ## What and why
 
 <!-- What does this change, and what problem does it solve? -->

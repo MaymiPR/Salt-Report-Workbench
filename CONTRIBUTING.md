@@ -23,14 +23,23 @@ you agree that it is licensed under the same terms.
 ```bash
 git clone https://github.com/MaymiPR/SaltReportWorkbench.git
 cd SaltReportWorkbench
-pip install ruff==0.17.2 pre-commit   # optional; CI runs the same ruff checks
+pip install --require-hashes -r requirements-dev.txt       # optional: ruff, pre-commit
 pre-commit install
-pip install playwright                # optional: the browser tests
+pip install --require-hashes -r requirements-browser.txt   # optional: the browser tests
 python -m playwright install chromium
 ```
 
 `make setup` and `make setup-browser` do the same on macOS and Linux. Without
-Playwright the browser tests are skipped; CI runs them.
+Playwright the browser tests are skipped; CI runs them, on Linux and Windows.
+
+The development tools are pinned to exact versions and their hashes, in
+`requirements-dev.txt` and `requirements-browser.txt`, so everyone (and CI)
+runs the same ruff and Playwright, and a changed package fails the install.
+To change one, edit its `requirements-*.in` and regenerate with
+`pip-compile --generate-hashes --strip-extras --allow-unsafe requirements-dev.in`
+(from `pip install pip-tools`, on Python 3.13); Dependabot proposes updates
+monthly. The pre-commit hooks are pinned to commits, and CI's Node to
+`.node-version`.
 
 ## Workflow
 
@@ -99,6 +108,18 @@ Common types: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `style`,
   a new piece of logic in the core part whose name matches it when it needs no
   DOM (and add it to `SaltCore` if the page or tests use it), and in the
   `app/` file whose name matches what it does otherwise.
+
+**Pull request titles** read `type(optional scope): summary`, with the type one
+of feat, fix, refactor, docs, test, chore, ci, build, perf, style, a11y or
+revert: a squash merge makes the title the commit on `main`, and a check
+fails a title that doesn't.
+
+**Releases** start with `python scripts/bump.py X.Y.Z` (or `make release
+VERSION=X.Y.Z`), which writes the version everywhere it appears and dates the
+CHANGELOG's Unreleased section. Merge that, then push an annotated tag
+(`git tag -a vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z`): the Release workflow
+builds the downloads from the tag, publishes them with the CHANGELOG section as
+the notes, and checks what it published.
 
 **Renames go in a pull request of their own,** with nothing else in it. Once
 it is merged, add its commit to `.git-blame-ignore-revs`, so `git blame` skips

@@ -1,0 +1,81 @@
+name: Release
+
+# Pushing a tag vX.Y.Z builds the release from that tag and publishes it: the
+# zip, the one-file .txt and SHA256SUMS.txt, with the tag's CHANGELOG section
+# as the notes. Run by hand (Actions > Release > Run workflow), it builds a
+# tag and checks it without publishing, unless told to.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The tag to build, e.g. v2.24.0"
+        required: true
+      publish:
+        description: "Publish it as a GitHub release (else build and check only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # to create the release; nothing else here writes
+    env:
+      TAG: ${{ github.event_name == 'push' && github.ref_name || github.event.inputs.tag }}
+      PUBLISH: ${{ github.event_name == 'push' || github.event.inputs.publish == 'true' }}
+    steps:
+      - name: Check the tag
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Not a release tag: $TAG"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      # release.py refuses a checkout that isn't clean or isn't the tag, and a
+      # version with no CHANGELOG section; --notes writes that section.
+      - name: Build
+        run: python scripts/release.py "${TAG#v}" -o out --notes notes.md
+      - name: Check what was built
+        run: |
+          cd out && sha256sum -c SHA256SUMS.txt
+          mkdir -p ../check/zip ../check/txt
+          unzip -q "SaltReportWorkbench-$TAG.zip" -d ../check/zip
+          cp "SALT-Workbench-$TAG.txt" ../check/txt/
+          cd ../check/txt && python -I "SALT-Workbench-$TAG.txt"
+          cd .. && diff -r zip/* "txt/SALT Report Workbench" && echo "The .txt unpacks to the zip's files."
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ env.TAG }}
+          path: |
+            out/
+            notes.md
+          if-no-files-found: error
+      - name: Publish
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md \
+            "out/SaltReportWorkbench-$TAG.zip" "out/SALT-Workbench-$TAG.txt" out/SHA256SUMS.txt
+      - name: Check the published files
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$TAG" -D published
+          cd published && sha256sum -c SHA256SUMS.txt
+          cmp SHA256SUMS.txt ../out/SHA256SUMS.txt && echo "The release holds what was built."

@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Releases are built and published by a workflow** when a version tag is
+  pushed: it builds the downloads from the tag, publishes them with the
+  CHANGELOG section as the notes, and checks what it published.
+  `python scripts/bump.py X.Y.Z` (or `make release VERSION=X.Y.Z`) writes a
+  new version everywhere it appears and dates the CHANGELOG.
+- **A check on pull request titles**: `type(optional scope): summary`.
+
+### Changed
+
+- **CI covers what operators run**: Python 3.11 too, Python 3.10 on Windows, and
+  the browser tests on Windows as well as Linux.
+- **The development tools are pinned** to exact versions and hashes
+  (`requirements-dev.txt`, `requirements-browser.txt`, installed with
+  `--require-hashes`), the pre-commit hooks to commits, and CI's Node to
+  `.node-version`. Dependabot proposes updates to the tools as it does to the
+  CI actions.
+
 ## [2.23.0] - 2026-10-28
 
 ### Changed

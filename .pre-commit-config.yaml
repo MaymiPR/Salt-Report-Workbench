@@ -1,7 +1,9 @@
-# Install once:  pip install pre-commit && pre-commit install
+# Install once:  pip install --require-hashes -r requirements-dev.txt && pre-commit install
+# Each hook repository is pinned to a commit (a tag can be moved; a commit
+# can't), with its tag in a comment.
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -13,7 +15,7 @@ repos:
       # Belt and braces: this tool handles field reports, never commit keys.
       - id: detect-private-key
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.2
+    rev: f368fb366ff7f2f808dd324b83a6d32267799e19  # frozen: v0.17.2
     hooks:
       - id: ruff-check
       - id: ruff-format
