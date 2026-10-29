@@ -115,7 +115,7 @@ const renderLocationHints = () => {
     const box = document.getElementById('locationHints');
     if (!box) return;
     const text = lockedLocation(el.form.location.value);
-    const ovs = currentOverlays();
+    const ovs = placeOverlays();
     const plan = ovs.length && text.trim() ? SaltCore.locationPlan(text, ovs) : { add: [], conflicts: [] };
     const near = plan.add.some(k => k.startsWith('PL ')) ? locationInfo(text).nearestPl : null;
     const chips = [
@@ -130,7 +130,7 @@ const renderLocationHints = () => {
 // Places is off), and each typed place the grid disagrees with settled by
 // the operator. Null when they cancel. Unchanged without overlays.
 const settleLocation = async (text) => {
-    const ovs = currentOverlays();
+    const ovs = placeOverlays();
     if (!ovs.length) return text;
     const plan = SaltCore.locationPlan(text, ovs);
     const replace = {}, add = addNearby ? [...plan.add] : [];

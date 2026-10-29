@@ -6,6 +6,35 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Your own tags for graphics**: in Manage > Map, make a tag (a name and a
+  color), rename it, recolor it, or delete it (asked in place, with Undo; its
+  graphics stay, with no tag). NAI, OBJ and PL stay built in. Tags are shared
+  with every editor through the server, kept in every backup, and offered in
+  an import's *Use as* list too.
+- **Sort graphics into tags**: check graphics in the list (Shift-click for a
+  run of them) and add them to a tag or take them out of theirs, or pick any
+  one's tag beside it: NAI, OBJ, PL, one of yours, or none. A shape the
+  import's name rules missed is one pick from being an NAI, OBJ or PL. A
+  graphic has one tag; a built-in tag names it by one word, as an import does
+  ("NAI 3" as an OBJ is OBJ 3).
+- **Your tags on the map and in reports**: their areas are filled in the tag's
+  color and outlined, their lines drawn in it on a black edge, their points as
+  diamonds. Each tag in the map's key (NAI, OBJ and PL too) is a switch that
+  hides or shows its graphics in this browser; a saved or printed map's key
+  leaves out the ones switched off. A report logged inside an area of one of
+  your tags gets that area's name in its Location, as with an NAI, and the map
+  view's busiest places and place filter know them. Statistics and the
+  Narrative still count NAI, OBJ and PL only.
+
+### Changed
+
+- **Overlays may have any tag**: `/api/save_overlays` takes a tag's id, or
+  none, as a graphic's type, and `/api/save_tags` saves the tags. A page from
+  before tags saves only the NAIs, OBJs and PLs it knows, and the graphics it
+  never saw are kept.
+
 ## [2.30.0] - 2026-10-29
 
 ### Added

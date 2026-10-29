@@ -585,6 +585,52 @@ test('a broken overlay is left out, and stops nothing', () => {
     assert.ok(!core.summaryPlaces([], ovs).some(p => /img/.test(p)));
 });
 
+test('an area of the team\'s own tag names the reports inside it, as an NAI does', () => {
+    const tagged = (type, name, geometry) => ({ type, name, geometry });
+    const ovs = [
+        ...OVERLAYS,
+        tagged('tag-ea', 'EA Dog', OVERLAYS[0].geometry),
+        tagged('tag-rt', 'Route Gold', OVERLAYS[3].geometry),
+        tagged('', 'Loose', OVERLAYS[0].geometry),
+    ];
+    const a = core.analyzeLocation('38SMB4500082000', ovs);
+    assert.deepEqual(a.nai, { keys: ['NAI 1'], from: 'grid' }, 'the NAI as before');
+    assert.deepEqual(a.custom, [{ key: 'EA Dog', type: 'tag-ea', from: 'grid' }], 'an area only, and not an untagged one');
+    assert.deepEqual(core.locationPlan('38SMB4500082000', ovs).add, ['NAI 1', 'EA Dog']);
+    // Named already, in any case: counted as typed, and not added again.
+    const typed = core.analyzeLocation('38SMB4500082000, ea  dog', ovs);
+    assert.deepEqual(typed.custom, [{ key: 'EA Dog', type: 'tag-ea', from: 'typed' }]);
+    assert.deepEqual(core.locationPlan('38SMB4500082000, ea dog', ovs).add, ['NAI 1']);
+    assert.deepEqual(core.analyzeLocation('along route gold', ovs).custom, [{ key: 'Route Gold', type: 'tag-rt', from: 'typed' }], 'a line, typed');
+    assert.deepEqual(core.analyzeLocation('golden route', ovs).custom, [], 'whole words only');
+    assert.equal(core.editLocation('38SMB4500082000', { add: ['NAI 1', 'EA Dog'] }), '38SMB4500082000, NAI 1, EA Dog');
+    // A grid of digits is not a name, and a name of one letter is never read as typed.
+    const odd = [tagged('tag-n', '45000', OVERLAYS[1].geometry), tagged('tag-a', 'A', OVERLAYS[1].geometry)];
+    assert.deepEqual(core.analyzeLocation('38SMB4500082000, a tank', odd).custom, []);
+    // Statistics and summaries keep to NAI, OBJ and PL.
+    assert.deepEqual(core.summaryPlaces([report({ location: '38SMB4500082000, EA Dog' })], ovs), ['NAI 1', 'NAI 2', 'OBJ BRIDGE', 'PL BLUE']);
+    const d = core.statsData([report({ location: '38SMB4500082000' })], ovs, {});
+    assert.ok(!JSON.stringify(d).includes('EA Dog'));
+});
+
+test('tags are kept as the server would take them, and ride in a backup', () => {
+    const routes = { id: 'tag-a1', name: ' Routes ', color: '#FF9F0A' };
+    const held = [routes, { ...routes, name: 'Again' }, { id: 'tag-b2', name: 'routes', color: '#000000' },
+        { id: 'tag-c3', name: 'PL', color: '#000000' }, { id: 'NAI', name: 'X', color: '#000000' }, { id: 'tag-d4', name: 'EAs', color: 'red' }, null];
+    assert.deepEqual(core.cleanTags(held), [{ id: 'tag-a1', name: 'Routes', color: '#ff9f0a' }]);
+    assert.deepEqual(core.cleanTags(undefined), []);
+    // Overlays of a tag, or of none, are kept like any other.
+    const ovs = [{ ...OVERLAYS[0], type: 'tag-a1' }, { ...OVERLAYS[1], type: '' }, { ...OVERLAYS[2], type: 'tag-A1' }];
+    assert.deepEqual(core.foldOverlays(ovs), ovs.slice(0, 2));
+    const text = core.backupText('ALPHA', [report()], 'Patrol', {}, {}, NOW, ovs, null, held);
+    const data = core.parseBackup(text).data;
+    assert.deepEqual(data.tags, [{ id: 'tag-a1', name: 'Routes', color: '#ff9f0a' }]);
+    assert.deepEqual(data.overlays, ovs.slice(0, 2));
+    assert.ok(!('tags' in core.parseBackup(core.backupText('ALPHA', [report()], 'Patrol', {}, {}, NOW)).data), 'none, none written');
+    const all = core.allWorkspacesBackupText({ ALPHA: [report()] }, 'ALPHA', 'Patrol', {}, {}, NOW, [], null, [routes]);
+    assert.equal(core.parseBackup(all).data.tags.length, 1);
+});
+
 test('an overlay is keyed as a typed name is', () => {
     const sq = OVERLAYS[0].geometry;
     const ovs = [{ type: 'OBJ', name: 'gold', geometry: sq }, { type: 'NAI', name: '01', geometry: OVERLAYS[1].geometry }];

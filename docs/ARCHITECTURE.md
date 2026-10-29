@@ -149,7 +149,7 @@ is a route's validator, `_check_<thing>` returns what is wrong (or `None`) and
 the validators share them, and `_is_<thing>` answers yes or no.
 
 The settings every workspace shares (the config, profiles, report format,
-overlays, basemaps, drones and the narrative's settings) are each one entry in
+overlays, basemaps, drones, the narrative's settings and the tags) are each one entry in
 `SHARED_SECTIONS`: its key, its empty value, its save route, validator and
 cleaner, and how a backup file's copy is read. `DATA_STORE`, the `/api/sync`
 payload, `Shared settings.json`, the copy in every workspace backup, the boot
@@ -157,8 +157,9 @@ load and the save routes all come from that list, in its order, so a new shared
 list is one entry. What one of them does its own way stays written out where it
 happens: the config is the workspace viewers are shown and has a route of its
 own, profiles are saved one at a time and merged from every file at boot,
-backups keep the format per workspace (`formats`), and older per-workspace
-overlays are pooled at boot.
+backups keep the format per workspace (`formats`), older per-workspace
+overlays are pooled at boot, and an overlays save from a page from before tags
+keeps the graphics it didn't know (a section's `keep`).
 
 Every `/api` error reply, whatever refused it, is the same JSON:
 `{"status": "error", "message": "..."}`, the message one sentence ending in a
@@ -170,7 +171,7 @@ outside `/api`) gets the standard library's HTML `404`.
 | --- | --- | --- |
 | `/`, `/index.html` | GET | The bundled page. On the viewer port it is stamped `read-only` before any script runs; for the host's own browser the access code is injected into a `<meta>` tag. |
 | `/Salt%20Report%20Workbench.html` | GET | The same page, under its old single-file name, so old bookmarks still open it. |
-| `/api/sync` | GET | Full state: workspaces, config (the workspace viewers are shown), profiles, the report format, overlays, basemaps, drones, the narrative's settings, sources, the workspaces unloaded since the server started (`unloaded`), connected users, which workspace each connected editor is in (`connected_where`, initials to ATO), the last 50 changes for the Activity list (`activity`: `{at, who, what, ato}`, newest last, who as initials and what in plain words such as `logged ALPHA012`; kept in memory only, so a restart empties it, and no addresses), the number of the change it is as of (`version`, read before the data, so the answer holds at least that change) and the server's release (`server_version`). |
+| `/api/sync` | GET | Full state: workspaces, config (the workspace viewers are shown), profiles, the report format, overlays, basemaps, drones, the narrative's settings, the tags (`tags`), sources, the workspaces unloaded since the server started (`unloaded`), connected users, which workspace each connected editor is in (`connected_where`, initials to ATO), the last 50 changes for the Activity list (`activity`: `{at, who, what, ato}`, newest last, who as initials and what in plain words such as `logged ALPHA012`; kept in memory only, so a restart empties it, and no addresses), the number of the change it is as of (`version`, read before the data, so the answer holds at least that change) and the server's release (`server_version`). |
 | `/api/events` | GET | Server-Sent Events stream. Each message says the newest change's number, `{"v": n}`; a page that already has it doesn't pull, and others call `/api/sync`. Changes within 150 ms of each other go out as one message. |
 | `/api/health` | GET | No code needed, on either port: `{status: ok \| not saving, version, uptime_seconds, last_saved, save_failures, connected_machines, change}`. Nothing about the reports. |
 | `/api/basemap?u=` | GET | An image from an `http://` basemap, for an HTTPS page that can't load it itself. Only from the host of a saved basemap; a redirect followed only on that host (to https, say); images only, up to 16 MB. |
@@ -181,7 +182,8 @@ outside `/api`) gets the standard library's HTML `404`.
 | `/api/save_config` | POST | Say which ATO and title this editor is in, and make it the one viewers are shown. Each editor keeps their own workspace; no other editor moves. |
 | `/api/save_profile` | POST | Register an operator's initials and color. |
 | `/api/save_format` | POST | Save the report format (Builder): one for every workspace. An `ato` from an older page is ignored. |
-| `/api/save_overlays` | POST | Replace the shared NAI / OBJ / PL overlays (GeoJSON geometries, longitude/latitude). An empty list clears them. |
+| `/api/save_overlays` | POST | Replace the shared overlays: `{overlays: [{type, name, label?, geometry}], tagged?}` (GeoJSON geometries, longitude/latitude; `type` NAI, OBJ, PL, a tag's id or empty for none). An empty list clears them. Without `tagged: true` (a page from before tags) only the NAIs, OBJs and PLs are replaced, and the other graphics are kept. |
+| `/api/save_tags` | POST | Replace the team's own tags for graphics: `[{id, name, color}]` (at most 30; `id` `tag-` and up to 16 lowercase letters or digits, made by the page and kept through a rename; names unique, at most 30 characters, none NAI, OBJ or PL; `color` `#rrggbb`). Shared like the overlays and kept in every backup file, where the ones it wouldn't take are dropped on boot. |
 | `/api/save_basemaps` | POST | Replace the map's basemap services: `[{name, kind: wms \| tiles, url, layers?, version?, crs?, format?}]` (at most 20, names unique, http/https only; the last three are what a WMS's capabilities said to ask for). Shared like the overlays and kept in every backup file; each browser picks which to show. |
 | `/api/save_drones` | POST | Replace the drones on the map: `[{name, grid, at, look?, range?}]` (at most 10, names unique, `grid` and `look` MGRS grids as the page writes them, `at` when it was put there, in ms, `range` in km, more than 0 and at most 1,000). Shared like the basemaps and kept in every backup file; each browser chooses whether they and their view show. |
 | `/api/save_narrative` | POST | Replace the narrative's settings: `{enemy, units: [{name, places, kinds}], equipment: [{type, role, origin}], off: [rule ids], custom: [{what, words, min, hours}]}` (at most 50 units, 500 equipment entries, 30 rules; unit names and equipment types unique; roles and rule ids from the fixed lists, origin `RU`, `CN` or empty; a rule's `min` 1-20 reports within `hours` 1-168). Shared like the basemaps and kept in every backup file. |
@@ -190,8 +192,20 @@ outside `/api`) gets the standard library's HTML `404`.
 ### Overlays and geography
 
 Overlays are one list shared by every workspace (since 2.8; before, one per
-workspace): `{type: NAI|OBJ|PL, name, label?, geometry}`, with GeoJSON
-geometry in longitude/latitude. Every workspace's backup file carries the
+workspace): `{type, name, label?, geometry}`, with GeoJSON geometry in
+longitude/latitude. The type is the graphic's one tag: NAI, OBJ or PL (built
+in), the id of one of the team's own tags (`tags`, `[{id, name, color}]`, its
+own shared section), or empty for none. A graphic points at its tag by id, so
+a rename or recolor changes no overlay, and deleting a tag leaves its graphics
+with an id no tag has, which reads as none (Undo gives the tag back to them).
+The page keeps the tags' list (`BUILTIN_TAGS` and `tagOf` in
+`app/50-overlays.js`): each tag's color and how its graphics are read
+(`shape`: `area` closes a path into an area, `line` keeps it, `any` keeps it
+as drawn); a later built-in tag is one more entry there and in the server's
+`_OVERLAY_TYPES`. An area of the team's tags places a report as an NAI does,
+by the graphic's name (`custom` in `analyzeLocation`, added to the Location by
+`locationPlan`, the one place a grid adds a name); the statistics and the
+narrative read NAI, OBJ and PL only. Every workspace's backup file carries the
 whole list, and on boot the newest file in that form wins; older files' per-
 workspace dicts are pooled (`fold_overlays` in the server, `foldOverlays` in
 `core/20-reports.js`). The page converts KML, KMZ and zipped shapefiles (unzipped with
@@ -213,7 +227,8 @@ GeoTrans to check it against.
 The map (`app/60-map.js`) draws in screen pixels from Web Mercator, redrawn
 on every pan and zoom. Nothing on it is synced; each browser keeps its own
 choices (`salt_map_layers`, `salt_map_grids`, `salt_map_base`,
-`salt_map_side`, `salt_map_only_in_view`, the kept range rings
+`salt_map_side`, `salt_map_only_in_view`, `salt_map_tags_off` (the tags
+switched off in the key), the kept range rings
 `salt_range_rings`, and Settings > Units, `salt_units`). The measure tools
 (`app/64-map-controls.js`) keep their points in `mapState` and draw in one
 group (`measureLayer`), so the line to the pointer is redrawn alone
@@ -322,7 +337,7 @@ The server is the meeting point, not the authority over content.
 - **Soft deletes.** Deleting marks a report `deleted` rather than removing it,
   so the deletion itself merges and propagates like any other edit.
 - **Cached sync payload.** The JSON for workspaces, config, profiles, the
-  format, overlays, basemaps, drones and narrative settings is serialized
+  format, overlays, basemaps, drones, narrative settings and tags is serialized
   once and cached as a byte prefix; only the small per-request tail
   (connected users, where they are, the activity list, read-only flag, the
   change number and the server's release) is appended each time. Any mutation
@@ -338,7 +353,7 @@ backup folder, which defaults to `Auto Backups/` beside the server. Writes are
 debounced by 0.5 seconds so a burst of edits becomes one write, and every
 mutation marks its workspace dirty (`mark_dirty`) so only changed workspaces
 are rewritten. The report format, overlays, basemaps, drones, narrative
-settings, config and profiles ride in every file (the format under each
+settings, tags, config and profiles ride in every file (the format under each
 workspace's name, as older versions read it), and a change to any of them
 marks all workspaces dirty. On boot the newest file's format is the one used.
 
@@ -364,7 +379,7 @@ Concurrency is handled in two steps:
    30 seconds, with one console line per run of failures.
 
 The shared settings (overlays, basemaps, drones, the narrative's settings,
-profiles, the report format, the config) are also written to their own
+the tags, profiles, the report format, the config) are also written to their own
 `Shared settings.json`, so they survive a restart even when no workspace
 exists. Workspace files still carry them too, and on boot the newest file
 decides.

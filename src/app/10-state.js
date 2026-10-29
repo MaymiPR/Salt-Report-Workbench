@@ -375,7 +375,7 @@ const formatsFor = (atos) => Object.fromEntries(atos.map(a => [a, currentFormat(
 // Map tab and synced. Viewers keep none locally. Browsers from before
 // they were shared kept them per workspace ('salt_ws_overlays'); those are
 // folded into one set once.
-if (viewerAtLoad) { removeStored('salt_ws_overlays'); removeStored('salt_overlays'); }
+if (viewerAtLoad) { removeStored('salt_ws_overlays'); removeStored('salt_overlays'); removeStored('salt_tags'); }
 let sharedOverlays = viewerAtLoad ? [] : SaltCore.foldOverlays(readStored('salt_overlays', null) || readStored('salt_ws_overlays', []));
 const storeOverlays = () => {
     if (isReadOnly || viewerAtLoad) return;
@@ -396,12 +396,29 @@ const storeDrones = () => { if (!isReadOnly && !viewerAtLoad) writeStored('salt_
 const asNarrative = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 let sharedNarrative = viewerAtLoad ? {} : asNarrative(readStored('salt_narrative', {}));
 const storeNarrative = () => { if (!isReadOnly && !viewerAtLoad) writeStored('salt_narrative', JSON.stringify(sharedNarrative)); };
+// The team's own tags for graphics ([{ id, name, color }], app/50-overlays.js),
+// shared like the overlays; NAI, OBJ and PL are built in.
+let sharedTags = viewerAtLoad ? [] : SaltCore.cleanTags(readStored('salt_tags', []));
+const storeTags = () => { if (!isReadOnly && !viewerAtLoad) writeStored('salt_tags', JSON.stringify(sharedTags)); };
+// The overlays a Location is read against: those with a built-in tag or one
+// that still exists (a deleted tag's graphics have none until given one).
+// The same list, by identity, until the overlays or the tags change.
+let placeOverlaysOf = { ovs: null, tags: null, list: [] };
+const placeOverlays = () => {
+    if (placeOverlaysOf.ovs !== sharedOverlays || placeOverlaysOf.tags !== sharedTags) {
+        const ids = new Set(sharedTags.map(t => t.id));
+        const list = sharedOverlays.filter(o => o.type && (!SaltCore.TAG_ID.test(o.type) || ids.has(o.type)));
+        placeOverlaysOf = { ovs: sharedOverlays, tags: sharedTags, list };
+    }
+    return placeOverlaysOf.list;
+};
 // What each Location box says against the overlays (grids, NAI/OBJ, nearest
-// PL, checks). Cached by text; cleared whenever the overlays change.
+// PL, checks, the team's tags). Cached by text; cleared whenever the overlays
+// or the tags change.
 const locationCache = new Map();
 let locationCacheFor = null;
 const locationInfo = (text) => {
-    const ovs = currentOverlays();
+    const ovs = placeOverlays();
     if (locationCacheFor !== ovs) { locationCache.clear(); locationCacheFor = ovs; }
     const key = String(text || '');
     if (!locationCache.has(key)) locationCache.set(key, SaltCore.analyzeLocation(key, ovs));

@@ -36,7 +36,9 @@ const mapViewEls = () => ({
 // A report's latest grid in Web Mercator, or null when it has none.
 const latestMerc = (t) => { const p = t.points[t.points.length - 1]; return SaltCore.lonLatToMerc(p.lon, p.lat); };
 const mapTimeFmt = (t) => (timeDisplayMode === 'local' ? toLocalTimeString : toZuluTimeString)(t);
-const placesOfReport = (r) => { const a = locationInfo(r.location); return [...a.nai.keys, ...a.obj.keys, ...a.pls]; };
+// The places a report is at: NAIs, OBJs, phase lines, and the graphics of
+// the team's tags it names or is inside (by name, as graphicName gives it).
+const placesOfReport = (r) => { const a = locationInfo(r.location); return [...a.nai.keys, ...a.obj.keys, ...a.pls, ...a.custom.map(c => c.key)]; };
 
 // The reports the table and the numbers are about: those the map shows, cut
 // to the picked place and (when asked) to the part of the map on screen.
@@ -64,9 +66,9 @@ const renderMapSide = (reps) => {
     const tally = new Map(), tags = new Map();
     let inPlace = 0;
     reps.forEach(r => {
-        const keys = placesOfReport(r);
-        if (keys.some(k => !k.startsWith('PL '))) inPlace++;
-        keys.forEach(k => tally.set(k, (tally.get(k) || 0) + 1));
+        const a = locationInfo(r.location);
+        if (a.nai.keys.length || a.obj.keys.length) inPlace++;
+        placesOfReport(r).forEach(k => tally.set(k, (tally.get(k) || 0) + 1));
     });
     // Every activity there, counted before the activity filter, so more can be picked.
     mapListReports(true).forEach(r => {
@@ -191,16 +193,19 @@ const centerMapOn = (id) => {
     return true;
 };
 
-// A click on the map: a report opens its card; an NAI, OBJ, or phase line
-// narrows the table to it (again to widen it); anywhere else closes the card.
+// A click on the map: a report opens its card; an NAI, OBJ, phase line or
+// graphic of the team's tags narrows the table to it (again to widen it);
+// anywhere else closes the card. Lines first, within ten pixels; then areas.
+// Graphics with no tag, or whose tag is switched off in the key, aren't picked.
 mapState.clickHook = ({ item, at, lonLat: [lon, lat], mpp }) => {
     if (item && item.t) { mapCardFrom = null; selectMapReport(item.t.report.id, at); return; }
     const near = mpp * Math.cos(lat * Math.PI / 180) * 10;   // ten pixels, on the ground
-    const lines = currentOverlays().filter(o => o.type === 'PL' && SaltCore.metersToGeometry(o.geometry, lon, lat) <= near);
-    const areas = currentOverlays().filter(o => o.type !== 'PL' && /Polygon|LineString/.test((o.geometry || {}).type || '')
-        && SaltCore.geometryContains(SaltCore.asArea(o.geometry), lon, lat));
-    const hit = lines[0] || areas[0];
-    if (hit) { mapState.place = overlayKey(hit) === mapState.place ? '' : overlayKey(hit); redrawMap(); return; }
+    const shown = currentOverlays().map(o => [o, tagOf(o.type)]).filter(([o, t]) => !t.none && !mapState.tagsOff.has(t.key) && o.geometry)
+        .map(([o, t]) => [o, t.shape === 'area' ? SaltCore.asArea(o.geometry) : o.geometry]);
+    const lines = shown.filter(([, g]) => /LineString/.test(g.type) && SaltCore.metersToGeometry(g, lon, lat) <= near);
+    const areas = shown.filter(([, g]) => /Polygon/.test(g.type) && SaltCore.geometryContains(g, lon, lat));
+    const hit = (lines[0] || areas[0] || [])[0];
+    if (hit) { const k = graphicName(hit); mapState.place = k === mapState.place ? '' : k; redrawMap(); return; }
     if (mapState.selected) selectMapReport('', null);
 };
 

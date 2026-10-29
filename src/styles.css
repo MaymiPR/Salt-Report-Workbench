@@ -113,7 +113,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 select { -webkit-appearance: none; appearance: none; background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%238E8E93%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22/%3E%3C/svg%3E'); background-repeat: no-repeat; background-position: right 1rem center; background-size: .65em auto; }
 /* Text boxes that can't be typed in; :read-only alone also catches inputs
    that aren't text at all, like the map's time slider. */
-input:read-only:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]) { opacity: 0.5; cursor: not-allowed; }
+input:read-only:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]) { opacity: 0.5; cursor: not-allowed; }
 input[type="checkbox"] { -webkit-appearance: none; appearance: none; width: 17px; height: 17px; border-radius: 5px; border: 1.5px solid var(--system-gray); background-color: var(--input-bg); background-repeat: no-repeat; background-position: center; cursor: pointer; flex-shrink: 0; transition: background-color 0.15s, border-color 0.15s; vertical-align: middle; }
 input[type="checkbox"]:checked { background-color: var(--system-blue); border-color: var(--system-blue); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 8'%3E%3Cpath fill='none' stroke='%23ffffff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' d='M1 4l3 3 5-6'/%3E%3C/svg%3E"); background-size: 70%; }
 input[type="checkbox"]:hover { border-color: var(--text-secondary); }
@@ -1499,6 +1499,11 @@ circle.map-hit { pointer-events: all; }
 .map-tip { position: absolute; z-index: 2; max-width: 280px; padding: 8px 10px; border-radius: 10px; background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); font-size: 0.8em; line-height: 1.45; pointer-events: none; }
 .map-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 0.8em; color: var(--text-secondary); }
 .map-key { display: inline-flex; align-items: center; gap: 6px; }
+/* A tag in the key is its graphics' switch: off, it is dimmed and struck through. */
+button.map-key-tag { margin: 0; width: auto; padding: 0; border: none; border-radius: 4px; background: none; color: inherit; font: inherit; cursor: pointer; }
+button.map-key-tag:hover { opacity: 1; color: var(--text-primary); }
+button.map-key-tag:active { transform: none; }
+button.map-key-tag.off { opacity: 0.45; text-decoration: line-through; }
 .map-ramp { display: inline-block; width: 46px; height: 8px; border-radius: 4px; background: var(--heat-ramp); }
 /* Latest grids / All reports: the one picked is solid blue, the other plain. */
 .map-grids .io-mode { color: var(--text-secondary); }
@@ -1517,10 +1522,42 @@ circle.map-hit { pointer-events: all; }
 .overlay-group-unload { margin: 0 0 0 auto; width: auto; padding: 5px 12px; font-size: 0.8em; font-weight: 600; border: none; border-radius: 8px; background: var(--white-soft); color: var(--text-primary); cursor: pointer; }
 .overlay-group-unload:hover { background: var(--red-hover); color: var(--system-red); }
 .overlay-group .overlays-table { margin-bottom: 6px; table-layout: fixed; }
-.overlay-group .overlays-table th:nth-child(1) { width: 46%; }
-.overlay-group .overlays-table th:nth-child(2) { width: 20%; }
-.overlay-group .overlays-table th:nth-child(4) { width: 36px; }
+/* Columns: the checkbox, the name (the rest), shape, reports, its tag, the ×. */
+.overlay-group .overlays-table th:nth-child(1) { width: 26px; }
+.overlay-group .overlays-table th:nth-child(3) { width: 13%; }
+.overlay-group .overlays-table th:nth-child(4) { width: 15%; }
+.overlay-group .overlays-table th:nth-child(5) { width: 118px; }
+.overlay-group .overlays-table th:nth-child(6) { width: 36px; }
 .overlay-group .overlays-table tr:last-child td { border-bottom: none; }
+.overlay-group .overlays-table td:first-child { padding-right: 0; }
+.overlay-group .overlays-table td select { width: 100%; min-width: 0; padding: 4px 22px 4px 8px; border-radius: 8px; background-position: right 8px center; }
+
+/* A tag's color, as a dot before a name. */
+.tag-dot { display: inline-block; flex: none; width: 9px; height: 9px; margin-right: 5px; border-radius: 50%; box-shadow: 0 0 0 1px var(--divider); }
+.overlay-type.overlay-team { min-width: 0; padding: 1px 3px; }
+.overlay-team .tag-dot { margin: 0; }
+.overlay-group-title .tag-dot { margin-right: 2px; }
+
+/* Manage > Map: the team's own tags, and adding one. */
+.overlay-tags { background: var(--input-bg); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; }
+.overlay-tags-head { font-weight: 600; font-size: 0.92em; margin-bottom: 4px; }
+.overlay-tags .overlays-note { margin-bottom: 8px; }
+.overlay-tag-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.overlay-tag-row:last-child { margin-bottom: 0; }
+.overlay-tag-row input[type="text"] { flex: 1; min-width: 0; padding: 6px 10px; font-size: 0.9em; border-radius: 8px; background-color: var(--white-soft); }
+.overlay-tag-row .overlay-tag-ask { flex: 1; font-size: 0.9em; }
+.overlay-tag-color { flex: none; width: 30px; height: 26px; margin: 0; padding: 0; border: none; border-radius: 6px; background: none; cursor: pointer; }
+.overlay-tag-color::-webkit-color-swatch-wrapper { padding: 2px; }
+.overlay-tag-color::-webkit-color-swatch { border: none; border-radius: 5px; }
+.overlay-tag-new .set-btn { margin: 0; width: auto; padding: 6px 14px; font-size: 0.85em; }
+
+/* Over the lists while graphics are checked: stays in view as they scroll. */
+.overlay-bulk { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; margin-bottom: 12px; border-radius: 12px; background: var(--panel-bg); border: 1px solid var(--divider); box-shadow: 0 2px 8px var(--shadow-soft); font-size: 0.85em; }
+.overlay-bulk[hidden] { display: none; }
+.overlay-bulk select { width: auto; margin: 0; padding: 6px 30px 6px 10px; font-size: 0.95em; border-radius: 8px; background-position: right 10px center; }
+.overlay-bulk button { margin: 0; width: auto; padding: 7px 14px; font-size: 0.95em; }
+.overlay-bulk .text-btn { padding: 0 4px; }
+.overlay-bulk-count { font-weight: 600; }
 body.read-only .editor-only { display: none !important; }
 
 /* Under a report's Location: the place its grid puts it in, and checks. */
@@ -1528,6 +1565,7 @@ body.read-only .editor-only { display: none !important; }
 .loc-tag { font-size: 0.72em; font-weight: 600; padding: 1px 7px; border-radius: 100px; background: var(--blue-soft); color: var(--system-blue); white-space: nowrap; }
 .loc-tag.loc-nai { background: var(--green-soft); color: var(--system-green); }
 .loc-tag.loc-pl { background: var(--white-soft); color: var(--text-primary); }
+.loc-tag.loc-team { display: inline-flex; align-items: center; background: var(--white-soft); color: var(--text-primary); }
 .loc-tag.warn { background: var(--orange-soft); color: var(--system-orange); white-space: normal; border-radius: 6px; }
 button.loc-tag { border: none; margin: 0; width: auto; font-family: inherit; text-align: left; line-height: 1.5; cursor: pointer; }
 button.loc-tag.warn:hover { background: var(--orange-hover); }

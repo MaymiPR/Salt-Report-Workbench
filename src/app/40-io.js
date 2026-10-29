@@ -17,9 +17,9 @@ const generateReportText = (report) => SaltCore.reportText(report, currentFormat
 const exportFilename = (ato, title) => `${SaltCore.backupFilename(ato, title)}_${fileStamp(new Date(), timeDisplayMode === 'local')}`;
 
 const generateBackupText = (ato, reps, title, profiles) =>
-    SaltCore.backupText(ato, reps, title, profiles, formatsFor([ato]), new Date(), sharedOverlays, sharedNarrative);
+    SaltCore.backupText(ato, reps, title, profiles, formatsFor([ato]), new Date(), sharedOverlays, sharedNarrative, sharedTags);
 const generateAllAtosBackupText = (workspaces, activeAto, title, profiles) =>
-    SaltCore.allWorkspacesBackupText(workspaces, activeAto, title, profiles, formatsFor(Object.keys(workspaces)), new Date(), sharedOverlays, sharedNarrative);
+    SaltCore.allWorkspacesBackupText(workspaces, activeAto, title, profiles, formatsFor(Object.keys(workspaces)), new Date(), sharedOverlays, sharedNarrative, sharedTags);
 
 const triggerDownload = (filename, content, type = 'text/plain;charset=utf-8') => {
     const blob = new Blob([content], { type }), a = document.createElement('a');
@@ -610,6 +610,18 @@ const mergeReports = (existing, incoming) => {
     return [...byKey.values()];
 };
 
+// What a backup's tags do here: `same`, its tag id -> the id of the tag here
+// with the same name (or id); `add`, the rest, as many as there is room for.
+const importTagPlan = (tags) => {
+    const same = new Map(), add = [];
+    SaltCore.cleanTags(tags).forEach(t => {
+        const here = sharedTags.find(x => x.id === t.id || x.name.toUpperCase() === t.name.toUpperCase());
+        if (here) { if (here.id !== t.id) same.set(t.id, here.id); return; }
+        if (sharedTags.length + add.length < 30) add.push(t);
+    });
+    return { same, add };
+};
+
 function processJsonImport(rawText) {
     // Validate up-front so the user sees a precise error before the confirm prompt.
     const parsed = SaltCore.parseBackup(rawText);
@@ -622,12 +634,16 @@ function processJsonImport(rawText) {
     const ownInitials = (userProfile && userProfile.initials) || '';
     const profiles  = Object.values(imp.profiles || {}).filter(p => p && p.initials && String(p.initials).trim() !== ownInitials);
     const operators = profiles.map(p => String(p.initials).trim());
-    const impOverlays = SaltCore.foldOverlays(imp.overlays);
+    // The file's own tags: a tag of a name already here is that one (its
+    // graphics are moved to it); the others are added.
+    const tagPlan = importTagPlan(imp.tags);
+    const impOverlays = SaltCore.foldOverlays(imp.overlays).map(o => (tagPlan.same.has(o.type) ? { ...o, type: tagPlan.same.get(o.type) } : o));
     const takesFormat = !!(imp.formats && typeof imp.formats === 'object' && isStockFormat() && Object.values(imp.formats).some(isFormat));
     const effects = ['Merge the backup file into the log? A report in both keeps whichever version is newer.'];
     if (switchTo && (switchTo.ato !== activeAto || switchTo.title !== localConfig.title)) effects.push(`It switches you to ${switchTo.ato}; nobody else moves.`);
     if (operators.length) effects.push(`The tag colors of ${operators.slice(0, 5).join(', ')}${operators.length > 5 ? ` and ${operators.length - 5} more` : ''} are set from it for everyone.`);
     if (impOverlays.length) effects.push(impOverlays.length === 1 ? 'Its overlay replaces any with the same type and name.' : `Its ${impOverlays.length} overlays replace any with the same type and name.`);
+    if (tagPlan.add.length) effects.push(tagPlan.add.length === 1 ? `Its tag ${tagPlan.add[0].name} is added for everyone.` : `Its ${tagPlan.add.length} tags are added for everyone.`);
     if (takesFormat) effects.push('Its report format replaces the stock one.');
 
     showConfirmation(effects.join(' '), async () => {
@@ -654,6 +670,8 @@ function processJsonImport(rawText) {
             }
             // And the overlays (NAI / OBJ / PL): the file's replace any of the
             // same type and name; the rest are kept.
+            // Their tags first, so the graphics have them when they come.
+            if (tagPlan.add.length) await saveTags([...sharedTags, ...tagPlan.add]);
             if (impOverlays.length) await saveOverlays(mergeOverlays(sharedOverlays, impOverlays));
             await importNarrative(imp.narrative);
             await saveLocalAndSync(all, 'backup');

@@ -629,6 +629,8 @@ MAX_DRONE_NAME = 40
 MAX_DRONE_RANGE_KM = 1000  # how far a drone can see, at most
 MAX_OVERLAY_NAME = 40
 MAX_OVERLAY_LABEL = 100
+MAX_TAGS = 30  # the team's own tags for graphics, besides NAI, OBJ and PL
+MAX_TAG_NAME = 30
 MAX_BASEMAPS = 20
 MAX_BASEMAP_NAME = 60
 MAX_BASEMAP_URL = 2000
@@ -989,7 +991,16 @@ def _v_save_format(data: dict) -> str | None:
     return None
 
 
+# The built-in tags. A graphic's type is one of them, a tag of the team's own
+# (its id, see _v_save_tags), or '' for none.
 _OVERLAY_TYPES = {'NAI', 'OBJ', 'PL'}
+# What a page from before tags knows, and sends: a save from one leaves every
+# other graphic as it is (keep_unseen_overlays). Stays as it is when a
+# built-in tag is added, since those pages don't know that one either.
+_TYPES_BEFORE_TAGS = frozenset({'NAI', 'OBJ', 'PL'})
+# A tag's id: made by the page, kept when the tag is renamed.
+_TAG_ID_RE = re.compile(r'tag-[a-z0-9]{1,16}')
+_TAG_COLOR_RE = re.compile(r'#[0-9A-Fa-f]{6}')
 # Geometry type -> nesting depth of its coordinate arrays above the [lon, lat] pairs.
 _GEOMETRY_DEPTH = {
     'Point': 0,
@@ -1022,6 +1033,48 @@ def _count_positions(coords, depth: int) -> int | None:
     return total
 
 
+def _is_overlay_type(t) -> bool:
+    return isinstance(t, str) and (t in _OVERLAY_TYPES or t == '' or bool(_TAG_ID_RE.fullmatch(t)))
+
+
+def _check_tag(t, field: str, ids: set, names: set) -> str | None:
+    """What is wrong with one tag, or None; `ids` and `names` are those
+    already seen (casefolded), and it is added to them."""
+    if not isinstance(t, dict):
+        return f'{field} must be an object'
+    tid, name = t.get('id'), t.get('name')
+    if not isinstance(tid, str) or not _TAG_ID_RE.fullmatch(tid):
+        return f'{field}.id must be "tag-" and up to 16 lowercase letters or digits'
+    if tid in ids:
+        return f'{field}.id is used twice'
+    if not _is_str(name, MAX_TAG_NAME) or not name.strip():
+        return f'{field}.name must be a non-empty string ≤{MAX_TAG_NAME} chars'
+    key = name.strip().casefold()
+    if key.upper() in _OVERLAY_TYPES:
+        return f'{field}.name must not be NAI, OBJ or PL, which are built in'
+    if key in names:
+        return f'{field}.name is used twice'
+    if not isinstance(t.get('color'), str) or not _TAG_COLOR_RE.fullmatch(t['color']):
+        return f'{field}.color must be a hex color like #ff9f0a'
+    ids.add(tid)
+    names.add(key)
+    return None
+
+
+def _v_save_tags(data: dict) -> str | None:
+    tags = data.get('tags')
+    if not isinstance(tags, list):
+        return 'tags must be a list'
+    if len(tags) > MAX_TAGS:
+        return f'too many tags (max {MAX_TAGS})'
+    ids: set = set()
+    names: set = set()
+    for i, t in enumerate(tags):
+        if err := _check_tag(t, f'tags[{i}]', ids, names):
+            return err
+    return None
+
+
 def _v_save_overlays(data: dict) -> str | None:
     # The set is shared, so no ATO is needed; one sent by an older page is ignored.
     ovs = data.get('overlays')
@@ -1033,8 +1086,8 @@ def _v_save_overlays(data: dict) -> str | None:
     for i, o in enumerate(ovs):
         if not isinstance(o, dict):
             return f'overlays[{i}] must be an object'
-        if o.get('type') not in _OVERLAY_TYPES:
-            return f'overlays[{i}].type must be NAI, OBJ or PL'
+        if not _is_overlay_type(o.get('type')):
+            return f"overlays[{i}].type must be NAI, OBJ, PL, a tag's id or empty"
         if not _is_str(o.get('name'), MAX_OVERLAY_NAME) or not o.get('name'):
             return f'overlays[{i}].name must be a non-empty string ≤{MAX_OVERLAY_NAME} chars'
         if 'label' in o and not _is_str(o['label'], MAX_OVERLAY_LABEL):
@@ -1051,6 +1104,8 @@ def _v_save_overlays(data: dict) -> str | None:
         points += n
     if points > MAX_OVERLAY_POINTS:
         return f'overlays have too many points ({points}; max {MAX_OVERLAY_POINTS})'
+    if 'tagged' in data and not isinstance(data['tagged'], bool):
+        return 'tagged must be true or false'
     return None
 
 
@@ -1224,6 +1279,8 @@ def _v_wms_fetch(data: dict) -> str | None:
 #             newest file's active workspace's (pick_format).
 #   overlays  at boot the newest file in the shared form decides; files from
 #             before they were shared (per workspace) are pooled (fold_overlays).
+#             A save from a page from before tags replaces only the NAIs, OBJs
+#             and PLs (keep_unseen_overlays).
 
 
 class SharedSection(NamedTuple):
@@ -1250,6 +1307,9 @@ class SharedSection(NamedTuple):
     # At boot, the newest file that holds one decides it. False: the boot
     # (load_data_from_disk) has a rule of its own for it.
     newest_file: bool = True
+    # A list's save keeps this part of what it held, after what was sent:
+    # (what it held, the body) -> the list kept. None: a save replaces it all.
+    keep: Callable[[Any, dict], list] | None = None
 
     def initial(self):
         """What it holds before anything is loaded."""
@@ -1297,6 +1357,52 @@ def clean_overlays(ovs: list) -> list:
         }
         for o in ovs
     ]
+
+
+def keep_unseen_overlays(before, data: dict) -> list:
+    """What an overlays save leaves in place. A page from before tags knows
+    only NAI, OBJ and PL, and sends only those: the graphics with any other
+    tag (or none) stay as they are, rather than going because it never saw
+    them. A page that knows tags says so (``tagged``) and sends them all."""
+    if data.get('tagged') is True:
+        return []
+    return [o for o in _dicts(before) if o.get('type') not in _TYPES_BEFORE_TAGS]
+
+
+def clean_tags(tags: list) -> list:
+    """Known fields only, the name trimmed and the color in lower case, from
+    tags ``_v_save_tags`` accepted."""
+    return [{'id': t['id'], 'name': t['name'].strip(), 'color': t['color'].lower()} for t in tags]
+
+
+def read_tags(value) -> list | None:
+    """The tags a backup file holds: each one the save route would take,
+    cleaned; the rest are dropped. None for a file from before them."""
+    if not isinstance(value, list):
+        return None
+    ids: set = set()
+    names: set = set()
+    good = [t for t in value if _check_tag(t, 'tag', ids, names) is None]
+    return clean_tags(good[:MAX_TAGS])
+
+
+def said_of_tags(before, after: list) -> str:
+    """A tags save in plain words: the one tag added, removed, renamed or
+    recolored, by name; else 'changed the tags'."""
+    old = {t.get('id'): t for t in _dicts(before)}
+    new = {t['id']: t for t in after}
+    added, gone = [i for i in new if i not in old], [i for i in old if i not in new]
+    if len(added) == 1 and not gone:
+        return f'added tag {new[added[0]]["name"]}'
+    if len(gone) == 1 and not added:
+        return f'removed tag {old[gone[0]].get("name", "")}'
+    changed = [] if added or gone else [i for i in new if new[i] != old[i]]
+    if len(changed) == 1:
+        was, now = old[changed[0]], new[changed[0]]
+        if was.get('name') != now['name']:
+            return f'renamed tag {was.get("name", "")} to {now["name"]}'
+        return f'recolored tag {now["name"]}'
+    return 'changed the tags'
 
 
 def clean_basemaps(maps: list) -> list:
@@ -1415,6 +1521,7 @@ SHARED_SECTIONS: tuple[SharedSection, ...] = (
         logged=lambda ovs: f'save_overlays: {len(ovs)} overlay(s)',
         said=lambda *_: 'changed the overlays',
         newest_file=False,
+        keep=keep_unseen_overlays,
     ),
     # The map's background services: [{name, kind: 'wms' | 'tiles', url, layers?}].
     # Shared like the overlays; each browser picks one to show and fetches it
@@ -1453,6 +1560,19 @@ SHARED_SECTIONS: tuple[SharedSection, ...] = (
             f'{len(n["custom"])} rule(s)'
         ),
         said=lambda *_: 'changed the narrative settings',
+    ),
+    # The team's own tags for graphics, besides NAI, OBJ and PL: [{id, name,
+    # color}]. A graphic is given one by its overlay's type (the tag's id), so
+    # a rename changes no overlay; a type no tag has any more is no tag.
+    SharedSection(
+        'tags',
+        list,
+        '/api/save_tags',
+        _v_save_tags,
+        clean=clean_tags,
+        logged=lambda tags: f'save_tags: {len(tags)} tag(s)',
+        said=said_of_tags,
+        read=read_tags,
     ),
 )
 
@@ -2857,12 +2977,15 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             headers=(('X-Salt-Change', str(version)),),
         )
 
-    def _store_shared(self, key: str, value) -> tuple[bool, Any]:
+    def _store_shared(self, key: str, value, keep=None) -> tuple[bool, Any]:
         """Put a shared setting in place, for every workspace. Says whether it
         was, and what it held before: it wasn't, with nothing stored, when it
-        already holds exactly that."""
+        already holds exactly that. ``keep``: what it held -> the part of it to
+        keep after ``value`` (a list)."""
         with data_lock:
             before = DATA_STORE.get(key)
+            if keep:
+                value = value + keep(before)
             if before == value:
                 return False, before
             DATA_STORE[key] = value
@@ -3085,11 +3208,12 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
 
     def _post_save_shared(self, data: dict, section: SharedSection) -> None:
         """The save route of every shared setting stored as its section cleans
-        it: the format, overlays, basemaps, drones and narrative (see
+        it: the format, overlays, basemaps, drones, narrative and tags (see
         SHARED_SECTIONS). One for every workspace; an ATO an older page sends
         is ignored."""
         clean = section.clean(data[section.key])
-        stored, before = self._store_shared(section.key, clean)
+        keep = (lambda before: section.keep(before, data)) if section.keep else None
+        stored, before = self._store_shared(section.key, clean, keep)
         if not stored:
             self._unchanged()
             return

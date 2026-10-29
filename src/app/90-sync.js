@@ -165,7 +165,7 @@ async function syncWithServer(again = false) {
 
 // `state` is the server's /api/sync answer.
 function applyServerUpdate(state) {
-    const { workspaces, config, profiles, sources, format, overlays, basemaps, narrative, drones } = state;
+    const { workspaces, config, profiles, sources, format, overlays, basemaps, narrative, drones, tags } = state;
     const readOnly = state.read_only, connectedUsers = state.connected_users;
     // The report format: the server's wins. A server that has none yet (a new
     // one, or one upgraded from per-workspace formats) is given this browser's.
@@ -182,6 +182,14 @@ function applyServerUpdate(state) {
     if (foldedOverlays && JSON.stringify(foldedOverlays) !== JSON.stringify(sharedOverlays)) {
         sharedOverlays = foldedOverlays;
         if (!readOnly) storeOverlays();
+        renderLocationHints();
+    }
+    // The team's tags: the server's. A server from before them sends none,
+    // and they stay as they are.
+    const keptTags = Array.isArray(tags) ? SaltCore.cleanTags(tags) : null;
+    if (keptTags && JSON.stringify(keptTags) !== JSON.stringify(sharedTags)) {
+        sharedTags = keptTags;
+        if (!readOnly) storeTags();
         renderLocationHints();
     }
     if (Array.isArray(basemaps) && JSON.stringify(basemaps) !== JSON.stringify(sharedBasemaps)) {

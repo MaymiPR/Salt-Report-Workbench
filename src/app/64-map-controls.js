@@ -174,6 +174,18 @@ if (mapBody) {
             renderMapView();
             return;
         }
+        // A tag's switch in the key: its graphics off or on, in this browser.
+        const tagKey = e.target.closest('[data-map-tag]');
+        if (tagKey) {
+            const k = tagKey.dataset.mapTag;
+            if (mapState.tagsOff.has(k)) mapState.tagsOff.delete(k); else mapState.tagsOff.add(k);
+            writeStored('salt_map_tags_off', JSON.stringify([...mapState.tagsOff]));
+            cancelAnimationFrame(mapState.frame);
+            drawMap();
+            const again = document.querySelector(`#mapLegend [data-map-tag="${CSS.escape(k)}"]`);
+            if (again) again.focus({ preventScroll: true });
+            return;
+        }
         const grids = e.target.closest('[data-map-grids]');
         if (grids) {
             mapState.allGrids = grids.dataset.mapGrids === 'all';

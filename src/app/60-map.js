@@ -14,7 +14,8 @@
 const storedText = (key) => { try { return localStorage.getItem(key); } catch (e) { return null; } };
 
 // core: the white center of a report dot, so a dot shows on the red of a busy heat map.
-const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', track: '#ff3b30', edge: '#000000', core: '#ffffff' };
+// none: a graphic with no tag (app/50-overlays.js), gray.
+const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', track: '#ff3b30', edge: '#000000', core: '#ffffff', none: '#8e8e93' };
 // The layers on, in any mix (per browser); the heat map alone to start with.
 const MAP_LAYERS = [['heat', 'Heat map'], ['tracks', 'Tracks'], ['reports', 'Reports']];
 // Everything the map keeps between drawings, in one place: what this browser
@@ -30,6 +31,8 @@ const mapState = {
     // report (its updates too) at its grids. Per browser.
     allGrids: storedText('salt_map_grids') === 'all',
     activity: new Set(),   // the activity tags picked; none for every report
+    // The graphics' tags switched off in the key, by id ('none': no tag). Per browser.
+    tagsOff: new Set((v => (Array.isArray(v) ? v.filter(x => typeof x === 'string') : []))(readStored('salt_map_tags_off', []))),
     hours: 0,              // the window, in hours back from its end; 0 for all
     end: null,             // the window's end (ms), set by the time slider; null for now
     selected: '',          // the report picked on the map or in its table, by id

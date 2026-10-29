@@ -288,6 +288,22 @@ const asArea = (g) => {
     return g;
 };
 
+// A graphic with one of the team's own tags (its type the tag's id): an area
+// of one places the reports inside it, as an NAI does, by the graphic's name
+// as it is ("Route Gold"); and that name typed in a Location counts too.
+const isTeamTagged = (o) => TAG_ID.test(o.type);
+// Whether some text names a graphic: its name as whole words, in any case.
+// A name of one character, or with no letter or digit, is never read as typed.
+const graphicNameRe = new Map();
+const namesGraphic = (text, name) => {
+    if (name.length < 2 || !/[A-Za-z0-9]/.test(name)) return false;
+    if (!graphicNameRe.has(name)) {
+        const words = name.split(/\s+/).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        graphicNameRe.set(name, new RegExp(`(^|[^A-Za-z0-9])${words.join('\\s+')}(?![A-Za-z0-9])`, 'i'));
+    }
+    return graphicNameRe.get(name).test(text);
+};
+
 // What a Location box says, read against the workspace's overlays:
 //   points  the grids, as lat/lon (a report can name several)
 //   nai/obj the places it's in: as typed, or (when none was typed) the
@@ -297,6 +313,10 @@ const asArea = (g) => {
 //           PL_NEAR_METERS of a grid
 //   checks  where a typed NAI or OBJ disagrees with the grid. The typed name
 //           still counts; the check is for a person to look at.
+//   custom  graphics with the team's own tags it names ({ key: the name,
+//           type, from: 'typed' }) or whose areas its grids are in ('grid').
+//           Only the Location naming and the map use these; the statistics
+//           and the narrative keep to NAI, OBJ and PL.
 const analyzeLocation = (text, overlays) => {
     const points = findGrids(text);
     let rest = String(text || '');
@@ -332,9 +352,18 @@ const analyzeLocation = (text, overlays) => {
         const d = metersToGeometry(o.geometry, p.lon, p.lat);
         if (isFinite(d) && (!nearestPl || d < nearestPl.meters)) nearestPl = { key: keyOf(o), meters: d };
     }));
+    const custom = [], seen = new Set();
+    ovs.filter(isTeamTagged).forEach(o => {
+        const key = o.name.trim(), k = key.toUpperCase();
+        if (seen.has(k)) return;
+        const named = namesGraphic(rest, key);
+        if (!named && !(/Polygon/.test(o.geometry.type) && contains(o))) return;
+        seen.add(k);
+        custom.push({ key, type: o.type, from: named ? 'typed' : 'grid' });
+    });
     return {
         points: points.map(({ start, end, ...p }) => p),
-        nai, obj, pl: typed('PL'), nearestPl, checks,
+        nai, obj, pl: typed('PL'), nearestPl, checks, custom,
         pls: [...new Set([...typed('PL'), ...(nearestPl && nearestPl.meters <= PL_NEAR_METERS ? [nearestPl.key] : [])])],
     };
 };
@@ -342,7 +371,9 @@ const analyzeLocation = (text, overlays) => {
 // What Log or Update should do to a Location box, read against the overlays:
 //   add        places its grids are in (or, for a phase line, within
 //              PL_NEAR_METERS of) that the box doesn't name yet; added only
-//              for a type nothing was typed for
+//              for a type nothing was typed for. Then each area of the
+//              team's own tags a grid is in, by name, unless it is named.
+//              Every place added for a grid is added here, nowhere else.
 //   conflicts  typed NAIs, OBJs and PLs the grids disagree with, each with
 //              what the grids say instead (`found`, may be empty), for the
 //              operator to settle
@@ -366,6 +397,8 @@ const locationPlan = (text, overlays) => {
                 message: found.length ? `${k} typed; grid is in ${found.join(', ')}` : `${k} typed; grid is outside it` });
         });
     });
+    // The team's tags: each area a grid is in, by its name, unless named already.
+    a.custom.forEach(c => { if (c.from === 'grid') plan.add.push(c.key); });
     const near = a.nearestPl && a.nearestPl.meters <= PL_NEAR_METERS ? a.nearestPl : null;
     if (!a.pl.length) { if (near) plan.add.push(near.key); return plan; }
     a.pl.forEach(k => {

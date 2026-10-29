@@ -97,30 +97,42 @@ const lineLabelAt = (parts, w, h) => {
     return best;
 };
 
+// Each graphic in its tag's color (app/50-overlays.js), unless its tag is
+// switched off in the key: areas filled and outlined; a phase line black on a
+// white edge; a line of the team's tags in its color on a black edge; a point
+// a dot (NAI, OBJ, PL) or a diamond (the team's). With no tag, gray and dashed.
 const overlayLayer = (px, w, h) => {
     const fill = [], lines = [], labels = [];
     const label = (at, text) => at && labels.push(`<text x="${at[0].toFixed(1)}" y="${at[1].toFixed(1)}" class="map-label" text-anchor="middle">${svgEsc(text)}</text>`);
     currentOverlays().forEach(o => {
-        const g = o.type === 'PL' ? o.geometry : SaltCore.asArea(o.geometry);
-        const color = MAP_COLORS[o.type];
-        const key = SaltCore.overlayKey(o);
-        const picked = key === mapState.place;
+        const tag = tagOf(o.type);
+        if (mapState.tagsOff.has(tag.key)) return;
+        const g = tag.shape === 'area' ? SaltCore.asArea(o.geometry) : o.geometry;
+        const color = SaltCore.safeColor(tag.color);
+        const key = graphicName(o);
+        const picked = !tag.none && key === mapState.place;
+        const dash = tag.none ? ' stroke-dasharray="6 4"' : '';
         if (/Polygon/.test(g.type)) {
             const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
             const d = polys.map(rings => rings.map(r => pathOf(r, px, true)).join('')).join('');
-            fill.push(`<path d="${d}" fill="${color}" fill-opacity="${picked ? 0.3 : 0.14}" stroke="${color}" stroke-width="${picked ? 4 : 2}" fill-rule="evenodd"/>`);
+            fill.push(`<path d="${d}" fill="${color}" fill-opacity="${picked ? 0.3 : tag.none ? 0.06 : 0.14}" stroke="${color}" stroke-width="${picked ? 4 : 2}"${dash} fill-rule="evenodd"/>`);
             label(areaLabelAt(polys[0][0].map(c => px(c[0], c[1])), w, h), key);
         } else if (/LineString/.test(g.type)) {
             const parts = g.type === 'LineString' ? [g.coordinates] : g.coordinates;
             const d = parts.map(l => pathOf(l, px, false)).join('');
-            // Black, on a white edge, so it shows on dark imagery and on the plain background.
-            lines.push(`<path d="${d}" fill="none" stroke="#ffffff" stroke-width="6" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`
-                + `<path d="${d}" fill="none" stroke="${picked ? MAP_COLORS.track : color}" stroke-width="${picked ? 4 : 3}" stroke-linejoin="round" stroke-linecap="round"/>`);
+            // A phase line: black, on a white edge, so it shows on dark imagery
+            // and on the plain background. The team's: its color, on a black edge.
+            const edge = tag.builtIn ? '#ffffff' : MAP_COLORS.edge;
+            const top = picked && tag.builtIn ? MAP_COLORS.track : color;
+            lines.push(`<path d="${d}" fill="none" stroke="${edge}" stroke-width="${picked && !tag.builtIn ? 8 : 6}" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`
+                + `<path d="${d}" fill="none" stroke="${top}" stroke-width="${picked ? 4 : 3}"${dash} stroke-linejoin="round" stroke-linecap="round"/>`);
             label(lineLabelAt(parts.map(l => l.map(c => px(c[0], c[1]))), w, h), key);
         } else if (g.type === 'Point') {
             const [x, y] = px(...g.coordinates);
-            fill.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${color}" stroke="#fff" stroke-width="1.5"/>`);
-            label([x, y - 8], key);
+            const [cx, cy] = [x.toFixed(1), y.toFixed(1)];
+            fill.push(tag.builtIn ? `<circle cx="${cx}" cy="${cy}" r="4" fill="${color}" stroke="#fff" stroke-width="1.5"/>`
+                : `<path d="M${cx},${(y - 6).toFixed(1)}L${(x + 6).toFixed(1)},${cy}L${cx},${(y + 6).toFixed(1)}L${(x - 6).toFixed(1)},${cy}Z" fill="${color}" stroke="${MAP_COLORS.edge}" stroke-width="1.5" stroke-linejoin="round"/>`);
+            label([x, y - 10], key);
         }
     });
     return `<g class="map-overlays">${fill.join('')}${lines.join('')}</g><g class="map-labels">${labels.join('')}</g>`;
@@ -331,11 +343,33 @@ const selectionLayer = (tracks, px) => {
         + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="none" stroke="${MAP_COLORS.OBJ}" stroke-width="2.5"/></g>`;
 };
 
+// The key's switches for the graphics: one for each tag, built in or the
+// team's with graphics, and one for those with no tag. Each turns its
+// graphics off and on in this browser; one off is dimmed, and left out of a
+// saved or printed map's key.
+const tagKeys = () => {
+    const ovs = currentOverlays();
+    const swatch = (color, kind) => `<svg width="18" height="10" aria-hidden="true">${kind === 'pl'
+        ? `<line x1="1" y1="5" x2="17" y2="5" stroke="#fff" stroke-width="4"/><line x1="1" y1="5" x2="17" y2="5" stroke="${color}" stroke-width="2"/>`
+        : kind === 'line' ? `<line x1="1" y1="5" x2="17" y2="5" stroke="${MAP_COLORS.edge}" stroke-width="4.5"/><line x1="1" y1="5" x2="17" y2="5" stroke="${color}" stroke-width="2.2"/>`
+        : kind === 'point' ? `<path d="M9,0.5L13.5,5L9,9.5L4.5,5Z" fill="${color}" stroke="${MAP_COLORS.edge}" stroke-width="1"/>`
+        : `<rect x="1" y="1" width="16" height="8" rx="2" fill="${color}" fill-opacity="0.3" stroke="${color}" stroke-width="1.5"/>`}</svg>`;
+    // One of the team's tags looks like what it holds: areas, else lines, else points.
+    const kindOf = (list) => (list.some(o => /Polygon/.test(o.geometry.type)) ? 'area'
+        : list.some(o => /LineString/.test(o.geometry.type)) ? 'line' : 'point');
+    return [...everyTag(), tagOf('')].map(tag => {
+        const held = tag.builtIn ? null : ovs.filter(o => tagOf(o.type).key === tag.key);
+        if (held && !held.length) return '';
+        const off = mapState.tagsOff.has(tag.key);
+        const kind = tag.builtIn ? (tag.shape === 'line' ? 'pl' : 'area') : kindOf(held);
+        const what = tag.builtIn ? tag.title : tag.none ? 'the graphics with no tag' : `the ${tag.name} graphics`;
+        return `<button type="button" class="map-key map-key-tag${off ? ' off' : ''}" data-map-tag="${escapeHtml(tag.key)}" aria-pressed="${!off}" title="${off ? 'Show' : 'Hide'} ${escapeHtml(what)} on the map">`
+            + `${swatch(SaltCore.safeColor(tag.color), kind)}${escapeHtml(tag.none ? 'No tag' : tag.name)}</button>`;
+    }).join('');
+};
+
 // The key: what each color is, and what each layer that's on counts.
 const mapLegend = (heatPts, positions, tracks) => {
-    const swatch = (color, line) => `<svg width="18" height="10" aria-hidden="true">${line
-        ? `<line x1="1" y1="5" x2="17" y2="5" stroke="#fff" stroke-width="4"/><line x1="1" y1="5" x2="17" y2="5" stroke="${color}" stroke-width="2"/>`
-        : `<rect x="1" y="1" width="16" height="8" rx="2" fill="${color}" fill-opacity="0.3" stroke="${color}" stroke-width="1.5"/>`}</svg>`;
     const key = (inner, text) => `<span class="map-key">${inner}${text}</span>`;
     const dot = `<svg width="18" height="10" aria-hidden="true"><circle cx="9" cy="5" r="4" fill="${MAP_COLORS.track}" stroke="${MAP_COLORS.edge}" stroke-width="1.2"/><circle cx="9" cy="5" r="1.6" fill="${MAP_COLORS.core}"/></svg>`;
     const trackLine = `<svg width="18" height="10" aria-hidden="true"><line x1="1" y1="5" x2="17" y2="5" stroke="${MAP_COLORS.edge}" stroke-width="4.5"/><line x1="1" y1="5" x2="17" y2="5" stroke="${MAP_COLORS.track}" stroke-width="2.2"/></svg>`;
@@ -351,6 +385,6 @@ const mapLegend = (heatPts, positions, tracks) => {
             ? `Report, every saved one (${positions.length} positions; earlier ones smaller)`
             : `Report, at its latest grid (${tracks.length})`),
     ].filter(Boolean);
-    return key(swatch(MAP_COLORS.NAI), 'NAI') + key(swatch(MAP_COLORS.OBJ), 'OBJ') + key(swatch(MAP_COLORS.PL, true), 'PL')
+    return tagKeys()
         + (what.length ? what.join('') : '<span class="map-key">Turn on a layer above to see the reports.</span>');
 };
