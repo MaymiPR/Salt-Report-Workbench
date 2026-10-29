@@ -782,7 +782,9 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.locator("#topBar #appVersion").count(), 0)
         where = "(() => { const r = document.getElementById('appVersion').getBoundingClientRect(); return [Math.round(r.x), Math.round(r.y)]; })()"
         home = page.evaluate(where)
-        table = page.evaluate("document.querySelector('#logView .table-wrapper').getBoundingClientRect().bottom")
+        table = page.evaluate(
+            "document.querySelector('#logView .table-wrapper').getBoundingClientRect().bottom"
+        )
         self.assertLessEqual(table, home[1], "the table ends above it")
         for button in ("#exportViewToggleBtn", "#statsViewToggleBtn", "#summaryViewToggleBtn"):
             page.click(button)
@@ -2260,7 +2262,9 @@ class BrowserTests(unittest.TestCase):
         page.evaluate("mapState.measureSpeed = ''; mapState.measureUnit = ''")
         box = self.start_measure(page, "time")
         self.assertEqual(page.input_value("#mapMeasureSpeed"), "")
-        units = page.locator("#mapMeasureUnit option").evaluate_all("os => os.map(o => o.textContent)")
+        units = page.locator("#mapMeasureUnit option").evaluate_all(
+            "os => os.map(o => o.textContent)"
+        )
         self.assertEqual(units, ["km/h", "m/min"], "metric units only")
         page.fill("#mapMeasureSpeed", "4")
         # Under the options (speed and unit), which float over the map's right side.
@@ -2322,7 +2326,9 @@ class BrowserTests(unittest.TestCase):
         self.assertRegex(said, r"^[\d.,]+ (yd|mi), \d{3}° [NESW]+, from 38S MB")
         # Imperial units only: knots for aircraft (nautical miles), mph for the rest.
         self.start_measure(page, "time")
-        units = page.locator("#mapMeasureUnit option").evaluate_all("os => os.map(o => o.textContent)")
+        units = page.locator("#mapMeasureUnit option").evaluate_all(
+            "os => os.map(o => o.textContent)"
+        )
         self.assertEqual(units, ["mph", "knots"])
         page.fill("#mapMeasureSpeed", "120")
         page.select_option("#mapMeasureUnit", "kn")
@@ -3950,15 +3956,17 @@ class BrowserTests(unittest.TestCase):
         )
         # Put back in the form to update: the digits in Location, the zone and
         # square in the lock's box; saved untouched, it is as it was written.
+        # (Other tests' overlays may have named a place after it: compared as stored.)
+        stored = page.evaluate("localReports.find(r => r.size === '1x BTR').location")
+        self.assertTrue(stored.startswith("38S MB 45000 82000, vic the bridge"), stored)
         page.click("#reportLogBody tr[data-id] .col-size:has-text('1x BTR')")
-        self.assertEqual(page.input_value("#location"), "45000 82000, vic the bridge")
+        self.assertEqual(page.input_value("#location"), stored.replace("38S MB ", "", 1))
         self.assertEqual(page.input_value("#mgrsPrefix"), "38S MB")
         page.fill("#activity", "halted")
         page.click("#updateButton")
         page.wait_for_selector("#reportLogBody tr[data-id] .col-activity:has-text('halted')")
         self.assertEqual(
-            page.evaluate("localReports.find(r => r.size === '1x BTR').location"),
-            "38S MB 45000 82000, vic the bridge",
+            page.evaluate("localReports.find(r => r.size === '1x BTR').location"), stored
         )
         # A grid in another square stays whole.
         self.log(page, "2x BTR", location="11S NV 39697 06762")
