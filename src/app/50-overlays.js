@@ -64,15 +64,16 @@ const combineGeometry = ({ polygons, lines, points }) => {
     return null;
 };
 
-// NAI / OBJ / PL from a folder, layer, or file name ("NAIs", "Phase Lines");
-// AXIS from "Axes of advance", "Axis" or "AOA" (taken for lines only).
-const typeHint = (...texts) => {
+// NAI / OBJ / PL from a folder, layer, or file name ("NAIs", "Phase Lines"),
+// the first of `texts` that says one; for a line, AXIS too, from "Axes of
+// advance", "Axis" or "AOA".
+const typeHint = (texts, line) => {
     for (const t of texts) {
         const s = String(t || '');
         if (/\bNAIs?\b/i.test(s)) return 'NAI';
         if (/\bOBJ(ECTIVE)?S?\b/i.test(s)) return 'OBJ';
         if (/\bPLs?\b|phase\s*lines?/i.test(s)) return 'PL';
-        if (/\b(ax[ie]s|AOAs?)\b/i.test(s)) return 'AXIS';
+        if (line && /\b(ax[ie]s|AOAs?)\b/i.test(s)) return 'AXIS';
     }
     return null;
 };
@@ -102,7 +103,7 @@ const kmlFeatures = (text, fileName) => {
             lines:  all(pm, 'LineString').map(l => coords(child(l, 'coordinates'))),
             points: all(pm, 'Point').map(pt => coords(child(pt, 'coordinates'))[0]).filter(Boolean),
         });
-        return { label: ((child(pm, 'name') || {}).textContent || '').trim(), hint: typeHint(folder, fileName), geometry };
+        return { label: ((child(pm, 'name') || {}).textContent || '').trim(), hints: [folder, fileName], geometry };
     });
 };
 
@@ -139,7 +140,7 @@ const geojsonFeatures = (obj, fileName) => {
         const props = f.properties || {};
         const label = ['name', 'Name', 'NAME', 'title', 'Title', 'label', 'Label'].map(k => props[k]).find(v => v != null && String(v).trim());
         const kind  = ['type', 'Type', 'TYPE', 'category', 'Category', 'layer', 'Layer'].map(k => props[k]).find(v => v != null);
-        return { label: String(label || '').trim(), hint: typeHint(kind, fileName), geometry: combineGeometry(into) };
+        return { label: String(label || '').trim(), hints: [kind, fileName], geometry: combineGeometry(into) };
     });
     const flat = [...parts.polygons.flat(2), ...parts.lines.flat(1), ...parts.points];
     if (flat.some(c => Math.abs(c[0]) > 180 || Math.abs(c[1]) > 90)) {
@@ -344,8 +345,7 @@ const startOverlayImport = async (files) => {
                 // An axis of advance ("AXIS GOLD", "AOA 2") is a line.
                 const line = /Line/.test(ft.geometry.type);
                 const own = SaltCore.overlayRef(ft.label, null);
-                const hint = ft.hint === 'AXIS' && !line ? null : ft.hint;
-                const type = own && (own.type !== 'AXIS' || line) ? own.type : hint || (line ? 'PL' : '');
+                const type = own && (own.type !== 'AXIS' || line) ? own.type : typeHint(ft.hints, line) || (line ? 'PL' : '');
                 rows.push({ label: ft.label, geometry: ft.geometry, type });
             });
             names.push(f.name);
