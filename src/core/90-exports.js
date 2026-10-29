@@ -15,7 +15,7 @@ const SaltCore = {
     lonLatToMerc, MERC_WORLD, compass16, zipStore, crc32, shapefileParts, arcgisShapefileZip, arcgisTracksShapefileZip, tilesFor, tileZoom, tileUrl, wmsUrl, wmsCapabilitiesUrl, pickWmsCrs, pickWmsFormat, mercToLonLat, metersBetween, bearingBetween,
     asArea, analyzeLocation, locationPlan, editLocation, classifyActivity, ACTIVITY_TAGS, arcgisRows, arcgisGeoJson, arcgisEsriJson, arcgisCsv,
     sizeElements, gridSquare, statsData, statsCsv, PL_NEAR_METERS, workbookReportRows, statsXlsx, excelSerial, colName,
-    dtg, summaryReport, summaryPlaces, EQUIPMENT_CATALOGUE, EQUIPMENT_ROLES, lookupEquipment, teamEquipment, ECHELONS, echelonOf, ICD203, NARRATIVE_RULES, DOCTRINE,
+    dtg, summaryReport, summaryDetail, summaryPlaces, EQUIPMENT_CATALOGUE, EQUIPMENT_ROLES, lookupEquipment, teamEquipment, ECHELONS, echelonOf, ICD203, NARRATIVE_RULES, DOCTRINE,
     reportKey, knownVersions, changedReports, withUnsaved,
 };
 
