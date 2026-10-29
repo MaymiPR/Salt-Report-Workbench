@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **INSTALL.md says what a rebuild gives**: the files inside the zip and the
+  one-file `.txt` are the same bytes wherever a tag is built, but the zip
+  itself can differ with the machine's zlib. Each release is built once, by the
+  Release workflow, so its checksums never change.
+
 ## [2.24.0] - 2026-10-28
 
 ### Added

@@ -48,7 +48,10 @@ form where every line of every file can be read.
 ## Verify a download
 
 The release also carries `SHA256SUMS.txt`, one file holding the checksums of
-both downloads. Builds are reproducible, so the checksums are stable. Put it
+both downloads. Each release is built once, by the Release workflow, so its
+checksums never change. Built again from the same tag anywhere else, the files
+inside the zip and the one-file `.txt` come out the same bytes, though the zip
+itself can differ (its compressed bytes depend on the machine's zlib). Put it
 beside what you downloaded, then:
 
 - PowerShell:
