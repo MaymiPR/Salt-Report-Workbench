@@ -1,6 +1,7 @@
-# Bulk formatting commits. Use with:
-#   git config blame.ignoreRevsFile .git-blame-ignore-revs
-# GitHub honors this file automatically.
+# Commits that git blame skips: renames and reformatting only, with no change
+# in behavior. GitHub's blame view reads this file; for git blame on your own
+# machine, run once: git config blame.ignoreRevsFile .git-blame-ignore-revs
 
-# style: apply ruff format to all Python
-acdd9ccc2770db576e0676715ab781ec58bbf4ef
+# 2.23.0: the renames (map state, Manage names, American spelling, camelCase
+# ids, the server's check names), PR #68.
+b611c68ae62d6058942106ab798183e69eeb499c
