@@ -667,6 +667,9 @@ _EQUIPMENT_ROLES = frozenset(
     }
 )
 _EQUIPMENT_ORIGINS = frozenset({'RU', 'CN', ''})
+# The way the enemy moves in the AO (the narrative's `toward`, added in 2.30):
+# a compass point (core.js HEADINGS_8), or '' for none.
+_MARCH_DIRECTIONS = frozenset({'', 'N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'})
 _NARRATIVE_RULES = frozenset(
     {
         'offense',
@@ -996,8 +999,11 @@ def _v_save_format(data: dict) -> str | None:
 
 
 # The built-in tags. A graphic's type is one of them, a tag of the team's own
-# (its id, see _v_save_tags), or '' for none.
-_OVERLAY_TYPES = {'NAI', 'OBJ', 'PL'}
+# (its id, see _v_save_tags), or '' for none. AXIS, an axis of advance, was
+# added in 2.30: a line the narrative reads the enemy's way of march from.
+_OVERLAY_TYPES = {'NAI', 'OBJ', 'PL', 'AXIS'}
+# The names a tag of the team's can't have (core.js BUILT_IN_TAG_NAMES).
+_BUILT_IN_TAG_NAMES = frozenset(_OVERLAY_TYPES | {'AXIS OF ADVANCE'})
 # What a page from before tags knows, and sends: a save from one leaves every
 # other graphic as it is (keep_unseen_overlays). Stays as it is when a
 # built-in tag is added, since those pages don't know that one either.
@@ -1054,8 +1060,8 @@ def _check_tag(t, field: str, ids: set, names: set) -> str | None:
     if not _is_str(name, MAX_TAG_NAME) or not name.strip():
         return f'{field}.name must be a non-empty string ≤{MAX_TAG_NAME} chars'
     key = name.strip().casefold()
-    if key.upper() in _OVERLAY_TYPES:
-        return f'{field}.name must not be NAI, OBJ or PL, which are built in'
+    if key.upper() in _BUILT_IN_TAG_NAMES:
+        return f'{field}.name must not be NAI, OBJ, PL, AXIS or Axis of advance, which are built in'
     if key in names:
         return f'{field}.name is used twice'
     if not isinstance(t.get('color'), str) or not _TAG_COLOR_RE.fullmatch(t['color']):
@@ -1247,6 +1253,9 @@ def _v_save_narrative(data: dict) -> str | None:
     off = n.get('off', [])
     if not isinstance(off, list) or not all(r in _NARRATIVE_RULES for r in off):
         return 'narrative.off must list built-in rules'
+    toward = n.get('toward', '')
+    if not isinstance(toward, str) or toward not in _MARCH_DIRECTIONS:
+        return 'narrative.toward must be N, NE, E, SE, S, SW, W, NW or empty'
     custom = n.get('custom', [])
     if not isinstance(custom, list) or len(custom) > MAX_CUSTOM_RULES:
         return f'narrative.custom must be a list of at most {MAX_CUSTOM_RULES}'
@@ -1503,6 +1512,8 @@ def clean_narrative(n: dict) -> dict:
             for e in n.get('equipment', [])
         ],
         'off': sorted(set(n.get('off', []))),
+        # Only when set, so settings without one are as they were.
+        **({'toward': n['toward']} if n.get('toward') else {}),
         'custom': [
             {
                 'what': c['what'].strip(),

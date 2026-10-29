@@ -410,6 +410,8 @@ class ValidatorTests(unittest.TestCase):
         self.assertRejects(v, {"tags": [{**routes, "name": " "}]}, "name")
         self.assertRejects(v, {"tags": [{**routes, "name": "R" * 31}]}, "name")
         self.assertRejects(v, {"tags": [{**routes, "name": "obj"}]}, "built in")
+        for built_in in ("axis", "Axis of advance"):
+            self.assertRejects(v, {"tags": [{**routes, "name": built_in}]}, "built in")
         for bad in ("orange", "#fff", "#ff9f0a; x", None):
             self.assertRejects(v, {"tags": [{**routes, "color": bad}]}, "color")
         many = [{**routes, "id": f"tag-{i}", "name": f"T{i}"} for i in range(31)]
@@ -421,6 +423,11 @@ class ValidatorTests(unittest.TestCase):
         self.assertRejects(ov, {"overlays": [{**NAI1, "type": "tag-A1"}]}, "a tag's id")
         self.assertRejects(ov, {"overlays": [{**NAI1, "type": None}]}, "a tag's id")
         self.assertRejects(ov, {"overlays": [NAI1], "tagged": "yes"}, "tagged")
+        # An axis of advance is built in too.
+        self.assertIsNone(
+            ov({"overlays": [{**PL_BLUE, "type": "AXIS", "name": "GOLD"}], "tagged": True})
+        )
+        self.assertRejects(ov, {"overlays": [{**PL_BLUE, "type": "axis"}]}, "a tag's id")
 
     def test_drones_are_checked(self):
         v = srv._v_save_drones
@@ -530,6 +537,15 @@ class ValidatorTests(unittest.TestCase):
         self.assertRejects(v, {"narrative": {"custom": [{**rule, "min": 0}]}}, "min")
         self.assertRejects(v, {"narrative": {"custom": [{**rule, "hours": True}]}}, "hours")
         self.assertRejects(v, {"narrative": {"custom": [{**rule, "words": " "}]}}, "words")
+        # The AO's way of march: a compass point, or none.
+        for toward in ("", "N", "SW", "W"):
+            self.assertIsNone(v({"narrative": {"toward": toward}}))
+        for bad in ("w", "WEST", "NNW", None, ["W"], 270):
+            self.assertRejects(v, {"narrative": {"toward": bad}}, "toward")
+        clean = srv.clean_narrative
+        self.assertNotIn("toward", clean({}), "none: as settings were before it")
+        self.assertNotIn("toward", clean({"toward": ""}))
+        self.assertEqual(clean({"toward": "W"})["toward"], "W")
 
 
 class RateLimitTests(unittest.TestCase):
@@ -2180,6 +2196,23 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(self.post("/api/save_tags", {"tags": []})[0], 200)
         self.assertEqual(self.sync()["tags"], [])
         self.assertEqual(self.sync()["overlays"], [NAI1, route], "a tag's graphics stay, untagged")
+
+    def test_the_way_of_march_syncs_and_an_axis_outlives_an_older_page(self):
+        self.assertEqual(
+            self.post("/api/save_narrative", {"narrative": {"enemy": "OPFOR", "toward": "W"}})[0],
+            200,
+        )
+        self.assertEqual(self.sync()["narrative"]["toward"], "W")
+        axis = {**PL_BLUE, "type": "AXIS", "name": "GOLD"}
+        self.post("/api/save_overlays", {"overlays": [NAI1, axis], "tagged": True})
+        # A page from before tags sends its NAIs, OBJs and PLs: the axis stays.
+        self.post("/api/save_overlays", {"overlays": [NAI1, PL_BLUE]})
+        self.assertEqual(self.sync()["overlays"], [NAI1, PL_BLUE, axis])
+        srv.flush_pending_save()
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(self.sync()["overlays"], [NAI1, PL_BLUE, axis])
+        self.assertEqual(self.sync()["narrative"]["toward"], "W")
 
     def test_a_page_from_before_tags_leaves_the_tagged_graphics_alone(self):
         route = {**PL_BLUE, "type": "tag-a1", "name": "Route Gold"}
