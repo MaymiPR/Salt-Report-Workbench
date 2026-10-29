@@ -14,6 +14,14 @@ All notable changes to this project are documented here. The format follows
   board", and its text uses American spelling throughout (meters, center,
   colors, canceled, gray zone).
 
+### Fixed
+
+- **A change to a shared list is no longer undone by a sync arriving while it
+  is being saved.** A sync answer from just before the save put the old list
+  back on screen for a moment, and a change made from it then lost the one
+  being saved (a drone moved right after its range was set lost the range).
+  Syncs now wait for those saves, as they already did for reports.
+
 ## [2.22.0] - 2026-10-28
 
 ### Changed

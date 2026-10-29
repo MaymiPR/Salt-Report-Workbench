@@ -670,6 +670,42 @@ class BrowserTests(unittest.TestCase):
         self.wait_for_server(page, f"s => s.drones.some(d => d.name === '{name}')")
         page.evaluate("list => saveDrones(list)", before)  # the other tests' drones as they were
 
+    def test_a_pull_waits_for_a_shared_list_being_saved(self):
+        # Regression: a pull answered while a drone change was on its way put
+        # the old list back, and a move made from it then lost the change
+        # (seen on CI as a moved drone losing its range).
+        page = self.open_editor()
+        before = page.evaluate("JSON.parse(JSON.stringify(sharedDrones))")
+        old = page.evaluate("async () => (await fetch('/api/sync')).text()")
+        held = []
+        page.route("**/api/save_drones", lambda route: held.append(route))
+        name = f"W{int(time.time() * 1000) % 100000}"
+        page.evaluate(
+            "name => { window.saving = saveDrones([...sharedDrones, { name, grid: '38S MB 40000 78000', at: Date.now() }]); }",
+            name,
+        )
+        self.wait_until(lambda: held, "the save was never sent", page=page)
+        # A pull now, answered with the list from before the save.
+        page.evaluate(
+            """old => { const real = window.fetch;
+                window.fetch = (url, opts) => {
+                    if (url !== '/api/sync') return real(url, opts);
+                    window.fetch = real;
+                    return Promise.resolve(new Response(old, { status: 200, headers: { 'Content-Type': 'application/json' } }));
+                }; }""",
+            old,
+        )
+        page.evaluate("() => syncWithServer()")
+        self.assertIn(
+            name, page.evaluate("sharedDrones.map(d => d.name)"), "the save in flight stands"
+        )
+        held[0].continue_()
+        page.unroute("**/api/save_drones")
+        self.assertTrue(page.evaluate("async () => await window.saving"))
+        self.wait_for_server(page, f"s => s.drones.some(d => d.name === '{name}')")
+        page.wait_for_function(f"sharedDrones.some(d => d.name === '{name}')")
+        page.evaluate("list => saveDrones(list)", before)  # the other tests' drones as they were
+
     def test_the_version_shows_and_another_release_asks_for_a_reload(self):
         page = self.open_editor()
         version = page.evaluate("APP_VERSION")

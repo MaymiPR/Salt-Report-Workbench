@@ -124,5 +124,30 @@ class NoEmDashTests(unittest.TestCase):
         self.assertIsNone(EM_DASH.search(release.QUICKSTART))
 
 
+class MergeLeftoverTests(unittest.TestCase):
+    def test_no_conflict_markers_in_tracked_files(self):
+        # A merge committed half-done once (a pushed branch then failed CI's
+        # JavaScript check): this says where, before it reaches CI.
+        import subprocess
+
+        files = subprocess.run(
+            ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
+        ).stdout.split()
+        marker = re.compile(r"^(<{7} |>{7} )", re.MULTILINE)
+        hits = []
+        for name in files:
+            path = ROOT / name
+            if path.suffix.lower() in {".png", ".ico", ".zip", ".kmz", ".shp", ".dbf", ".xlsx"}:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, FileNotFoundError):
+                continue
+            hits += [
+                f"{name}:{text.count(chr(10), 0, m.start()) + 1}" for m in marker.finditer(text)
+            ]
+        self.assertEqual(hits, [])
+
+
 if __name__ == "__main__":
     unittest.main()
