@@ -408,23 +408,23 @@ initBuilderHandlers();
 // itself. `needs` names the option it shows. Imports are the drop area below.
 const IO_FORMATS = {
     export: [
-        { id: 'backup', label: 'Backup (.txt)', btn: 'exportPanelBackupBtn', needs: 'backup',
+        { id: 'backup', group: 'Reports', short: 'Backup (.txt)', label: 'Backup (.txt)', btn: 'exportPanelBackupBtn', needs: 'backup',
           desc: 'Every report with its updates, BDA, report format and the overlays. Opens in Notepad; Import it on any workbench.' },
-        { id: 'csv', label: 'Reports for Excel (.csv)', btn: 'exportPanelCsvBtn', needs: 'csv',
+        { id: 'csv', group: 'Reports', short: 'For Excel (.csv)', label: 'Reports for Excel (.csv)', btn: 'exportPanelCsvBtn', needs: 'csv',
           desc: 'One row per report, and one per saved update (or, with Latest version only, just the report), with the time filter below.' },
-        { id: 'arcgis-shp', label: 'ArcGIS points (Shapefile .zip)', run: () => exportForArcgis('shp'),
+        { id: 'arcgis-shp', group: 'ArcGIS points', short: 'Shapefile (.zip)', label: 'ArcGIS points (Shapefile .zip)', run: () => exportForArcgis('shp'),
           desc: 'One point per grid of each report as it is now (its updates are not extra points), for heat maps. Unzip it, then drag the .shp into ArcGIS Pro or browse to it from a folder connection. ArcGIS Online takes the zip as it is. Text longer than 254 characters is cut.' },
-        { id: 'arcgis-esri', label: 'ArcGIS points (.json, Esri JSON)', btn: 'exportArcgisEsriBtn',
+        { id: 'arcgis-esri', group: 'ArcGIS points', short: 'Esri JSON (.json)', label: 'ArcGIS points (.json, Esri JSON)', btn: 'exportArcgisEsriBtn',
           desc: 'The same points with every character of text. ArcGIS Pro does not drag these in: run JSON To Features on the file.' },
-        { id: 'arcgis-geojson', label: 'ArcGIS points (.geojson)', btn: 'exportArcgisGeojsonBtn',
+        { id: 'arcgis-geojson', group: 'ArcGIS points', short: 'GeoJSON (.geojson)', label: 'ArcGIS points (.geojson)', btn: 'exportArcgisGeojsonBtn',
           desc: 'The same points as GeoJSON, for other GIS, or JSON To Features in ArcGIS Pro. Text longer than 254 characters is cut.' },
-        { id: 'arcgis-csv', label: 'ArcGIS points (.csv)', btn: 'exportArcgisCsvBtn',
+        { id: 'arcgis-csv', group: 'ArcGIS points', short: 'Table (.csv)', label: 'ArcGIS points (.csv)', btn: 'exportArcgisCsvBtn',
           desc: 'The same points as a table: XY Table To Point, with lon as X and lat as Y (WGS 1984).' },
-        { id: 'tracks-shp', label: 'ArcGIS tracks (Shapefile .zip)', run: () => exportForArcgis('tracks-shp'),
+        { id: 'tracks-shp', group: 'ArcGIS tracks', short: 'Shapefile (.zip)', label: 'ArcGIS tracks (Shapefile .zip)', run: () => exportForArcgis('tracks-shp'),
           desc: 'One line per report that moved, from its first grid through its updates to the latest, for an arrow at the end (Symbology: a line with an end arrow). Unzip it, then drag the .shp into ArcGIS Pro.' },
-        { id: 'tracks-esri', label: 'ArcGIS tracks (.json, Esri JSON)', run: () => exportForArcgis('tracks-esri'),
+        { id: 'tracks-esri', group: 'ArcGIS tracks', short: 'Esri JSON (.json)', label: 'ArcGIS tracks (.json, Esri JSON)', run: () => exportForArcgis('tracks-esri'),
           desc: 'The same tracks as Esri JSON, for JSON To Features.' },
-        { id: 'tracks-geojson', label: 'ArcGIS tracks (.geojson)', run: () => exportForArcgis('tracks-geojson'),
+        { id: 'tracks-geojson', group: 'ArcGIS tracks', short: 'GeoJSON (.geojson)', label: 'ArcGIS tracks (.geojson)', run: () => exportForArcgis('tracks-geojson'),
           desc: 'The same tracks as GeoJSON lines, drawn first to latest.' },
     ],
 };
@@ -437,10 +437,70 @@ const renderIoPicker = () => {
     if (IO_FORMATS.export.some(f => f.id === remembered)) p.select.value = remembered;
     const f = ioFormat();
     p.desc.textContent = f.desc;
+    renderIoMenu(f);
     // Each option shows with the format it changes.
     document.querySelectorAll('#exportPanel [data-io-for]').forEach(n => { n.hidden = n.dataset.ioFor !== f.needs; });
     document.querySelectorAll('#exportPanel .io-options').forEach(n => { n.hidden = !f.needs; });
 };
+// The pop-up button and its menu: the formats under their group's heading,
+// the picked one checked. Picking one sets the select, which does the rest.
+const IO_CHECK = '<svg class="io-check" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
+const renderIoMenu = (f) => {
+    const menu = document.getElementById('ioFormatMenu'), label = document.getElementById('ioFormatLabel');
+    if (!menu || !label) return;
+    label.textContent = f.label;
+    const groups = [...new Set(IO_FORMATS.export.map(x => x.group))];
+    menu.innerHTML = groups.map(g => `<div class="io-menu-group" role="group" aria-label="${escapeHtml(g)}"><div class="io-menu-head" aria-hidden="true">${escapeHtml(g)}</div>`
+        + IO_FORMATS.export.filter(x => x.group === g).map(x => `<div class="io-menu-item" role="option" id="ioOpt-${x.id}" data-io-pick="${x.id}" tabindex="-1" aria-selected="${x.id === f.id}">`
+            + `${IO_CHECK}<span>${escapeHtml(x.short)}</span></div>`).join('') + '</div>').join('<div class="io-menu-sep" role="separator"></div>');
+};
+const ioMenuItems = () => [...document.querySelectorAll('#ioFormatMenu [data-io-pick]')];
+const openIoMenu = (focusLast = false) => {
+    const menu = document.getElementById('ioFormatMenu'), btn = document.getElementById('ioFormatBtn');
+    menu.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    const items = ioMenuItems();
+    const at = items.find(i => i.getAttribute('aria-selected') === 'true') || items[focusLast ? items.length - 1 : 0];
+    if (at) at.focus();
+};
+const closeIoMenu = (refocus = true) => {
+    const menu = document.getElementById('ioFormatMenu'), btn = document.getElementById('ioFormatBtn');
+    if (!menu || menu.hidden) return;
+    menu.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    if (refocus) btn.focus();
+};
+const pickIoFormat = (id) => {
+    el.ioPicker.select.value = id;
+    el.ioPicker.select.dispatchEvent(new Event('change'));
+    closeIoMenu();
+};
+(() => {
+    const btn = document.getElementById('ioFormatBtn'), menu = document.getElementById('ioFormatMenu');
+    if (!btn || !menu) return;
+    btn.addEventListener('click', () => (menu.hidden ? openIoMenu() : closeIoMenu()));
+    btn.addEventListener('keydown', e => {
+        if (['ArrowDown', 'ArrowUp'].includes(e.key)) { e.preventDefault(); openIoMenu(e.key === 'ArrowUp'); }
+    });
+    menu.addEventListener('click', e => { const item = e.target.closest('[data-io-pick]'); if (item) pickIoFormat(item.dataset.ioPick); });
+    menu.addEventListener('keydown', e => {
+        const items = ioMenuItems(), i = items.indexOf(document.activeElement);
+        const go = (n) => { e.preventDefault(); items[(n + items.length) % items.length].focus(); };
+        if (e.key === 'ArrowDown') go(i + 1);
+        else if (e.key === 'ArrowUp') go(i - 1);
+        else if (e.key === 'Home') go(0);
+        else if (e.key === 'End') go(items.length - 1);
+        else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (items[i]) pickIoFormat(items[i].dataset.ioPick); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeIoMenu(); }
+        else if (e.key === 'Tab') closeIoMenu(false);
+        else if (e.key.length === 1) {
+            // A letter goes to the next format starting with it.
+            const k = e.key.toLowerCase(), next = [...items.slice(i + 1), ...items.slice(0, i + 1)].find(x => x.textContent.trim().toLowerCase().startsWith(k));
+            if (next) next.focus();
+        }
+    });
+    document.addEventListener('pointerdown', e => { if (!menu.hidden && !e.target.closest('.io-popup')) closeIoMenu(false); });
+})();
 const runIoPicker = () => {
     const f = ioFormat();
     if (f.run) f.run();

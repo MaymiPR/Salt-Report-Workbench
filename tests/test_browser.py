@@ -720,10 +720,57 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_function(f"sharedDrones.some(d => d.name === '{name}')")
         page.evaluate("list => saveDrones(list)", before)  # the other tests' drones as they were
 
+    def test_the_export_menu_is_a_popup_with_groups_a_check_and_keys(self):
+        page = self.open_editor()
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        page.evaluate("localStorage.removeItem('salt_io_export'); renderIoPicker()")
+        self.assertEqual(page.text_content("#ioFormatLabel"), "Backup (.txt)")
+        page.click("#ioFormatBtn")
+        self.assertEqual(page.get_attribute("#ioFormatBtn", "aria-expanded"), "true")
+        heads = page.locator("#ioFormatMenu .io-menu-head").all_text_contents()
+        self.assertEqual(heads, ["Reports", "ArcGIS points", "ArcGIS tracks"])
+        self.assertEqual(
+            page.locator("#ioFormatMenu [aria-selected='true']").text_content(), "Backup (.txt)"
+        )
+        self.assertEqual(
+            page.evaluate("document.activeElement.id"),
+            "ioOpt-backup",
+            "the picked one has the keyboard",
+        )
+        # A click picks: the button, the select and its description follow.
+        page.click("#ioOpt-tracks-geojson")
+        self.assertTrue(page.locator("#ioFormatMenu").is_hidden())
+        self.assertEqual(page.text_content("#ioFormatLabel"), "ArcGIS tracks (.geojson)")
+        self.assertEqual(page.input_value("#ioFormatSelect"), "tracks-geojson")
+        self.assertIn("GeoJSON lines", page.text_content("#ioFormatDesc"))
+        self.assertEqual(page.evaluate("document.activeElement.id"), "ioFormatBtn")
+        # The keys: arrows open it and move, Enter picks, a letter jumps, Escape closes.
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("Home")
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("Enter")
+        self.assertEqual(page.input_value("#ioFormatSelect"), "csv")
+        page.keyboard.press("ArrowDown")
+        page.keyboard.press("t")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "ioOpt-arcgis-csv")
+        page.keyboard.press("Escape")
+        self.assertTrue(page.locator("#ioFormatMenu").is_hidden())
+        self.assertTrue(page.evaluate("isManageViewActive"), "Escape closed the menu only")
+        self.assertEqual(page.input_value("#ioFormatSelect"), "csv", "nothing picked")
+        # A click outside closes it too.
+        page.click("#ioFormatBtn")
+        page.mouse.click(5, 5)
+        self.assertTrue(page.locator("#ioFormatMenu").is_hidden())
+        page.evaluate("localStorage.removeItem('salt_io_export')")
+
     def test_the_version_shows_and_another_release_asks_for_a_reload(self):
         page = self.open_editor()
         version = page.evaluate("APP_VERSION")
         self.assertEqual(page.text_content("#appVersion"), f"v{version}")
+        # At the bottom, centered under the Report Log and the map, not in the top bar.
+        self.assertEqual(page.locator(".home-footer #appVersion").count(), 1)
+        self.assertEqual(page.locator("#topBar #appVersion").count(), 0)
         self.assertTrue(page.locator("#versionBar").is_hidden(), "the same release")
 
         def other_release(route):
@@ -1185,6 +1232,35 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(place(page, "2x BMP"), ["38S MB 55000 82000, NAI 2", []])
         self.assertEqual(page.locator(f"{row('2x BMP')} .loc-tag").count(), 0)
         self.assertIn("(Updated)", page.locator(f"{row('2x BMP')} .col-id").text_content())
+
+    def test_add_nearby_places_off_offers_them_without_adding_them(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        here = lambda size: page.evaluate(  # noqa: E731
+            f"localReports.find(r => r.size === '{size}').location"
+        )
+        self.assertEqual(page.text_content("#toggleNearbyBtn"), "Add Nearby Places: On")
+        self.log(page, "1x BTR", location="38SMB4500085200")
+        self.assertIn("NAI 1", here("1x BTR"))
+        page.click("#dataMgmtBtn")
+        page.click("#toggleNearbyBtn")
+        try:
+            self.assertEqual(page.text_content("#toggleNearbyBtn"), "Add Nearby Places: Off")
+            # Logged as typed; the places are still offered, to add with a click.
+            page.fill("#location", "38SMB4500085200")
+            page.wait_for_selector("#locationHints .loc-hint.offered[data-loc-add='NAI 1']")
+            self.log(page, "2x BTR", location="38SMB4500085200")
+            self.assertEqual(here("2x BTR"), "38SMB4500085200")
+            page.fill("#location", "38SMB4500085200")
+            page.click("#locationHints [data-loc-add='NAI 1']")
+            self.assertEqual(page.input_value("#location"), "38SMB4500085200, NAI 1")
+            # This browser's choice: it lasts a reload.
+            page.reload()
+            page.wait_for_function(
+                "() => document.getElementById('toggleNearbyBtn').textContent.endsWith('Off')"
+            )
+        finally:
+            page.evaluate("localStorage.removeItem('salt_add_nearby')")
 
     def test_the_location_box_shows_what_logging_adds(self):
         page = self.open_editor()

@@ -1040,6 +1040,14 @@ mgrsPrefixBox.addEventListener('blur', () => {
     else mgrsPrefixBox.value = mgrsLockPrefix;
     mgrsPrefixBox.classList.remove('invalid');
 });
+el.menu.nearbyBtn.addEventListener('click', () => {
+    addNearby = !addNearby;
+    writeStored('salt_add_nearby', addNearby ? 'on' : 'off');
+    updateNearbyBtnText();
+    renderLocationHints();
+    el.menu.panel.style.display = 'none';
+    showToast(addNearby ? 'Nearby places on: Log and Update add the NAI, OBJ or PL a grid is in or near.' : 'Nearby places off: they are offered under Location, added only when you click them.');
+});
 el.menu.bdaBtn.addEventListener('click', () => { bdaMode = !bdaMode; bdaFilter = null; writeStored('salt_bda_mode', bdaMode ? 'on' : 'off'); document.body.classList.toggle('bda-mode', bdaMode); updateBdaBtnText(); renderLog(); el.menu.panel.style.display='none'; showToast(bdaMode ? 'BDA tracking shown.' : 'BDA tracking hidden.'); });
 
 // Menus

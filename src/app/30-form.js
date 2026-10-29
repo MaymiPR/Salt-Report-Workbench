@@ -119,21 +119,21 @@ const renderLocationHints = () => {
     const plan = ovs.length && text.trim() ? SaltCore.locationPlan(text, ovs) : { add: [], conflicts: [] };
     const near = plan.add.some(k => k.startsWith('PL ')) ? locationInfo(text).nearestPl : null;
     const chips = [
-        ...plan.add.map(k => `<button type="button" class="loc-hint" data-loc-add="${escapeHtml(k)}" title="Added when you log. Click to add it now.">+ ${escapeHtml(k)}${near && near.key === k ? ` <span class="loc-hint-sub">${Math.round(near.meters)} m</span>` : ''}</button>`),
+        ...plan.add.map(k => `<button type="button" class="loc-hint${addNearby ? '' : ' offered'}" data-loc-add="${escapeHtml(k)}" title="${addNearby ? 'Added when you log. Click to add it now.' : 'Not added when you log (Add Nearby Places is off). Click to add it.'}">+ ${escapeHtml(k)}${near && near.key === k ? ` <span class="loc-hint-sub">${Math.round(near.meters)} m</span>` : ''}</button>`),
         ...plan.conflicts.map(c => `<span class="loc-hint warn" title="When you log, you pick which to keep.">${escapeHtml(c.message)}</span>`),
     ];
     box.innerHTML = chips.join('');
     box.hidden = !ovs.length;
 };
 
-// The Location box with the places its grid is in added, and each typed
-// place the grid disagrees with settled by the operator. Null when they
-// cancel. Unchanged without overlays.
+// The Location box with the places its grid is in added (unless Add Nearby
+// Places is off), and each typed place the grid disagrees with settled by
+// the operator. Null when they cancel. Unchanged without overlays.
 const settleLocation = async (text) => {
     const ovs = currentOverlays();
     if (!ovs.length) return text;
     const plan = SaltCore.locationPlan(text, ovs);
-    const replace = {}, add = [...plan.add];
+    const replace = {}, add = addNearby ? [...plan.add] : [];
     for (const c of plan.conflicts) {
         const opts = c.found.length
             ? [{ label: `Use ${c.found.join(', ')}`, value: 'grid', primary: true }, { label: `Keep ${c.typed}`, value: 'typed' }, { label: 'Keep both', value: 'both' }]

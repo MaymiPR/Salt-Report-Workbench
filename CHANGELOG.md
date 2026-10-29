@@ -6,6 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Probability words in Size are understood**: "2x possible tanks", "3x poss
+  APCs", "1x probable heli", "2x likely a heli" and "susp 2x Mi-8" are read as
+  the equipment with how sure the observer was. The equipment is counted as
+  usual and the reports keep the word; in the Narrative a sign seen only in
+  such reports still lets a rule fire but adds no strength, and its reports
+  are cited as "possible T1 250100Z". "Heli" is now a helicopter.
+- **The R-330 jammers** (plain R-330, R-330T, R-330K, with R-330Zh and
+  R-330BMV as before) are electronic warfare.
+- **"PC-12344" names an NAI**: an overlay named PC and a number (PC-12344,
+  PC 12344) loads as that NAI, and the name typed in a Location names it too.
+  A grid in the PC 100 km square stays a grid.
+- **Add Nearby Places** (Settings menu, per browser): off, Log and Update no
+  longer write the NAI, OBJ or PL a grid is in or near into the Location; the
+  chips under it still offer them, to add with a click.
+
+### Changed
+
+- **The version number** moved from the top bar to the bottom center, under
+  the Report Log and the map.
+- **Import / Export picks the format from a pop-up menu**, as on a Mac:
+  grouped as Reports, ArcGIS points and ArcGIS tracks, the picked one
+  checked, with the arrow keys, Enter and first letters.
+
 ## [2.28.0] - 2026-10-28
 
 ### Added
