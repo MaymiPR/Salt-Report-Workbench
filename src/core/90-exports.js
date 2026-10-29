@@ -2,7 +2,7 @@
 // The SaltCore object, its export, and the close of the function. The build joins the src/core/ parts in name order inside one function, so they share one scope.
 
 const SaltCore = {
-    plural, zoneMark,
+    plural, zoneMark, timeAgo,
     pad2, dateFields, clockValue, fileStamp, toTimeString, autoColon, parseFilterTime, typedTime, submittedTime, parseCsvTime,
     escapeHtml, safeColor, safeFilename,
     atoPrefix, reportNum, duplicateIds, nextNum, displayId, formatFullId, reportText, normalizeLocation, mgrsPrefix, applyMgrsPrefix,

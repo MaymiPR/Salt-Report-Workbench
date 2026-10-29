@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A measure tool on the map**: the ruler button, then two clicks, gives the
+  distance and bearing between them ("2.4 km, 047° NE") with both ends' grids.
+- **Play on the map's time slider** walks the window from the first report to
+  now in about ten seconds, the map following; Pause holds it.
+- **Drones say how old their position is**: "GE 1 · moved 6h ago".
+
+### Changed
+
+- **Report dots have a white center**, so they show on the red of a busy heat
+  map.
+- **Dragging the map is smooth**: the picture slides with the pointer and is
+  drawn afresh once, when you let go, instead of every frame.
+
 ### Fixed
 
 - **INSTALL.md says what a rebuild gives**: the files inside the zip and the

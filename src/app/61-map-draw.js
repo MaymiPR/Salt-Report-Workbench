@@ -7,6 +7,7 @@
 // --- Drawing ---
 
 const drawMap = () => {
+    if (mapState.dragging) return;   // drawn when the drag ends
     const m = mapEls();
     if (!m.svg || !m.box) return;
     const w = m.box.clientWidth, h = m.box.clientHeight;
@@ -45,6 +46,7 @@ const drawMap = () => {
     if (mapState.layers.reports) out.push(reportLayer(positions, tracks, px));
     out.push(selectionLayer(tracks, px));
     out.push(drones.marks);
+    out.push(measureLayer(px));
     m.svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
     m.svg.innerHTML = out.join('');
     m.note.hidden = !mapState.baseFailed;
@@ -252,8 +254,29 @@ const reportLayer = (positions, tracks, px) => {
         const [x, y] = px(p.lon, p.lat);
         return `<g class="map-report${p.latest ? '' : ' map-report-old'}" data-map-item="${i}">`
             + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${p.latest ? 5 : 3.5}" fill="${MAP_COLORS.track}" stroke="${MAP_COLORS.edge}" stroke-width="${p.latest ? 1.5 : 1}"${p.latest ? '' : ' opacity="0.6"'}/>`
+            + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${p.latest ? 2 : 1.4}" fill="${MAP_COLORS.core}" class="map-report-core"${p.latest ? '' : ' opacity="0.6"'}/>`
             + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${p.latest ? 11 : 7}" fill="transparent" class="map-hit"/></g>`;
     }).join('')}</g>`;
+};
+
+// "2.4 km, 047° NE" from the first point measured to the second.
+const measureText = ([a, b]) => {
+    const m = SaltCore.metersBetween(a, b), deg = SaltCore.bearingBetween(a, b);
+    const far = m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m < 10000 ? 2 : 1)} km`;
+    return `${far}, ${String(Math.round(deg) % 360).padStart(3, '0')}° ${SaltCore.compass16(deg)}`;
+};
+// The measure tool's line: its ends, and the distance and bearing beside its middle.
+const measureLayer = (px) => {
+    const pts = mapState.measuring ? mapState.measure : [];
+    if (!pts.length) return '';
+    const xy = pts.map(p => px(p.lon, p.lat).map(v => v.toFixed(1)));
+    const ends = xy.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="4" class="map-measure-end"/>`).join('');
+    if (xy.length < 2) return `<g class="map-measure" pointer-events="none">${ends}</g>`;
+    const [[x1, y1], [x2, y2]] = xy;
+    const mx = (+x1 + +x2) / 2, my = (+y1 + +y2) / 2 - 8;
+    const line = (cls) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="${cls}"/>`;
+    return `<g class="map-measure" pointer-events="none">${line('map-measure-halo')}${line('map-measure-line')}${ends}`
+        + `<text x="${mx.toFixed(1)}" y="${my.toFixed(1)}" text-anchor="middle" class="map-label map-measure-label">${svgEsc(measureText(pts))}</text></g>`;
 };
 
 // A ring round the picked report, in every mode.
@@ -271,7 +294,7 @@ const mapLegend = (heatPts, positions, tracks) => {
         ? `<line x1="1" y1="5" x2="17" y2="5" stroke="#fff" stroke-width="4"/><line x1="1" y1="5" x2="17" y2="5" stroke="${color}" stroke-width="2"/>`
         : `<rect x="1" y="1" width="16" height="8" rx="2" fill="${color}" fill-opacity="0.3" stroke="${color}" stroke-width="1.5"/>`}</svg>`;
     const key = (inner, text) => `<span class="map-key">${inner}${text}</span>`;
-    const dot = `<svg width="18" height="10" aria-hidden="true"><circle cx="9" cy="5" r="4" fill="${MAP_COLORS.track}" stroke="${MAP_COLORS.edge}" stroke-width="1.2"/></svg>`;
+    const dot = `<svg width="18" height="10" aria-hidden="true"><circle cx="9" cy="5" r="4" fill="${MAP_COLORS.track}" stroke="${MAP_COLORS.edge}" stroke-width="1.2"/><circle cx="9" cy="5" r="1.6" fill="${MAP_COLORS.core}"/></svg>`;
     const trackLine = `<svg width="18" height="10" aria-hidden="true"><line x1="1" y1="5" x2="17" y2="5" stroke="${MAP_COLORS.edge}" stroke-width="4.5"/><line x1="1" y1="5" x2="17" y2="5" stroke="${MAP_COLORS.track}" stroke-width="2.2"/></svg>`;
     const heat = Math.round(heatPts.reduce((s, p) => s + p.w, 0));
     const what = [
