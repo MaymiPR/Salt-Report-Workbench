@@ -14,7 +14,7 @@ const formatFullId = (r) => SaltCore.formatFullId(r, atoTitleSep);
 const generateReportText = (report) => SaltCore.reportText(report, currentFormat(), atoTitleSep);
 
 // CSV filename: ATO_Title_YYYYMMDD_HHMM{Z|L}; the suffix matches the time mode.
-const getCsvFilename = (ato, title) => `${SaltCore.backupFilename(ato, title)}_${fileStamp(new Date(), timeDisplayMode === 'local')}`;
+const exportFilename = (ato, title) => `${SaltCore.backupFilename(ato, title)}_${fileStamp(new Date(), timeDisplayMode === 'local')}`;
 
 const generateBackupText = (ato, reps, title, profiles) =>
     SaltCore.backupText(ato, reps, title, profiles, formatsFor([ato]), new Date(), sharedOverlays, sharedNarrative);
@@ -32,8 +32,8 @@ const parseFilterTime = (dateStr, timeStr, isEnd) =>
     SaltCore.parseFilterTime(dateStr, timeStr, isEnd, timeDisplayMode === 'local');
 
 const getExportFilteredReports = () => {
-    const fromMs = parseFilterTime(el.exp.fromDate.value, el.exp.fromTime.value, false);
-    const toMs   = parseFilterTime(el.exp.toDate.value,   el.exp.toTime.value,   true);
+    const fromMs = parseFilterTime(el.manage.fromDate.value, el.manage.fromTime.value, false);
+    const toMs   = parseFilterTime(el.manage.toDate.value,   el.manage.toTime.value,   true);
     let reps = localReports.filter(r => !r.deleted);
     if (fromMs !== null) reps = reps.filter(r => r.time && new Date(r.time).getTime() >= fromMs);
     if (toMs   !== null) reps = reps.filter(r => r.time && new Date(r.time).getTime() <= toMs);
@@ -45,21 +45,21 @@ const renderExportPreview = () => {
     const allLive = localReports.filter(r => !r.deleted);
     const total   = allLive.length;
     const modeLb  = timeDisplayMode === 'local' ? '(Local)' : '(Zulu)';
-    el.exp.subtitle.textContent = `ATO: ${activeAto||'-'} · ${plural(total, 'report')}`;
-    el.exp.fromMode.textContent = modeLb;
-    el.exp.toMode.textContent   = modeLb;
-    const hasFilter = !!(el.exp.fromDate.value || el.exp.toDate.value || el.exp.fromTime.value || el.exp.toTime.value);
+    el.manage.subtitle.textContent = `ATO: ${activeAto||'-'} · ${plural(total, 'report')}`;
+    el.manage.fromMode.textContent = modeLb;
+    el.manage.toMode.textContent   = modeLb;
+    const hasFilter = !!(el.manage.fromDate.value || el.manage.toDate.value || el.manage.fromTime.value || el.manage.toTime.value);
     // Stacked counts matching the report-log header style.
     const totalAllHistory  = allLive.reduce((s, r) => s + 1 + ((r.history && r.history.length) || 0), 0);
     const totalWithHistory = reps.reduce((s, r) => s + 1 + ((r.history && r.history.length) || 0), 0);
     if (total === 0) {
-        el.exp.filterCount.innerHTML = `<span class="filter-count-main">No reports</span>`;
+        el.manage.filterCount.innerHTML = `<span class="filter-count-main">No reports</span>`;
     } else {
-        el.exp.filterCount.innerHTML =
+        el.manage.filterCount.innerHTML =
             `<span class="filter-count-main">${reps.length} of ${total} unique reports</span>` +
             `<span class="filter-count-detail">${totalWithHistory} of ${totalAllHistory} total reports</span>`;
     }
-    el.exp.filterCount.classList.toggle('active', hasFilter);
+    el.manage.filterCount.classList.toggle('active', hasFilter);
 };
 
 // Loaded Workspaces list — rendered into both the panel tab and the
@@ -226,10 +226,10 @@ async function undoUnload(ato, kept, mine) {
 
 // Reset the filter pickers (Clear button + post-export).
 const clearExportFilter = () => {
-    el.exp.fromDate.value = '';
-    el.exp.fromTime.value = '';
-    el.exp.toDate.value   = '';
-    el.exp.toTime.value   = '';
+    el.manage.fromDate.value = '';
+    el.manage.fromTime.value = '';
+    el.manage.toDate.value   = '';
+    el.manage.toTime.value   = '';
     renderExportPreview();
 };
 
@@ -237,7 +237,7 @@ const clearExportFilter = () => {
 // Persisted in localStorage. Viewers get 'export' only: the workspaces list
 // lives in their sidebar, the map is the Map view, and the rest change things.
 const VALID_TABS = ['export', 'workspaces', 'identity', 'builder', 'overlays'];
-const switchWorkspacesTab = (tabName) => {
+const switchManageTab = (tabName) => {
     if (!VALID_TABS.includes(tabName)) tabName = 'export';
     hideIdentityAccessCode();
     if (isReadOnly) tabName = 'export';
@@ -314,7 +314,7 @@ const mutateFormat = (fn) => {
     if (!activeAto) { showToast('Set a workspace first.', true); return; }
     const copy = { preset: 'custom', lines: currentFormat().lines.map(l => ({ ...l })) };
     fn(copy);
-    saveWorkspaceFormat(copy);
+    saveFormat(copy);
     renderBuilder();
 };
 
@@ -337,7 +337,7 @@ const initBuilderHandlers = () => {
             const p = preset.dataset.fmtPreset;
             // Custom fields survive a preset switch — appended after the preset lines.
             const customs = currentFormat().lines.filter(l => l.type === 'custom');
-            saveWorkspaceFormat({ preset: p, lines: [...FORMAT_PRESETS[p].map(l => ({ ...l })), ...customs] });
+            saveFormat({ preset: p, lines: [...FORMAT_PRESETS[p].map(l => ({ ...l })), ...customs] });
             renderBuilder();
             showToast(`Format preset: ${p.toUpperCase()}.`);
             return;
@@ -435,7 +435,7 @@ const importFiles = (fileList) => {
     if (!files.length) return;
     const read = (f, then) => { const r = new FileReader(); r.onload = ev => then(String(ev.target.result)); r.readAsText(f); };
     const shapes = files.filter(f => OVERLAY_FILE.test(f.name));
-    if (shapes.length === files.length) { switchWorkspacesTab('overlays'); startOverlayImport(shapes); return; }
+    if (shapes.length === files.length) { switchManageTab('overlays'); startOverlayImport(shapes); return; }
     if (files.length > 1) { showToast('Drop one backup or CSV at a time. Several files together must all be overlays.', true); return; }
     const f = files[0];
     if (/\.csv$/i.test(f.name)) { read(f, text => processExternalCsv(text, f.name)); return; }
@@ -468,29 +468,29 @@ const importFiles = (fileList) => {
     });
 })();
 
-const openExportView = () => {
+const openManageView = () => {
     // Manage opens straight after: the Report Log isn't drawn in between.
     closeStatsView(true);
     closeSummaryView(true);
     hideHomeViews();
-    isExportViewActive = true;
-    el.exp.panel.style.display = 'flex';
+    isManageViewActive = true;
+    el.manage.panel.style.display = 'flex';
     setViewIcon('exportViewToggleBtn', true);
     setTopBar('export', 'Manage');
-    animateIn(el.exp.panel);
+    animateIn(el.manage.panel);
     el.menu.panel.style.display = 'none';
     writeStored('salt_view', 'export');
     renderIoPicker();
     // Restore last-used tab; default 'export' for fresh sessions.
-    switchWorkspacesTab(readRaw('salt_workspaces_tab', 'export'));
+    switchManageTab(readRaw('salt_workspaces_tab', 'export'));
     renderExportPreview();
     renderWorkspacesList();
 };
 
-const closeExportView = () => {
-    isExportViewActive = false;
+const closeManageView = () => {
+    isManageViewActive = false;
     hideIdentityAccessCode();
-    el.exp.panel.style.display = 'none';
+    el.manage.panel.style.display = 'none';
     setViewIcon('exportViewToggleBtn', false);
     showHomeView();
 };
@@ -567,7 +567,7 @@ function processJsonImport(rawText) {
             if (takesFormat && isStockFormat()) {
                 const own = Object.values(imp.formats).filter(isFormat);
                 const fFmt = (imp.config && isFormat(imp.formats[imp.config.ato]) && imp.formats[imp.config.ato]) || own[0];
-                if (fFmt) saveWorkspaceFormat(fFmt);
+                if (fFmt) saveFormat(fFmt);
             }
             // And the overlays (NAI / OBJ / PL): the file's replace any of the
             // same type and name; the rest are kept.
@@ -584,7 +584,7 @@ function processJsonImport(rawText) {
                 markPending(ato, queued);
                 if (queued) unsent++;
             }
-            closeExportView();
+            closeManageView();
             loadConfig();
             // The rest goes to the server as it is; what it refuses is said.
             const refusals = [];
@@ -628,10 +628,10 @@ const openCsvImportView = () => {
     if (!pendingCsv) return;
     // The CSV mapping view replaces the export view — keep the menu button's "active"
     // state in sync so the next click opens the panel on the first try.
-    isExportViewActive = false;
+    isManageViewActive = false;
     setViewIcon('exportViewToggleBtn', false);
     hideHomeViews();
-    el.exp.panel.style.display  = 'none';
+    el.manage.panel.style.display  = 'none';
     el.csv.panel.style.display  = 'flex';
     setTopBar('csv', 'Import CSV');
     animateIn(el.csv.panel);
@@ -712,8 +712,8 @@ const confirmCsvImport = async () => {
         if (!ini) {
             showToast('Set your initials before importing.', true);
             // Surface the identity form: open the panel on the Identity tab.
-            if (!isExportViewActive) openExportView();
-            switchWorkspacesTab('identity');
+            if (!isManageViewActive) openManageView();
+            switchManageTab('identity');
             return;
         }
         importer = { initials: ini, color: col };

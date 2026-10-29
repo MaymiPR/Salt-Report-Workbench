@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
-"""Tests for the sync server: pure logic plus HTTP behaviour against a live instance.
+"""Tests for the sync server: pure logic plus HTTP behavior against a live instance.
 
 Standard library only, matching the project's zero-dependency rule. Run with
 ``python -m unittest discover -s tests``.
@@ -608,14 +608,14 @@ class AccessCodeTests(unittest.TestCase):
         good = {"Cookie": "salt_access=k7m2x9pqr3"}  # case-insensitive
         bad = {"Cookie": "salt_access=WRONGCODE2"}
         with mock.patch.object(srv, "_access_code", "K7M2X9PQR3"):
-            self.assertTrue(srv._check_access_code({}, True, remote), "viewer port is never gated")
-            self.assertTrue(srv._check_access_code({}, False, "127.0.0.1"), "the host is trusted")
-            self.assertTrue(srv._check_access_code(good, False, remote))
-            self.assertFalse(srv._check_access_code(bad, False, remote))
-            self.assertFalse(srv._check_access_code({}, False, remote))
+            self.assertTrue(srv._access_code_ok({}, True, remote), "viewer port is never gated")
+            self.assertTrue(srv._access_code_ok({}, False, "127.0.0.1"), "the host is trusted")
+            self.assertTrue(srv._access_code_ok(good, False, remote))
+            self.assertFalse(srv._access_code_ok(bad, False, remote))
+            self.assertFalse(srv._access_code_ok({}, False, remote))
         with mock.patch.object(srv, "_access_code", None):
             self.assertTrue(
-                srv._check_access_code({}, False, remote), "--no-access-code disables the gate"
+                srv._access_code_ok({}, False, remote), "--no-access-code disables the gate"
             )
 
     def test_the_machines_own_addresses_are_looked_up_again_after_a_while(self):
@@ -993,7 +993,7 @@ class StartupTests(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
-# HTTP behaviour against a live server
+# HTTP behavior against a live server
 # --------------------------------------------------------------------------- #
 CODE = "TESTCODE23"
 
@@ -1832,7 +1832,7 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual((srv._dirty_atos, srv._shared_dirty), (set(), False), "nothing to write")
 
     def test_importing_reports_does_not_change_who_the_importer_is(self):
-        # Regression: a backup of someone else's reports re-labelled the
+        # Regression: a backup of someone else's reports re-labeled the
         # importer's connection, so their later edits were stamped as that person.
         self.post("/api/save_profile", {"profile": {"initials": "AB", "color": "#32d74b"}})
         theirs = report(user={"initials": "JR", "color": "#ff9f0a"})
@@ -1886,7 +1886,7 @@ class HttpApiTests(unittest.TestCase):
 
     def test_overlays_sync_and_clear(self):
         self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
-        extra = {**PL_BLUE, "colour": "red", "geometry": {**PL_BLUE["geometry"], "x": 1}}
+        extra = {**PL_BLUE, "color": "red", "geometry": {**PL_BLUE["geometry"], "x": 1}}
         status, _ = self.post("/api/save_overlays", {"overlays": [NAI1, extra]})
         self.assertEqual(status, 200)
         self.assertEqual(self.sync()["overlays"], [NAI1, PL_BLUE], "known fields only")

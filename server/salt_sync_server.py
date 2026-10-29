@@ -525,7 +525,7 @@ def _machine(ip: str) -> str:
     return '127.0.0.1' if _is_localhost(ip) else ip
 
 
-def _check_access_code(headers, view_only: bool, client_ip: str) -> bool:
+def _access_code_ok(headers, view_only: bool, client_ip: str) -> bool:
     """Return True if the request is authorized to hit gated endpoints.
     * Viewer-port requests always pass (the port itself is the gate).
     * If access-code auth is disabled (_access_code is None), pass.
@@ -747,7 +747,7 @@ def _check_color(c, field: str) -> str | None:
     return None
 
 
-def _validate_user(u, prefix: str) -> str | None:
+def _check_user(u, prefix: str) -> str | None:
     """Optional user object. None → ok; bad shape → error string."""
     if u is None:
         return None
@@ -760,7 +760,7 @@ def _validate_user(u, prefix: str) -> str | None:
     return None
 
 
-def _validate_report_fields(r: dict, prefix: str) -> str | None:
+def _check_report_fields(r: dict, prefix: str) -> str | None:
     """SALT fields — shared between top-level reports and history entries."""
     for k in ('size', 'activity', 'location'):
         if k in r and not _is_str(r[k] or '', MAX_FIELD_LEN):
@@ -781,7 +781,7 @@ def _validate_report_fields(r: dict, prefix: str) -> str | None:
         for k, v in c.items():
             if not _is_str(k, MAX_CUSTOM_LABEL) or not _is_str(v, MAX_CUSTOM_VALUE):
                 return f'{prefix}.custom entries must be strings (label ≤{MAX_CUSTOM_LABEL}, value ≤{MAX_CUSTOM_VALUE})'
-    return _validate_user(r.get('user'), f'{prefix}.user')
+    return _check_user(r.get('user'), f'{prefix}.user')
 
 
 # The fields a report is named, sorted and flagged by. A number or a list in
@@ -796,7 +796,7 @@ _REPORT_TEXT_FIELDS = (
 _REPORT_FLAG_FIELDS = ('updated', 'deleted')
 
 
-def _validate_report_identity(r: dict, prefix: str) -> str | None:
+def _check_report_identity(r: dict, prefix: str) -> str | None:
     """Name and flag fields, where present: strings and true/false (null tolerated)."""
     for k, most in _REPORT_TEXT_FIELDS:
         if r.get(k) is not None and not _is_str(r[k], most):
@@ -807,10 +807,10 @@ def _validate_report_identity(r: dict, prefix: str) -> str | None:
     return None
 
 
-def _validate_report(r, idx: int) -> str | None:
+def _check_report(r, idx: int) -> str | None:
     if not isinstance(r, dict):
         return f'reports[{idx}] must be an object'
-    if err := _validate_report_identity(r, f'reports[{idx}]'):
+    if err := _check_report_identity(r, f'reports[{idx}]'):
         return err
     # At least one identity field; merge path uses either.
     has_id = _is_str(r.get('id'), MAX_ID_LEN) and r.get('id')
@@ -821,7 +821,7 @@ def _validate_report(r, idx: int) -> str | None:
     # characters the app itself generates (UUIDs, "ALPHA001").
     if r.get('id') and not (isinstance(r['id'], str) and _ID_RE.fullmatch(r['id'])):
         return f'reports[{idx}].id may only contain letters, digits, "-", "_", "." and ":"'
-    if err := _validate_report_fields(r, f'reports[{idx}]'):
+    if err := _check_report_fields(r, f'reports[{idx}]'):
         return err
     h = r.get('history')
     if h is not None:
@@ -832,7 +832,7 @@ def _validate_report(r, idx: int) -> str | None:
         for j, entry in enumerate(h):
             if not isinstance(entry, dict):
                 return f'reports[{idx}].history[{j}] must be an object'
-            if err := _validate_report_fields(entry, f'reports[{idx}].history[{j}]'):
+            if err := _check_report_fields(entry, f'reports[{idx}].history[{j}]'):
                 return err
     b = r.get('bda')
     if b is not None:
@@ -853,7 +853,7 @@ def _validate_report(r, idx: int) -> str | None:
                 return f'reports[{idx}].bda[{j}].note must be a string ≤{MAX_BDA_NOTE} chars'
             if 'lastModified' in entry and not _is_int(entry['lastModified']):
                 return f'reports[{idx}].bda[{j}].lastModified must be an integer'
-            if err := _validate_user(entry.get('user'), f'reports[{idx}].bda[{j}].user'):
+            if err := _check_user(entry.get('user'), f'reports[{idx}].bda[{j}].user'):
                 return err
     return None
 
@@ -867,7 +867,7 @@ def _v_save_reports(data: dict) -> str | None:
     if len(reps) > MAX_REPORTS_BATCH:
         return f'reports list has too many entries (max {MAX_REPORTS_BATCH})'
     for i, r in enumerate(reps):
-        if err := _validate_report(r, i):
+        if err := _check_report(r, i):
             return err
     if (
         'source' in data
@@ -890,9 +890,9 @@ def _v_edit_report(data: dict) -> str | None:
     if not fields:
         return 'fields must name at least one field'
     # Edit fields share the report shape (it's the same data model).
-    if err := _validate_report_identity(fields, 'fields'):
+    if err := _check_report_identity(fields, 'fields'):
         return err
-    return _validate_report_fields(fields, 'fields')
+    return _check_report_fields(fields, 'fields')
 
 
 def _v_delete_history(data: dict) -> str | None:
@@ -2423,7 +2423,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         if gated and not auth_fail_check(ip, take=False):
             self._refuse(429, 'Too many wrong access codes. Retry shortly.', body_length)
             return False
-        if _check_access_code(self.headers, view_only, ip):
+        if _access_code_ok(self.headers, view_only, ip):
             return True
         auth_fail_check(ip, take=True)
         self._refuse(

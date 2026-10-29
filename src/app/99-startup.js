@@ -37,7 +37,7 @@ setProfileFromLocalStorage();
 updateTimeBtnText();
 updateSepBtnText();
 updateBdaBtnText();
-updateMgrsLockUi();
+updateMgrsLockUI();
 updateSortIcons();
 if (readRaw('salt_layout')==='horizontal') el.layout.grid.classList.add('horizontal-layout');
 applyLayoutMode();
@@ -71,7 +71,7 @@ if (!el.startup.overlay.classList.contains('show')) {
 
 renderLog();
 const lastView = readRaw('salt_view');
-if (lastView==='export') openExportView();
+if (lastView==='export') openManageView();
 else if (lastView==='stats') openStatsView();
 else if (lastView==='summary') openSummaryView();
 else showHomeView();

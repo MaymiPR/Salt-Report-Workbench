@@ -42,11 +42,11 @@ const placesOfReport = (r) => { const a = locationInfo(r.location); return [...a
 // to the picked place and (when asked) to the part of the map on screen.
 // `everyActivity`: before the activity filter, to count what it can pick.
 const mapListReports = (everyActivity = false) => {
-    const d = mapLastDraw;
+    const d = mapState.lastDraw;
     if (!d) return [];
     let reps = everyActivity ? mapWindowReports() : d.reps;
     const track = new Map((everyActivity ? SaltCore.reportTracks(reps) : d.tracks).map(t => [t.report.id, t]));
-    if (mapPlace) reps = reps.filter(r => placesOfReport(r).includes(mapPlace));
+    if (mapState.place) reps = reps.filter(r => placesOfReport(r).includes(mapState.place));
     if (mapOnlyInView && d.view) {
         const [x0, y0, x1, y1] = d.view;
         reps = reps.filter(r => {
@@ -73,7 +73,7 @@ const renderMapSide = (reps) => {
         const got = SaltCore.classifyActivity(r.activity).tags;
         (got.length ? got : ['Untagged']).forEach(t => tags.set(t, (tags.get(t) || 0) + 1));
     });
-    mapActivity.forEach(t => { if (!tags.has(t)) tags.set(t, 0); });
+    mapState.activity.forEach(t => { if (!tags.has(t)) tags.set(t, 0); });
     const order = [...SaltCore.ACTIVITY_TAGS.map(([t]) => t), 'Untagged'];
     const top = (m, n) => [...m].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0], undefined, { numeric: true })).slice(0, n);
     const roll = SaltCore.bdaRollup(reps);
@@ -85,12 +85,12 @@ const renderMapSide = (reps) => {
     const chip = (attr, key, label, n, on) => `<button type="button" class="map-chip map-side-place${on ? ' active' : ''}" ${attr}="${escapeHtml(key)}" aria-pressed="${on}"><span>${escapeHtml(label)}</span><strong>${n}</strong></button>`;
     s.side.innerHTML = `
         <div class="map-side-block">
-            <div class="map-side-head">Activity${mapActivity.size ? ' <button type="button" class="text-btn map-side-clear" data-map-activity="">Show All</button>' : ''}</div>
-            <div class="map-chips">${tags.size ? [...tags].sort((x, y) => y[1] - x[1] || order.indexOf(x[0]) - order.indexOf(y[0])).map(([t, n]) => chip('data-map-activity', t, t, n, mapActivity.has(t))).join('') : '<div class="map-side-empty">No reports</div>'}</div>
+            <div class="map-side-head">Activity${mapState.activity.size ? ' <button type="button" class="text-btn map-side-clear" data-map-activity="">Show All</button>' : ''}</div>
+            <div class="map-chips">${tags.size ? [...tags].sort((x, y) => y[1] - x[1] || order.indexOf(x[0]) - order.indexOf(y[0])).map(([t, n]) => chip('data-map-activity', t, t, n, mapState.activity.has(t))).join('') : '<div class="map-side-empty">No reports</div>'}</div>
         </div>
         <div class="map-side-block">
             <div class="map-side-head">Busiest places</div>
-            <div class="map-chips">${places.length ? places.map(([k, n]) => chip('data-map-place', k, k, n, k === mapPlace)).join('') : '<div class="map-side-empty">None named or found by grid</div>'}</div>
+            <div class="map-chips">${places.length ? places.map(([k, n]) => chip('data-map-place', k, k, n, k === mapState.place)).join('') : '<div class="map-side-empty">None named or found by grid</div>'}</div>
         </div>`;
 };
 
@@ -99,12 +99,12 @@ const renderMapTable = (reps) => {
     s.timeHead.textContent = local ? 'Time (L)' : 'Time (Z)';
     s.title.textContent = plural(reps.length, 'report');
     s.only.checked = mapOnlyInView;
-    s.chip.innerHTML = mapPlace
-        ? `<button type="button" class="map-place-chip" data-map-place="${escapeHtml(mapPlace)}" title="Show every place again">${escapeHtml(mapPlace)} <span aria-hidden="true">&times;</span></button>` : '';
+    s.chip.innerHTML = mapState.place
+        ? `<button type="button" class="map-place-chip" data-map-place="${escapeHtml(mapState.place)}" title="Show every place again">${escapeHtml(mapState.place)} <span aria-hidden="true">&times;</span></button>` : '';
     // Rebuilt after every drawing: a row with the keyboard's focus keeps it.
     const focused = s.body.contains(document.activeElement) ? document.activeElement.dataset.mapRow : null;
     s.body.innerHTML = reps.length ? reps.map(r => `
-        <tr data-map-row="${escapeHtml(r.id)}" tabindex="0"${r.id === mapSelected ? ' class="selected-row"' : ''}>
+        <tr data-map-row="${escapeHtml(r.id)}" tabindex="0"${r.id === mapState.selected ? ' class="selected-row"' : ''}>
             <td>${escapeHtml(formatFullId(r))}</td><td>${escapeHtml(r.size || '')}</td><td>${escapeHtml(r.activity || '')}</td>
             <td>${escapeHtml(r.location || '')}</td><td>${escapeHtml(mapTimeFmt(r.time))}</td>
         </tr>`).join('')
@@ -114,7 +114,7 @@ const renderMapTable = (reps) => {
 };
 
 // After each drawing (panning redraws often), once it settles.
-mapDrawnHook = () => {
+mapState.drawnHook = () => {
     if (!isMapViewActive) return;
     clearTimeout(mapListTimer);
     mapListTimer = setTimeout(() => {
@@ -133,7 +133,7 @@ let mapCardFrom = null; // the table row it was opened from (by id), for Escape 
 const renderMapCard = () => {
     const card = document.getElementById('mapCard');
     if (!card) return;
-    const r = mapSelected && localReports.find(x => x.id === mapSelected && !x.deleted);
+    const r = mapState.selected && localReports.find(x => x.id === mapState.selected && !x.deleted);
     if (!r || !mapCardAt) { card.hidden = true; return; }
     const local = timeDisplayMode === 'local';
     const row = (label, value) => (value ? `<div class="map-card-row"><span>${label}</span><div>${escapeHtml(value)}</div></div>` : '');
@@ -166,34 +166,34 @@ const positionMapCard = () => {
 };
 
 const selectMapReport = (id, at) => {
-    mapSelected = id;
+    mapState.selected = id;
     mapCardAt = at || null;
     renderMapCard();
     redrawMap();
 };
 
 // Put the map on a report and pulse its ring. Zoomed all the way out, it
-// zooms in on it first (the whole area can't move to centre one report).
-const centreMapOn = (id) => {
-    const t = mapLastDraw && mapLastDraw.tracks.find(x => x.report.id === id);
-    if (!t || !mapView) return false;
-    if (mapView.mpp >= mapFitMpp * 0.99) mapView.mpp = mapFitMpp / 4;
-    [mapView.cx, mapView.cy] = latestMerc(t);
-    mapFlashUntil = Date.now() + 1600;
+// zooms in on it first (the whole area can't move to center one report).
+const centerMapOn = (id) => {
+    const t = mapState.lastDraw && mapState.lastDraw.tracks.find(x => x.report.id === id);
+    if (!t || !mapState.view) return false;
+    if (mapState.view.mpp >= mapState.fitMpp * 0.99) mapState.view.mpp = mapState.fitMpp / 4;
+    [mapState.view.cx, mapState.view.cy] = latestMerc(t);
+    mapState.flashUntil = Date.now() + 1600;
     return true;
 };
 
 // A click on the map: a report opens its card; an NAI, OBJ, or phase line
 // narrows the table to it (again to widen it); anywhere else closes the card.
-mapClickHook = ({ item, at, lonLat: [lon, lat], mpp }) => {
+mapState.clickHook = ({ item, at, lonLat: [lon, lat], mpp }) => {
     if (item && item.t) { mapCardFrom = null; selectMapReport(item.t.report.id, at); return; }
     const near = mpp * Math.cos(lat * Math.PI / 180) * 10;   // ten pixels, on the ground
-    const lines = currentOverlays().filter(o => o.type === 'PL' && SaltCore.metresToGeometry(o.geometry, lon, lat) <= near);
+    const lines = currentOverlays().filter(o => o.type === 'PL' && SaltCore.metersToGeometry(o.geometry, lon, lat) <= near);
     const areas = currentOverlays().filter(o => o.type !== 'PL' && /Polygon|LineString/.test((o.geometry || {}).type || '')
         && SaltCore.geometryContains(SaltCore.asArea(o.geometry), lon, lat));
     const hit = lines[0] || areas[0];
-    if (hit) { mapPlace = overlayKey(hit) === mapPlace ? '' : overlayKey(hit); redrawMap(); return; }
-    if (mapSelected) selectMapReport('', null);
+    if (hit) { mapState.place = overlayKey(hit) === mapState.place ? '' : overlayKey(hit); redrawMap(); return; }
+    if (mapState.selected) selectMapReport('', null);
 };
 
 // --- The view ---
@@ -213,18 +213,18 @@ const renderMapTime = () => {
     range.dataset.first = String(first);
     range.disabled = !any;
     const span = Math.max(1, Date.now() - first);
-    range.value = String(mapEnd === null ? 1000 : Math.round((mapEnd - first) / span * 1000));
+    range.value = String(mapState.end === null ? 1000 : Math.round((mapState.end - first) / span * 1000));
     const local = timeDisplayMode === 'local';
-    label.textContent = mapEnd === null ? 'Now' : SaltCore.dtg(mapEnd, local);
+    label.textContent = mapState.end === null ? 'Now' : SaltCore.dtg(mapState.end, local);
     // Read out as the time it shows, not a number out of 1000.
     range.setAttribute('aria-valuetext', label.textContent);
-    now.hidden = mapEnd === null;
+    now.hidden = mapState.end === null;
 };
 
 const renderMapView = () => {
     const s = mapViewEls();
     if (!s.panel || !isMapViewActive) return;
-    renderOverlayMap(s.host);
+    renderMapPanel(s.host);
     applyMapSide();
     renderMapTime();
     renderMapCard();
@@ -286,26 +286,26 @@ const hideHomeViews = () => {
     });
     s.panel.addEventListener('click', e => {
         const place = e.target.closest('[data-map-place]');
-        if (place) { mapPlace = place.dataset.mapPlace === mapPlace ? '' : place.dataset.mapPlace; redrawMap(); return; }
+        if (place) { mapState.place = place.dataset.mapPlace === mapState.place ? '' : place.dataset.mapPlace; redrawMap(); return; }
         // Activities beside the map: several can be picked; Show all clears them.
         const pick = e.target.closest('[data-map-activity]');
         if (pick) {
             const t = pick.dataset.mapActivity;
-            if (!t) mapActivity.clear();
-            else if (mapActivity.has(t)) mapActivity.delete(t);
-            else mapActivity.add(t);
+            if (!t) mapState.activity.clear();
+            else if (mapState.activity.has(t)) mapState.activity.delete(t);
+            else mapState.activity.add(t);
             renderMapView();
             return;
         }
         const act = e.target.closest('[data-card-act]');
         if (act) {
-            const id = mapSelected;
+            const id = mapState.selected;
             if (act.dataset.cardAct === 'close') selectMapReport('', null);
             else if (act.dataset.cardAct === 'edit') loadReportForEditing(id);
             else {
                 // The table may hide it (another place, or off this part of the map).
                 const row = () => s.body.querySelector(`[data-map-row="${CSS.escape(id)}"]`);
-                if (!row()) { mapPlace = ''; mapOnlyInView = false; writeStored('salt_map_only_in_view', 'off'); renderMapTable(mapListReports()); }
+                if (!row()) { mapState.place = ''; mapOnlyInView = false; writeStored('salt_map_only_in_view', 'off'); renderMapTable(mapListReports()); }
                 const tr = row();
                 if (tr) {
                     // Scroll the view only (scrollIntoView would move the page too).
@@ -318,7 +318,7 @@ const hideHomeViews = () => {
             }
             return;
         }
-        if (e.target.id === 'mapEndNow') { mapEnd = null; renderMapView(); return; }
+        if (e.target.id === 'mapEndNow') { mapState.end = null; renderMapView(); return; }
         if (e.target.closest('#mapSideBtn')) {
             mapSideShown = !mapSideShown;
             writeStored('salt_map_side', mapSideShown ? 'shown' : 'hidden');
@@ -328,14 +328,14 @@ const hideHomeViews = () => {
         const tr = e.target.closest('[data-map-row]');
         if (tr) {
             const id = tr.dataset.mapRow;
-            const centred = centreMapOn(id);
-            mapSelected = id;
+            const centered = centerMapOn(id);
+            mapState.selected = id;
             mapCardFrom = id;
             // Drawn now, so the card can open beside where the report landed
             // (at the middle, unless the edge of the area held the map back).
             drawMap();
             const box = document.getElementById('mapBox'), ring = document.querySelector('#mapSvg .map-selected circle');
-            mapCardAt = centred && box && ring ? [+ring.getAttribute('cx'), +ring.getAttribute('cy')] : null;
+            mapCardAt = centered && box && ring ? [+ring.getAttribute('cx'), +ring.getAttribute('cy')] : null;
             renderMapCard();
         }
     });
@@ -370,7 +370,7 @@ const hideHomeViews = () => {
     s.panel.addEventListener('input', e => {
         if (e.target.id !== 'mapEndRange') return;
         const v = +e.target.value, first = +e.target.dataset.first;
-        mapEnd = v >= 1000 ? null : Math.round(first + (Date.now() - first) * v / 1000);
+        mapState.end = v >= 1000 ? null : Math.round(first + (Date.now() - first) * v / 1000);
         renderMapView();
     });
 })();

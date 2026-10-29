@@ -9,7 +9,7 @@ const el = {
     form: {
         root:      document.getElementById('saltForm'),
         reportId:  document.getElementById('reportId'),
-        title:     document.getElementById('form-title'),
+        title:     document.getElementById('formTitle'),
         editingNote: document.getElementById('formEditingNote'),
         logBtn:    document.getElementById('logButton'),
         editBtn:   document.getElementById('editButton'),
@@ -32,10 +32,10 @@ const el = {
     },
     log: {
         body:        document.getElementById('reportLogBody'),
-        count:       document.getElementById('report-count'),
-        totalCount:  document.getElementById('report-total-count'),
+        count:       document.getElementById('reportCount'),
+        totalCount:  document.getElementById('reportTotalCount'),
         search:      document.getElementById('searchBar'),
-        timeHeader:  document.getElementById('time-header'),
+        timeHeader:  document.getElementById('timeHeader'),
         deleteBtn:   document.getElementById('deleteSelectedBtn'),
         sendSelect:  document.getElementById('sendToAtoSelect'),
         sendBtn:     document.getElementById('sendToAtoBtn'),
@@ -46,11 +46,11 @@ const el = {
         sortHeaders: document.querySelectorAll('#reportLogTable thead .sortable-th[data-sort]'),
     },
     status: {
-        dot:          document.getElementById('status-dot'),
-        dotExp:       document.getElementById('status-dot-export'),
-        userCount:    document.getElementById('connected-users-count'),
+        dot:          document.getElementById('statusDot'),
+        dotExp:       document.getElementById('statusDotExport'),
+        userCount:    document.getElementById('connectedUsersCount'),
         version:      document.getElementById('appVersion'),
-        userCountExp: document.getElementById('connected-users-count-export'),
+        userCountExp: document.getElementById('connectedUsersCountExport'),
     },
     // Bars for what needs attention (renderStatusBars in app/90-sync.js).
     bars: {
@@ -62,11 +62,11 @@ const el = {
     // Identity form, plus the display-only access-code row with Copy button.
     profile: {
         menu:        document.getElementById('userProfileMenu'),
-        initials:    document.getElementById('user-initials-input'),
-        color:       document.getElementById('user-color-input'),
-        setBtn:      document.getElementById('set-profile-btn'),
-        avatar:      document.getElementById('profile-preview-avatar'),
-        name:        document.getElementById('profile-preview-name'),
+        initials:    document.getElementById('userInitialsInput'),
+        color:       document.getElementById('userColorInput'),
+        setBtn:      document.getElementById('setProfileBtn'),
+        avatar:      document.getElementById('profilePreviewAvatar'),
+        name:        document.getElementById('profilePreviewName'),
         accessCode:  document.getElementById('identityAccessCode'),
         accessCopy:  document.getElementById('identityAccessCopyBtn'),
         accessShow:  document.getElementById('identityAccessShowBtn'),
@@ -94,23 +94,23 @@ const el = {
     },
     layout: { grid: document.getElementById('mainGrid') },
     toast: {
-        regular:    document.getElementById('toast-notification'),
-        confirm:    document.getElementById('confirmation-toast'),
+        regular:    document.getElementById('toastNotification'),
+        confirm:    document.getElementById('confirmationToast'),
         confirmBtn: document.getElementById('confirmActionBtn'),
         cancelBtn:  document.getElementById('cancelActionBtn'),
-        message:    document.getElementById('confirmation-message'),
+        message:    document.getElementById('confirmationMessage'),
     },
-    exp: {
+    manage: {
         panel:       document.getElementById('exportPanel'),
-        fromDate:    document.getElementById('export-from-date'),
-        fromTime:    document.getElementById('export-from-time'),
-        toDate:      document.getElementById('export-to-date'),
-        toTime:      document.getElementById('export-to-time'),
-        fromMode:    document.getElementById('export-from-mode'),
-        toMode:      document.getElementById('export-to-mode'),
+        fromDate:    document.getElementById('exportFromDate'),
+        fromTime:    document.getElementById('exportFromTime'),
+        toDate:      document.getElementById('exportToDate'),
+        toTime:      document.getElementById('exportToTime'),
+        fromMode:    document.getElementById('exportFromMode'),
+        toMode:      document.getElementById('exportToMode'),
         clearBtn:    document.getElementById('exportClearFilterBtn'),
-        subtitle:    document.getElementById('export-panel-subtitle'),
-        filterCount: document.getElementById('export-filter-count'),
+        subtitle:    document.getElementById('exportPanelSubtitle'),
+        filterCount: document.getElementById('exportFilterCount'),
         mtiToggle:      document.getElementById('exportMtiToggle'),
         allAtosToggle:  document.getElementById('exportAllAtosToggle'),
     },
@@ -138,17 +138,17 @@ const el = {
     },
     startup: {
         overlay:     document.getElementById('startupModal'),
-        avatar:      document.getElementById('startup-preview-avatar'),
-        initials:    document.getElementById('startup-initials'),
-        color:       document.getElementById('startup-color'),
-        swatches:    document.getElementById('startup-color-swatches'),
-        ato:         document.getElementById('startup-ato'),
-        title:       document.getElementById('startup-title'),
-        accessCode:  document.getElementById('startup-access-code'),
+        avatar:      document.getElementById('startupPreviewAvatar'),
+        initials:    document.getElementById('startupInitials'),
+        color:       document.getElementById('startupColor'),
+        swatches:    document.getElementById('startupColorSwatches'),
+        ato:         document.getElementById('startupAto'),
+        title:       document.getElementById('startupTitle'),
+        accessCode:  document.getElementById('startupAccessCode'),
         accessShow:  document.getElementById('startupAccessShowBtn'),
-        accessError: document.getElementById('startup-access-error'),
+        accessError: document.getElementById('startupAccessError'),
         continueBtn: document.getElementById('startupContinueBtn'),
-        presets:     document.getElementById('startup-presets'),
+        presets:     document.getElementById('startupPresets'),
     },
 };
 
@@ -424,7 +424,7 @@ const openHistoryRows = new Set();
 const selectedRows = new Set();
 const selectedHistory = new Set();
 const expandedCells = new Set();
-let isExportViewActive = false;
+let isManageViewActive = false;
 let pendingCsv         = null; // { headers, rows, filename }
 let offlinePendingPush = readRaw('salt_offline_push') === 'true';
 // Every workspace with changes the server hasn't taken yet (the active one,
@@ -681,7 +681,7 @@ const leaveDialog = (box) => {
     if (lost && back && back !== document.body && back.isConnected && typeof back.focus === 'function') back.focus();
 };
 // The modal dialogs, topmost first; Tab stays in the first one open.
-const modalDialogs = () => [document.getElementById('choice-toast'), el.toast.confirm, el.startup.overlay, el.manual.modal];
+const modalDialogs = () => [document.getElementById('choiceToast'), el.toast.confirm, el.startup.overlay, el.manual.modal];
 document.addEventListener('keydown', e => {
     if (e.key !== 'Tab') return;
     const box = modalDialogs().find(b => b && b.classList.contains('show'));
@@ -705,9 +705,9 @@ const hideConfirmation = () => { el.toast.confirm.classList.remove('show'); pend
 let pendingChoice = null;
 const askChoice = (message, detail, options) => {
     if (pendingChoice) pendingChoice(null);
-    const box = document.getElementById('choice-toast');
-    document.getElementById('choice-message').textContent = message;
-    document.getElementById('choice-detail').textContent = detail || '';
+    const box = document.getElementById('choiceToast');
+    document.getElementById('choiceMessage').textContent = message;
+    document.getElementById('choiceDetail').textContent = detail || '';
     const buttons = document.getElementById('choiceButtons');
     buttons.innerHTML = '';
     return new Promise(resolve => {

@@ -9,8 +9,8 @@
 
 // Nothing of a basemap on screen, and no WMS request still to come or to land.
 const clearBasemap = (m) => {
-    clearTimeout(mapWmsTimer);
-    mapWmsGen++;
+    clearTimeout(mapState.wmsTimer);
+    mapState.wmsGen++;
     m.base.innerHTML = '';
 };
 
@@ -22,7 +22,7 @@ const drawBasemap = (m, ext, view, w, h) => {
     // Another service (or the same one changed): what the last one drew goes.
     const key = [b.kind, b.url, b.layers || ''].join(' ');
     [...m.base.children].forEach(el => { if (el.dataset.base !== key) el.remove(); });
-    const { cx, cy, mpp } = mapView;
+    const { cx, cy, mpp } = mapState.view;
     const place = (img, box) => {
         img.setAttribute('x', ((box[0] - cx) / mpp + w / 2).toFixed(1));
         img.setAttribute('y', ((cy - box[3]) / mpp + h / 2).toFixed(1));
@@ -31,7 +31,7 @@ const drawBasemap = (m, ext, view, w, h) => {
     };
     const want = [Math.max(ext[0], view[0]), Math.max(ext[1], view[1]), Math.min(ext[2], view[2]), Math.min(ext[3], view[3])];
     if (want[0] >= want[2] || want[1] >= want[3]) { clearBasemap(m); return; }
-    mapLastWant = want;
+    mapState.lastWant = want;
     // An HTTPS page can't load images from an http:// basemap, so those come
     // through the sync server, which fetches them from that saved host.
     const src = (url) => (location.protocol === 'https:' && /^http:\/\//i.test(url) ? '/api/basemap?u=' + encodeURIComponent(url) : url);
@@ -43,7 +43,7 @@ const drawBasemap = (m, ext, view, w, h) => {
         img.dataset.state = ok ? 'ok' : 'error';
         const imgs = [...m.base.children];
         const failed = !!imgs.length && imgs.every(i => i.dataset.state === 'error');
-        if (failed !== mapBaseFailed && (failed || imgs.some(i => i.dataset.state === 'ok'))) { mapBaseFailed = failed; redrawMap(); }
+        if (failed !== mapState.baseFailed && (failed || imgs.some(i => i.dataset.state === 'ok'))) { mapState.baseFailed = failed; redrawMap(); }
     };
     const add = (url, box) => {
         let img = have.get(url);
@@ -63,8 +63,8 @@ const drawBasemap = (m, ext, view, w, h) => {
         return img;
     };
     if (b.kind === 'tiles') {
-        clearTimeout(mapWmsTimer);
-        mapWmsGen++;
+        clearTimeout(mapState.wmsTimer);
+        mapState.wmsGen++;
         const tiles = SaltCore.tilesFor(want, SaltCore.tileZoom(mpp), 400) || [];
         tiles.forEach(t => add(SaltCore.tileUrl(b.url, t), t.box));
         have.forEach(el => el.remove());
@@ -75,20 +75,20 @@ const drawBasemap = (m, ext, view, w, h) => {
     // Each request is numbered: one that lands after a newer one was asked
     // for, or after the basemap changed, is dropped.
     have.forEach(el => place(el, el.dataset.box.split(',').map(Number)));
-    clearTimeout(mapWmsTimer);
-    mapWmsTimer = setTimeout(() => {
+    clearTimeout(mapState.wmsTimer);
+    mapState.wmsTimer = setTimeout(() => {
         const pw = Math.min(2048, Math.round((want[2] - want[0]) / mpp)), ph = Math.min(2048, Math.round((want[3] - want[1]) / mpp));
         if (pw < 8 || ph < 8) return;
         const url = SaltCore.wmsUrl(b.url, b.layers, want, pw, ph, b);
         if (m.base.querySelector(`[data-url="${CSS.escape(url)}"]`)) return;
-        const gen = ++mapWmsGen;
+        const gen = ++mapState.wmsGen;
         const img = document.createElementNS('http://www.w3.org/2000/svg', 'image');
         img.dataset.url = url;
         img.dataset.box = want.join(',');
         img.dataset.base = key;
         img.setAttribute('preserveAspectRatio', 'none');
         img.addEventListener('load', () => {
-            if (gen !== mapWmsGen || img.parentNode !== m.base) { img.remove(); return; }
+            if (gen !== mapState.wmsGen || img.parentNode !== m.base) { img.remove(); return; }
             // The view it replaces goes; nothing else does.
             [...m.base.children].forEach(el => { if (el !== img && el.dataset.base === key) el.remove(); });
             settle(img, true);
@@ -96,7 +96,7 @@ const drawBasemap = (m, ext, view, w, h) => {
         // A view that didn't come back leaves the last one on screen: a failure
         // only when there's nothing else to show.
         img.addEventListener('error', () => {
-            if (gen !== mapWmsGen || img.parentNode !== m.base) { img.remove(); return; }
+            if (gen !== mapState.wmsGen || img.parentNode !== m.base) { img.remove(); return; }
             if ([...m.base.children].some(el => el !== img && el.dataset.state === 'ok')) img.remove();
             else settle(img, false);
         });
@@ -108,12 +108,8 @@ const drawBasemap = (m, ext, view, w, h) => {
 
 // --- Adding services ---
 
-// A WMS being looked up: the link (and a name typed for it), then what its
-// capabilities offer and which layers are ticked. `edit` names the saved
-// service whose layers these are (null when adding one).
-let wmsFind = null;   // { link, edit, busy, error, title, version, getMap, formats, layers: [{ name, title, crs, missing }], picked: Set, via }
-let baseCheck = null; // { name, ok, text }: what Check found for a service
-let baseOpen = null;  // the saved service whose details are open, by name
+// A WMS being looked up, what Check found, and which saved service is open:
+// mapState.wmsFind, .baseCheck and .baseOpen (app/60-map.js).
 
 // Read a service address as text. The page asks first; a service that sends
 // no CORS headers refuses that, and then the sync server asks for it.
@@ -169,7 +165,7 @@ const parseWmsCapabilities = (xml) => {
 };
 
 const findWmsLayers = async (link, name = '', edit = null) => {
-    const asked = wmsFind = { link, name, edit, busy: true };
+    const asked = mapState.wmsFind = { link, name, edit, busy: true };
     basemapsChanged();
     let found;
     try {
@@ -187,9 +183,9 @@ const findWmsLayers = async (link, name = '', edit = null) => {
     } catch (e) {
         found = { link, name, edit, error: e.message || String(e) };
     }
-    // Cancelled, or another lookup started, while this one was out.
-    if (wmsFind !== asked) return;
-    wmsFind = found;
+    // Canceled, or another lookup started, while this one was out.
+    if (mapState.wmsFind !== asked) return;
+    mapState.wmsFind = found;
     basemapsChanged();
 };
 
@@ -220,7 +216,7 @@ const addBasemap = (entry) => {
     if (sharedBasemaps.length >= MAX_BASEMAPS) { showToast(`${MAX_BASEMAPS} basemaps at most. Remove one to add another.`, true); return false; }
     if (basemapTooLong(entry)) return false;
     // The new one is shown here at once.
-    mapBaseChoice = entry.name;
+    mapState.baseChoice = entry.name;
     writeStored('salt_map_base', entry.name);
     saveBasemaps([...sharedBasemaps, entry], `${entry.name} added for everyone.`);
     return true;
@@ -231,12 +227,12 @@ const replaceBasemap = (oldName, entry) => {
     if (sharedBasemaps.some(b => b.name !== oldName && b.name.toLowerCase() === entry.name.toLowerCase())) { showToast(`There is already a service called ${entry.name}.`, true); return false; }
     if (basemapTooLong(entry)) return false;
     // Renamed: still the one shown here.
-    if (mapBaseChoice === oldName && entry.name !== oldName) {
-        mapBaseChoice = entry.name;
+    if (mapState.baseChoice === oldName && entry.name !== oldName) {
+        mapState.baseChoice = entry.name;
         writeStored('salt_map_base', entry.name);
     }
-    if (baseCheck && baseCheck.name === oldName) baseCheck = null;
-    wmsFind = null; baseOpen = null;
+    if (mapState.baseCheck && mapState.baseCheck.name === oldName) mapState.baseCheck = null;
+    mapState.wmsFind = null; mapState.baseOpen = null;
     saveBasemaps(sharedBasemaps.map(b => (b.name === oldName ? entry : b)), `${entry.name} saved for everyone.`);
     return true;
 };
@@ -249,8 +245,8 @@ const removeBasemap = (name) => {
     if (at < 0) return;
     if (!askFirst(`base|${name}`, renderBasemapManager)) return;
     const gone = sharedBasemaps[at];
-    if (baseCheck && baseCheck.name === gone.name) baseCheck = null;
-    if (baseOpen === name) { wmsFind = null; baseOpen = null; }
+    if (mapState.baseCheck && mapState.baseCheck.name === gone.name) mapState.baseCheck = null;
+    if (mapState.baseOpen === name) { mapState.wmsFind = null; mapState.baseOpen = null; }
     saveBasemaps(sharedBasemaps.filter(b => b !== gone), `${gone.name} removed.`, () => {
         if (sharedBasemaps.some(b => b.name.toLowerCase() === gone.name.toLowerCase())) { showToast(`There is already a service called ${gone.name}.`, true); return; }
         saveBasemaps([...sharedBasemaps.slice(0, at), gone, ...sharedBasemaps.slice(at)], `${gone.name} put back.`);
@@ -273,7 +269,7 @@ const wmsGetMapUrl = (f) => {
 // The ticked layers, as one service, in the projection they all offer: added,
 // or saved over the service they were opened from.
 const addFoundLayers = () => {
-    const f = wmsFind;
+    const f = mapState.wmsFind;
     const picked = f.layers.filter(l => f.picked.has(l.name));
     if (!picked.length) { showToast(f.edit ? 'Tick the layers to keep, or Remove the service.' : 'Tick the layers to add.', true); return; }
     const crs = SaltCore.pickWmsCrs(picked.map(l => l.crs));
@@ -284,7 +280,7 @@ const addFoundLayers = () => {
     const name = f.edit || freeBasemapName(f.title || (picked.length === 1 ? picked[0].title : hostOf(f.link)));
     const entry = { name, kind: 'wms', url: wmsGetMapUrl(f), layers, version: f.version, crs, format: SaltCore.pickWmsFormat(f.formats) };
     if (!(f.edit ? replaceBasemap(f.edit, entry) : addBasemap(entry))) return false;
-    wmsFind = null;
+    mapState.wmsFind = null;
     return true;
 };
 // Empty the add box once a service is in (the form was redrawn with what was typed).
@@ -294,34 +290,34 @@ const clearBaseInputs = () => { const i = document.getElementById('mapBaseInput'
 // say what came back: an image, or the service's own error.
 const checkBasemap = async (b) => {
     const tracks = SaltCore.reportTracks(mapReports());
-    const ext = mapLastWant || mapExtent(tracks) || [...SaltCore.lonLatToMerc(-0.01, -0.01), ...SaltCore.lonLatToMerc(0.01, 0.01)];
+    const ext = mapState.lastWant || mapExtent(tracks) || [...SaltCore.lonLatToMerc(-0.01, -0.01), ...SaltCore.lonLatToMerc(0.01, 0.01)];
     const url = b.kind === 'tiles'
         ? SaltCore.tileUrl(b.url, (SaltCore.tilesFor(ext, Math.min(18, SaltCore.tileZoom((ext[2] - ext[0]) / 512)), 64) || [{ z: 0, x: 0, y: 0 }])[0])
         : SaltCore.wmsUrl(b.url, b.layers, ext, 256, 256, b);
-    baseCheck = { name: b.name, text: 'Asking the service...' };
+    mapState.baseCheck = { name: b.name, text: 'Asking the service...' };
     basemapsChanged();
     try {
         const got = await fetchServiceText(url);
         const kb = Math.max(1, Math.round((got.size || (got.text || '').length) / 1024));
-        if (got.http >= 400) baseCheck = { name: b.name, text: `The service answered ${got.http}${serviceSays(got.text) ? `: ${serviceSays(got.text)}` : '.'}` };
+        if (got.http >= 400) mapState.baseCheck = { name: b.name, text: `The service answered ${got.http}${serviceSays(got.text) ? `: ${serviceSays(got.text)}` : '.'}` };
         else if (/^image\//i.test(got.type)) {
-            baseCheck = { name: b.name, ok: true, text: got.via === 'this browser' || (location.protocol === 'https:' && /^http:\/\//i.test(b.url))
+            mapState.baseCheck = { name: b.name, ok: true, text: got.via === 'this browser' || (location.protocol === 'https:' && /^http:\/\//i.test(b.url))
                 ? `It works: the service sent a map image (${got.type}, ${kb} KB).`
                 : `The service sent the server a map image (${got.type}, ${kb} KB), so the address and layers are right. If the map stays blank, this browser can't reach the service itself (a proxy or a certificate).` };
-        } else baseCheck = { name: b.name, text: `The service answered with ${got.type || 'something'} instead of an image: ${serviceSays(got.text) || '(empty)'}` };
+        } else mapState.baseCheck = { name: b.name, text: `The service answered with ${got.type || 'something'} instead of an image: ${serviceSays(got.text) || '(empty)'}` };
     } catch (e) {
-        baseCheck = { name: b.name, text: e.message || String(e) };
+        mapState.baseCheck = { name: b.name, text: e.message || String(e) };
     }
     basemapsChanged();
-    if (baseCheck.ok) {
-        const done = baseCheck;
-        setTimeout(() => { if (baseCheck === done) fadeBaseCheck(); }, BASE_CHECK_MS);
+    if (mapState.baseCheck.ok) {
+        const done = mapState.baseCheck;
+        setTimeout(() => { if (mapState.baseCheck === done) fadeBaseCheck(); }, BASE_CHECK_MS);
     }
 };
 const BASE_CHECK_MS = 4000;
 // The Check message folds away (and is forgotten, so a redraw doesn't bring it back).
 const fadeBaseCheck = () => {
-    baseCheck = null;
+    mapState.baseCheck = null;
     document.querySelectorAll('.map-base-check').forEach(m => {
         m.style.height = `${m.offsetHeight}px`;
         void m.offsetHeight;
@@ -331,7 +327,7 @@ const fadeBaseCheck = () => {
 };
 
 const wmsFindHtml = () => {
-    const f = wmsFind;
+    const f = mapState.wmsFind;
     if (!f) return '';
     if (f.busy) return '<div class="overlays-muted map-find-msg">Asking the service for its layers...</div>';
     const saved = f.edit ? sharedBasemaps.find(b => b.name === f.edit) : null;
@@ -372,7 +368,7 @@ const baseEditFoot = (save) => `<div class="map-form-row map-find-foot">
 // A saved service's details: a WMS's layers (looked up again), or a tile
 // service's address.
 const baseDetailHtml = (b) => {
-    if (b.kind === 'wms') return wmsFind && wmsFind.edit === b.name ? `<div class="map-base-detail">${wmsFindHtml()}</div>` : '';
+    if (b.kind === 'wms') return mapState.wmsFind && mapState.wmsFind.edit === b.name ? `<div class="map-base-detail">${wmsFindHtml()}</div>` : '';
     return `<div class="map-base-detail">
             <div class="map-form-row">
                 <input type="text" id="mapTileUrl" value="${escapeHtml(b.url)}" maxlength="4000" spellcheck="false" aria-label="Tile address">
@@ -389,24 +385,24 @@ const baseDetailHtml = (b) => {
 // It lives in Manage > Map; the map's own basemap button only switches.
 const basemapForm = () => {
     // Removed (here or by someone else) while open: closed.
-    if (baseOpen && !sharedBasemaps.some(b => b.name === baseOpen)) {
-        baseOpen = null;
-        if (wmsFind && wmsFind.edit) wmsFind = null;
+    if (mapState.baseOpen && !sharedBasemaps.some(b => b.name === mapState.baseOpen)) {
+        mapState.baseOpen = null;
+        if (mapState.wmsFind && mapState.wmsFind.edit) mapState.wmsFind = null;
     }
     const asked = askingAbout('base|');
     if (asked && !sharedBasemaps.some(b => `base|${b.name}` === asked)) forgetAsk();
-    const adding = wmsFind && !wmsFind.edit ? wmsFind : null;
-    return `<div class="map-basemap-form editor-only" id="mapBasemapForm" data-open="${escapeHtml(baseOpen || '')}">
+    const adding = mapState.wmsFind && !mapState.wmsFind.edit ? mapState.wmsFind : null;
+    return `<div class="map-basemap-form editor-only" id="mapBasemapForm" data-open="${escapeHtml(mapState.baseOpen || '')}">
         ${sharedBasemaps.length ? `<div class="map-base-list">${sharedBasemaps.map((b, i) => `
-            <div class="map-base-row${baseOpen === b.name ? ' open' : ''}">
+            <div class="map-base-row${mapState.baseOpen === b.name ? ' open' : ''}">
                 ${isAsking(`base|${b.name}`)
                     ?`<span class="map-base-name map-base-ask" role="status" title="${escapeHtml(b.name)}">Remove for everyone?</span>`
                     : `<span class="map-base-name" title="${escapeHtml(b.url)}${b.layers ? `\n${escapeHtml(b.layers)}` : ''}">${escapeHtml(b.name)}</span>`}
                 <span class="map-base-kind">${b.kind === 'wms' ? 'WMS' : 'Tiles'}</span>
                 <button type="button" class="text-btn" data-base-check="${i}">Check</button>
-                <button type="button" class="text-btn" data-base-open="${i}" aria-expanded="${baseOpen === b.name}">${b.kind === 'wms' ? 'Layers' : 'Edit'}</button>
+                <button type="button" class="text-btn" data-base-open="${i}" aria-expanded="${mapState.baseOpen === b.name}">${b.kind === 'wms' ? 'Layers' : 'Edit'}</button>
                 <button type="button" class="text-btn map-base-del" data-base-remove="${i}"${isAsking(`base|${b.name}`) ? ' data-asking' : ''} aria-label="Remove ${escapeHtml(b.name)}">Remove</button>
-            </div>${baseCheck && baseCheck.name === b.name ? `<div class="map-base-check${baseCheck.ok ? ' ok' : ''}" role="status">${escapeHtml(baseCheck.text)}</div>` : ''}${baseOpen === b.name ? baseDetailHtml(b) : ''}`).join('')}</div>` : ''}
+            </div>${mapState.baseCheck && mapState.baseCheck.name === b.name ? `<div class="map-base-check${mapState.baseCheck.ok ? ' ok' : ''}" role="status">${escapeHtml(mapState.baseCheck.text)}</div>` : ''}${mapState.baseOpen === b.name ? baseDetailHtml(b) : ''}`).join('')}</div>` : ''}
         <div class="map-form-row map-base-add">
             <input type="text" id="mapBaseInput" placeholder="WMS link or tile address" maxlength="4000" spellcheck="false" value="${escapeHtml(adding ? adding.link : '')}" aria-label="WMS link or tile address">
             <button type="button" id="mapBaseAddBtn" class="set-btn"${adding && adding.busy ? ' disabled' : ''}>Add</button>
@@ -421,7 +417,7 @@ const renderBasemapManager = () => {
     const slot = document.getElementById('mapBaseFormSlot');
     if (!slot) return;
     const old = document.getElementById('mapBasemapForm');
-    const same = old && old.dataset.open === (baseOpen || '');
+    const same = old && old.dataset.open === (mapState.baseOpen || '');
     const typed = old ? [...old.querySelectorAll('input[type="text"][id]')].filter(i => same || i.closest('.map-base-add')).map(i => [i.id, i.value]) : [];
     slot.innerHTML = basemapForm();
     typed.forEach(([id, v]) => { const i = document.getElementById(id); if (i) i.value = v; });
@@ -435,7 +431,7 @@ const basemapsChanged = () => { renderBasemapManager(); renderMapView(); };
 const saveBasemaps = (list, said, undo = null) => {
     const before = sharedBasemaps;
     sharedBasemaps = list;
-    mapBaseFailed = false;
+    mapState.baseFailed = false;
     storeBasemaps();
     basemapsChanged();
     return saveShared('/api/save_basemaps', { basemaps: list }, { said, undo, putBack: () => {
@@ -461,16 +457,16 @@ if (baseHost) {
         if (open) {
             const b = sharedBasemaps[+open.dataset.baseOpen];
             if (!b) return;
-            wmsFind = null;
-            if (baseOpen === b.name) { baseOpen = null; basemapsChanged(); return; }
-            baseOpen = b.name;
+            mapState.wmsFind = null;
+            if (mapState.baseOpen === b.name) { mapState.baseOpen = null; basemapsChanged(); return; }
+            mapState.baseOpen = b.name;
             if (b.kind === 'wms') findWmsLayers(b.url, b.name, b.name);
             else basemapsChanged();
             return;
         }
-        if (e.target.closest('[data-base-close]')) { wmsFind = null; baseOpen = null; basemapsChanged(); return; }
+        if (e.target.closest('[data-base-close]')) { mapState.wmsFind = null; mapState.baseOpen = null; basemapsChanged(); return; }
         if (e.target.closest('#mapTileSave')) {
-            const b = sharedBasemaps.find(s => s.name === baseOpen);
+            const b = sharedBasemaps.find(s => s.name === mapState.baseOpen);
             const url = document.getElementById('mapTileUrl').value.trim();
             if (!b) return;
             if (!/^https?:\/\//i.test(url) || !/\{(z|TileMatrix)\}/i.test(url)) { showToast('A tile address starts with http:// or https:// and has {z}, {x} and {y}.', true); return; }
@@ -483,7 +479,7 @@ if (baseHost) {
         // One box for both: a tile address has {z} (or WMTS's {TileMatrix}); anything
         // else is taken as a WMS, and its layers are looked up.
         if (e.target.closest('#mapBaseAddBtn')) {
-            if (baseOpen) { baseOpen = null; if (wmsFind && wmsFind.edit) wmsFind = null; }
+            if (mapState.baseOpen) { mapState.baseOpen = null; if (mapState.wmsFind && mapState.wmsFind.edit) mapState.wmsFind = null; }
             const text = document.getElementById('mapBaseInput').value.trim();
             if (!/^https?:\/\//i.test(text)) { showToast('Paste an address that starts with http:// or https://.', true); return; }
             const host = hostOf(text.replace(/[{}]/g, ''));
@@ -495,14 +491,14 @@ if (baseHost) {
             return;
         }
         if (e.target.closest('#mapWmsAdd')) { if (addFoundLayers()) clearBaseInputs(); return; }
-        if (e.target.closest('#mapWmsCancel')) { wmsFind = null; basemapsChanged(); return; }
+        if (e.target.closest('#mapWmsCancel')) { mapState.wmsFind = null; basemapsChanged(); return; }
         if (e.target.closest('#mapWmsManualAdd')) {
             const layers = document.getElementById('mapWmsManualLayers').value.trim();
             if (!layers) { showToast('Type the layer names to try.', true); return; }
-            const saved = wmsFind.edit && sharedBasemaps.find(b => b.name === wmsFind.edit);
-            const name = saved ? saved.name : freeBasemapName(hostOf(wmsFind.link));
+            const saved = mapState.wmsFind.edit && sharedBasemaps.find(b => b.name === mapState.wmsFind.edit);
+            const name = saved ? saved.name : freeBasemapName(hostOf(mapState.wmsFind.link));
             if (saved) replaceBasemap(saved.name, { ...saved, name, layers });
-            else if (addBasemap({ name, kind: 'wms', url: wmsFind.link, layers })) { wmsFind = null; clearBaseInputs(); }
+            else if (addBasemap({ name, kind: 'wms', url: mapState.wmsFind.link, layers })) { mapState.wmsFind = null; clearBaseInputs(); }
             return;
         }
     });
@@ -513,12 +509,12 @@ if (baseHost) {
     });
     baseHost.addEventListener('change', e => {
         const pick = e.target.closest('[data-layer-pick]');
-        if (pick && wmsFind && wmsFind.layers) {
-            const l = wmsFind.layers[+pick.dataset.layerPick];
-            pick.checked ? wmsFind.picked.add(l.name) : wmsFind.picked.delete(l.name);
-            const n = wmsFind.picked.size, btn = document.getElementById('mapWmsAdd');
+        if (pick && mapState.wmsFind && mapState.wmsFind.layers) {
+            const l = mapState.wmsFind.layers[+pick.dataset.layerPick];
+            pick.checked ? mapState.wmsFind.picked.add(l.name) : mapState.wmsFind.picked.delete(l.name);
+            const n = mapState.wmsFind.picked.size, btn = document.getElementById('mapWmsAdd');
             btn.disabled = !n;
-            btn.textContent = wmsPickLabel(n, !!wmsFind.edit);
+            btn.textContent = wmsPickLabel(n, !!mapState.wmsFind.edit);
         }
     });
 }

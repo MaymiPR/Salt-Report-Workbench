@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
-"""Checks on the stylesheet: every colour comes from one set of tokens in
+"""Checks on the stylesheet: every color comes from one set of tokens in
 ``:root``, and every ``var(--x)`` names a property that is defined."""
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 
 ROOT_BLOCK = re.compile(r":root\s*\{[^}]*\}")
-# Comments, and url(...): a data: URI can't use var(), so its colours stay.
+# Comments, and url(...): a data: URI can't use var(), so its colors stay.
 IGNORED = re.compile(r"/\*.*?\*/|url\((?:'[^']*'|\"[^\"]*\"|[^)]*)\)", re.DOTALL)
 VALUE = re.compile(r":([^;{}]*)[;}]")  # a declaration's value (a selector ends in "{")
 COLOR = re.compile(r"#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(")
@@ -35,8 +35,8 @@ USED_ANYWHERE = set(USED.findall(CSS)).union(*(USED.findall(text) for text in PA
 class StylesTests(unittest.TestCase):
     def test_colours_are_written_only_in_root(self):
         values = VALUE.findall(ROOT_BLOCK.sub("", CSS))
-        colours = [v.strip() for v in values if COLOR.search(v)]
-        self.assertEqual(colours, [], "colours outside :root")
+        colors = [v.strip() for v in values if COLOR.search(v)]
+        self.assertEqual(colors, [], "colors outside :root")
 
     def test_every_var_is_defined(self):
         defined = set(DEFINED.findall(CSS)).union(*(SET_FROM_JS.findall(text) for text in PAGE))

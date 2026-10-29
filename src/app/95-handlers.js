@@ -26,7 +26,7 @@ const refillForm = (data) => {
     el.form.location.value = data.location;
     el.form.analysis.value = data.yourAnalysis || '';
     el.form.time.value     = clockValue(new Date(data.time), timeDisplayMode === 'local');
-    document.querySelectorAll('#salt-fields [data-custom-label]').forEach(i => { i.value = (data.custom || {})[i.dataset.customLabel] || ''; });
+    document.querySelectorAll('#saltFields [data-custom-label]').forEach(i => { i.value = (data.custom || {})[i.dataset.customLabel] || ''; });
     renderLocationHints();
 };
 
@@ -38,8 +38,8 @@ async function handleFormSubmit(mode) {
     if (!userProfile) {
         showToast('Set your Report ID (Initials) before logging.', true);
         // Open the panel on the Identity tab so the form is visible.
-        if (!isExportViewActive) openExportView();
-        switchWorkspacesTab('identity');
+        if (!isManageViewActive) openManageView();
+        switchManageTab('identity');
         return;
     }
     if (!activeAto)   { showToast('An ATO must be set before logging reports.', true); return; }
@@ -613,20 +613,20 @@ const renderStartupPresets = () => {
         ...((localConfig && localConfig.title) ? [localConfig.title] : []),
     ])].sort().slice(0, CAP);
 
-    fill('startup-preset-profiles', profs.map(p => {
+    fill('startupPresetProfiles', profs.map(p => {
         // A synced color goes into a style: only a plain color, never more CSS.
         const c = safeColor(p.color) === p.color ? p.color : '#0a84ff';
         return `<button type="button" class="startup-profile-chip" data-preset="profile" data-initials="${escapeHtml(p.initials)}" data-color="${escapeHtml(c)}"><span class="chip-dot" style="background:${c}"></span>${escapeHtml(p.initials)}</button>`;
     }).join(''));
-    fill('startup-preset-atos', atos.map(a =>
+    fill('startupPresetAtos', atos.map(a =>
         `<button type="button" class="startup-profile-chip" data-preset="ato" data-ato="${escapeHtml(a)}">${escapeHtml(a)}</button>`).join(''));
-    fill('startup-preset-titles', titles.map(t =>
+    fill('startupPresetTitles', titles.map(t =>
         `<button type="button" class="startup-profile-chip" data-preset="title" data-title="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join(''));
 
     // Whole section (and its divider) hide on a first-ever run with nothing known.
     const any = profs.length || atos.length || titles.length;
     sec.style.display = any ? '' : 'none';
-    const div = document.getElementById('startup-presets-divider');
+    const div = document.getElementById('startupPresetsDivider');
     if (div) div.style.display = any ? '' : 'none';
 };
 
@@ -856,10 +856,10 @@ el.csv.confirmBtn.addEventListener('click', confirmCsvImport);
 // Export
 document.getElementById('exportPanelBackupBtn').addEventListener('click', () => {
     try {
-        if (el.exp.allAtosToggle.checked) {
+        if (el.manage.allAtosToggle.checked) {
             // ── Export all ATOs ───────────────────────────────────────────
-            const fromMs = parseFilterTime(el.exp.fromDate.value, el.exp.fromTime.value, false);
-            const toMs   = parseFilterTime(el.exp.toDate.value,   el.exp.toTime.value,   true);
+            const fromMs = parseFilterTime(el.manage.fromDate.value, el.manage.fromTime.value, false);
+            const toMs   = parseFilterTime(el.manage.toDate.value,   el.manage.toTime.value,   true);
             const filtered = {};
             Object.keys(reportsByAto).forEach(ato => {
                 let reps = (reportsByAto[ato]||[]).filter(r => !r.deleted);
@@ -890,8 +890,8 @@ document.getElementById('exportPanelCsvBtn').addEventListener('click', () => {
         const local = timeDisplayMode === 'local';
         // The identifier as the table shows it ("Patrol - ALPHA001").
         const idOf  = formatFullId;
-        const base  = getCsvFilename(activeAto||'ATO', localConfig.title||'SALT');
-        if (el.exp.mtiToggle.checked) {
+        const base  = exportFilename(activeAto||'ATO', localConfig.title||'SALT');
+        if (el.manage.mtiToggle.checked) {
             const mti = SaltCore.mtiCsvs(reps, { local, idOf });
             if (mti.trackedRows) triggerDownload(`${base}_tracked.csv`, mti.tracked, 'text/csv;charset=utf-8;');
             if (mti.wheeledRows) setTimeout(() => triggerDownload(`${base}_wheeled.csv`, mti.wheeled, 'text/csv;charset=utf-8;'), 400);
@@ -922,7 +922,7 @@ document.getElementById('exportArcgisCsvBtn').addEventListener('click', () => {
     try { exportForArcgis('csv'); } catch(e) { showToast('Export error: ' + e.message, true); }
 });
 
-el.menu.exportBtn.addEventListener('click', () => isExportViewActive ? closeExportView() : openExportView());
+el.menu.exportBtn.addEventListener('click', () => isManageViewActive ? closeManageView() : openManageView());
 
 el.ioPicker.select.addEventListener('change', () => {
     writeStored('salt_io_export', el.ioPicker.select.value);
@@ -956,19 +956,19 @@ _wireWorkspaceList(el.workspaces.list);
 _wireWorkspaceList(el.workspaces.sidebarList);
 // Tab strip clicks — segmented-control style switch.
 el.workspaces.tabs.forEach(btn => {
-    btn.addEventListener('click', () => switchWorkspacesTab(btn.dataset.tab));
+    btn.addEventListener('click', () => switchManageTab(btn.dataset.tab));
 });
 
 // Filter — live update as the user picks dates / types times (24-hour HH:MM)
-[el.exp.fromDate, el.exp.toDate, el.exp.fromTime, el.exp.toTime].forEach(node => {
+[el.manage.fromDate, el.manage.toDate, el.manage.fromTime, el.manage.toTime].forEach(node => {
     node.addEventListener('input',  renderExportPreview);
     node.addEventListener('change', renderExportPreview);
 });
 // Same "1430" -> "14:30" help as the report form's time field.
 const formatTimeOnBlur = (e) => { if (autoColonTime(e.target)) renderExportPreview(); };
-el.exp.fromTime.addEventListener('blur', formatTimeOnBlur);
-el.exp.toTime  .addEventListener('blur', formatTimeOnBlur);
-el.exp.clearBtn.addEventListener('click', clearExportFilter);
+el.manage.fromTime.addEventListener('blur', formatTimeOnBlur);
+el.manage.toTime  .addEventListener('blur', formatTimeOnBlur);
+el.manage.clearBtn.addEventListener('click', clearExportFilter);
 
 // Quick-range presets (Last 24h / 12h / 6h / 1h).
 // Writes both the From and To pairs from a single click, honoring the current
@@ -985,15 +985,15 @@ document.querySelectorAll('.filter-preset-btn').forEach(btn => {
         if (!hours || isNaN(hours)) return;
         const now  = new Date();
         const from = new Date(now.getTime() - hours * 3600 * 1000);
-        writeFilterPair(el.exp.fromDate, el.exp.fromTime, from);
-        writeFilterPair(el.exp.toDate,   el.exp.toTime,   now);
+        writeFilterPair(el.manage.fromDate, el.manage.fromTime, from);
+        writeFilterPair(el.manage.toDate,   el.manage.toTime,   now);
         renderExportPreview();
     });
 });
 
 // Layout / Time format
 el.menu.layoutBtn.addEventListener('click', () => { el.layout.grid.classList.toggle('horizontal-layout'); writeStored('salt_layout', el.layout.grid.classList.contains('horizontal-layout')?'horizontal':'vertical'); applyLayoutMode(); });
-el.menu.timeBtn.addEventListener('click', () => { timeDisplayMode=timeDisplayMode==='zulu'?'local':'zulu'; writeStored('salt_time_mode',timeDisplayMode); showToast(`Time format: ${timeDisplayMode}.`); updateTimeBtnText(); if(el.form.reportId.value) loadReportForEditing(el.form.reportId.value); renderLog(); if (isExportViewActive) renderExportPreview(); });
+el.menu.timeBtn.addEventListener('click', () => { timeDisplayMode=timeDisplayMode==='zulu'?'local':'zulu'; writeStored('salt_time_mode',timeDisplayMode); showToast(`Time format: ${timeDisplayMode}.`); updateTimeBtnText(); if(el.form.reportId.value) loadReportForEditing(el.form.reportId.value); renderLog(); if (isManageViewActive) renderExportPreview(); });
 el.menu.sepBtn.addEventListener('click', () => {
     atoTitleSep = atoTitleSep==='dash'?'space':'dash';
     writeStored('salt_ato_title_sep', atoTitleSep);
@@ -1010,7 +1010,7 @@ el.menu.sepBtn.addEventListener('click', () => {
 el.menu.mgrsLockBtn.addEventListener('click', () => {
     mgrsLock = !mgrsLock;
     writeStored('salt_mgrs_lock', mgrsLock ? 'on' : 'off');
-    updateMgrsLockUi();
+    updateMgrsLockUI();
     renderLocationHints();
     el.menu.panel.style.display = 'none';
     if (mgrsLock && !mgrsLockPrefix) { document.getElementById('mgrsPrefix').focus(); showToast('MGRS Lock on. Set the grid zone and square (e.g. 11S NV) beside Location.'); }
@@ -1024,7 +1024,7 @@ mgrsPrefixBox.addEventListener('input', () => {
     if (p || !mgrsPrefixBox.value.trim()) {
         mgrsLockPrefix = p || '';
         writeStored('salt_mgrs_prefix', mgrsLockPrefix);
-        updateMgrsLockUi();
+        updateMgrsLockUI();
         renderLocationHints();
     }
 });
@@ -1096,7 +1096,7 @@ document.addEventListener('keydown', e => {
     // AND any of the SALT fields has content. Doesn't clear when the form is
     // already empty (so Escape outside an active task doesn't do anything noisy).
     if (e.key==='Escape' && el.form.root.contains(e.target) && !el.form.reportId.value) {
-        const customInputs = [...document.querySelectorAll('#salt-fields [data-custom-label]')];
+        const customInputs = [...document.querySelectorAll('#saltFields [data-custom-label]')];
         const hasContent = el.form.size.value.trim() || el.form.activity.value.trim() ||
                            el.form.location.value.trim() || el.form.time.value.trim() ||
                            el.form.analysis.value.trim() || customInputs.some(i => i.value.trim());

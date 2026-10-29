@@ -422,18 +422,18 @@ test('refused changes stay over the server copy until superseded', () => {
 
 // --- Geography ---
 
-// The centre of each square, from the NGA's GeoTrans (the `mgrs` Python
+// The center of each square, from the NGA's GeoTrans (the `mgrs` Python
 // package), across both hemispheres, every precision, band edges, the
 // equator, and Norway's and Svalbard's odd zones.
 const VECTORS = require('./mgrs-vectors.json');
 
-test('MGRS grids convert to the centre of their square, within a metre', () => {
-    const metres = (a, b) => Math.hypot((a.lat - b.lat) * 111320, (a.lon - b.lon) * 111320 * Math.cos(b.lat * Math.PI / 180));
+test('MGRS grids convert to the center of their square, within a meter', () => {
+    const meters = (a, b) => Math.hypot((a.lat - b.lat) * 111320, (a.lon - b.lon) * 111320 * Math.cos(b.lat * Math.PI / 180));
     for (const v of VECTORS) {
         for (const text of [v.mgrs, v.spaced, v.spaced.toLowerCase()]) {
             const g = core.findGrids(text);
             assert.equal(g.length, 1, text);
-            assert.ok(metres(g[0], v) < 1, `${text}: ${metres(g[0], v).toFixed(2)} m off`);
+            assert.ok(meters(g[0], v) < 1, `${text}: ${meters(g[0], v).toFixed(2)} m off`);
             assert.equal(g[0].precision, 10 ** (5 - v.p), text);
         }
     }
@@ -490,7 +490,7 @@ test('a grid places a report in the NAI or OBJ it falls inside', () => {
     assert.deepEqual(a.nai, { keys: ['NAI 1'], from: 'grid' });
     assert.deepEqual(a.obj, { keys: [], from: '' });
     assert.equal(a.nearestPl.key, 'PL BLUE');
-    assert.ok(Math.abs(a.nearestPl.metres - 3000) < 30, `${a.nearestPl.metres} m`);
+    assert.ok(Math.abs(a.nearestPl.meters - 3000) < 30, `${a.nearestPl.meters} m`);
     assert.deepEqual(core.analyzeLocation('38SMB4200092000', OVERLAYS).obj, { keys: ['OBJ BRIDGE'], from: 'grid' });
 });
 
@@ -611,7 +611,7 @@ test('activity lines are tagged, with a heading when one is given', () => {
 test('a heading needs a heading word or a unit, and a whole compass point', () => {
     const cases = {
         'moving 120 trucks':                     [['Moving'], null, null],
-        'travelling with 300 pax':               [['Moving'], null, null],
+        'traveling with 300 pax':               [['Moving'], null, null],
         'heading 360':                           [['Moving'], 'N', 0],
         'heading 400':                           [['Moving'], null, null],
         'moving to new position, northbound':    [['Moving'], 'N', 0],
@@ -1062,7 +1062,7 @@ test('WMS: the service\'s version, projection and format', () => {
     assert.ok(v130.includes('CRS=EPSG:4326') && v130.includes('BBOX=35.2000000,-116.6000000,35.4000000,-116.4000000'), 'lat, lon in 1.3.0');
     const crs84 = core.wmsUrl('http://s/wms', 'a', box, 100, 100, { crs: 'CRS:84' });
     assert.ok(crs84.includes('BBOX=-116.6000000,35.2000000'), 'CRS:84 is lon, lat');
-    assert.ok(core.wmsUrl('http://s/wms', 'a', [1, 2, 3, 4], 10, 10, { crs: 'EPSG:102100' }).includes('BBOX=1.00,2.00,3.00,4.00'), 'metres');
+    assert.ok(core.wmsUrl('http://s/wms', 'a', [1, 2, 3, 4], 10, 10, { crs: 'EPSG:102100' }).includes('BBOX=1.00,2.00,3.00,4.00'), 'meters');
     const [lon, lat] = core.mercToLonLat(...core.lonLatToMerc(-116.5, 35.3));
     assert.ok(Math.abs(lon + 116.5) < 1e-9 && Math.abs(lat - 35.3) < 1e-9);
 });

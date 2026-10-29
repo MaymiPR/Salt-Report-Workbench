@@ -111,15 +111,15 @@ const fold = (items) => (items.length <= FOLD_AT + 1 ? items : [
     ...items.slice(0, FOLD_AT),
     { label: `Other (${items.length - FOLD_AT})`, value: items.slice(FOLD_AT).reduce((s, i) => s + i.value, 0) },
 ]);
-const DAY_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const dayLabel = (iso) => `${+iso.slice(8, 10)} ${DAY_NAMES[+iso.slice(5, 7) - 1]}`;
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const dayLabel = (iso) => `${+iso.slice(8, 10)} ${MONTH_NAMES[+iso.slice(5, 7) - 1]}`;
 
 const statsEls = () => ({
     panel: document.getElementById('statsPanel'),
     body:  document.getElementById('statsBody'),
-    subtitle: document.getElementById('stats-panel-subtitle'),
-    fromDate: document.getElementById('stats-from-date'), fromTime: document.getElementById('stats-from-time'),
-    toDate:   document.getElementById('stats-to-date'),   toTime:   document.getElementById('stats-to-time'),
+    subtitle: document.getElementById('statsPanelSubtitle'),
+    fromDate: document.getElementById('statsFromDate'), fromTime: document.getElementById('statsFromTime'),
+    toDate:   document.getElementById('statsToDate'),   toTime:   document.getElementById('statsToTime'),
 });
 
 // Set a window's From / To pickers to the last `hours` hours, or clear them
@@ -149,7 +149,7 @@ const statsWindow = () => {
     if (fromMs !== null) reps = reps.filter(r => r.time && new Date(r.time).getTime() >= fromMs);
     if (toMs !== null)   reps = reps.filter(r => r.time && new Date(r.time).getTime() <= toMs);
     const local = timeDisplayMode === 'local';
-    const when = ms => { const f = dateFields(new Date(ms), local); return `${+f.day} ${DAY_NAMES[+f.mo - 1]} ${f.h}${f.mi}${zoneMark(local)}`; };
+    const when = ms => { const f = dateFields(new Date(ms), local); return `${+f.day} ${MONTH_NAMES[+f.mo - 1]} ${f.h}${f.mi}${zoneMark(local)}`; };
     const phrase = fromMs === null && toMs === null ? 'all reports'
         : fromMs !== null && toMs !== null ? `${when(fromMs)} to ${when(toMs)}`
         : fromMs !== null ? `from ${when(fromMs)}` : `up to ${when(toMs)}`;
@@ -179,7 +179,7 @@ const renderStats = () => {
         { id: 'nai', title: 'Reports per NAI', kind: 'bar', items: d.nai, empty: 'No NAI typed or found by grid.' },
         { id: 'obj', title: 'Reports per OBJ', kind: 'bar', items: d.obj, empty: 'No OBJ typed or found by grid.' },
         { id: 'pl', title: 'Reports at each phase line', kind: 'bar', items: d.pl, empty: 'No phase line typed or near a grid.',
-          note: `Typed, or a grid within ${SaltCore.PL_NEAR_METRES / 1000} km of the line` },
+          note: `Typed, or a grid within ${SaltCore.PL_NEAR_METERS / 1000} km of the line` },
         { id: 'hours', title: `Reports by hour of day (${local ? 'local' : 'Zulu'})`, kind: 'column', items: d.hours, labelEvery: 3, fmtX: ident,
           tipX: h => `${h}:00–${h}:59${zoneMark(local)}`, axis: `Hour (${zoneMark(local)})` },
         { id: 'days', title: 'Reports by day', kind: 'column', items: d.days, labelEvery: Math.max(1, Math.ceil(d.days.length / 8)), fmtX: dayLabel, axis: 'Day' },
@@ -245,7 +245,7 @@ const setStatsTable = (cardEl, on) => {
 };
 
 const openStatsView = () => {
-    if (isExportViewActive) closeExportView();
+    if (isManageViewActive) closeManageView();
     closeSummaryView(true);
     hideHomeViews();
     isStatsViewActive = true;

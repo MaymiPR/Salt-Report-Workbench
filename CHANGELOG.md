@@ -13,6 +13,11 @@ All notable changes to this project are documented here. The format follows
   in the core. The page says "workspace" where two messages still said "ATO
   board", and its text uses American spelling throughout (meters, center,
   colors, canceled, gray zone).
+- **Names in the code say what things are.** The map's 26 settings are one
+  `mapState` object; names left from before Manage (`openExportView`,
+  `el.exp`, `switchWorkspacesTab`, ...) say Manage; names use American
+  spelling; every element id is camelCase; and the server's checks are named
+  by what they return. These commits are listed in `.git-blame-ignore-revs`.
 
 ### Fixed
 

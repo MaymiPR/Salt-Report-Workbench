@@ -454,7 +454,7 @@ const exportForArcgis = (kind) => {
         ...currentFormat().lines.filter(l => l.type === 'custom').map(l => l.label),
         ...reps.flatMap(r => Object.keys(r.custom || {})),
     ])];
-    const base = `${getCsvFilename(shownAto() || 'ATO', localConfig.title || 'SALT')}_arcgis`;
+    const base = `${exportFilename(shownAto() || 'ATO', localConfig.title || 'SALT')}_arcgis`;
     // Inside the zip: a name ArcGIS takes as a layer name as it is.
     const layerName = (s) => (/^[A-Za-z]/.test(s) ? s : `L_${s}`).replace(/[^A-Za-z0-9_]/g, '_');
     const zipType = 'application/zip';

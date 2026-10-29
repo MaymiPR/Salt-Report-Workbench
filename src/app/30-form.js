@@ -11,7 +11,7 @@
 // elements: the identifier isn't an input and Analysis keeps its own area.
 // In-flight custom values survive the re-render.
 const applyFormFieldOrder = () => {
-    const fields = document.getElementById('salt-fields');
+    const fields = document.getElementById('saltFields');
     if (!fields) return;
     const groupFor = {
         size:     el.form.size.closest('.input-group'),
@@ -31,7 +31,7 @@ const applyFormFieldOrder = () => {
     }
     // Analysis is format-controlled: hidden unless its line is in the format.
     const hasAnalysis = fmt.lines.some(l => l.type === 'analysis');
-    const analysisBox = document.getElementById('analysis-field');
+    const analysisBox = document.getElementById('analysisField');
     if (analysisBox) analysisBox.style.display = hasAnalysis ? '' : 'none';
     const logTable = document.getElementById('reportLogTable');
     if (logTable) logTable.classList.toggle('hide-analysis', !hasAnalysis);
@@ -76,7 +76,7 @@ const rebuildFormFields = (fields, groupFor, fmt) => {
 // Non-empty custom-field values keyed by label.
 const collectCustomValues = () => {
     const out = {};
-    document.querySelectorAll('#salt-fields [data-custom-label]').forEach(i => {
+    document.querySelectorAll('#saltFields [data-custom-label]').forEach(i => {
         const v = i.value.trim();
         if (v) out[i.dataset.customLabel] = v;
     });
@@ -93,7 +93,7 @@ const adoptFormat = (format) => {
 };
 
 // Persist a format change (every workspace): local cache + server.
-const saveWorkspaceFormat = (format) => {
+const saveFormat = (format) => {
     sharedFormat = format;
     writeStored('salt_format', JSON.stringify(format));
     applyFormFieldOrder();
@@ -119,7 +119,7 @@ const renderLocationHints = () => {
     const plan = ovs.length && text.trim() ? SaltCore.locationPlan(text, ovs) : { add: [], conflicts: [] };
     const near = plan.add.some(k => k.startsWith('PL ')) ? locationInfo(text).nearestPl : null;
     const chips = [
-        ...plan.add.map(k => `<button type="button" class="loc-hint" data-loc-add="${escapeHtml(k)}" title="Added when you log. Click to add it now.">+ ${escapeHtml(k)}${near && near.key === k ? ` <span class="loc-hint-sub">${Math.round(near.metres)} m</span>` : ''}</button>`),
+        ...plan.add.map(k => `<button type="button" class="loc-hint" data-loc-add="${escapeHtml(k)}" title="Added when you log. Click to add it now.">+ ${escapeHtml(k)}${near && near.key === k ? ` <span class="loc-hint-sub">${Math.round(near.meters)} m</span>` : ''}</button>`),
         ...plan.conflicts.map(c => `<span class="loc-hint warn" title="When you log, you pick which to keep.">${escapeHtml(c.message)}</span>`),
     ];
     box.innerHTML = chips.join('');
@@ -218,7 +218,7 @@ const loadReportForEditing = (reportId) => {
     el.form.location.value = report.location;
     renderLocationHints();
     el.form.analysis.value = report.yourAnalysis || '';
-    document.querySelectorAll('#salt-fields [data-custom-label]').forEach(i => { i.value = (report.custom || {})[i.dataset.customLabel] || ''; });
+    document.querySelectorAll('#saltFields [data-custom-label]').forEach(i => { i.value = (report.custom || {})[i.dataset.customLabel] || ''; });
     el.form.time.value = clockValue(new Date(report.time), timeDisplayMode === 'local');
     // Swap the single "Log New Report" submit for the Edit / Update pair.
     el.form.logBtn.style.display   = 'none';

@@ -196,9 +196,9 @@ class BrowserTests(unittest.TestCase):
         page = self.context.new_page()
         page.on("pageerror", lambda exc: self.errors.append(str(exc)))
         page.goto(self.editor + "/")
-        page.fill("#startup-initials", initials)
-        page.fill("#startup-ato", ato)
-        page.fill("#startup-title", title)
+        page.fill("#startupInitials", initials)
+        page.fill("#startupAto", ato)
+        page.fill("#startupTitle", title)
         page.click("#startupContinueBtn")
         page.wait_for_selector("#startupModal.show", state="hidden")
         self.assert_in_workspace(page, ato)
@@ -231,7 +231,7 @@ class BrowserTests(unittest.TestCase):
         except Exception as exc:
             # Say what the page showed instead, for a failure seen only on CI.
             state = page.evaluate(
-                """() => ({ toast: document.querySelector('#toast-notification').textContent,
+                """() => ({ toast: document.querySelector('#toastNotification').textContent,
                            rows: [...document.querySelectorAll('#reportLogBody .col-size')].map(e => e.textContent),
                            form: [size.value, activity.value, location.value] })"""
             )
@@ -278,9 +278,9 @@ class BrowserTests(unittest.TestCase):
         other = context.new_page()
         other.on("pageerror", lambda exc: self.errors.append(str(exc)))
         other.goto(self.editor + "/")
-        other.fill("#startup-initials", initials)
-        other.fill("#startup-ato", ato)
-        other.fill("#startup-title", "Patrol")
+        other.fill("#startupInitials", initials)
+        other.fill("#startupAto", ato)
+        other.fill("#startupTitle", "Patrol")
         other.click("#startupContinueBtn")
         other.wait_for_selector("#startupModal.show", state="hidden")
         self.assert_in_workspace(other, ato)
@@ -306,8 +306,8 @@ class BrowserTests(unittest.TestCase):
         self.log(editor, "2x BTR")
         self.assertEqual(self.sizes(editor), ["2x BTR"])
         # The toast says it was copied, and the status dot is green.
-        self.assertIn("logged", editor.locator("#toast-notification").text_content())
-        self.assertIn("online", editor.locator("#status-dot").get_attribute("class"))
+        self.assertIn("logged", editor.locator("#toastNotification").text_content())
+        self.assertIn("online", editor.locator("#statusDot").get_attribute("class"))
         # SSE told the viewer; it renders without a reload, and has no form.
         viewer.wait_for_selector("#reportLogBody .col-size:has-text('2x BTR')")
         self.assertFalse(viewer.locator("#logButton").is_visible())
@@ -321,7 +321,7 @@ class BrowserTests(unittest.TestCase):
         # The first press asks, on the button itself; no pop-up.
         page.click("#deleteSelectedBtn")
         self.assertEqual(page.text_content("#deleteSelectedBtn"), "Delete 1 for everyone?")
-        self.assertFalse(page.is_visible("#confirmation-toast"))
+        self.assertFalse(page.is_visible("#confirmationToast"))
         self.assertEqual(page.evaluate("document.activeElement.id"), "deleteSelectedBtn")
         self.assertEqual(page.evaluate("askSaid.textContent"), "Delete 1 for everyone?")
         self.assertEqual(len(self.sizes(page)), 2, "not yet")
@@ -343,7 +343,7 @@ class BrowserTests(unittest.TestCase):
         self.wait_for_server(
             page, f"s => s.workspaces['{self.ato}'].some(r => r.size === '2x BTR' && r.deleted)"
         )
-        page.click("#toast-notification .toast-undo")
+        page.click("#toastNotification .toast-undo")
         page.wait_for_selector("#reportLogBody .col-size:has-text('2x BTR')")
         # And the server agrees: the report is live again.
         self.wait_for_server(page, f"s => s.workspaces['{self.ato}'].every(r => !r.deleted)")
@@ -369,7 +369,7 @@ class BrowserTests(unittest.TestCase):
         page.click(".bda-entry .bda-del")
         page.wait_for_selector(".bda-entry .map-base-ask:has-text('Delete for everyone?')")
         self.next_frames(page)
-        self.assertFalse(page.is_visible("#confirmation-toast"))
+        self.assertFalse(page.is_visible("#confirmationToast"))
         self.assertEqual(page.locator(".bda-entry .bda-del").bounding_box(), box)
         self.assertTrue(page.evaluate("document.activeElement.classList.contains('bda-del')"))
         # Another button lets it go; asked again, the second press deletes.
@@ -377,11 +377,11 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.locator(".bda-entry .map-base-ask").count(), 0)
         page.click(".bda-entry .bda-del")
         page.click(".bda-entry .bda-del")
-        page.wait_for_selector("#toast-notification:has-text('BDA assessment deleted')")
+        page.wait_for_selector("#toastNotification:has-text('BDA assessment deleted')")
         self.assertEqual(page.locator(".bda-entry").count(), 0)
         self.wait_for_server(page, f"s => !(s.workspaces['{self.ato}'][0].bda || []).length")
         # Undo puts it back, for everyone.
-        page.click("#toast-notification .toast-undo")
+        page.click("#toastNotification .toast-undo")
         page.wait_for_selector(".bda-entry")
         self.wait_for_server(page, assessed)
 
@@ -402,13 +402,13 @@ class BrowserTests(unittest.TestCase):
         other.wait_for_selector(f"{row} .map-base-ask:has-text('Unload for everyone?')")
         self.assertEqual(other.locator(unload).bounding_box(), box, "nothing moved")
         self.assertEqual(other.evaluate("document.activeElement.dataset.unloadAto"), self.ato)
-        self.assertFalse(other.is_visible("#confirmation-toast"))
+        self.assertFalse(other.is_visible("#confirmationToast"))
         other.click(unload)
-        other.wait_for_selector("#toast-notification:has-text('unloaded.')")
+        other.wait_for_selector("#toastNotification:has-text('unloaded.')")
         self.wait_for_server(other, f"s => !s.workspaces['{self.ato}']")
         self.assertEqual(other.evaluate("activeAto"), "")
-        other.click("#toast-notification .toast-undo")
-        other.wait_for_selector("#toast-notification:has-text('is back')")
+        other.click("#toastNotification .toast-undo")
+        other.wait_for_selector("#toastNotification:has-text('is back')")
         # Back on the server as it was: each report keeps its author.
         self.wait_for_server(
             other,
@@ -431,10 +431,10 @@ class BrowserTests(unittest.TestCase):
         page.fill("#reportTitlePrefix", "Other")
         page.click("#setAtoBtn")
         page.wait_for_selector(
-            "#toast-notification:has-text('Not saved: Validation failed: config.title is too long.')"
+            "#toastNotification:has-text('Not saved: Validation failed: config.title is too long.')"
         )
         # An error is announced at once, on a red white text can be read on.
-        toast = page.locator("#toast-notification")
+        toast = page.locator("#toastNotification")
         self.assertEqual(toast.get_attribute("role"), "alert")
         self.assertEqual(
             toast.evaluate("t => getComputedStyle(t).backgroundColor"), "rgb(192, 38, 28)"
@@ -447,7 +447,7 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.text_content("#clearAllBtn"), f"Unload {self.ato} for everyone?")
         self.assertTrue(page.is_visible("#dataMgmtMenu"))
         page.click("#clearAllBtn")
-        page.wait_for_selector("#toast-notification:has-text('Not unloaded: Unload refused.')")
+        page.wait_for_selector("#toastNotification:has-text('Not unloaded: Unload refused.')")
         self.assertEqual(page.text_content("#clearAllBtn"), "Clear Workspace")
         self.assertEqual(self.sizes(page), ["2x BTR"])
         self.assertTrue(
@@ -462,21 +462,21 @@ class BrowserTests(unittest.TestCase):
     def test_toasts_are_announced_and_undo_waits_while_pointed_at(self):
         page = self.open_editor()
         self.log(page, "2x BTR")
-        toast = page.locator("#toast-notification")
+        toast = page.locator("#toastNotification")
         self.assertEqual(
             (toast.get_attribute("role"), toast.get_attribute("aria-live")), ("status", "polite")
         )
         page.check("#reportLogBody .row-selector")
         page.click("#deleteSelectedBtn")
         page.click("#deleteSelectedBtn")
-        page.wait_for_selector("#toast-notification .toast-undo")
-        page.hover("#toast-notification")
+        page.wait_for_selector("#toastNotification .toast-undo")
+        page.hover("#toastNotification")
         self.assertTrue(page.evaluate("toastHeld"), "the clock stops under the pointer")
         page.wait_for_timeout(300)
         self.assertIn("show", toast.get_attribute("class"))
         page.mouse.move(5, 5)
         self.assertFalse(page.evaluate("toastHeld"), "and runs again when it leaves")
-        page.focus("#toast-notification .toast-undo")
+        page.focus("#toastNotification .toast-undo")
         self.assertTrue(page.evaluate("toastHeld"), "and stops while the Undo button has focus")
 
     def test_sorting_by_size_is_numeric(self):
@@ -525,7 +525,7 @@ class BrowserTests(unittest.TestCase):
         # The Identifier is a button: Enter loads the report into the form.
         page.focus("#reportLogBody .id-edit-btn")
         page.keyboard.press("Enter")
-        self.assertIn("Updating", page.text_content("#form-title"))
+        self.assertIn("Updating", page.text_content("#formTitle"))
         page.fill("#size", "3x BTR")
         page.click("#updateButton")
         page.wait_for_selector("#reportLogBody .col-size:has-text('3x BTR')")
@@ -543,7 +543,7 @@ class BrowserTests(unittest.TestCase):
                     "#yourAnalysis", "#atoHistorySelect"):  # fmt: skip
             self.assertTrue(page.get_attribute(box, "aria-label"), box)
         self.assertEqual(
-            page.get_attribute("#color-swatches .color-swatch.selected", "aria-pressed"), "true"
+            page.get_attribute("#colorSwatches .color-swatch.selected", "aria-pressed"), "true"
         )
 
     def test_escape_and_tab_in_dialogs_and_the_settings_menu(self):
@@ -557,7 +557,7 @@ class BrowserTests(unittest.TestCase):
         # The confirmation (Restore's) takes focus on Cancel, keeps Tab inside,
         # and Escape cancels it, giving focus back.
         page.click("#reportLogBody .restore-btn")
-        page.wait_for_selector("#confirmation-toast.show")
+        page.wait_for_selector("#confirmationToast.show")
         self.assertEqual(page.evaluate("document.activeElement.id"), "cancelActionBtn")
         page.keyboard.press("Tab")
         page.keyboard.press("Tab")
@@ -565,7 +565,7 @@ class BrowserTests(unittest.TestCase):
             page.evaluate("el.toast.confirm.contains(document.activeElement)"), "Tab stays inside"
         )
         page.keyboard.press("Escape")
-        page.wait_for_selector("#confirmation-toast.show", state="hidden")
+        page.wait_for_selector("#confirmationToast.show", state="hidden")
         self.assertEqual(page.evaluate("document.activeElement.className"), "restore-btn")
         self.assertEqual(self.sizes(page), ["3x BTR"])
         # The Settings menu: open says so, arrows move, Escape closes it.
@@ -747,8 +747,8 @@ class BrowserTests(unittest.TestCase):
     def test_an_unexpected_error_is_said(self):
         page = self.open_editor()
         page.evaluate("setTimeout(() => { throw new Error('boom'); })")
-        page.wait_for_selector("#toast-notification.toast-error:has-text('Something went wrong: ')")
-        self.assertIn("boom", page.text_content("#toast-notification"))
+        page.wait_for_selector("#toastNotification.toast-error:has-text('Something went wrong: ')")
+        self.assertIn("boom", page.text_content("#toastNotification"))
         self.errors.clear()  # thrown on purpose
 
     def test_controls_that_show_on_say_so_to_screen_readers(self):
@@ -762,7 +762,7 @@ class BrowserTests(unittest.TestCase):
         page = fresh.new_page()
         page.goto(self.editor + "/")
         page.wait_for_selector("#startupModal.show")
-        chips = page.locator("#startup-preset-atos [data-ato]")  # the first five
+        chips = page.locator("#startupPresetAtos [data-ato]")  # the first five
         chips.first.click()
         self.assertEqual(chips.first.evaluate(pressed), "true")
         page = first
@@ -808,7 +808,7 @@ class BrowserTests(unittest.TestCase):
                 el.startup.ato.value = 'SHOWN'; el.startup.ato.focus(); }"""
         )
         page.wait_for_timeout(150)
-        self.assertEqual(page.evaluate("document.activeElement.id"), "startup-ato")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "startupAto")
 
     def test_typing_survives_a_sync(self):
         # Regression: every sync re-laid the form out, which took the cursor
@@ -851,7 +851,7 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.evaluate("activeAto"), new)
         self.assertEqual(self.sizes(page), [])
         held[0].continue_()
-        page.wait_for_selector("#toast-notification:has-text('Configuration synced')")
+        page.wait_for_selector("#toastNotification:has-text('Configuration synced')")
         self.log(page, "2x BMP")
         self.assertEqual(self.sizes(page), ["2x BMP"])
         self.wait_for_server(
@@ -891,7 +891,7 @@ class BrowserTests(unittest.TestCase):
         page.click("#setAtoBtn")  # Change
         page.fill("#atoDesignator", new)
         page.click("#setAtoBtn")  # Set
-        page.wait_for_selector("#toast-notification:has-text('Configuration synced')")
+        page.wait_for_selector("#toastNotification:has-text('Configuration synced')")
         # The old answer arrives only now.
         self.assertEqual(
             page.evaluate("async () => { releasePull(); await heldPull; return activeAto; }"), new
@@ -916,7 +916,7 @@ class BrowserTests(unittest.TestCase):
         page.click("#setAtoBtn")  # Change
         page.fill("#atoDesignator", new)
         page.click("#setAtoBtn")  # Set
-        page.wait_for_selector("#toast-notification:has-text('Configuration synced')")
+        page.wait_for_selector("#toastNotification:has-text('Configuration synced')")
         self.log(page, "2x BMP")
         # The other editor stays where they were, with their reports.
         other.wait_for_function(f"Object.keys(reportsByAto).includes('{new}')")
@@ -927,7 +927,7 @@ class BrowserTests(unittest.TestCase):
         viewer.wait_for_function(f"activeAto === '{new}'")
         # And the chip says who is where (every page here is one machine).
         page.wait_for_function(
-            f"document.querySelector('#connected-users').title.endsWith(' in {new}')"
+            f"document.querySelector('#connectedUsers').title.endsWith(' in {new}')"
         )
         # A sync leaves each where they are.
         other.evaluate("() => syncWithServer()")
@@ -942,7 +942,7 @@ class BrowserTests(unittest.TestCase):
         other.click("#dataMgmtBtn")
         other.click("#clearAllBtn")
         other.click("#clearAllBtn")
-        page.wait_for_selector("#toast-notification:has-text('was unloaded by another operator')")
+        page.wait_for_selector("#toastNotification:has-text('was unloaded by another operator')")
         self.assertEqual(page.evaluate("activeAto"), "")
         self.assertEqual(self.sizes(page), [])
         self.assertFalse(page.evaluate("el.config.ato.readOnly"), "the fields are open to set one")
@@ -950,7 +950,7 @@ class BrowserTests(unittest.TestCase):
         page.fill("#atoDesignator", self.ato)
         page.fill("#reportTitlePrefix", "Patrol")
         page.click("#setAtoBtn")
-        page.wait_for_selector("#toast-notification:has-text('Configuration synced')")
+        page.wait_for_selector("#toastNotification:has-text('Configuration synced')")
         self.wait_for_server(page, f"s => !s.unloaded.includes('{self.ato}')")
         self.log(page, "2x BMP")
         page.evaluate("() => syncWithServer()")
@@ -1009,7 +1009,7 @@ class BrowserTests(unittest.TestCase):
         )
         self.assertEqual(viewer.locator("#reportLogBody .renumber-btn").count(), 0, "editors only")
         page.click("#reportLogBody tr:has(.col-size:has-text('2x BMP')) .renumber-btn")
-        page.wait_for_selector("#toast-notification:has-text('is now Patrol')")
+        page.wait_for_selector("#toastNotification:has-text('is now Patrol')")
         self.wait_for_server(
             page,
             f"s => s.workspaces['{self.ato}'].map(r => r.displayId).sort().join() === "
@@ -1036,7 +1036,7 @@ class BrowserTests(unittest.TestCase):
         page.fill("#activity", "Moving S")
         page.click("#updateButton")
         page.wait_for_selector(
-            "#choice-toast.show:has-text('CD changed this report since you opened it')"
+            "#choiceToast.show:has-text('CD changed this report since you opened it')"
         )
         page.click("#choiceButtons button:text-is('Keep theirs')")
         self.assertEqual(
@@ -1057,7 +1057,7 @@ class BrowserTests(unittest.TestCase):
         page.fill("#size", "4x BTR")
         page.click("#editButton")
         page.wait_for_selector(
-            "#choice-toast.show:has-text('changed this report since you opened it')"
+            "#choiceToast.show:has-text('changed this report since you opened it')"
         )
         page.click("#choiceButtons button:text-is('Overwrite theirs')")
         self.wait_for_server(
@@ -1111,7 +1111,7 @@ class BrowserTests(unittest.TestCase):
         )
         page.select_option("[data-review-idx='2']", "OBJ")
         page.click("#overlaysReviewAddBtn")
-        page.wait_for_selector("#toast-notification:has-text('Imported 4 overlays')")
+        page.wait_for_selector("#toastNotification:has-text('Imported 4 overlays')")
         page.click("#exportViewToggleBtn")
 
     def test_overlays_place_reports_and_reach_viewers(self):
@@ -1211,7 +1211,7 @@ class BrowserTests(unittest.TestCase):
         self.assertAlmostEqual(lat, 33.2759, places=3)
         self.assertAlmostEqual(lon, 44.4096, places=3)
         self.assertIn(
-            "1 without a readable grid", page.locator("#toast-notification").text_content()
+            "1 without a readable grid", page.locator("#toastNotification").text_content()
         )
         # Esri JSON: the same points, every field's type written out.
         with page.expect_download() as dl:
@@ -1252,9 +1252,9 @@ class BrowserTests(unittest.TestCase):
         other = second.new_page()
         other.on("pageerror", lambda exc: self.errors.append(str(exc)))
         other.goto(self.editor + "/")
-        other.fill("#startup-initials", "CD")
-        other.fill("#startup-ato", "SHAREDTWO")
-        other.fill("#startup-title", "Patrol")
+        other.fill("#startupInitials", "CD")
+        other.fill("#startupAto", "SHAREDTWO")
+        other.fill("#startupTitle", "Patrol")
         other.click("#startupContinueBtn")
         other.wait_for_selector("#startupModal.show", state="hidden")
         self.log(other, "1x BTR", location="38SMB4500082000")
@@ -1278,7 +1278,7 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-unload-group='PL']")
         page.wait_for_selector(".overlay-group[data-overlay-group='PL']", state="detached")
         self.assertEqual(page.locator(".overlay-group[open]").count(), 0)
-        page.wait_for_selector("#toast-notification:has-text('1 PL overlay unloaded.')")
+        page.wait_for_selector("#toastNotification:has-text('1 PL overlay unloaded.')")
         page.click("[data-overlay-fold='open']")
         self.assertEqual(page.locator(".overlay-group:not([open])").count(), 0, "all open")
         page.click("[data-overlay-fold='close']")
@@ -1314,9 +1314,9 @@ class BrowserTests(unittest.TestCase):
         self.wait_for_server(page, "s => !s.overlays.some(o => o.type === 'NAI' && o.name === '1')")
         self.assertFalse(page.evaluate(here))
         # Undo puts it back, for everyone.
-        page.wait_for_selector("#toast-notification:has-text('NAI 1 removed')")
-        page.click("#toast-notification .toast-undo")
-        page.wait_for_selector("#toast-notification:has-text('NAI 1 put back')")
+        page.wait_for_selector("#toastNotification:has-text('NAI 1 removed')")
+        page.click("#toastNotification .toast-undo")
+        page.wait_for_selector("#toastNotification:has-text('NAI 1 put back')")
         self.wait_for_server(page, "s => s.overlays.some(o => o.type === 'NAI' && o.name === '1')")
 
     def test_unload_all_overlays_asks_on_the_button_and_undo_puts_them_back(self):
@@ -1328,17 +1328,17 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.text_content("#overlaysClearBtn"), "Unload all for everyone?")
         self.assertEqual(page.evaluate("document.activeElement.id"), "overlaysClearBtn")
         self.assertEqual(page.evaluate("askSaid.textContent"), "Unload all for everyone?")
-        self.assertFalse(page.is_visible("#confirmation-toast"))
+        self.assertFalse(page.is_visible("#confirmationToast"))
         self.assertEqual(page.evaluate("currentOverlays().length"), 4, "not yet")
         page.evaluate("window.kept = currentOverlays().map(o => ({ ...o }))")
         page.click("#overlaysClearBtn")
-        page.wait_for_selector("#toast-notification:has-text('Every overlay unloaded')")
+        page.wait_for_selector("#toastNotification:has-text('Every overlay unloaded')")
         self.wait_for_server(page, "s => s.overlays.length === 0")
         # One imported meanwhile stays, beside the four put back.
         page.evaluate("saveOverlays([{ ...kept[0], name: '9', label: '' }])")
         self.wait_for_server(page, "s => s.overlays.length === 1")
-        page.click("#toast-notification .toast-undo")
-        page.wait_for_selector("#toast-notification:has-text('4 overlays put back')")
+        page.click("#toastNotification .toast-undo")
+        page.wait_for_selector("#toastNotification:has-text('4 overlays put back')")
         self.wait_for_server(page, "s => s.overlays.length === 5")
         page.evaluate("saveOverlays(currentOverlays().filter(o => o.name !== '9'))")
         self.wait_for_server(page, "s => s.overlays.length === 4")
@@ -1357,10 +1357,10 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.input_value("#narrUnitName"), "A-1 typed")
         self.assertTrue(page.evaluate("document.activeElement.hasAttribute('data-narr-remove')"))
         page.click("[data-narr-remove]")
-        page.wait_for_selector("#toast-notification:has-text('A-1 removed')")
+        page.wait_for_selector("#toastNotification:has-text('A-1 removed')")
         self.wait_for_server(page, "s => s.narrative.units.map(u => u.name).join() === 'B-2'")
-        page.click("#toast-notification .toast-undo")
-        page.wait_for_selector("#toast-notification:has-text('A-1 put back')")
+        page.click("#toastNotification .toast-undo")
+        page.wait_for_selector("#toastNotification:has-text('A-1 put back')")
         self.wait_for_server(page, "s => s.narrative.units.map(u => u.name).join() === 'A-1,B-2'")
         page.evaluate("saveNarrative({ enemy: '', units: [], equipment: [], off: [], custom: [] })")
 
@@ -1372,7 +1372,7 @@ class BrowserTests(unittest.TestCase):
                 renderStartupPresets();
             }"""
         )
-        chip = "#startup-preset-profiles [data-initials='ZZ']"
+        chip = "#startupPresetProfiles [data-initials='ZZ']"
         self.assertNotIn("url(", page.get_attribute(f"{chip} .chip-dot", "style"))
         self.assertEqual(page.get_attribute(chip, "data-color"), "#0a84ff")
 
@@ -1388,10 +1388,10 @@ class BrowserTests(unittest.TestCase):
         page.click("#statsViewToggleBtn")
         page.click("[data-stats-scope='ato']")
         self.assertEqual(page.locator(".stats-card[data-chart='ato']").count(), 0)
-        self.assertIn("SCOPEB", page.text_content("#stats-panel-subtitle"))
+        self.assertIn("SCOPEB", page.text_content("#statsPanelSubtitle"))
         page.click("[data-stats-scope='all']")
         page.wait_for_selector(".stats-card[data-chart='ato']")
-        self.assertIn("All ATOs", page.text_content("#stats-panel-subtitle"))
+        self.assertIn("All ATOs", page.text_content("#statsPanelSubtitle"))
         page.click(".stats-card[data-chart='ato'] [data-stats-act='table']")
         rows = page.locator(".stats-card[data-chart='ato'] .stats-table tbody tr").all_inner_texts()
         counts = dict(r.split("	") for r in rows)
@@ -1412,17 +1412,15 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual((shown("#exportAllAtosToggle"), shown("#exportMtiToggle")), (False, True))
         page.select_option("#ioFormatSelect", "arcgis-esri")
         self.assertFalse(shown("#exportMtiToggle"))
-        self.assertTrue(shown("#export-from-date"))
+        self.assertTrue(shown("#exportFromDate"))
         # Clear sits in the card's header, always there, and empties the range.
         self.assertEqual(page.locator(".io-time .io-card-head #exportClearFilterBtn").count(), 1)
         self.assertTrue(shown("#exportClearFilterBtn"))
         page.click("[data-preset-hours='24']")
-        self.assertNotEqual(page.input_value("#export-from-date"), "")
-        self.assertNotEqual(
-            page.input_value("#export-from-date"), page.input_value("#export-to-date")
-        )
+        self.assertNotEqual(page.input_value("#exportFromDate"), "")
+        self.assertNotEqual(page.input_value("#exportFromDate"), page.input_value("#exportToDate"))
         page.click("#exportClearFilterBtn")
-        self.assertEqual(page.input_value("#export-from-date"), "")
+        self.assertEqual(page.input_value("#exportFromDate"), "")
         self.assertTrue(shown("#exportClearFilterBtn"))
         # The list holds exports only; clicking the drop area chooses files to import.
         options = page.locator("#ioFormatSelect option").evaluate_all("os => os.map(o => o.value)")
@@ -1432,7 +1430,7 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(fc.value.is_multiple())
         # The choice is remembered; viewers only export.
         page.reload()
-        page.wait_for_function("() => isExportViewActive")  # the view on screen is restored too
+        page.wait_for_function("() => isManageViewActive")  # the view on screen is restored too
         page.click(".ws-tab[data-tab='export']")
         self.assertEqual(page.input_value("#ioFormatSelect"), "arcgis-esri")
         viewer = self.open_viewer()
@@ -1458,11 +1456,11 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("io-dropping", page.get_attribute(tab, "class"))
         page.dispatch_event(tab, "drop", {"dataTransfer": dt})
         # The file is read first, then the prompt asks.
-        page.wait_for_selector("#confirmation-message:has-text('backup file')")
+        page.wait_for_selector("#confirmationMessage:has-text('backup file')")
         page.click("#confirmActionBtn")
-        page.wait_for_selector("#toast-notification:has-text('Import successful')")
+        page.wait_for_selector("#toastNotification:has-text('Import successful')")
         # Chosen from the drop area: a CSV goes to column matching...
-        if not page.evaluate("isExportViewActive"):
+        if not page.evaluate("isManageViewActive"):
             page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='export']")
         csv = self.tmp / "other tool.csv"
@@ -1472,7 +1470,7 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("other tool.csv", page.text_content("#csvImportSubtitle"))
         page.click("#closeCsvImportBtn")
         # ...and overlay files to the Overlays tab, to review.
-        if not page.evaluate("isExportViewActive"):
+        if not page.evaluate("isManageViewActive"):
             page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='export']")
         page.set_input_files("#ioDropInput", str(self.overlay_kmz()))
@@ -1480,7 +1478,7 @@ class BrowserTests(unittest.TestCase):
         # A CSV and an overlay together can't go in as one import.
         page.click(".ws-tab[data-tab='export']")
         page.set_input_files("#ioDropInput", [str(csv), str(self.overlay_kmz())])
-        page.wait_for_selector("#toast-notification:has-text('Drop one backup or CSV at a time')")
+        page.wait_for_selector("#toastNotification:has-text('Drop one backup or CSV at a time')")
 
     def test_backup_import_merges_report_by_report(self):
         # Regression: importing replaced each workspace in the file whole, so
@@ -1504,10 +1502,10 @@ class BrowserTests(unittest.TestCase):
         page.click(".ws-tab[data-tab='export']")
         page.set_input_files("#ioDropInput", str(backup))
         page.wait_for_selector(
-            "#confirmation-message:has-text('A report in both keeps whichever version is newer')"
+            "#confirmationMessage:has-text('A report in both keeps whichever version is newer')"
         )
         page.click("#confirmActionBtn")
-        page.wait_for_selector("#toast-notification:has-text('Import successful')")
+        page.wait_for_selector("#toastNotification:has-text('Import successful')")
         self.assertEqual(
             page.evaluate(
                 f"reportsByAto['{self.ato}'].filter(r => !r.deleted).map(r => r.size).sort()"
@@ -1551,12 +1549,12 @@ class BrowserTests(unittest.TestCase):
 
         page.route("**/api/save_reports", destination_down)
         page.click("#sendToAtoBtn")
-        page.wait_for_selector("#toast-notification:has-text('Not moved')")
+        page.wait_for_selector("#toastNotification:has-text('Not moved')")
         self.assertTrue(page.is_visible(sent), "still in IMPORT")
         self.assertTrue(page.is_checked(f"{sent} .row-selector"), "and still checked")
         page.unroute("**/api/save_reports")
         page.click("#sendToAtoBtn")
-        page.wait_for_selector(f"#toast-notification:has-text('Moved 1 report(s) to {dest}')")
+        page.wait_for_selector(f"#toastNotification:has-text('Moved 1 report(s) to {dest}')")
         page.wait_for_selector(sent, state="detached")
         self.wait_for_server(
             page,
@@ -1648,7 +1646,7 @@ class BrowserTests(unittest.TestCase):
         page.set_input_files("#overlaysFileInput", loose)
         page.wait_for_selector("#overlaysReviewAddBtn")
         page.click("#overlaysReviewAddBtn")
-        page.wait_for_selector("#toast-notification:has-text('Imported 1 overlay')")
+        page.wait_for_selector("#toastNotification:has-text('Imported 1 overlay')")
         iron = page.evaluate("() => sharedOverlays.find(o => o.name === 'IRON')")
         self.assertEqual(
             (iron["type"], iron["geometry"]["type"], len(iron["geometry"]["coordinates"])),
@@ -1657,7 +1655,7 @@ class BrowserTests(unittest.TestCase):
         # A .dbf without its .shp is named, not silently dropped.
         page.set_input_files("#overlaysFileInput", [loose[1]])
         page.wait_for_selector(
-            "#toast-notification:has-text(\"its .shp file wasn't picked with it\")"
+            "#toastNotification:has-text(\"its .shp file wasn't picked with it\")"
         )
         page.evaluate("list => saveOverlays(list)", before)
 
@@ -1683,7 +1681,7 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#reportLogBody .col-location:has-text('38SMB4500084000')")
         self.log(page, "1x truck", activity="parked", location="38SMB5500082000")
         self.open_map(page)
-        # The graphics in their colours: NAI green, OBJ blue, PL black on white.
+        # The graphics in their colors: NAI green, OBJ blue, PL black on white.
         strokes = page.locator("#mapSvg .map-overlays path").evaluate_all(
             "ps => ps.map(p => p.getAttribute('stroke'))"
         )
@@ -1701,13 +1699,13 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#mapTip:not([hidden])")
         self.assertIn("2 positions", page.text_content("#mapTip"))
         # Zoom in, then Fit: the view can't go out past the graphics.
-        before = page.evaluate("mapView.mpp")
+        before = page.evaluate("mapState.view.mpp")
         page.click("[data-map-zoom='in']")
-        page.wait_for_function(f"() => mapView.mpp < {before}")
+        page.wait_for_function(f"() => mapState.view.mpp < {before}")
         page.click("[data-map-zoom='out']")
         page.click("[data-map-zoom='out']")
-        page.wait_for_function(f"() => Math.abs(mapView.mpp - {before}) < 1e-6")
-        # The heat drawn on the map has colour in it.
+        page.wait_for_function(f"() => Math.abs(mapState.view.mpp - {before}) < 1e-6")
+        # The heat drawn on the map has color in it.
         self.assertGreater(
             page.evaluate(
                 """async () => {
@@ -1780,7 +1778,7 @@ class BrowserTests(unittest.TestCase):
         self.open_basemaps(page)
         page.fill("#mapBaseInput", url)
         page.click("#mapBaseAddBtn")
-        page.wait_for_selector(f"#toast-notification:has-text('{name} added')")
+        page.wait_for_selector(f"#toastNotification:has-text('{name} added')")
         self.assertEqual(page.input_value("#mapBaseInput"), "", "the box is emptied")
         self.back_to_map(page)
 
@@ -1791,12 +1789,14 @@ class BrowserTests(unittest.TestCase):
         page.click("#mapBaseAddBtn")
         page.wait_for_selector(".map-layer-list, .map-find-error")
         self.assertEqual(
-            page.locator(".map-find-error").count(), 0, page.evaluate("JSON.stringify(wmsFind)")
+            page.locator(".map-find-error").count(),
+            0,
+            page.evaluate("JSON.stringify(mapState.wmsFind)"),
         )
         for t in titles:
             page.check(f".map-layer-row:has(.map-layer-title:text-is('{t}')) input")
         page.click("#mapWmsAdd")
-        page.wait_for_selector("#toast-notification:has-text('added for everyone')")
+        page.wait_for_selector("#toastNotification:has-text('added for everyone')")
         self.back_to_map(page)
 
     @staticmethod
@@ -1917,7 +1917,7 @@ class BrowserTests(unittest.TestCase):
         )
         page.fill("#mapTileUrl", "https://basemap.test/topo/{z}/{x}/{y}.png")
         page.click("#mapTileSave")
-        page.wait_for_selector("#toast-notification:has-text('basemap.test saved')")
+        page.wait_for_selector("#toastNotification:has-text('basemap.test saved')")
         self.wait_for_server(page, "s => s.basemaps[1].url.includes('/topo/')")
         self.back_to_map(page)
         self.assertEqual(
@@ -1952,7 +1952,7 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.locator(".map-base-ask").count(), 0)
         page.click("[data-base-remove='0']")
         page.click("[data-base-remove='0']")
-        page.wait_for_selector("#toast-notification:has-text('Imagery removed')")
+        page.wait_for_selector("#toastNotification:has-text('Imagery removed')")
         self.assertEqual(page.locator(".map-base-detail").count(), 0)
         self.assertEqual(page.locator(".map-base-row").count(), 1)
         self.wait_for_server(page, "s => s.basemaps.map(b => b.name).join() === 'basemap.test'")
@@ -1962,8 +1962,8 @@ class BrowserTests(unittest.TestCase):
             ["No basemap", "basemap.test"],
         )
         # Undo puts it back where it was, for everyone.
-        page.click("#toast-notification .toast-undo")
-        page.wait_for_selector("#toast-notification:has-text('Imagery put back')")
+        page.click("#toastNotification .toast-undo")
+        page.wait_for_selector("#toastNotification:has-text('Imagery put back')")
         self.wait_for_server(
             page, "s => s.basemaps.map(b => b.name).join() === 'Imagery,basemap.test'"
         )
@@ -1980,7 +1980,7 @@ class BrowserTests(unittest.TestCase):
         for text in ("https://[bad/{z}/{x}/{y}.png", "https://[bad/wms"):
             page.fill("#mapBaseInput", text)
             page.click("#mapBaseAddBtn")
-            page.wait_for_selector("#toast-notification:has-text(\"That address isn't valid.\")")
+            page.wait_for_selector("#toastNotification:has-text(\"That address isn't valid.\")")
         page.wait_for_timeout(300)
         self.assertEqual(page.locator(".map-find-head, .map-find-error, .map-find-msg").count(), 0)
 
@@ -2102,7 +2102,7 @@ class BrowserTests(unittest.TestCase):
         page.check(".map-layer-row:has-text('Terrain') input")
         self.assertEqual(page.text_content("#mapWmsAdd"), "Add 2 Layers as One")
         page.click("#mapWmsAdd")
-        page.wait_for_selector("#toast-notification:has-text('Range Maps added')")
+        page.wait_for_selector("#toastNotification:has-text('Range Maps added')")
         self.back_to_map(page)
         self.wait_for_server(page, "s => s.basemaps.some(b => b.name === 'Range Maps')")
         entry = page.evaluate(
@@ -2171,7 +2171,7 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.text_content("#mapWmsAdd"), "Tick Layers to Keep")
         page.check(".map-layer-row:has-text('Roads') input")
         page.click("#mapWmsAdd")
-        page.wait_for_selector("#toast-notification:has-text('Range Maps saved')")
+        page.wait_for_selector("#toastNotification:has-text('Range Maps saved')")
         self.wait_for_server(
             page, "s => s.basemaps.length === 1 && s.basemaps[0].layers === 'roads'"
         )
@@ -2198,7 +2198,7 @@ class BrowserTests(unittest.TestCase):
 
         self.assertEqual(sorted(rows()), ["1x truck", "2x BMP"])
         # A dot opens the report's card and picks its row.
-        i = page.evaluate("mapItems.findIndex(x => x.t.report.size === '2x BMP')")
+        i = page.evaluate("mapState.items.findIndex(x => x.t.report.size === '2x BMP')")
         page.click(f"#mapSvg [data-map-item='{i}'] .map-hit")
         page.wait_for_selector("#mapCard:not([hidden])")
         self.assertIn("2x BMP", page.text_content("#mapCard"))
@@ -2208,15 +2208,15 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-card-act='table']")
         page.wait_for_selector("#mapTableBody tr.flash")
         page.click("[data-card-act='edit']")
-        self.assertIn("Updating", page.text_content("#form-title"))
+        self.assertIn("Updating", page.text_content("#formTitle"))
         page.click("#cancelButton")
         page.click("[data-card-act='close']")
         self.assertTrue(page.locator("#mapCard").is_hidden())
         # A row puts the map on its report, zooming in from all the way out.
         page.click("[data-map-zoom='fit']")
-        page.wait_for_function("() => mapView.mpp >= mapFitMpp * 0.99")
+        page.wait_for_function("() => mapState.view.mpp >= mapState.fitMpp * 0.99")
         page.click("#mapTableBody tr[data-map-row]:has-text('1x truck')")
-        page.wait_for_function("() => mapView.mpp < mapFitMpp * 0.5")
+        page.wait_for_function("() => mapState.view.mpp < mapState.fitMpp * 0.5")
         self.assertIn("1x truck", page.text_content("#mapCard"))
         ring = page.locator("#mapSvg .map-selected circle").first.bounding_box()
         box = page.locator("#mapBox").bounding_box()
@@ -2228,12 +2228,12 @@ class BrowserTests(unittest.TestCase):
         page.evaluate("document.querySelector('.map-view').scrollTop = 0")
         self.settle(
             page,
-            "document.querySelector('.map-view').scrollTop === 0 && mapView.mpp >= mapFitMpp * 0.99",
+            "document.querySelector('.map-view').scrollTop === 0 && mapState.view.mpp >= mapState.fitMpp * 0.99",
         )
         xy = page.evaluate("""() => {
             const r = document.getElementById('mapBox').getBoundingClientRect();
             const [x, y] = SaltCore.lonLatToMerc(44.36, 33.34);
-            return [r.left + 1 + (x - mapView.cx) / mapView.mpp + (r.width - 2) / 2, r.top + 1 + (mapView.cy - y) / mapView.mpp + (r.height - 2) / 2];
+            return [r.left + 1 + (x - mapState.view.cx) / mapState.view.mpp + (r.width - 2) / 2, r.top + 1 + (mapState.view.cy - y) / mapState.view.mpp + (r.height - 2) / 2];
         }""")
         page.mouse.click(*xy)
         page.wait_for_selector(".map-place-chip:has-text('NAI 1')")
@@ -2247,8 +2247,8 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector(".map-place-chip", state="detached")
         # Only what's on the map: zoomed onto one report, the table holds just it.
         page.evaluate("""() => {
-            const t = mapLastDraw.tracks.find(x => x.report.size === '1x truck'), p = t.points[0];
-            [mapView.cx, mapView.cy] = SaltCore.lonLatToMerc(p.lon, p.lat); mapView.mpp = 1; drawMap();
+            const t = mapState.lastDraw.tracks.find(x => x.report.size === '1x truck'), p = t.points[0];
+            [mapState.view.cx, mapState.view.cy] = SaltCore.lonLatToMerc(p.lon, p.lat); mapState.view.mpp = 1; drawMap();
         }""")
         page.wait_for_function(
             "() => document.querySelectorAll('#mapTableBody tr[data-map-row]').length === 1"
@@ -2329,23 +2329,23 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(page.locator("#cancelButton").is_visible(), "still editing")
         # With nothing of the map's open, Escape is the page's again.
         page.keyboard.press("Escape")
-        page.wait_for_selector("#toast-notification:has-text('Editing canceled')")
+        page.wait_for_selector("#toastNotification:has-text('Editing canceled')")
         # The map itself: arrow keys pan, + and - zoom, 0 shows all.
         page.focus("#mapBox")
-        before = page.evaluate("mapView.mpp")
+        before = page.evaluate("mapState.view.mpp")
         page.keyboard.press("+")
-        page.wait_for_function(f"() => mapView.mpp < {before}")
-        cx = page.evaluate("mapView.cx")
+        page.wait_for_function(f"() => mapState.view.mpp < {before}")
+        cx = page.evaluate("mapState.view.cx")
         page.keyboard.press("ArrowRight")
-        page.wait_for_function(f"() => mapView.cx > {cx}")
-        cy = page.evaluate("mapView.cy")
+        page.wait_for_function(f"() => mapState.view.cx > {cx}")
+        cy = page.evaluate("mapState.view.cy")
         page.keyboard.press("ArrowUp")
-        page.wait_for_function(f"() => mapView.cy > {cy}")
+        page.wait_for_function(f"() => mapState.view.cy > {cy}")
         page.keyboard.press("0")
-        page.wait_for_function("() => mapView.mpp >= mapFitMpp * 0.99")
+        page.wait_for_function("() => mapState.view.mpp >= mapState.fitMpp * 0.99")
         page.keyboard.press("+")
         page.keyboard.press("-")
-        page.wait_for_function("() => mapView.mpp >= mapFitMpp * 0.99")
+        page.wait_for_function("() => mapState.view.mpp >= mapState.fitMpp * 0.99")
 
     def test_map_layers_together_all_reports_and_activity(self):
         page = self.open_editor()
@@ -2453,7 +2453,7 @@ class BrowserTests(unittest.TestCase):
         page.goto(self.editor + "/")
         page.wait_for_selector("#startupModal.show")
         # The startup field holds the code but draws it as dots.
-        field = page.locator("#startup-access-code")
+        field = page.locator("#startupAccessCode")
         self.assertEqual(field.input_value(), CODE)
         self.assertEqual(field.evaluate("e => getComputedStyle(e).webkitTextSecurity"), "disc")
         # Not a password field, which the browser would offer to save.
@@ -2461,9 +2461,9 @@ class BrowserTests(unittest.TestCase):
         page.click("#startupAccessShowBtn")
         self.assertEqual(field.evaluate("e => getComputedStyle(e).webkitTextSecurity"), "none")
         self.assertEqual(page.inner_text("#startupAccessShowBtn"), "Hide")
-        page.fill("#startup-initials", "AB")
-        page.fill("#startup-ato", "CODEMASK")
-        page.fill("#startup-title", "Patrol")
+        page.fill("#startupInitials", "AB")
+        page.fill("#startupAto", "CODEMASK")
+        page.fill("#startupTitle", "Patrol")
         page.click("#startupContinueBtn")
         page.wait_for_selector("#startupModal.show", state="hidden")
 
@@ -2516,7 +2516,7 @@ class BrowserTests(unittest.TestCase):
         page.press("#mgrsPrefix", "Enter")
         self.assertEqual(page.evaluate("document.activeElement.id"), "location")
         self.settle(page)  # a wrong toast would have shown by now
-        self.assertNotIn("Please fill in", page.text_content("#toast-notification") or "")
+        self.assertNotIn("Please fill in", page.text_content("#toastNotification") or "")
         self.log(page, "2x BMP", location="45000 82000")
         self.assertEqual(page.input_value("#mgrsPrefix"), "38S MB")
         page.wait_for_selector("#reportLogBody tr[data-id] .col-location:has-text('38S MB')")
@@ -2547,7 +2547,7 @@ class BrowserTests(unittest.TestCase):
         page.fill("#mapDroneName", "GE 1")
         page.fill("#mapDroneGridNew", "38SMB4000078000")
         page.click("#mapDroneAdd")
-        page.wait_for_selector("#toast-notification:has-text('GE 1 added at 38S MB 40000 78000')")
+        page.wait_for_selector("#toastNotification:has-text('GE 1 added at 38S MB 40000 78000')")
         page.wait_for_selector("#mapSvg .map-drone")
         # Its view: a cone narrowing to the newest report, and the sightline.
         cone = page.locator("#mapSvg .map-drone-cone")
@@ -2562,13 +2562,13 @@ class BrowserTests(unittest.TestCase):
         self.assertIn(
             " km N", " ".join(page.locator("#mapSvg .map-label-drone").all_text_contents())
         )
-        # Moved by typing a grid; Zoom centres on it, closer.
+        # Moved by typing a grid; Zoom centers on it, closer.
         page.fill("#mapDroneGrid0", "38SMB4100079000")
         page.press("#mapDroneGrid0", "Enter")
-        page.wait_for_selector("#toast-notification:has-text('GE 1 moved to 38S MB 41000 79000')")
-        before = page.evaluate("mapView.mpp")
+        page.wait_for_selector("#toastNotification:has-text('GE 1 moved to 38S MB 41000 79000')")
+        before = page.evaluate("mapState.view.mpp")
         page.click("[data-drone-zoom='0']")
-        page.wait_for_function(f"() => mapView.mpp < {before}")
+        page.wait_for_function(f"() => mapState.view.mpp < {before}")
         # Drawn in the middle of the map, once redrawn.
         page.wait_for_function(
             r"() => { const t = document.querySelector('#mapSvg .map-drone').getAttribute('transform').match(/[\d.]+/g).map(Number);"
@@ -2605,7 +2605,7 @@ class BrowserTests(unittest.TestCase):
         page.fill("#mapDroneLook0", "38SMB4000090000")
         page.press("#mapDroneLook0", "Enter")
         page.wait_for_selector(
-            "#toast-notification:has-text('GE 1 is looking at 38S MB 40000 90000')"
+            "#toastNotification:has-text('GE 1 is looking at 38S MB 40000 90000')"
         )
         page.wait_for_function(
             "() => [...document.querySelectorAll('#mapSvg .map-label-drone')].some(t => t.textContent === '12.0 km N')"
@@ -2614,7 +2614,7 @@ class BrowserTests(unittest.TestCase):
         # A range shorter than that: the ring, a red view, and how far out.
         page.fill("#mapDroneRange0", "10")
         page.press("#mapDroneRange0", "Enter")
-        page.wait_for_selector("#toast-notification:has-text(\"GE 1's range is 10 km\")")
+        page.wait_for_selector("#toastNotification:has-text(\"GE 1's range is 10 km\")")
         page.wait_for_selector("#mapSvg .map-drone-range")
         page.wait_for_selector("#mapSvg .map-drone-cone.out")
         labels = " ".join(page.locator("#mapSvg .map-label-drone").all_text_contents())
@@ -2624,7 +2624,7 @@ class BrowserTests(unittest.TestCase):
         page.fill("#mapDroneLook0", "")
         page.press("#mapDroneLook0", "Enter")
         page.wait_for_selector(
-            "#toast-notification:has-text(\"GE 1's view follows the newest report\")"
+            "#toastNotification:has-text(\"GE 1's view follows the newest report\")"
         )
         page.wait_for_function("() => document.querySelector('#mapSvg .map-drone-cone:not(.out)')")
         page.fill("#mapDroneRange0", "")
@@ -2669,7 +2669,7 @@ class BrowserTests(unittest.TestCase):
         page.evaluate(
             "saveBasemaps([...sharedBasemaps, { name: 'Refused', kind: 'tiles', url: 'https://refused.test/{z}/{x}/{y}.png' }])"
         )
-        page.wait_for_selector("#toast-notification:has-text('Not saved: no.')")
+        page.wait_for_selector("#toastNotification:has-text('Not saved: no.')")
         self.assertEqual(page.evaluate("JSON.stringify(sharedBasemaps)"), basemaps)
         self.assertEqual(page.evaluate("localStorage.getItem('salt_basemaps')"), basemaps)
         self.assertNotIn("Refused", page.text_content("#mapBaseSelect"))
@@ -2679,16 +2679,16 @@ class BrowserTests(unittest.TestCase):
         page.click("#mapDroneAdd")
         # Shown at once, then put back (the toast still says the last refusal).
         page.wait_for_function("sharedDrones.length === 0")
-        self.assertIn("Not saved: no.", page.text_content("#toast-notification"))
+        self.assertIn("Not saved: no.", page.text_content("#toastNotification"))
         # The map redraws on the next frame.
         page.wait_for_function("() => !document.querySelector('#mapSvg .map-drone')")
         enemy = page.evaluate("sharedNarrative.enemy || ''")
         page.evaluate("saveNarrative({ enemy: 'NOPE' })")
-        page.wait_for_selector("#toast-notification:has-text('Not saved: no.')")
+        page.wait_for_selector("#toastNotification:has-text('Not saved: no.')")
         self.assertEqual(page.evaluate("sharedNarrative.enemy || ''"), enemy)
         overlays = page.evaluate("JSON.stringify(sharedOverlays)")
         self.assertFalse(page.evaluate("saveOverlays([])"))
-        page.wait_for_selector("#toast-notification:has-text('Not saved: no.')")
+        page.wait_for_selector("#toastNotification:has-text('Not saved: no.')")
         self.assertEqual(page.evaluate("JSON.stringify(sharedOverlays)"), overlays)
         # Unreachable: put back too, since it isn't kept to send later.
         page.unroute("**/api/save_drones")
@@ -2696,7 +2696,7 @@ class BrowserTests(unittest.TestCase):
         self.assertFalse(
             page.evaluate("saveDrones([{ name: 'GE 8', grid: '38S MB 40000 78000', at: 1 }])")
         )
-        page.wait_for_selector("#toast-notification:has-text(\"the server can't be reached\")")
+        page.wait_for_selector("#toastNotification:has-text(\"the server can't be reached\")")
         self.assertEqual(page.evaluate("sharedDrones.length"), 0)
         # Past the server's limits: said at once, without asking it.
         asked.clear()
@@ -2706,12 +2706,12 @@ class BrowserTests(unittest.TestCase):
             document.getElementById('mapDroneGridNew').value = '38SMB4000078000';
             document.getElementById('mapDroneAdd').click();
         }""")
-        page.wait_for_selector("#toast-notification:has-text('10 drones at most')")
+        page.wait_for_selector("#toastNotification:has-text('10 drones at most')")
         page.evaluate("""() => {
             sharedBasemaps = Array.from({ length: 20 }, (_, i) => ({ name: 'B' + i, kind: 'tiles', url: 'https://b.test/{z}/{x}/{y}.png' }));
             addBasemap({ name: 'One more', kind: 'tiles', url: 'https://b.test/{z}/{x}/{y}.png' });
         }""")
-        page.wait_for_selector("#toast-notification:has-text('20 basemaps at most')")
+        page.wait_for_selector("#toastNotification:has-text('20 basemaps at most')")
         self.assertEqual(asked, [])
         page.evaluate("sharedDrones = []; sharedBasemaps = []; renderMapView()")
 
@@ -2736,12 +2736,12 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.evaluate("sharedDrones.length"), 2, "not yet")
         page.evaluate("sharedDrones = sharedDrones.map(d => ({ ...d })).reverse()")
         page.click(ge1)
-        page.wait_for_selector("#toast-notification:has-text('GE 1 removed')")
+        page.wait_for_selector("#toastNotification:has-text('GE 1 removed')")
         self.assertEqual(page.evaluate("sharedDrones.map(d => d.name)"), ["GE 2"])
         self.wait_for_server(page, "s => s.drones.map(d => d.name).join() === 'GE 2'")
         # Undo puts it back where it was, for everyone.
-        page.click("#toast-notification .toast-undo")
-        page.wait_for_selector("#toast-notification:has-text('GE 1 put back')")
+        page.click("#toastNotification .toast-undo")
+        page.wait_for_selector("#toastNotification:has-text('GE 1 put back')")
         self.wait_for_server(page, "s => s.drones.map(d => d.name).join() === 'GE 2,GE 1'")
         self.synced(page)
         # Gone already: it says so, rather than that it removed it.
@@ -2750,7 +2750,7 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-drone-remove][data-drone-name='GE 2']")
         page.evaluate("sharedDrones = []")
         page.click("[data-drone-remove][data-drone-name='GE 2']")
-        page.wait_for_selector("#toast-notification:has-text('GE 2 is no longer on the map')")
+        page.wait_for_selector("#toastNotification:has-text('GE 2 is no longer on the map')")
         page.evaluate("saveDrones([])")
 
     def test_shift_click_copies_the_grid_under_it(self):
@@ -2768,7 +2768,7 @@ class BrowserTests(unittest.TestCase):
         shown = page.text_content("#mapGridReadout")
         self.assertRegex(shown, r"^38S [A-Z]{2} \d{5} \d{5}$")
         page.mouse.click(x, y)
-        page.wait_for_selector(f"#toast-notification:has-text('Copied {shown}')")
+        page.wait_for_selector(f"#toastNotification:has-text('Copied {shown}')")
         self.assertEqual(page.evaluate("navigator.clipboard.readText()"), shown)
         self.assertTrue(page.locator("#mapCard").is_hidden(), "a Shift + click opens no card")
         page.keyboard.up("Shift")
@@ -2817,7 +2817,7 @@ class BrowserTests(unittest.TestCase):
         # A basemap that didn't answer, on a map narrow enough to wrap its controls.
         for width in (1700, 1100):
             page.set_viewport_size({"width": width, "height": 900})
-            page.evaluate("mapBaseFailed = true; redrawMap()")
+            page.evaluate("mapState.baseFailed = true; redrawMap()")
             page.wait_for_selector("#mapNote", state="visible")
             self.settle(page)  # the sidebar's slide
             note = page.locator("#mapNote").bounding_box()
@@ -2826,7 +2826,7 @@ class BrowserTests(unittest.TestCase):
                 ".map(e => e.getBoundingClientRect().bottom))"
             )
             self.assertGreaterEqual(note["y"], lowest, width)
-        page.evaluate("mapBaseFailed = false; redrawMap()")
+        page.evaluate("mapState.baseFailed = false; redrawMap()")
         page.wait_for_selector("#mapNote", state="hidden")
 
     def test_the_wheel_scrolls_past_the_map_and_ctrl_wheel_zooms(self):
@@ -2834,10 +2834,10 @@ class BrowserTests(unittest.TestCase):
         self.import_overlays(page)
         self.open_map(page)
         page.hover("#mapBox")
-        before = page.evaluate("mapView.mpp")
+        before = page.evaluate("mapState.view.mpp")
         page.mouse.wheel(0, 200)
         page.wait_for_selector("#mapHint", state="visible")
-        self.assertEqual(page.evaluate("mapView.mpp"), before, "a plain wheel doesn't zoom")
+        self.assertEqual(page.evaluate("mapState.view.mpp"), before, "a plain wheel doesn't zoom")
         self.assertGreater(
             page.evaluate("document.querySelector('.map-view').scrollTop"),
             0,
@@ -2848,7 +2848,7 @@ class BrowserTests(unittest.TestCase):
         page.keyboard.down("Control")
         page.mouse.wheel(0, -200)
         page.keyboard.up("Control")
-        page.wait_for_function(f"() => mapView.mpp < {before}")
+        page.wait_for_function(f"() => mapState.view.mpp < {before}")
 
     def test_the_map_doesnt_move_as_its_numbers_arrive(self):
         page = self.open_editor()
@@ -2887,7 +2887,7 @@ class BrowserTests(unittest.TestCase):
             const o = currentOverlays().find(o => o.name === '1' && o.type === 'NAI');
             const ring = SaltCore.asArea(o.geometry).coordinates[0];
             const [x, y] = SaltCore.lonLatToMerc(ring[0][0], ring[0][1]);
-            mapView = { cx: x, cy: y, mpp: 2 };
+            mapState.view = { cx: x, cy: y, mpp: 2 };
             drawMap();
         }""")
         self.assertIn("NAI 1", labels())
@@ -2925,14 +2925,14 @@ class BrowserTests(unittest.TestCase):
         page.fill("#builderNewLetter", "W")
         page.fill("#builderNewLabel", "Weather")
         page.click("#builderAddBtn")
-        page.wait_for_selector("#salt-fields [data-custom-label='W']")
+        page.wait_for_selector("#saltFields [data-custom-label='W']")
         page.click("#exportViewToggleBtn")
         page.click("#setAtoBtn")
         page.fill("#atoDesignator", "FORMATB")
         page.click("#setAtoBtn")
         page.wait_for_function("() => activeAto === 'FORMATB'")
         self.assertEqual(
-            page.locator("#salt-fields [data-custom-label='W']").count(),
+            page.locator("#saltFields [data-custom-label='W']").count(),
             1,
             "kept in a new workspace",
         )
@@ -2943,12 +2943,12 @@ class BrowserTests(unittest.TestCase):
         other = second.new_page()
         other.on("pageerror", lambda exc: self.errors.append(str(exc)))
         other.goto(self.editor + "/")
-        other.fill("#startup-initials", "CD")
-        other.fill("#startup-ato", "FORMATC")
-        other.fill("#startup-title", "Patrol")
+        other.fill("#startupInitials", "CD")
+        other.fill("#startupAto", "FORMATC")
+        other.fill("#startupTitle", "Patrol")
         other.click("#startupContinueBtn")
-        other.wait_for_selector("#salt-fields [data-custom-label='W']")
-        page.evaluate("saveWorkspaceFormat(defaultFormat())")
+        other.wait_for_selector("#saltFields [data-custom-label='W']")
+        page.evaluate("saveFormat(defaultFormat())")
         self.wait_for_server(page, "s => !(s.format.lines || []).some(l => l.label === 'W')")
 
     def test_updating_shows_which_report_and_the_panel_keeps_its_width(self):
@@ -2956,7 +2956,7 @@ class BrowserTests(unittest.TestCase):
         page.set_viewport_size({"width": 1440, "height": 900})
         self.log(page, "2x BMP", activity="moving north along the wadi")
         page.click("#reportLogBody tr[data-id] .col-size:has-text('2x BMP')")
-        self.assertEqual(page.text_content("#form-title"), f"Updating {self.ato}001")
+        self.assertEqual(page.text_content("#formTitle"), f"Updating {self.ato}001")
         note = page.text_content("#formEditingNote")
         self.assertIn("2x BMP", note)
         self.assertIn(f"{self.ato}001", note)
@@ -3155,7 +3155,7 @@ class BrowserTests(unittest.TestCase):
             ),
             ["table", "equipment"],
         )
-        # The table is the chart's accessible version: reachable, labelled, and
+        # The table is the chart's accessible version: reachable, labeled, and
         # the bars aren't tab stops of their own.
         self.assertEqual(page.locator(".stats-hit[tabindex]").count(), 0)
         self.assertEqual(
@@ -3298,7 +3298,7 @@ class BrowserTests(unittest.TestCase):
         # What the enemy is called.
         page.fill("#narrEnemy", "OPFOR")
         page.press("#narrEnemy", "Enter")
-        page.wait_for_selector("#toast-notification:has-text('calls them OPFOR')")
+        page.wait_for_selector("#toastNotification:has-text('calls them OPFOR')")
         self.assertIn("that OPFOR are preparing a defense in NAI 1.", flat())
         # A unit, in NAI 1: where it operates and what it has are dropdowns;
         # Other brings up a box for places not in the list.
@@ -3336,7 +3336,7 @@ class BrowserTests(unittest.TestCase):
             page.text_content("[data-narr-dd='kind'] .narr-dd-value"), "dismounted personnel"
         )
         page.click("[data-narr-save]")
-        page.wait_for_selector("#toast-notification:has-text('1-60 GMRB saved')")
+        page.wait_for_selector("#toastNotification:has-text('1-60 GMRB saved')")
         self.assertEqual(page.text_content("[data-narr-tab='units'] .narr-count"), "1")
         self.assertIn("that elements of 1-60 GMRB are preparing a defense in NAI 1.", flat())
         self.assertIn("Unit: from the unit list, 1-60 GMRB (NAI 1; dismounted personnel).", flat())
@@ -3349,23 +3349,23 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.input_value("#narrEqType"), "XYZ-9")
         self.assertEqual(page.text_content("#narrEqSays"), "Not in the catalogue.")
         page.click("[data-narr-save]")
-        page.wait_for_selector("#toast-notification:has-text('Pick what XYZ-9 is')")
+        page.wait_for_selector("#toastNotification:has-text('Pick what XYZ-9 is')")
         page.click("[data-narr-role='engineer']")
         page.click("[data-narr-save]")
-        page.wait_for_selector("#toast-notification:has-text('XYZ-9 saved')")
+        page.wait_for_selector("#toastNotification:has-text('XYZ-9 saved')")
         self.assertIn("engineers (1x PMP, 1x XYZ-9)", flat())
         self.assertNotIn("Not in the equipment catalogue", flat())
         self.assertEqual(page.locator("[data-narr-tab='equipment'] .narr-dot").count(), 0)
         # A rule switched off, and one of the team's own.
         page.click("[data-narr-tab='rules']")
         page.uncheck("[data-narr-rule='defense']")
-        page.wait_for_selector("#toast-notification:has-text('Preparing a defense: off')")
+        page.wait_for_selector("#toastNotification:has-text('Preparing a defense: off')")
         self.assertNotIn("preparing a defense", flat())
         page.click("[data-narr-add]")
         page.fill("#narrRuleWhat", "are preparing a river crossing")
         page.fill("#narrRuleWords", "bridging, ferry")
         page.click("[data-narr-save]")
-        page.wait_for_selector("#toast-notification:has-text('Rule saved for everyone')")
+        page.wait_for_selector("#toastNotification:has-text('Rule saved for everyone')")
         # Its reports (a PMP, trucks) have none of the unit's kind: said of OPFOR.
         self.assertIn("that OPFOR are preparing a river crossing in NAI 1.", flat())
         # A saved one opens from its row; Remove asks first, and Back leaves it.
@@ -3427,7 +3427,7 @@ class BrowserTests(unittest.TestCase):
         )
         page.fill("#narrUnitName", "B-3")
         page.click("[data-narr-save]")
-        page.wait_for_selector("#toast-notification:has-text('B-3 saved')")
+        page.wait_for_selector("#toastNotification:has-text('B-3 saved')")
         self.assertEqual(page.evaluate("sharedNarrative.units.map(u => u.name)"), ["B-3"])
         self.synced(page)
         # And removes B-3 while it's open here: Remove says so and changes nothing.
@@ -3437,7 +3437,7 @@ class BrowserTests(unittest.TestCase):
         )
         page.click("[data-narr-remove]")
         page.click("[data-narr-remove]")
-        page.wait_for_selector("#toast-notification:has-text('Someone else removed B-3')")
+        page.wait_for_selector("#toastNotification:has-text('Someone else removed B-3')")
         self.assertEqual(page.evaluate("sharedNarrative.units.map(u => u.name)"), ["C-4"])
         page.wait_for_selector("#narrUnitName", state="detached")
         page.evaluate("saveNarrative({ enemy: '', units: [], equipment: [], off: [], custom: [] })")
@@ -3447,7 +3447,7 @@ class BrowserTests(unittest.TestCase):
         self.import_overlays(page)
         self.log(page, "1x XYZ-9", location="38SMB4500082000")
         self.open_map(page)
-        # Labelled groups, the slider read as the time it shows, switches as switches.
+        # Labeled groups, the slider read as the time it shows, switches as switches.
         self.assertEqual(page.get_attribute("#mapBox .map-tools", "role"), "group")
         self.assertEqual(page.get_attribute("#mapBox .filter-presets", "role"), "group")
         self.assertEqual(page.get_attribute("#mapEndRange", "aria-valuetext"), "Now")
@@ -3498,7 +3498,7 @@ class BrowserTests(unittest.TestCase):
         )
 
     def test_escape_in_the_narrative_settings_leaves_an_edit_alone(self):
-        # Regression: Escape closed the settings' form and cancelled the edit too.
+        # Regression: Escape closed the settings' form and canceled the edit too.
         page = self.open_editor()
         self.log(page, "2x BMP")
         page.click("#reportLogBody tr[data-id] .col-size:has-text('2x BMP')")

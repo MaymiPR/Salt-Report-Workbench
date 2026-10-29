@@ -26,7 +26,7 @@ document.addEventListener('fullscreenchange', () => {
 });
 
 // Built once; later renders only redraw, so the basemap isn't fetched again.
-const renderOverlayMap = (box) => {
+const renderMapPanel = (box) => {
     if (!box.querySelector('#mapSvg')) {
         const hours = [[0, 'All'], [24, '24h'], [12, '12h'], [6, '6h']];
         box.innerHTML = `
@@ -87,11 +87,11 @@ const renderOverlayMap = (box) => {
             </div>`;
         wireMapBox();
     }
-    box.querySelectorAll('[data-map-layer]').forEach(b => setOn(b, mapLayers[b.dataset.mapLayer], 'aria-pressed', null));
-    box.querySelectorAll('[data-map-grids]').forEach(b => setOn(b, (b.dataset.mapGrids === 'all') === mapAllGrids, 'aria-pressed', null));
-    // Greyed out, not hidden, when neither layer it changes is on: the tools don't move.
-    box.querySelectorAll('[data-map-grids]').forEach(b => { b.disabled = !mapLayers.heat && !mapLayers.reports; });
-    box.querySelectorAll('[data-map-hours]').forEach(b => setOn(b, +b.dataset.mapHours === mapHours));
+    box.querySelectorAll('[data-map-layer]').forEach(b => setOn(b, mapState.layers[b.dataset.mapLayer], 'aria-pressed', null));
+    box.querySelectorAll('[data-map-grids]').forEach(b => setOn(b, (b.dataset.mapGrids === 'all') === mapState.allGrids, 'aria-pressed', null));
+    // Grayed out, not hidden, when neither layer it changes is on: the tools don't move.
+    box.querySelectorAll('[data-map-grids]').forEach(b => { b.disabled = !mapState.layers.heat && !mapState.layers.reports; });
+    box.querySelectorAll('[data-map-hours]').forEach(b => setOn(b, +b.dataset.mapHours === mapState.hours));
     const pick = document.getElementById('mapBaseSelect');
     pick.innerHTML = basemapOptions();
     pick.hidden = !sharedBasemaps.length;
@@ -110,13 +110,12 @@ const renderOverlayMap = (box) => {
 // held over the map, that grid shows beside the pointer and the cursor is a
 // crosshair; a Shift + click opens no card.
 const gridAtPointer = (e, box) => {
-    if (!mapView) return null;
+    if (!mapState.view) return null;
     const r = box.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
-    const [lon, lat] = SaltCore.mercToLonLat(mapView.cx + (x - box.clientWidth / 2) * mapView.mpp, mapView.cy - (y - box.clientHeight / 2) * mapView.mpp);
+    const [lon, lat] = SaltCore.mercToLonLat(mapState.view.cx + (x - box.clientWidth / 2) * mapState.view.mpp, mapState.view.cy - (y - box.clientHeight / 2) * mapState.view.mpp);
     return { x, y, mgrs: SaltCore.latLonToMgrs(lat, lon) };
 };
 const MAP_CONTROLS = '.map-zoom, .map-card, .map-bottom, .map-base-pop, .map-tools, .map-side, .map-side-btn';
-let mapPointer = null;   // where the pointer last was over the map: { clientX, clientY, target }
 const showGridReadout = (e, shift) => {
     const box = document.getElementById('mapBox'), readout = document.getElementById('mapGridReadout');
     if (!box || !readout) return;
@@ -131,7 +130,7 @@ const showGridReadout = (e, shift) => {
 };
 // Shift pressed or let go with the pointer still: the readout follows the key.
 ['keydown', 'keyup'].forEach(type => document.addEventListener(type, e => {
-    if (e.key === 'Shift' && mapPointer) showGridReadout(mapPointer, type === 'keydown');
+    if (e.key === 'Shift' && mapState.pointer) showGridReadout(mapState.pointer, type === 'keydown');
 }));
 window.addEventListener('blur', () => showGridReadout(null, false));
 
@@ -152,30 +151,30 @@ if (mapBody) {
     mapBody.addEventListener('click', e => {
         const layer = e.target.closest('[data-map-layer]');
         if (layer) {
-            mapLayers[layer.dataset.mapLayer] = !mapLayers[layer.dataset.mapLayer];
-            writeStored('salt_map_layers', JSON.stringify(mapLayers));
+            mapState.layers[layer.dataset.mapLayer] = !mapState.layers[layer.dataset.mapLayer];
+            writeStored('salt_map_layers', JSON.stringify(mapState.layers));
             renderMapView();
             return;
         }
         const grids = e.target.closest('[data-map-grids]');
         if (grids) {
-            mapAllGrids = grids.dataset.mapGrids === 'all';
-            writeStored('salt_map_grids', mapAllGrids ? 'all' : 'latest');
+            mapState.allGrids = grids.dataset.mapGrids === 'all';
+            writeStored('salt_map_grids', mapState.allGrids ? 'all' : 'latest');
             renderMapView();
             return;
         }
         const hrs = e.target.closest('[data-map-hours]');
-        if (hrs) { mapHours = +hrs.dataset.mapHours; renderMapView(); return; }
+        if (hrs) { mapState.hours = +hrs.dataset.mapHours; renderMapView(); return; }
         const zoom = e.target.closest('[data-map-zoom]');
         if (zoom && zoom.dataset.mapZoom === 'full') { toggleMapFullscreen(); return; }
-        if (zoom && mapView) {
-            if (zoom.dataset.mapZoom === 'fit') mapView.mpp = Infinity;
-            else mapView.mpp *= zoom.dataset.mapZoom === 'in' ? 0.5 : 2;
+        if (zoom && mapState.view) {
+            if (zoom.dataset.mapZoom === 'fit') mapState.view.mpp = Infinity;
+            else mapState.view.mpp *= zoom.dataset.mapZoom === 'in' ? 0.5 : 2;
             redrawMap();
             return;
         }
         if (e.target.closest('#mapBaseBtn')) { toggleBasePop(); return; }
-        if (e.target.closest('#mapBaseManage')) { toggleBasePop(false); openExportView(); switchWorkspacesTab('overlays'); return; }
+        if (e.target.closest('#mapBaseManage')) { toggleBasePop(false); openManageView(); switchManageTab('overlays'); return; }
         if (e.target.closest('#mapDroneBtn')) { toggleDronePop(); return; }
         const zoomTo = e.target.closest('[data-drone-zoom]');
         if (zoomTo) { const d = sharedDrones[+zoomTo.dataset.droneZoom]; if (d) zoomToDrone(d); return; }
@@ -247,15 +246,15 @@ if (mapBody) {
     mapBody.addEventListener('change', e => {
         if (e.target.id === 'mapDroneShow' || e.target.id === 'mapDroneView') {
             const on = e.target.checked;
-            if (e.target.id === 'mapDroneShow') droneShow = on; else droneView = on;
+            if (e.target.id === 'mapDroneShow') mapState.droneShow = on; else mapState.droneView = on;
             writeStored(e.target.id === 'mapDroneShow' ? 'salt_drone_show' : 'salt_drone_view', on ? 'on' : 'off');
             redrawMap();
             return;
         }
         if (e.target.id === 'mapBaseSelect') {
-            mapBaseChoice = e.target.value;
-            mapBaseFailed = false;
-            writeStored('salt_map_base', mapBaseChoice);
+            mapState.baseChoice = e.target.value;
+            mapState.baseFailed = false;
+            writeStored('salt_map_base', mapState.baseChoice);
             redrawMap();
         }
     });
@@ -297,12 +296,12 @@ const wireMapBox = () => {
     const m = mapEls();
     const at = (e) => { const r = m.box.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
     const zoomAt = (e, factor) => {
-        if (!mapView) return;
+        if (!mapState.view) return;
         const [x, y] = at(e), w = m.box.clientWidth, h = m.box.clientHeight;
-        const mx = mapView.cx + (x - w / 2) * mapView.mpp, my = mapView.cy - (y - h / 2) * mapView.mpp;
-        mapView.mpp *= factor;
-        mapView.cx = mx - (x - w / 2) * mapView.mpp;
-        mapView.cy = my + (y - h / 2) * mapView.mpp;
+        const mx = mapState.view.cx + (x - w / 2) * mapState.view.mpp, my = mapState.view.cy - (y - h / 2) * mapState.view.mpp;
+        mapState.view.mpp *= factor;
+        mapState.view.cx = mx - (x - w / 2) * mapState.view.mpp;
+        mapState.view.cy = my + (y - h / 2) * mapState.view.mpp;
         redrawMap();
     };
     // A plain wheel scrolls the page on, past the map to its table; Ctrl (or
@@ -324,13 +323,13 @@ const wireMapBox = () => {
     }, { passive: false });
     // With the map itself focused: arrow keys pan, + and - zoom, 0 shows all.
     m.box.addEventListener('keydown', e => {
-        if (e.target !== m.box || !mapView || e.ctrlKey || e.metaKey || e.altKey) return;
-        const step = 80 * mapView.mpp;
+        if (e.target !== m.box || !mapState.view || e.ctrlKey || e.metaKey || e.altKey) return;
+        const step = 80 * mapState.view.mpp;
         const pan = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] }[e.key];
-        if (pan) { mapView.cx += pan[0]; mapView.cy += pan[1]; }
-        else if (e.key === '+' || e.key === '=') mapView.mpp *= 0.5;
-        else if (e.key === '-' || e.key === '_') mapView.mpp *= 2;
-        else if (e.key === '0') mapView.mpp = Infinity;
+        if (pan) { mapState.view.cx += pan[0]; mapState.view.cy += pan[1]; }
+        else if (e.key === '+' || e.key === '=') mapState.view.mpp *= 0.5;
+        else if (e.key === '-' || e.key === '_') mapState.view.mpp *= 2;
+        else if (e.key === '0') mapState.view.mpp = Infinity;
         else return;
         e.preventDefault();
         redrawMap();
@@ -338,23 +337,23 @@ const wireMapBox = () => {
     m.box.addEventListener('dblclick', e => { if (!e.target.closest('.map-zoom, .map-card, .map-bottom, .map-base-pop, .map-tools, .map-side-btn')) zoomAt(e, 0.5); });
     let drag = null;
     m.box.addEventListener('pointerdown', e => {
-        if (e.button !== 0 || e.target.closest('.map-zoom, .map-card, .map-bottom, .map-base-pop, .map-tools, .map-side-btn') || !mapView) return;
-        drag = { x: e.clientX, y: e.clientY, cx: mapView.cx, cy: mapView.cy, item: e.target.closest('[data-map-item]') };
+        if (e.button !== 0 || e.target.closest('.map-zoom, .map-card, .map-bottom, .map-base-pop, .map-tools, .map-side-btn') || !mapState.view) return;
+        drag = { x: e.clientX, y: e.clientY, cx: mapState.view.cx, cy: mapState.view.cy, item: e.target.closest('[data-map-item]') };
         m.box.setPointerCapture(e.pointerId);
         m.box.classList.add('dragging');
     });
     m.box.addEventListener('pointermove', e => {
-        mapPointer = { clientX: e.clientX, clientY: e.clientY, target: e.target };
+        mapState.pointer = { clientX: e.clientX, clientY: e.clientY, target: e.target };
         showGridReadout(e, e.shiftKey && !drag);
         if (drag) {
-            mapView.cx = drag.cx - (e.clientX - drag.x) * mapView.mpp;
-            mapView.cy = drag.cy + (e.clientY - drag.y) * mapView.mpp;
+            mapState.view.cx = drag.cx - (e.clientX - drag.x) * mapState.view.mpp;
+            mapState.view.cy = drag.cy + (e.clientY - drag.y) * mapState.view.mpp;
             m.tip.hidden = true;
             redrawMap();
             return;
         }
         const g = e.target.closest('[data-map-item]');
-        const item = g && mapItems[+g.dataset.mapItem];
+        const item = g && mapState.items[+g.dataset.mapItem];
         if (!item || !m.card.hidden || e.shiftKey) { m.tip.hidden = true; return; }
         m.tip.innerHTML = item.kind === 'drone' ? droneTip(item.d) : trackTip(item.t);
         const [x, y] = at(e);
@@ -377,17 +376,17 @@ const wireMapBox = () => {
             }
             return;
         }
-        const item = d.item && mapItems[+d.item.dataset.mapItem];
+        const item = d.item && mapState.items[+d.item.dataset.mapItem];
         if (item && item.kind === 'drone') return;
         const [x, y] = at(e), w = m.box.clientWidth, h = m.box.clientHeight;
-        const merc = [mapView.cx + (x - w / 2) * mapView.mpp, mapView.cy - (y - h / 2) * mapView.mpp];
+        const merc = [mapState.view.cx + (x - w / 2) * mapState.view.mpp, mapState.view.cy - (y - h / 2) * mapState.view.mpp];
         m.tip.hidden = true;
-        mapClickHook({ item, at: [x, y], lonLat: SaltCore.mercToLonLat(merc[0], merc[1]), mpp: mapView.mpp });
+        mapState.clickHook({ item, at: [x, y], lonLat: SaltCore.mercToLonLat(merc[0], merc[1]), mpp: mapState.view.mpp });
     });
     m.box.addEventListener('pointercancel', end);
     m.box.addEventListener('pointerleave', () => {
         if (!drag) m.tip.hidden = true;
-        mapPointer = null;
+        mapState.pointer = null;
         showGridReadout(null, false);
     });
     new ResizeObserver(() => redrawMap()).observe(m.box);
