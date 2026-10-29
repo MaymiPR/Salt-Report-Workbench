@@ -407,6 +407,7 @@
                         <li>Each drone&rsquo;s name on the map says how long ago it was put there (<em>GE 1 &middot; moved 6h ago</em>), so a position left for hours shows it. Report dots have a white center, so they stay visible on the red of a busy heat map.</li>
                         <li><strong>Grab a grid</strong>: hold <kbd>Shift</kbd> over the map and the grid under the pointer shows beside it; <kbd>Shift</kbd> + click copies that grid, ten digits, to paste anywhere. A Shift + click on a report copies its grid instead of opening its card.</li>
                         <li><strong>Measure</strong>: the ruler button under the drone button. Click a point on the map, then another: a white line joins them, with the distance and bearing beside it (for example <em>2.4 km, 047&deg; NE</em>), and under the controls the same with both ends&rsquo; grids. A third click starts a new line from there; <kbd>Esc</kbd> or the button again ends it. While it is on, a click measures and opens no report.</li>
+                        <li><strong>Save or print</strong>: the arrow button under the layers button. <strong>Save as PNG</strong> saves the view as it is on screen, with a title (the workspace, its window and when it was made), a north arrow, a scale bar and the key. The basemap goes in when its service lets the page copy its images; when it doesn&rsquo;t, the image says it was left out. <strong>Print</strong> lays out the same on a landscape page, basemap included, and the print dialog can also save it as a PDF.</li>
                         <li><strong>Basemaps</strong> (editors, in <strong>Manage &rarr; Map</strong>): one box for both kinds of service, and <strong>Add</strong>; each is named for itself (a WMS by its title, a tile service by its host). Paste the link you use in other tools:
                             <ul>
                                 <li>A <strong>WMS</strong> (for ArcGIS, the address ending in <code>WMSServer</code>): its layers are looked up and listed (with a filter when there are many); tick the ones you want and <strong>Add</strong> puts them in as one basemap, named after the service. It asks the service in its own terms: its WMS version, its image format, and Web Mercator when it offers it, otherwise latitude / longitude, stretched to fit. A layer it can't show (only in some other projection) says so.</li>
@@ -1184,6 +1185,7 @@
     <script src="app/62-map-basemaps.js"></script>
     <script src="app/63-map-drones.js"></script>
     <script src="app/64-map-controls.js"></script>
+    <script src="app/65-map-export.js"></script>
     <script src="app/70-stats.js"></script>
     <script src="app/80-summary.js"></script>
     <script src="app/81-narrative.js"></script>

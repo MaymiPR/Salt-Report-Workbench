@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The map can be saved and printed**, for briefs: Save as PNG gives the view
+  with a title block, north arrow, scale bar and key (the basemap too where
+  its service lets the page copy its images, else it says it was left out);
+  Print lays out the same on a landscape page, basemap included, and can save
+  a PDF.
+
 ## [2.25.0] - 2026-10-28
 
 ### Added
