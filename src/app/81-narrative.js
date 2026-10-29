@@ -225,15 +225,16 @@ const rulesTab = () => {
     }
     const off = new Set(narrList('off'));
     const groups = [...new Set(SaltCore.NARRATIVE_RULES.map(r => r[3]))];
-    return `<div class="narr-hint">Each judgment uses Russian or PLA doctrine, by the design of the equipment in its reports.</div>
+    // The team's own first, with the button to add one at the right of their
+    // heading; then the built-in rules by kind.
+    return `<div class="narr-label narr-label-row"><span>Your own</span><button type="button" class="narr-add narr-add-top editor-only" data-narr-add>+ Add a rule</button></div>
+        <div class="narr-list">${narrList('custom').map((c, i) => row(i, c.what, `${c.words} · ${c.min} in ${c.hours} hrs`, narrId('custom', c))).join('')
+            || '<div class="narr-empty">None yet: a judgment, the words that point to it, and how often.</div>'}</div>
+        <div class="narr-hint">Each judgment uses Russian or PLA doctrine, by the design of the equipment in its reports.</div>
         ${groups.map(g => `<div class="narr-label">${escapeHtml(g)}</div>
         <div class="narr-list">${SaltCore.NARRATIVE_RULES.filter(r => r[3] === g).map(([id, name, what]) => `
             <label class="narr-switch-row"><span><strong>${escapeHtml(name)}</strong><small>${escapeHtml(what)}</small></span>
-                <input type="checkbox" role="switch" class="narr-switch" data-narr-rule="${id}"${off.has(id) ? '' : ' checked'}${isReadOnly ? ' disabled' : ''} aria-label="${escapeHtml(name)}"></label>`).join('')}</div>`).join('')}
-        <div class="narr-label">Your own</div>
-        <div class="narr-list">${narrList('custom').map((c, i) => row(i, c.what, `${c.words} · ${c.min} in ${c.hours} hrs`, narrId('custom', c))).join('')
-            || '<div class="narr-empty">None yet: a judgment, the words that point to it, and how often.</div>'}</div>
-        ${addRow('Add a rule')}`;
+                <input type="checkbox" role="switch" class="narr-switch" data-narr-rule="${id}"${off.has(id) ? '' : ' checked'}${isReadOnly ? ' disabled' : ''} aria-label="${escapeHtml(name)}"></label>`).join('')}</div>`).join('')}`;
 };
 
 // --- The panel ---

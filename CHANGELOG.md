@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **A folder named as one of your tags** (or a layer or file: "Routes" or
+  "Route" for the tag Routes) puts its graphics in that tag when imported.
 - **FMV mode**: a team-wide switch in Settings, *FMV Mode: On / Off*. On, the
   map has its drone button, menu and drones, and the report form an
   **Observer**: the drone the report was seen from, one on station or none.
@@ -55,6 +57,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **The Narrative settings' Rules tab** starts with your own rules, with
+  **+ Add a rule** as a button at the right of their heading; the built-in
+  rules follow.
 - **Time-distance is simpler**: type a speed and pick its unit, then click
   along the route. The units are those of Settings > Units (km/h or m/min on
   Metric; mph or knots on Imperial), the box is empty the first time, and

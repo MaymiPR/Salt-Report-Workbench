@@ -1821,6 +1821,11 @@ button.narr-row:hover { background: var(--input-bg-hover); }
 .narr-empty { padding: 10px 12px; color: var(--text-secondary); font-size: 0.9em; line-height: 1.4; }
 .narr-add { align-self: flex-start; margin: 0; padding: 2px 0; border: none; background: none; color: var(--system-blue); font: inherit; font-weight: 500; cursor: pointer; }
 .narr-add:hover { opacity: 0.7; }
+/* The Rules tab's add button, at the right of the heading of the team's own:
+   a small pill, in the heading's line but not in its small capitals. */
+.narr-label-row { align-items: center; }
+.narr-add.narr-add-top { padding: 3px 10px; border-radius: 100px; background: var(--blue-soft); font-size: 1.3em; text-transform: none; letter-spacing: 0; }
+.narr-add.narr-add-top:hover { opacity: 1; background: var(--blue-hover); }
 .narr-label { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 0.74em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); }
 .narr-label span { text-transform: none; letter-spacing: 0; }
 .narr-chips { display: flex; flex-wrap: wrap; gap: 6px; }

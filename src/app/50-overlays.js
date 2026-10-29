@@ -67,9 +67,15 @@ const combineGeometry = ({ polygons, lines, points }) => {
 // NAI / OBJ / PL from a folder, layer, or file name ("NAIs", "Phase Lines"),
 // the first of `texts` that says one; for a line, AXIS too, from "Axes of
 // advance", "Axis" or "AOA".
+// A folder named as one of the team's tags ("Routes" for the tag Routes, or
+// "Route" for Routes) is that tag.
 const typeHint = (texts, line) => {
+    // A file's name without its extension ("Routes.kml").
+    const norm = (x) => String(x || '').trim().replace(/\.[a-z0-9]{2,7}$/i, '').toLowerCase();
     for (const t of texts) {
         const s = String(t || '');
+        const tag = (sharedTags || []).find(g => [norm(g.name), `${norm(g.name)}s`].includes(norm(s)) || norm(g.name) === `${norm(s)}s`);
+        if (tag) return tag.id;
         if (/\bNAIs?\b/i.test(s)) return 'NAI';
         if (/\bOBJ(ECTIVE)?S?\b/i.test(s)) return 'OBJ';
         if (/\bPLs?\b|phase\s*lines?/i.test(s)) return 'PL';

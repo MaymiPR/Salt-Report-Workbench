@@ -1614,6 +1614,41 @@ class BrowserTests(unittest.TestCase):
         page.click("#toastNotification .toast-undo")
         self.wait_for_server(page, "s => s.tags.some(t => t.id === 'tag-t2')")
 
+    def test_a_folder_named_as_a_tag_puts_its_graphics_in_it(self):
+        self.tidy_tags_and_overlays()
+        self.post_to_server(
+            "/api/save_tags", {"tags": [{"id": "tag-routes", "name": "Routes", "color": "#ff9f0a"}]}
+        )
+        page = self.open_editor()
+        page.wait_for_function("sharedTags.length === 1")
+        # A file (as a folder or layer would) named "Route": the tag Routes, lines or not.
+        path = self.tmp / "Route.geojson"
+        line = {"type": "LineString", "coordinates": [[44.36, 33.30], [44.57, 33.30]]}
+        path.write_text(
+            json.dumps(
+                {
+                    "type": "FeatureCollection",
+                    "features": [
+                        {"type": "Feature", "properties": {"name": "Copper"}, "geometry": line},
+                        {
+                            "type": "Feature",
+                            "properties": {"name": "Iron"},
+                            "geometry": self.ring(44.36, 33.26, 44.40, 33.30),
+                        },
+                    ],
+                }
+            )
+        )
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.set_input_files("#overlaysFileInput", str(path))
+        page.wait_for_selector("#overlaysBody .overlay-review-pick")
+        page.click("#overlaysReviewAddBtn")
+        self.wait_for_server(
+            page,
+            "s => s.overlays.filter(o => o.type === 'tag-routes').map(o => o.name).sort().join() === 'Copper,Iron'",
+        )
+
     def test_shapes_are_sorted_while_importing(self):
         self.tidy_tags_and_overlays()
         self.post_to_server(
@@ -4638,6 +4673,10 @@ class BrowserTests(unittest.TestCase):
         page.uncheck("[data-narr-rule='defense']")
         page.wait_for_selector("#toastNotification:has-text('Preparing a defense: off')")
         self.assertNotIn("preparing a defense", flat())
+        # The team's own come first, the add button at the right of their heading.
+        first = page.locator("#narrSettings .narr-label").first
+        self.assertEqual(first.locator("span").text_content(), "Your own")
+        self.assertEqual(first.locator("[data-narr-add]").text_content(), "+ Add a rule")
         page.click("[data-narr-add]")
         page.fill("#narrRuleWhat", "are preparing a river crossing")
         page.fill("#narrRuleWords", "bridging, ferry")
