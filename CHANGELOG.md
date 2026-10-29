@@ -8,16 +8,21 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- **A measure tool on the map**: the ruler button, then two clicks, gives the
-  distance and bearing between them ("2.4 km, 047° NE") with both ends' grids.
-- **Play on the map's time slider** walks the window from the first report to
-  now in about ten seconds, the map following; Pause holds it.
-- **Drones say how old their position is**: "GE 1 · moved 6h ago".
 - **The map can be saved and printed**, for briefs: Save as PNG gives the view
   with a title block, north arrow, scale bar and key (the basemap too where
   its service lets the page copy its images, else it says it was left out);
   Print lays out the same on a landscape page, basemap included, and can save
   a PDF.
+
+## [2.25.0] - 2026-10-28
+
+### Added
+
+- **A measure tool on the map**: the ruler button, then two clicks, gives the
+  distance and bearing between them ("2.4 km, 047° NE") with both ends' grids.
+- **Play on the map's time slider** walks the window from the first report to
+  now in about ten seconds, the map following; Pause holds it.
+- **Drones say how old their position is**: "GE 1 · moved 6h ago".
 
 ### Changed
 
@@ -1166,7 +1171,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.24.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.25.0...HEAD
+[2.25.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.24.0...v2.25.0
 [2.24.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.23.0...v2.24.0
 [2.23.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.22.0...v2.23.0
 [2.22.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.21.0...v2.22.0
