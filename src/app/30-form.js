@@ -342,7 +342,7 @@ const restoreHistoryVersion = (reportId, lastModified) => {
     // Count what we're about to drop so the confirmation prompt is honest.
     const newerCount = report.history.filter(h => h.lastModified > snapshot.lastModified).length;
     const dropMsg    = newerCount > 0
-        ? ` This will discard the current version and ${newerCount} newer update${newerCount === 1 ? '' : 's'}.`
+        ? ` This will discard the current version and ${plural(newerCount, 'newer update')}.`
         : ' This will discard the current version.';
     showConfirmation(`Restore this version as current for ${formatFullId(report)}?${dropMsg}`, async () => {
         const ato = activeAto;

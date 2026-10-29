@@ -97,7 +97,7 @@ const renderMapSide = (reps) => {
 const renderMapTable = (reps) => {
     const s = mapViewEls(), local = timeDisplayMode === 'local';
     s.timeHead.textContent = local ? 'Time (L)' : 'Time (Z)';
-    s.title.textContent = `${reps.length} report${reps.length === 1 ? '' : 's'}`;
+    s.title.textContent = plural(reps.length, 'report');
     s.only.checked = mapOnlyInView;
     s.chip.innerHTML = mapPlace
         ? `<button type="button" class="map-place-chip" data-map-place="${escapeHtml(mapPlace)}" title="Show every place again">${escapeHtml(mapPlace)} <span aria-hidden="true">&times;</span></button>` : '';

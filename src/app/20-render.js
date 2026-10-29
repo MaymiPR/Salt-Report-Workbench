@@ -113,7 +113,7 @@ const refreshBdaCommit = (wrap) => {
     const btn = wrap.querySelector('.bda-commit-btn');
     if (!btn) return;
     btn.disabled    = n === 0;
-    btn.textContent = n ? `Log ${n} Assessment${n === 1 ? '' : 's'}` : 'Log Assessments';
+    btn.textContent = n ? `Log ${plural(n, 'Assessment')}` : 'Log Assessments';
 };
 
 // Commit every staged row in one mutation → a single sync push.
@@ -147,7 +147,7 @@ const commitBdaEntries = (reportId, wrap) => {
     report.lastModified = now;
     reportsByAto[activeAto] = localReports;
     saveLocalAndSync(reportsByAto);
-    showToast(`${adds.length} assessment${adds.length === 1 ? '' : 's'} logged for ${formatFullId(report)}.`);
+    showToast(`${plural(adds.length, 'assessment')} logged for ${formatFullId(report)}.`);
 };
 
 // Revise an existing assessment's effect (Damaged -> Destroyed, etc.).

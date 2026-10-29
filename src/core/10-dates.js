@@ -13,8 +13,13 @@ const dateFields = (d, local) => local
 // "HH:MM", the format of the time inputs.
 const clockValue = (d, local) => { const f = dateFields(d, local); return `${f.h}:${f.mi}`; };
 
+// The letter after a time: L in local time, else Z (Zulu, UTC).
+const zoneMark = (local) => (local ? 'L' : 'Z');
+// "3 reports", "1 report": a count and its word, plural unless one.
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 // "YYYYMMDD_HHMMZ" (or "...L"), for export filenames.
-const fileStamp = (d, local) => { const f = dateFields(d, local); return `${f.y}${f.mo}${f.day}_${f.h}${f.mi}${local ? 'L' : 'Z'}`; };
+const fileStamp = (d, local) => { const f = dateFields(d, local); return `${f.y}${f.mo}${f.day}_${f.h}${f.mi}${zoneMark(local)}`; };
 
 // What the formatters print for a time that is missing or not a time, as
 // the app shows any empty value.
@@ -33,7 +38,7 @@ const toTimeString = (d, local) => {
     const x = timeOf(d);
     if (!x) return typeof d === 'string' && d.trim() ? d : NO_TIME;
     const f = dateFields(x, local);
-    return `${f.h}${f.mi}${local ? 'L' : 'Z'}`;
+    return `${f.h}${f.mi}${zoneMark(local)}`;
 };
 
 // "1430" (or "930") as typed into a time box -> "14:30". Returns null for

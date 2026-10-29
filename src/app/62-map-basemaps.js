@@ -343,7 +343,7 @@ const wmsFindHtml = () => {
     const n = f.picked.size;
     return `<div class="map-find-head">
             <strong class="map-find-name">${escapeHtml(f.edit || freeBasemapName(f.title || hostOf(f.link)))}</strong>
-            <span class="overlays-muted">${f.layers.length} layer${f.layers.length === 1 ? '' : 's'} &middot; WMS ${f.version} &middot; read by ${escapeHtml(f.via)}</span>
+            <span class="overlays-muted">${plural(f.layers.length, 'layer')} &middot; WMS ${f.version} &middot; read by ${escapeHtml(f.via)}</span>
         </div>
         ${f.layers.length > 10 ? '<input type="text" id="mapWmsFilter" class="map-layer-filter" placeholder="Filter layers" spellcheck="false">' : ''}
         <div class="map-layer-list">${f.layers.map((l, i) => `

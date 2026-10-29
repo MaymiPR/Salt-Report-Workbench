@@ -2293,7 +2293,7 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(page.locator("#cancelButton").is_visible(), "still editing")
         # With nothing of the map's open, Escape is the page's again.
         page.keyboard.press("Escape")
-        page.wait_for_selector("#toast-notification:has-text('Editing cancelled')")
+        page.wait_for_selector("#toast-notification:has-text('Editing canceled')")
         # The map itself: arrow keys pan, + and - zoom, 0 shows all.
         page.focus("#mapBox")
         before = page.evaluate("mapView.mpp")
