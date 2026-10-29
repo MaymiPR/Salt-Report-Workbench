@@ -1566,6 +1566,86 @@ class BrowserTests(unittest.TestCase):
         page.evaluate("saveOverlays(currentOverlays().filter(o => o.name !== '9'))")
         self.wait_for_server(page, "s => s.overlays.length === 4")
 
+    def test_an_axis_of_advance_and_the_way_of_march_steer_the_narrative(self):
+        # The overlays and the narrative settings are every test's: start and leave without them.
+        def tidy():
+            self.post_to_server("/api/save_overlays", {"overlays": [], "tagged": True})
+            self.post_to_server("/api/save_narrative", {"narrative": {}})
+
+        tidy()
+        self.addCleanup(tidy)
+        page = self.open_editor()
+        # A line named AXIS loads as an axis of advance; another line is a phase line.
+        line = lambda name, *pts: {  # noqa: E731
+            "type": "Feature",
+            "properties": {"name": name},
+            "geometry": {"type": "LineString", "coordinates": [list(p) for p in pts]},
+        }
+        path = self.tmp / f"{self._testMethodName}.geojson"
+        path.write_text(
+            json.dumps(
+                {
+                    "type": "FeatureCollection",
+                    "features": [
+                        line("AXIS GOLD", (44.60, 33.31), (44.30, 33.29)),
+                        line("BLUE", (44.3555, 33.3024), (44.5703, 33.3034)),
+                    ],
+                }
+            )
+        )
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.set_input_files("#overlaysFileInput", str(path))
+        page.wait_for_selector("#overlaysBody .overlay-type-select")
+        self.assertEqual(
+            page.locator("#overlaysBody tbody td:nth-child(4)").all_text_contents(),
+            ["AXIS GOLD", "PL BLUE"],
+        )
+        page.click("#overlaysReviewAddBtn")
+        page.wait_for_selector(
+            "#toastNotification:has-text('2 overlays: 0 NAI, 0 OBJ, 1 PL, 1 AXIS')"
+        )
+        self.wait_for_server(
+            page, "s => s.overlays.some(o => o.type === 'AXIS' && o.name === 'GOLD')"
+        )
+        page.wait_for_selector(".overlay-group[data-overlay-group='AXIS']")
+        # A team tag can't take its name.
+        page.fill("#overlayTagNewName", "Axis of advance")
+        page.press("#overlayTagNewName", "Enter")
+        page.wait_for_selector(
+            "#toastNotification:has-text('Axis of advance is built in already.')"
+        )
+        page.click("#exportViewToggleBtn")
+        # Drawn with an arrowhead at its end, west, with a switch in the key.
+        self.log(page, "2x T-72", activity="moving E", location="38SMB4500082000")
+        self.open_map(page)
+        page.wait_for_selector("#mapSvg .map-axis .map-axis-head")
+        head = page.locator("#mapSvg .map-axis .map-axis-head").bounding_box()
+        line_box = page.locator("#mapSvg .map-axis path").first.bounding_box()
+        self.assertLess(head["x"], line_box["x"] + line_box["width"] / 2, "at the west end")
+        self.assertEqual(
+            page.locator("#mapLegend .map-key-tag").all_text_contents(),
+            ["NAI", "OBJ", "PL", "Axis of advance"],
+        )
+        # The narrative: moving east, back along the axis, is withdrawing.
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        page.wait_for_selector("#summaryText:has-text('2. ASSESSMENT')")
+        flat = lambda: " ".join(page.inner_text("#summaryText").split())  # noqa: E731
+        self.assertIn("that enemy forces are withdrawing.", flat())
+        self.assertIn("Basis: moving back along the way of march (W)", flat())
+        self.assertIn("Way of march: along AXIS GOLD within 10 km of it.", flat())
+        # The AO's way of march, for everyone; the axis still decides near it.
+        self.assertEqual(page.input_value("#narrToward"), "")
+        page.select_option("#narrToward", "N")
+        page.wait_for_selector("#toastNotification:has-text('The enemy moves toward N in the AO')")
+        self.wait_for_server(page, "s => s.narrative.toward === 'N'")
+        page.wait_for_selector("#summaryText:has-text('toward N in the AO')")
+        self.assertIn("Basis: moving back along the way of march (W)", flat())
+        self.assertEqual(page.input_value("#narrToward"), "N")
+        page.select_option("#narrToward", "")
+        self.wait_for_server(page, "s => !('toward' in s.narrative)")
+
     def test_a_narrative_entry_removed_comes_back_with_undo(self):
         page = self.open_editor()
         page.click("#summaryViewToggleBtn")
