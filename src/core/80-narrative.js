@@ -335,7 +335,7 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             judge('logistics', supply.length >= 5 ? VERY_LIKELY : supply.length >= 3 ? LIKELY : EVEN,
                 `have a logistics or resupply point in ${area}`,
                 [['supply vehicles halted or resupplying within 12 hrs', supply],
-                    ['fuel or ammunition vehicles', supply.filter(f => /\b(fuel|tanker|pol|ammo|ammunition|atz)\b/i.test(textOf(f)))]], [area]);
+                    ['fuel or ammunition vehicles', supply.filter(f => FUEL_AMMO.test(textOf(f)))]], [area]);
         }
         // Counter-battery: radar or counter-battery fire, or drones on guns, with artillery here.
         const cb = at(f => can(f, 'cbRadar'));
@@ -387,8 +387,13 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
         if (on('counterattack') && (counter.length || arrivals.length)) {
             const signs = [['a counterattack reported', counter], ['armor or mechanized forces arriving within 6 hrs after contact here', arrivals],
                 ['artillery fire in support', firesHere]];
+            // The contact the armor arrived after is cited too, though, as in
+            // regroup, it adds no strength: the arrivals already count it.
+            const last = arrivals.length ? Math.max(...arrivals.map(f => f.ms)) : null;
+            const contactBefore = last === null ? [] : at(f => shot(f) && !isManeuver(f) && f.ms <= last);
             judge('counterattack', levelBy(kindsOf(signs), 2, 3),
-                counter.length ? `are counterattacking in ${area}` : `are reinforcing or counterattacking in ${area}`, signs, [area]);
+                counter.length ? `are counterattacking in ${area}` : `are reinforcing or counterattacking in ${area}`,
+                [signs[0], ['contact here', contactBefore], ...signs.slice(1)], [area]);
         }
         // Casualty evacuation: ambulances or wounded, after fighting here.
         const cas = at(f => can(f, 'medevac'));

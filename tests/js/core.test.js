@@ -1594,8 +1594,8 @@ const RULE_TABLE = {
     [['2x T-72', 'moving N', '38SMB6500062000', 0], ['2x T-72', 'moving N', '38SMB6500082000', 60]]],
     pursuit: ['roughly even chance', [['2x T-72', 'pursuing our patrol', NAI1, 0], TRUCKS], [0],
         [['3x trucks', 'pursuing our patrol', NAI1, 0]]],
-    // The contact (T0) is what the armor arrives after, not a sign cited.
-    counterattack: ['roughly even chance', [['6x PAX', 'firing at OP', NAI1, 0], ['2x T-72', 'moving N', NAI1, 60], ['3x trucks', 'moving N', NAI1, 90]], [1],
+    // The contact (T0) is cited with the armor that arrives after it.
+    counterattack: ['roughly even chance', [['6x PAX', 'firing at OP', NAI1, 0], ['2x T-72', 'moving N', NAI1, 60], ['3x trucks', 'moving N', NAI1, 90]], [0, 1],
         [['2x T-72', 'moving N', NAI1, -30], ['6x PAX', 'firing at OP', NAI1, 0], ['2x T-72', 'moving N', NAI1, 60]]],
     withdrawal: ['roughly even chance', [['2x T-72', 'withdrawing to the east', NAI1, 0], TRUCKS], [0],
         [['2x T-72', 'moving E', NAI1, 0]]],
@@ -1736,6 +1736,19 @@ test('a reserve is armor halted while there is contact somewhere else: a named p
     const both = judgedBy([['6x PAX', 'firing at OP', NOWHERE, 0], ['4x PAX', 'engaging', NAI2, 10], ['2x T-72', 'halted', NAI1, 60]]);
     assert.deepEqual(both.judgments.find(x => x.rule === 'reserve').sources, ['t1', 't2']);
     assert.ok(both.text.replace(/\s+/g, ' ').includes('Basis: contact elsewhere (T1 250010Z); armor or mechanized forces halted away from it (T2 250100Z).'), both.text);
+});
+
+test('a counterattack cites the contact the armor arrived after, at the same strength; a logistics point knows tankers', () => {
+    const counter = judgedBy([['6x PAX', 'firing at OP', NAI1, 0], ['2x T-72', 'moving N', NAI1, 60]]);
+    const j = counter.judgments.find(x => x.rule === 'counterattack');
+    assert.equal(core.ICD203[j.level][0], 'roughly even chance', 'the contact adds no strength');
+    assert.ok(counter.text.replace(/\s+/g, ' ').includes('Basis: contact here (T0 250000Z); armor or mechanized forces arriving within 6 hrs after contact here (T1 250100Z).'), counter.text);
+    // Contact after the armor arrived isn't what it arrived after.
+    const late = judgedBy([['6x PAX', 'firing at OP', NAI1, 0], ['2x T-72', 'moving N', NAI1, 60], ['4x PAX', 'engaging', NAI1, 120]]);
+    assert.deepEqual(late.judgments.find(x => x.rule === 'counterattack').sources, ['t0', 't1']);
+    // "tankers", plural, as the shared word list has it.
+    const fuel = judgedBy([['3x trucks', 'parked', NAI1, 0], ['2x tankers', 'resupplying', NAI1, 60]]);
+    assert.ok(fuel.text.replace(/\s+/g, ' ').includes('fuel or ammunition vehicles (T1 250100Z)'), fuel.text);
 });
 
 test('a point becomes the MGRS grid it is in, and back', () => {
