@@ -34,6 +34,8 @@ extension, and some scanners treat a script carrying an encoded block as
 suspicious. If your network blocks scripts on purpose, ask your security office
 before sending it this way.
 
+Releases are built by the Release workflow when a `v<version>` tag is pushed
+(see CONTRIBUTING.md); the steps below are what it runs, and work by hand too.
 `python scripts/release.py <version>` builds both downloads and their checksum
 file into `release/` in one go. Run it from a clean checkout of the release
 tag: it refuses uncommitted changes, a commit that isn't tagged `v<version>`,

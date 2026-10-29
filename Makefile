@@ -2,13 +2,13 @@
 # (see README) - everything here is plain `python`.
 PY ?= python
 
-.PHONY: help setup setup-browser build run test lint format check clean
+.PHONY: help setup setup-browser build run test lint format check release clean
 
 help:  ## List targets
 	@grep -E '^[a-z][a-z-]*:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
 
 setup:  ## Install dev tools (the app itself needs none)
-	$(PY) -m pip install ruff==0.17.2 pre-commit
+	$(PY) -m pip install --require-hashes -r requirements-dev.txt
 	pre-commit install
 
 build:  ## Bundle src/ into a runnable dist/
@@ -24,7 +24,7 @@ test:  ## Run the test suites (Python, then JavaScript; browser tests if Playwri
 	node --test tests/js/core.test.js
 
 setup-browser:  ## Install Playwright and a Chromium for the browser tests
-	$(PY) -m pip install playwright
+	$(PY) -m pip install --require-hashes -r requirements-browser.txt
 	$(PY) -m playwright install chromium
 
 lint:  ## Lint Python and syntax-check the JavaScript
@@ -38,6 +38,11 @@ format:  ## Auto-format Python
 	ruff check --fix .
 
 check: lint test build  ## Most of what CI runs (not the built-server smoke test)
+
+release:  ## Set the version everywhere for a release: make release VERSION=2.24.0
+	@test -n "$(VERSION)" || { echo "usage: make release VERSION=X.Y.Z"; exit 1; }
+	$(PY) scripts/bump.py $(VERSION)
+	$(PY) -m unittest tests.test_docs
 
 clean:  ## Remove build output and caches (never .dev-data/)
 	rm -rf dist .ruff_cache

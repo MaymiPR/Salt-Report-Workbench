@@ -1,8 +1,19 @@
 # The app has no runtime dependencies; the only third-party code is the
-# GitHub Actions used by CI. Keep those current. They are pinned to commit
-# SHAs (with the version in a comment); Dependabot updates both together.
+# GitHub Actions used by CI and the development tools (ruff, pre-commit,
+# Playwright). Keep those current. Actions are pinned to commit SHAs (with the
+# version in a comment); the tools to versions and hashes in requirements-*.txt
+# (made from requirements-*.in by pip-compile). Dependabot updates both.
 version: 2
 updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: build
+    groups:
+      dev-tools:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:

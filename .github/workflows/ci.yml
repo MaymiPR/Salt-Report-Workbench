@@ -24,7 +24,12 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
-      - run: pip install ruff==0.17.2
+      # The Node in .node-version, not whatever the runner has.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      # The tools at the versions and hashes in requirements-dev.txt.
+      - run: pip install --require-hashes -r requirements-dev.txt
       - name: Ruff lint
         run: ruff check --output-format=github .
       - name: Ruff format
@@ -47,9 +52,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        python: ["3.10", "3.12", "3.13", "3.14", "3.15"]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]
         include:
-          # Operators run this on Windows laptops; make sure it works there.
+          # Operators run this on Windows laptops; make sure it works there,
+          # on the oldest Python the server takes too.
+          - os: windows-latest
+            python: "3.10"
           - os: windows-latest
             python: "3.13"
           - os: windows-latest
@@ -63,16 +71,25 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   browser:
-    name: Browser tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: Browser tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows too: that is where the team opens the page.
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
       # The page's DOM layer, driven in a real Chromium against the built server.
-      - run: pip install playwright && playwright install --with-deps chromium
+      - run: pip install --require-hashes -r requirements-browser.txt
+      - if: runner.os == 'Linux'
+        run: playwright install --with-deps chromium
+      - if: runner.os != 'Linux'
+        run: playwright install chromium
       - run: python -m unittest tests.test_browser -v
 
   build:
