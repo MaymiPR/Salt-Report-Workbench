@@ -1665,12 +1665,12 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#mapTip:not([hidden])")
         self.assertIn("2 positions", page.text_content("#mapTip"))
         # Zoom in, then Fit: the view can't go out past the graphics.
-        before = page.evaluate("mapView.mpp")
+        before = page.evaluate("mapState.view.mpp")
         page.click("[data-map-zoom='in']")
-        page.wait_for_function(f"() => mapView.mpp < {before}")
+        page.wait_for_function(f"() => mapState.view.mpp < {before}")
         page.click("[data-map-zoom='out']")
         page.click("[data-map-zoom='out']")
-        page.wait_for_function(f"() => Math.abs(mapView.mpp - {before}) < 1e-6")
+        page.wait_for_function(f"() => Math.abs(mapState.view.mpp - {before}) < 1e-6")
         # The heat drawn on the map has colour in it.
         self.assertGreater(
             page.evaluate(
@@ -1755,7 +1755,7 @@ class BrowserTests(unittest.TestCase):
         page.click("#mapBaseAddBtn")
         page.wait_for_selector(".map-layer-list, .map-find-error")
         self.assertEqual(
-            page.locator(".map-find-error").count(), 0, page.evaluate("JSON.stringify(wmsFind)")
+            page.locator(".map-find-error").count(), 0, page.evaluate("JSON.stringify(mapState.wmsFind)")
         )
         for t in titles:
             page.check(f".map-layer-row:has(.map-layer-title:text-is('{t}')) input")
@@ -2162,7 +2162,7 @@ class BrowserTests(unittest.TestCase):
 
         self.assertEqual(sorted(rows()), ["1x truck", "2x BMP"])
         # A dot opens the report's card and picks its row.
-        i = page.evaluate("mapItems.findIndex(x => x.t.report.size === '2x BMP')")
+        i = page.evaluate("mapState.items.findIndex(x => x.t.report.size === '2x BMP')")
         page.click(f"#mapSvg [data-map-item='{i}'] .map-hit")
         page.wait_for_selector("#mapCard:not([hidden])")
         self.assertIn("2x BMP", page.text_content("#mapCard"))
@@ -2178,9 +2178,9 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(page.locator("#mapCard").is_hidden())
         # A row puts the map on its report, zooming in from all the way out.
         page.click("[data-map-zoom='fit']")
-        page.wait_for_function("() => mapView.mpp >= mapFitMpp * 0.99")
+        page.wait_for_function("() => mapState.view.mpp >= mapState.fitMpp * 0.99")
         page.click("#mapTableBody tr[data-map-row]:has-text('1x truck')")
-        page.wait_for_function("() => mapView.mpp < mapFitMpp * 0.5")
+        page.wait_for_function("() => mapState.view.mpp < mapState.fitMpp * 0.5")
         self.assertIn("1x truck", page.text_content("#mapCard"))
         ring = page.locator("#mapSvg .map-selected circle").first.bounding_box()
         box = page.locator("#mapBox").bounding_box()
@@ -2192,12 +2192,12 @@ class BrowserTests(unittest.TestCase):
         page.evaluate("document.querySelector('.map-view').scrollTop = 0")
         self.settle(
             page,
-            "document.querySelector('.map-view').scrollTop === 0 && mapView.mpp >= mapFitMpp * 0.99",
+            "document.querySelector('.map-view').scrollTop === 0 && mapState.view.mpp >= mapState.fitMpp * 0.99",
         )
         xy = page.evaluate("""() => {
             const r = document.getElementById('mapBox').getBoundingClientRect();
             const [x, y] = SaltCore.lonLatToMerc(44.36, 33.34);
-            return [r.left + 1 + (x - mapView.cx) / mapView.mpp + (r.width - 2) / 2, r.top + 1 + (mapView.cy - y) / mapView.mpp + (r.height - 2) / 2];
+            return [r.left + 1 + (x - mapState.view.cx) / mapState.view.mpp + (r.width - 2) / 2, r.top + 1 + (mapState.view.cy - y) / mapState.view.mpp + (r.height - 2) / 2];
         }""")
         page.mouse.click(*xy)
         page.wait_for_selector(".map-place-chip:has-text('NAI 1')")
@@ -2211,8 +2211,8 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector(".map-place-chip", state="detached")
         # Only what's on the map: zoomed onto one report, the table holds just it.
         page.evaluate("""() => {
-            const t = mapLastDraw.tracks.find(x => x.report.size === '1x truck'), p = t.points[0];
-            [mapView.cx, mapView.cy] = SaltCore.lonLatToMerc(p.lon, p.lat); mapView.mpp = 1; drawMap();
+            const t = mapState.lastDraw.tracks.find(x => x.report.size === '1x truck'), p = t.points[0];
+            [mapState.view.cx, mapState.view.cy] = SaltCore.lonLatToMerc(p.lon, p.lat); mapState.view.mpp = 1; drawMap();
         }""")
         page.wait_for_function(
             "() => document.querySelectorAll('#mapTableBody tr[data-map-row]').length === 1"
@@ -2296,20 +2296,20 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#toast-notification:has-text('Editing canceled')")
         # The map itself: arrow keys pan, + and - zoom, 0 shows all.
         page.focus("#mapBox")
-        before = page.evaluate("mapView.mpp")
+        before = page.evaluate("mapState.view.mpp")
         page.keyboard.press("+")
-        page.wait_for_function(f"() => mapView.mpp < {before}")
-        cx = page.evaluate("mapView.cx")
+        page.wait_for_function(f"() => mapState.view.mpp < {before}")
+        cx = page.evaluate("mapState.view.cx")
         page.keyboard.press("ArrowRight")
-        page.wait_for_function(f"() => mapView.cx > {cx}")
-        cy = page.evaluate("mapView.cy")
+        page.wait_for_function(f"() => mapState.view.cx > {cx}")
+        cy = page.evaluate("mapState.view.cy")
         page.keyboard.press("ArrowUp")
-        page.wait_for_function(f"() => mapView.cy > {cy}")
+        page.wait_for_function(f"() => mapState.view.cy > {cy}")
         page.keyboard.press("0")
-        page.wait_for_function("() => mapView.mpp >= mapFitMpp * 0.99")
+        page.wait_for_function("() => mapState.view.mpp >= mapState.fitMpp * 0.99")
         page.keyboard.press("+")
         page.keyboard.press("-")
-        page.wait_for_function("() => mapView.mpp >= mapFitMpp * 0.99")
+        page.wait_for_function("() => mapState.view.mpp >= mapState.fitMpp * 0.99")
 
     def test_map_layers_together_all_reports_and_activity(self):
         page = self.open_editor()
@@ -2530,9 +2530,9 @@ class BrowserTests(unittest.TestCase):
         page.fill("#mapDroneGrid0", "38SMB4100079000")
         page.press("#mapDroneGrid0", "Enter")
         page.wait_for_selector("#toast-notification:has-text('GE 1 moved to 38S MB 41000 79000')")
-        before = page.evaluate("mapView.mpp")
+        before = page.evaluate("mapState.view.mpp")
         page.click("[data-drone-zoom='0']")
-        page.wait_for_function(f"() => mapView.mpp < {before}")
+        page.wait_for_function(f"() => mapState.view.mpp < {before}")
         # Drawn in the middle of the map, once redrawn.
         page.wait_for_function(
             r"() => { const t = document.querySelector('#mapSvg .map-drone').getAttribute('transform').match(/[\d.]+/g).map(Number);"
@@ -2781,7 +2781,7 @@ class BrowserTests(unittest.TestCase):
         # A basemap that didn't answer, on a map narrow enough to wrap its controls.
         for width in (1700, 1100):
             page.set_viewport_size({"width": width, "height": 900})
-            page.evaluate("mapBaseFailed = true; redrawMap()")
+            page.evaluate("mapState.baseFailed = true; redrawMap()")
             page.wait_for_selector("#mapNote", state="visible")
             self.settle(page)  # the sidebar's slide
             note = page.locator("#mapNote").bounding_box()
@@ -2790,7 +2790,7 @@ class BrowserTests(unittest.TestCase):
                 ".map(e => e.getBoundingClientRect().bottom))"
             )
             self.assertGreaterEqual(note["y"], lowest, width)
-        page.evaluate("mapBaseFailed = false; redrawMap()")
+        page.evaluate("mapState.baseFailed = false; redrawMap()")
         page.wait_for_selector("#mapNote", state="hidden")
 
     def test_the_wheel_scrolls_past_the_map_and_ctrl_wheel_zooms(self):
@@ -2798,10 +2798,10 @@ class BrowserTests(unittest.TestCase):
         self.import_overlays(page)
         self.open_map(page)
         page.hover("#mapBox")
-        before = page.evaluate("mapView.mpp")
+        before = page.evaluate("mapState.view.mpp")
         page.mouse.wheel(0, 200)
         page.wait_for_selector("#mapHint", state="visible")
-        self.assertEqual(page.evaluate("mapView.mpp"), before, "a plain wheel doesn't zoom")
+        self.assertEqual(page.evaluate("mapState.view.mpp"), before, "a plain wheel doesn't zoom")
         self.assertGreater(
             page.evaluate("document.querySelector('.map-view').scrollTop"),
             0,
@@ -2812,7 +2812,7 @@ class BrowserTests(unittest.TestCase):
         page.keyboard.down("Control")
         page.mouse.wheel(0, -200)
         page.keyboard.up("Control")
-        page.wait_for_function(f"() => mapView.mpp < {before}")
+        page.wait_for_function(f"() => mapState.view.mpp < {before}")
 
     def test_the_map_doesnt_move_as_its_numbers_arrive(self):
         page = self.open_editor()
@@ -2851,7 +2851,7 @@ class BrowserTests(unittest.TestCase):
             const o = currentOverlays().find(o => o.name === '1' && o.type === 'NAI');
             const ring = SaltCore.asArea(o.geometry).coordinates[0];
             const [x, y] = SaltCore.lonLatToMerc(ring[0][0], ring[0][1]);
-            mapView = { cx: x, cy: y, mpp: 2 };
+            mapState.view = { cx: x, cy: y, mpp: 2 };
             drawMap();
         }""")
         self.assertIn("NAI 1", labels())

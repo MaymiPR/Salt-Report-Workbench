@@ -16,36 +16,54 @@ const storedText = (key) => { try { return localStorage.getItem(key); } catch (e
 const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', track: '#ff3b30', edge: '#000000' };
 // The layers on, in any mix (per browser); the heat map alone to start with.
 const MAP_LAYERS = [['heat', 'Heat map'], ['tracks', 'Tracks'], ['reports', 'Reports']];
-const mapLayers = (() => {
-    const v = readStored('salt_map_layers', null);
-    if (v && typeof v === 'object') return { heat: !!v.heat, tracks: !!v.tracks, reports: !!v.reports };
-    return { heat: true, tracks: false, reports: false };
-})();
-// The heat map and the dots: each report at its latest grids, or every saved
-// report (its updates too) at its grids. Per browser.
-let mapAllGrids = storedText('salt_map_grids') === 'all';
-let mapActivity = new Set();   // the activity tags picked; none for every report
-let mapHours = 0;              // the window, in hours back from its end; 0 for all
-let mapEnd = null;             // the window's end (ms), set by the time slider; null for now
-let mapSelected = '';          // the report picked on the map or in its table, by id
-let mapPlace = '';             // the NAI / OBJ / PL picked on the map ('NAI 1'), or ''
-let mapLastDraw = null;        // what the last drawing showed: { view, tracks, reps }
-let mapFlashUntil = 0;         // the picked report's ring pulses until then (ms)
-let mapFitMpp = Infinity;      // metres per pixel with the whole area in view
-// Set by the Map view: told after each drawing, and of a click on the map.
-let mapDrawnHook = () => {};
-let mapClickHook = () => {};
-let mapView = null;            // { cx, cy, mpp }: centre (Web Mercator metres) and metres per pixel
-// The basemap this browser shows, by name: 'off' for none, '' for the first.
-let mapBaseChoice = storedText('salt_map_base') || '';
-const activeBasemap = () => (mapBaseChoice === 'off' ? null
-    : sharedBasemaps.find(b => b.name === mapBaseChoice) || sharedBasemaps[0] || null);
-let mapBaseFailed = false;
-let mapWmsTimer = null;
-let mapWmsGen = 0;             // the WMS request whose image may still go on screen
-let mapFrame = 0;
-let mapItems = [];             // what the pointer can hover: [{ kind, ...}] by index
-let mapLastWant = null;        // the Web Mercator box the basemap was last asked for
+// Everything the map keeps between drawings, in one place: what this browser
+// shows, what is picked, the view, and the work in flight. The map's five
+// scripts (app/60-map.js to app/64-map-controls.js) read and write it here.
+const mapState = {
+    layers: (() => {
+        const v = readStored('salt_map_layers', null);
+        if (v && typeof v === 'object') return { heat: !!v.heat, tracks: !!v.tracks, reports: !!v.reports };
+        return { heat: true, tracks: false, reports: false };
+    })(),
+    // The heat map and the dots: each report at its latest grids, or every saved
+    // report (its updates too) at its grids. Per browser.
+    allGrids: storedText('salt_map_grids') === 'all',
+    activity: new Set(),   // the activity tags picked; none for every report
+    hours: 0,              // the window, in hours back from its end; 0 for all
+    end: null,             // the window's end (ms), set by the time slider; null for now
+    selected: '',          // the report picked on the map or in its table, by id
+    place: '',             // the NAI / OBJ / PL picked on the map ('NAI 1'), or ''
+    lastDraw: null,        // what the last drawing showed: { view, tracks, reps }
+    flashUntil: 0,         // the picked report's ring pulses until then (ms)
+    fitMpp: Infinity,      // metres per pixel with the whole area in view
+    // Set by the Map view: told after each drawing, and of a click on the map.
+    drawnHook: () => {},
+    clickHook: () => {},
+    view: null,            // { cx, cy, mpp }: centre (Web Mercator metres) and metres per pixel
+    // The basemap this browser shows, by name: 'off' for none, '' for the first.
+    baseChoice: storedText('salt_map_base') || '',
+    baseFailed: false,
+    wmsTimer: null,
+    wmsGen: 0,             // the WMS request whose image may still go on screen
+    frame: 0,
+    items: [],             // what the pointer can hover: [{ kind, ...}] by index
+    lastWant: null,        // the Web Mercator box the basemap was last asked for
+    // The heat map's grid (app/61-map-draw.js), kept between drawings.
+    heatGrid: new Float32Array(0),
+    // A WMS being looked up (app/62-map-basemaps.js): the link (and a name typed
+    // for it), then what its capabilities offer and which layers are ticked.
+    // `edit` names the saved service whose layers these are (null when adding one).
+    wmsFind: null,         // { link, edit, busy, error, title, version, getMap, formats, layers: [{ name, title, crs, missing }], picked: Set, via }
+    baseCheck: null,       // { name, ok, text }: what Check found for a service
+    baseOpen: null,        // the saved service whose details are open, by name
+    // Whether the drones (app/63-map-drones.js) show, and whether their view
+    // does, is each browser's own choice.
+    droneShow: storedText('salt_drone_show') !== 'off',
+    droneView: storedText('salt_drone_view') !== 'off',
+    pointer: null,         // where the pointer last was over the map: { clientX, clientY, target }
+};
+const activeBasemap = () => (mapState.baseChoice === 'off' ? null
+    : sharedBasemaps.find(b => b.name === mapState.baseChoice) || sharedBasemaps[0] || null);
 
 const mapEls = () => ({
     box: document.getElementById('mapBox'), svg: document.getElementById('mapSvg'),
@@ -54,14 +72,14 @@ const mapEls = () => ({
     card: document.getElementById('mapCard'), hint: document.getElementById('mapHint'),
 });
 
-// The shown workspace's reports in the window (the last `mapHours` before its
+// The shown workspace's reports in the window (the last `mapState.hours` before its
 // end, or all up to its end).
 const mapWindowReports = () => {
     let reps = localReports.filter(r => !r.deleted);
-    const end = mapEnd;
+    const end = mapState.end;
     if (end !== null) reps = reps.filter(r => r.time && new Date(r.time).getTime() <= end);
-    if (mapHours) {
-        const from = (end === null ? Date.now() : end) - mapHours * 3600000;
+    if (mapState.hours) {
+        const from = (end === null ? Date.now() : end) - mapState.hours * 3600000;
         reps = reps.filter(r => r.time && new Date(r.time).getTime() >= from);
     }
     return reps;
@@ -70,7 +88,7 @@ const mapWindowReports = () => {
 // Report Log's search finds.
 const mapReports = () => {
     const q = el.log.search.value.toLowerCase();
-    return mapWindowReports().filter(r => SaltCore.activityMatches(r.activity, mapActivity) && matchesSearch(r, q));
+    return mapWindowReports().filter(r => SaltCore.activityMatches(r.activity, mapState.activity) && matchesSearch(r, q));
 };
 
 // The area the map covers: the overlays and the reports' grids, padded so
@@ -96,8 +114,8 @@ const mapExtent = (tracks) => {
 // Keep the view inside the extent: no zooming out past it, no panning off it.
 const clampMapView = (ext, w, h) => {
     const fit = Math.max((ext[2] - ext[0]) / w, (ext[3] - ext[1]) / h);
-    mapFitMpp = fit;
-    const v = mapView;
+    mapState.fitMpp = fit;
+    const v = mapState.view;
     v.mpp = Math.min(fit, Math.max(0.25, v.mpp));
     const hw = w * v.mpp / 2, hh = h * v.mpp / 2;
     v.cx = hw * 2 >= ext[2] - ext[0] ? (ext[0] + ext[2]) / 2 : Math.min(ext[2] - hw, Math.max(ext[0] + hw, v.cx));

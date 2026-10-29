@@ -8,14 +8,12 @@
 // --- Drones ---
 
 // Where each drone was last put (shared; editors move it). Whether they show,
-// and whether their view does, is each browser's own choice.
-let droneShow = storedText('salt_drone_show') !== 'off';
-let droneView = storedText('salt_drone_view') !== 'off';
+// and whether their view does, is each browser's own choice (mapState).
 const DRONE_COLOR = '#ff9f0a';
 // The sync server's limits (MAX_DRONES, MAX_DRONE_RANGE_KM in server/salt_sync_server.py).
 const MAX_DRONES = 10, MAX_DRONE_RANGE_KM = 1000;
 const dronePoint = (d) => { const g = SaltCore.findGrids(d.grid)[0]; return g ? { lon: g.lon, lat: g.lat } : null; };
-const shownDrones = () => (droneShow ? sharedDrones.map(d => ({ d, p: dronePoint(d) })).filter(x => x.p) : []);
+const shownDrones = () => (mapState.droneShow ? sharedDrones.map(d => ({ d, p: dronePoint(d) })).filter(x => x.p) : []);
 // A grid as the drones keep it ("11S NV 39697 06762"), from what was typed:
 // digits alone take MGRS Lock's zone and square. Null when it isn't one.
 const droneGrid = (text) => { const g = SaltCore.findGrids(lockedLocation(String(text || '').trim()))[0]; return g ? g.mgrs : null; };
@@ -40,18 +38,18 @@ const droneLayer = (tracks, px) => {
     if (!list.length) return { view: '', marks: '' };
     const last = t => t.points[t.points.length - 1];
     const when = t => new Date(last(t).time).getTime() || 0;
-    const newest = droneView && tracks.length ? tracks.reduce((a, b) => (when(b) > when(a) ? b : a)) : null;
+    const newest = mapState.droneView && tracks.length ? tracks.reduce((a, b) => (when(b) > when(a) ? b : a)) : null;
     const defs = [], cones = [], marks = [];
     list.forEach(({ d, p }, i) => {
         const [x, y] = px(p.lon, p.lat);
         let angle = 0;
         // Its range, as a ring: metres on the ground to pixels at its latitude.
-        if (droneView && d.range && mapView) {
-            const r = d.range * 1000 / (mapView.mpp * Math.cos(p.lat * Math.PI / 180));
+        if (mapState.droneView && d.range && mapState.view) {
+            const r = d.range * 1000 / (mapState.view.mpp * Math.cos(p.lat * Math.PI / 180));
             cones.push(`<circle class="map-drone-range" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${DRONE_COLOR}" fill-opacity="0.025" stroke="${DRONE_COLOR}" stroke-opacity="0.6" stroke-width="1.3" stroke-dasharray="3 4"/>`);
             if (r > 36) marks.push(`<text x="${x.toFixed(1)}" y="${(y - r - 5).toFixed(1)}" text-anchor="middle" class="map-label map-label-drone">${d.range} km</text>`);
         }
-        const q = droneView ? lookPoint(d) || (newest && last(newest)) : null;
+        const q = mapState.droneView ? lookPoint(d) || (newest && last(newest)) : null;
         if (q) {
             const [tx, ty] = px(q.lon, q.lat);
             const dx = tx - x, dy = ty - y, len = Math.hypot(dx, dy);
@@ -92,7 +90,7 @@ const droneLayer = (tracks, px) => {
                 marks.push(`<text x="${f(lx)}" y="${f(ly)}" text-anchor="${anchor}" class="map-label map-label-drone${out > 0 ? ' map-label-out' : ''}">${said}</text>`);
             }
         }
-        const k = mapItems.push({ kind: 'drone', d }) - 1;
+        const k = mapState.items.push({ kind: 'drone', d }) - 1;
         marks.push(`<g class="map-drone" data-map-item="${k}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})">`
             + `<g transform="rotate(${angle.toFixed(0)})"><path d="M0,-10 L2.2,-3 L10,0.5 L10,2.6 L2.2,1.4 L1.6,6.5 L4.4,8.6 L4.4,10 L0,8.8 L-4.4,10 L-4.4,8.6 L-1.6,6.5 L-2.2,1.4 L-10,2.6 L-10,0.5 L-2.2,-3 Z" fill="${DRONE_COLOR}" stroke="#000" stroke-width="1.3" stroke-linejoin="round"/></g>`
             + `<circle r="14" fill="transparent" class="map-hit"/>`
@@ -115,8 +113,8 @@ const renderDronePop = () => {
     const typed = [...pop.querySelectorAll('input[type="text"][id]')].map(i => [i.id, i.value, document.activeElement === i]);
     const toggle = (id, on, label) => `<label class="map-drone-switch"><span>${label}</span><input type="checkbox" role="switch" class="narr-switch" id="${id}"${on ? ' checked' : ''}></label>`;
     pop.innerHTML = `<div class="map-base-pop-head">Drones</div>
-        ${toggle('mapDroneShow', droneShow, 'Show on the map')}
-        ${toggle('mapDroneView', droneView, 'Show its view')}
+        ${toggle('mapDroneShow', mapState.droneShow, 'Show on the map')}
+        ${toggle('mapDroneView', mapState.droneView, 'Show its view')}
         ${sharedDrones.length ? `<div class="map-drone-list">${sharedDrones.map((d, i) => { const ask = isAsking(`drone|${d.name}`); return `
             <div class="map-drone-row">
                 <span class="map-drone-name">${escapeHtml(d.name)}</span>
@@ -163,10 +161,10 @@ const saveDrones = (list, said, undo = null) => {
 // Zoom in on a drone (its view turned on, if the drones were hidden).
 const zoomToDrone = (d) => {
     const p = dronePoint(d);
-    if (!p || !mapView) return;
-    if (!droneShow) { droneShow = true; writeStored('salt_drone_show', 'on'); }
+    if (!p || !mapState.view) return;
+    if (!mapState.droneShow) { mapState.droneShow = true; writeStored('salt_drone_show', 'on'); }
     const [x, y] = SaltCore.lonLatToMerc(p.lon, p.lat);
-    mapView.cx = x; mapView.cy = y;
-    mapView.mpp = Math.min(mapView.mpp, 4);
+    mapState.view.cx = x; mapState.view.cy = y;
+    mapState.view.mpp = Math.min(mapState.view.mpp, 4);
     renderMapView();
 };

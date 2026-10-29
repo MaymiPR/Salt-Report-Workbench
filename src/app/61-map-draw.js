@@ -20,40 +20,40 @@ const drawMap = () => {
         m.note.textContent = 'Import overlays, or log reports with grids, to see the map.';
         m.note.hidden = false;
         m.legend.innerHTML = '';
-        mapLastDraw = { view: null, tracks, reps };
-        mapDrawnHook();
+        mapState.lastDraw = { view: null, tracks, reps };
+        mapState.drawnHook();
         return;
     }
     // A new report or overlay keeps the view where it is (inside the new area).
-    if (!mapView) mapView = { cx: (ext[0] + ext[2]) / 2, cy: (ext[1] + ext[3]) / 2, mpp: Infinity };
+    if (!mapState.view) mapState.view = { cx: (ext[0] + ext[2]) / 2, cy: (ext[1] + ext[3]) / 2, mpp: Infinity };
     clampMapView(ext, w, h);
-    const { cx, cy, mpp } = mapView;
+    const { cx, cy, mpp } = mapState.view;
     const px = (lon, lat) => { const [x, y] = SaltCore.lonLatToMerc(lon, lat); return [(x - cx) / mpp + w / 2, (cy - y) / mpp + h / 2]; };
     const view = [cx - w * mpp / 2, cy - h * mpp / 2, cx + w * mpp / 2, cy + h * mpp / 2];
     drawBasemap(m, ext, view, w, h);
 
     const out = [];
-    mapItems = [];
+    mapState.items = [];
     // Worked out once a drawing, for the layer and its count in the key.
-    const heat = mapLayers.heat ? SaltCore.heatPoints(reps, mapAllGrids) : [];
-    const positions = mapLayers.reports ? SaltCore.reportPositions(reps, mapAllGrids) : [];
-    if (mapLayers.heat) out.push(heatLayer(heat, px, w, h));
+    const heat = mapState.layers.heat ? SaltCore.heatPoints(reps, mapState.allGrids) : [];
+    const positions = mapState.layers.reports ? SaltCore.reportPositions(reps, mapState.allGrids) : [];
+    if (mapState.layers.heat) out.push(heatLayer(heat, px, w, h));
     const drones = droneLayer(tracks, px);
     out.push(drones.view);
     out.push(overlayLayer(px, w, h));
-    if (mapLayers.tracks) out.push(trackLayer(tracks, px));
-    if (mapLayers.reports) out.push(reportLayer(positions, tracks, px));
+    if (mapState.layers.tracks) out.push(trackLayer(tracks, px));
+    if (mapState.layers.reports) out.push(reportLayer(positions, tracks, px));
     out.push(selectionLayer(tracks, px));
     out.push(drones.marks);
     m.svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
     m.svg.innerHTML = out.join('');
-    m.note.hidden = !mapBaseFailed;
-    if (mapBaseFailed) m.note.textContent = `The basemap service didn't answer. It may not be reachable from this computer.${isReadOnly ? '' : ' Check, in Manage > Map, says why.'}`;
+    m.note.hidden = !mapState.baseFailed;
+    if (mapState.baseFailed) m.note.textContent = `The basemap service didn't answer. It may not be reachable from this computer.${isReadOnly ? '' : ' Check, in Manage > Map, says why.'}`;
     m.legend.innerHTML = mapLegend(heat, positions, tracks);
-    mapLastDraw = { view, tracks, reps };
-    mapDrawnHook();
+    mapState.lastDraw = { view, tracks, reps };
+    mapState.drawnHook();
 };
-const redrawMap = () => { cancelAnimationFrame(mapFrame); mapFrame = requestAnimationFrame(drawMap); };
+const redrawMap = () => { cancelAnimationFrame(mapState.frame); mapState.frame = requestAnimationFrame(drawMap); };
 
 const pathOf = (coords, px, close) => coords.map((c, i) => { const [x, y] = px(c[0], c[1]); return `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`; }).join('') + (close ? 'Z' : '');
 
@@ -102,7 +102,7 @@ const overlayLayer = (px, w, h) => {
         const g = o.type === 'PL' ? o.geometry : SaltCore.asArea(o.geometry);
         const color = MAP_COLORS[o.type];
         const key = SaltCore.overlayKey(o);
-        const picked = key === mapPlace;
+        const picked = key === mapState.place;
         if (/Polygon/.test(g.type)) {
             const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
             const d = polys.map(rings => rings.map(r => pathOf(r, px, true)).join('')).join('');
@@ -147,15 +147,14 @@ const HEAT_LUT = (() => {
 // How many reports are near each pixel: each adds a cone, its weight at its
 // grid falling to nothing at the radius, summed without limit (an 8-bit
 // canvas stopped counting at about three in one place), then scaled so the
-// busiest place is the top of the ramp. Kept between drawings.
-let heatGrid = new Float32Array(0);
+// busiest place is the top of the ramp. Kept between drawings (mapState.heatGrid).
 const heatLayer = (points, px, w, h) => {
     const R = HEAT_RADIUS;
     const pts = points.map(p => ({ xy: px(p.lon, p.lat), w: p.w }))
         .filter(p => p.xy[0] > -R && p.xy[0] < w + R && p.xy[1] > -R && p.xy[1] < h + R);
     if (!pts.length) return '';
-    if (heatGrid.length < w * h) heatGrid = new Float32Array(w * h);
-    const grid = heatGrid;
+    if (mapState.heatGrid.length < w * h) mapState.heatGrid = new Float32Array(w * h);
+    const grid = mapState.heatGrid;
     // Only the part the reports touch is filled, coloured and cleared.
     let bx0 = w, by0 = h, bx1 = 0, by1 = 0;
     pts.forEach(({ xy: [x, y], w: wt }) => {
@@ -207,8 +206,8 @@ const trackLayer = (tracks, px) => {
     // Names on the tracks that moved, while they stay readable; hover tells the rest.
     const labelled = tracks.filter(t => t.moved).length <= 25;
     tracks.forEach(t => {
-        if (!t.moved && mapLayers.reports) return;
-        const i = mapItems.push({ kind: 'track', t }) - 1;
+        if (!t.moved && mapState.layers.reports) return;
+        const i = mapState.items.push({ kind: 'track', t }) - 1;
         const pts = t.points.map(p => px(p.lon, p.lat));
         const [ex, ey] = pts[pts.length - 1];
         if (t.moved) {
@@ -231,7 +230,7 @@ const trackLayer = (tracks, px) => {
         }
         if (labelled && t.moved) out.push(`<text x="${(ex + 9).toFixed(1)}" y="${(ey + 4).toFixed(1)}" class="map-label map-label-track">${svgEsc(t.report.displayId || '')}</text>`);
         // The picked track: when it was at each position.
-        if (t.moved && t.report.id === mapSelected) {
+        if (t.moved && t.report.id === mapState.selected) {
             const local = timeDisplayMode === 'local';
             pts.forEach((p, k) => {
                 const d = new Date(t.points[k].time);
@@ -249,7 +248,7 @@ const reportLayer = (positions, tracks, px) => {
     const pts = positions.filter(p => byId.has(p.report.id))
         .sort((a, b) => a.latest - b.latest);
     return `<g class="map-reports">${pts.map(p => {
-        const i = mapItems.push({ kind: 'report', t: byId.get(p.report.id) }) - 1;
+        const i = mapState.items.push({ kind: 'report', t: byId.get(p.report.id) }) - 1;
         const [x, y] = px(p.lon, p.lat);
         return `<g class="map-report${p.latest ? '' : ' map-report-old'}" data-map-item="${i}">`
             + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${p.latest ? 5 : 3.5}" fill="${MAP_COLORS.track}" stroke="${MAP_COLORS.edge}" stroke-width="${p.latest ? 1.5 : 1}"${p.latest ? '' : ' opacity="0.6"'}/>`
@@ -259,10 +258,10 @@ const reportLayer = (positions, tracks, px) => {
 
 // A ring round the picked report, in every mode.
 const selectionLayer = (tracks, px) => {
-    const t = mapSelected && tracks.find(x => x.report.id === mapSelected);
+    const t = mapState.selected && tracks.find(x => x.report.id === mapState.selected);
     if (!t) return '';
     const p = t.points[t.points.length - 1], [x, y] = px(p.lon, p.lat);
-    return `<g class="map-selected${Date.now() < mapFlashUntil ? ' flash' : ''}" pointer-events="none"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="none" stroke="#fff" stroke-width="4"/>`
+    return `<g class="map-selected${Date.now() < mapState.flashUntil ? ' flash' : ''}" pointer-events="none"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="none" stroke="#fff" stroke-width="4"/>`
         + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="none" stroke="${MAP_COLORS.OBJ}" stroke-width="2.5"/></g>`;
 };
 
@@ -276,13 +275,13 @@ const mapLegend = (heatPts, positions, tracks) => {
     const trackLine = `<svg width="18" height="10" aria-hidden="true"><line x1="1" y1="5" x2="17" y2="5" stroke="${MAP_COLORS.edge}" stroke-width="4.5"/><line x1="1" y1="5" x2="17" y2="5" stroke="${MAP_COLORS.track}" stroke-width="2.2"/></svg>`;
     const heat = Math.round(heatPts.reduce((s, p) => s + p.w, 0));
     const what = [
-        mapLayers.heat && key('<span class="map-ramp"></span>', mapAllGrids
+        mapState.layers.heat && key('<span class="map-ramp"></span>', mapState.allGrids
             ? `Fewer to more reports (${heat}, every saved report, updates included)`
             : `Fewer to more reports (${heat}, each once, at its latest grid)`),
-        mapLayers.tracks && key(trackLine, `Track, first to latest (${tracks.filter(t => t.moved).length} moved${mapLayers.reports ? '' : `, ${tracks.filter(t => !t.moved).length} at one grid`})`),
+        mapState.layers.tracks && key(trackLine, `Track, first to latest (${tracks.filter(t => t.moved).length} moved${mapState.layers.reports ? '' : `, ${tracks.filter(t => !t.moved).length} at one grid`})`),
         shownDrones().length && key('<svg width="18" height="10" aria-hidden="true"><path d="M9,0.5 L10.2,3.6 L14.5,5.3 L14.5,6.4 L10.2,5.8 L9.9,8.4 L11.3,9.5 L6.7,9.5 L8.1,8.4 L7.8,5.8 L3.5,6.4 L3.5,5.3 L7.8,3.6 Z" fill="#ff9f0a" stroke="#000" stroke-width="0.8"/></svg>',
-            droneView ? 'Drone, and its view' : 'Drone'),
-        mapLayers.reports && key(dot, mapAllGrids
+            mapState.droneView ? 'Drone, and its view' : 'Drone'),
+        mapState.layers.reports && key(dot, mapState.allGrids
             ? `Report, every saved one (${positions.length} positions; earlier ones smaller)`
             : `Report, at its latest grid (${tracks.length})`),
     ].filter(Boolean);
