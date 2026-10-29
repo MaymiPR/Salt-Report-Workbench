@@ -19,6 +19,14 @@ All notable changes to this project are documented here. The format follows
   spelling; every element id is camelCase; and the server's checks are named
   by what they return. These commits are listed in `.git-blame-ignore-revs`.
 
+### Fixed
+
+- **A change to a shared list is no longer undone by a sync arriving while it
+  is being saved.** A sync answer from just before the save put the old list
+  back on screen for a moment, and a change made from it then lost the one
+  being saved (a drone moved right after its range was set lost the range).
+  Syncs now wait for those saves, as they already did for reports.
+
 ## [2.22.0] - 2026-10-28
 
 ### Changed

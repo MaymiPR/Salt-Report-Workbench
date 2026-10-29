@@ -551,7 +551,10 @@ const apiPost = async (path, body) => {
 const saveShared = async (path, body, { said = '', undo = null, putBack = () => {}, older = '' } = {}) => {
     const tell = () => { if (said) showToast(said, false, undo ? { ms: UNDO_MS, undo } : {}); };
     if (isLocalFile) { tell(); return true; }
-    const res = await apiPost(path, body);
+    // A push, as far as pulls go: one landing meanwhile would put the list back.
+    pushesInFlight++;
+    let res;
+    try { res = await apiPost(path, body); } finally { pushSettled(); }
     if (res.ok) { tell(); return true; }
     putBack();
     if (res.status === 401) return false;   // apiPost asked for the code again
