@@ -100,6 +100,12 @@ Common types: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `style`,
   DOM (and add it to `SaltCore` if the page or tests use it), and in the
   `app/` file whose name matches what it does otherwise.
 
+**Renames go in a pull request of their own,** with nothing else in it. Once
+it is merged, add its commit to `.git-blame-ignore-revs`, so `git blame` skips
+it and still shows who last really changed each line. GitHub's blame view
+reads that file; on your own machine, run once:
+`git config blame.ignoreRevsFile .git-blame-ignore-revs`.
+
 ## Tests
 
 `python -m unittest discover -s tests` runs the server, build, pack, release,
