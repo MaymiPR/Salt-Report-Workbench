@@ -100,7 +100,7 @@ const el = {
         cancelBtn:  document.getElementById('cancelActionBtn'),
         message:    document.getElementById('confirmation-message'),
     },
-    exp: {
+    manage: {
         panel:       document.getElementById('exportPanel'),
         fromDate:    document.getElementById('export-from-date'),
         fromTime:    document.getElementById('export-from-time'),
@@ -424,7 +424,7 @@ const openHistoryRows = new Set();
 const selectedRows = new Set();
 const selectedHistory = new Set();
 const expandedCells = new Set();
-let isExportViewActive = false;
+let isManageViewActive = false;
 let pendingCsv         = null; // { headers, rows, filename }
 let offlinePendingPush = readRaw('salt_offline_push') === 'true';
 // Every workspace with changes the server hasn't taken yet (the active one,

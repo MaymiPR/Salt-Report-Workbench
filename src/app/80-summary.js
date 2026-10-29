@@ -100,7 +100,7 @@ const summaryFit = () => {
 };
 
 const openSummaryView = () => {
-    if (isExportViewActive) closeExportView();
+    if (isManageViewActive) closeManageView();
     closeStatsView(true);
     hideHomeViews();
     isSummaryViewActive = true;

@@ -93,7 +93,7 @@ const adoptFormat = (format) => {
 };
 
 // Persist a format change (every workspace): local cache + server.
-const saveWorkspaceFormat = (format) => {
+const saveFormat = (format) => {
     sharedFormat = format;
     writeStored('salt_format', JSON.stringify(format));
     applyFormFieldOrder();

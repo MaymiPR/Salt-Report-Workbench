@@ -111,8 +111,8 @@ const fold = (items) => (items.length <= FOLD_AT + 1 ? items : [
     ...items.slice(0, FOLD_AT),
     { label: `Other (${items.length - FOLD_AT})`, value: items.slice(FOLD_AT).reduce((s, i) => s + i.value, 0) },
 ]);
-const DAY_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const dayLabel = (iso) => `${+iso.slice(8, 10)} ${DAY_NAMES[+iso.slice(5, 7) - 1]}`;
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const dayLabel = (iso) => `${+iso.slice(8, 10)} ${MONTH_NAMES[+iso.slice(5, 7) - 1]}`;
 
 const statsEls = () => ({
     panel: document.getElementById('statsPanel'),
@@ -149,7 +149,7 @@ const statsWindow = () => {
     if (fromMs !== null) reps = reps.filter(r => r.time && new Date(r.time).getTime() >= fromMs);
     if (toMs !== null)   reps = reps.filter(r => r.time && new Date(r.time).getTime() <= toMs);
     const local = timeDisplayMode === 'local';
-    const when = ms => { const f = dateFields(new Date(ms), local); return `${+f.day} ${DAY_NAMES[+f.mo - 1]} ${f.h}${f.mi}${zoneMark(local)}`; };
+    const when = ms => { const f = dateFields(new Date(ms), local); return `${+f.day} ${MONTH_NAMES[+f.mo - 1]} ${f.h}${f.mi}${zoneMark(local)}`; };
     const phrase = fromMs === null && toMs === null ? 'all reports'
         : fromMs !== null && toMs !== null ? `${when(fromMs)} to ${when(toMs)}`
         : fromMs !== null ? `from ${when(fromMs)}` : `up to ${when(toMs)}`;
@@ -245,7 +245,7 @@ const setStatsTable = (cardEl, on) => {
 };
 
 const openStatsView = () => {
-    if (isExportViewActive) closeExportView();
+    if (isManageViewActive) closeManageView();
     closeSummaryView(true);
     hideHomeViews();
     isStatsViewActive = true;

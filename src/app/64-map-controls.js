@@ -26,7 +26,7 @@ document.addEventListener('fullscreenchange', () => {
 });
 
 // Built once; later renders only redraw, so the basemap isn't fetched again.
-const renderOverlayMap = (box) => {
+const renderMapPanel = (box) => {
     if (!box.querySelector('#mapSvg')) {
         const hours = [[0, 'All'], [24, '24h'], [12, '12h'], [6, '6h']];
         box.innerHTML = `
@@ -174,7 +174,7 @@ if (mapBody) {
             return;
         }
         if (e.target.closest('#mapBaseBtn')) { toggleBasePop(); return; }
-        if (e.target.closest('#mapBaseManage')) { toggleBasePop(false); openExportView(); switchWorkspacesTab('overlays'); return; }
+        if (e.target.closest('#mapBaseManage')) { toggleBasePop(false); openManageView(); switchManageTab('overlays'); return; }
         if (e.target.closest('#mapDroneBtn')) { toggleDronePop(); return; }
         const zoomTo = e.target.closest('[data-drone-zoom]');
         if (zoomTo) { const d = sharedDrones[+zoomTo.dataset.droneZoom]; if (d) zoomToDrone(d); return; }

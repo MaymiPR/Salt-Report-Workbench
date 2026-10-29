@@ -1396,7 +1396,7 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(fc.value.is_multiple())
         # The choice is remembered; viewers only export.
         page.reload()
-        page.wait_for_function("() => isExportViewActive")  # the view on screen is restored too
+        page.wait_for_function("() => isManageViewActive")  # the view on screen is restored too
         page.click(".ws-tab[data-tab='export']")
         self.assertEqual(page.input_value("#ioFormatSelect"), "arcgis-esri")
         viewer = self.open_viewer()
@@ -1426,7 +1426,7 @@ class BrowserTests(unittest.TestCase):
         page.click("#confirmActionBtn")
         page.wait_for_selector("#toast-notification:has-text('Import successful')")
         # Chosen from the drop area: a CSV goes to column matching...
-        if not page.evaluate("isExportViewActive"):
+        if not page.evaluate("isManageViewActive"):
             page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='export']")
         csv = self.tmp / "other tool.csv"
@@ -1436,7 +1436,7 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("other tool.csv", page.text_content("#csvImportSubtitle"))
         page.click("#closeCsvImportBtn")
         # ...and overlay files to the Overlays tab, to review.
-        if not page.evaluate("isExportViewActive"):
+        if not page.evaluate("isManageViewActive"):
             page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='export']")
         page.set_input_files("#ioDropInput", str(self.overlay_kmz()))
@@ -2912,7 +2912,7 @@ class BrowserTests(unittest.TestCase):
         other.fill("#startup-title", "Patrol")
         other.click("#startupContinueBtn")
         other.wait_for_selector("#salt-fields [data-custom-label='W']")
-        page.evaluate("saveWorkspaceFormat(defaultFormat())")
+        page.evaluate("saveFormat(defaultFormat())")
         self.wait_for_server(page, "s => !(s.format.lines || []).some(l => l.label === 'W')")
 
     def test_updating_shows_which_report_and_the_panel_keeps_its_width(self):

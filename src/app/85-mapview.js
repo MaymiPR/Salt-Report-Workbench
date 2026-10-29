@@ -224,7 +224,7 @@ const renderMapTime = () => {
 const renderMapView = () => {
     const s = mapViewEls();
     if (!s.panel || !isMapViewActive) return;
-    renderOverlayMap(s.host);
+    renderMapPanel(s.host);
     applyMapSide();
     renderMapTime();
     renderMapCard();
