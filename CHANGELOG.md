@@ -64,6 +64,30 @@ All notable changes to this project are documented here. The format follows
   station, it stays in the drone list but leaves the map and the Observer
   list. The Activity list says *put drone GE 1 on station* and *took drone
   GE 1 off station*, and *turned FMV mode on* or *off*.
+- **The enemy's way of march**: *Enemy moves toward* in the Narrative
+  settings (none, or N, NE, E, SE, S, SW, W, NW) is the direction the enemy
+  moves in the AO, shared like the other narrative settings (`toward` in
+  `/api/save_narrative`; settings without it read as none, and an older page
+  keeps it when it saves).
+- **Axis of advance**, a built-in line tag (`AXIS`): drawn in dark red on a
+  white edge with an arrowhead at its end, from where the enemy comes from to
+  where it heads, with a switch in the map's key while there is one. A line
+  named *AXIS ...*, *AOA ...* or *Axis of advance ...* (or in a folder or
+  layer called *Axes of advance*, *Axis* or *AOA*) imports as one, and any
+  graphic can be given the tag. It names no place. Within 10 km of an axis,
+  the direction of its nearest part is the way of march, over the AO's.
+- **The Narrative judges which way reports move**: a report heading
+  somewhere (its Activity, else its track between updates) is along the way
+  of march (within 60 degrees), back along it (beyond 120) or across it.
+  Combat forces moving back along it are withdrawing, as if the report said
+  so, and no longer count as advancing; moving along it is a sign for
+  preparing an offensive and for logistics pushing forward, and a step
+  firmer for a forward detachment, several axes, an exploitation and a
+  pursuit; moving across it is a step firmer for an envelopment. The Basis
+  names the sign with its direction (*moving along the way of march (W)*),
+  and Observed says the way of march and how many reports went each way.
+  With no way of march set and no axis, the Narrative is word for word as
+  before.
 
 ### Changed
 
@@ -71,6 +95,8 @@ All notable changes to this project are documented here. The format follows
   none, as a graphic's type, and `/api/save_tags` saves the tags. A page from
   before tags saves only the NAIs, OBJs and PLs it knows, and the graphics it
   never saw are kept.
+- **AXIS is built in**: `/api/save_overlays` takes it as a graphic's type,
+  and a tag of the team's can't be named *AXIS* or *Axis of advance*.
 - **Each drone looks at its own reports**: with no grid to look at, a drone's
   view points at its own newest report (one logged with it as the Observer),
   not at everyone's newest, so several drones aren't all looking at the same

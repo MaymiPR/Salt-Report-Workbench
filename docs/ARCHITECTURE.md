@@ -39,7 +39,7 @@ Three constraints drive almost every decision:
 │       ├── 64-map-controls.js  Full screen, the panel above, menus, grab a grid, pointer
 │       ├── 70-stats.js       Statistics panel: charts, hover, tables, PNG / SVG / Excel export
 │       ├── 80-summary.js     Summary Reports panel: written reports, copy, .txt, print, edit
-│       ├── 81-narrative.js   The narrative's settings: enemy name, units, equipment, rules
+│       ├── 81-narrative.js   The narrative's settings: enemy name, way of march, units, equipment, rules
 │       ├── 85-mapview.js     The map under the Report Log: what's on it, its table, the report card
 │       ├── 90-sync.js        Push, pull, SSE, offline queue
 │       ├── 95-handlers.js    Event wiring
@@ -182,20 +182,20 @@ outside `/api`) gets the standard library's HTML `404`.
 | `/api/save_config` | POST | Say which ATO and title this editor is in, and make it the one viewers are shown. Each editor keeps their own workspace; no other editor moves. |
 | `/api/save_profile` | POST | Register an operator's initials and color. |
 | `/api/save_format` | POST | Save the report format (Builder): one for every workspace. An `ato` from an older page is ignored. |
-| `/api/save_overlays` | POST | Replace the shared overlays: `{overlays: [{type, name, label?, geometry}], tagged?}` (GeoJSON geometries, longitude/latitude; `type` NAI, OBJ, PL, a tag's id or empty for none). An empty list clears them. Without `tagged: true` (a page from before tags) only the NAIs, OBJs and PLs are replaced, and the other graphics are kept. |
-| `/api/save_tags` | POST | Replace the team's own tags for graphics: `[{id, name, color}]` (at most 30; `id` `tag-` and up to 16 lowercase letters or digits, made by the page and kept through a rename; names unique, at most 30 characters, none NAI, OBJ or PL; `color` `#rrggbb`). Shared like the overlays and kept in every backup file, where the ones it wouldn't take are dropped on boot. |
+| `/api/save_overlays` | POST | Replace the shared overlays: `{overlays: [{type, name, label?, geometry}], tagged?}` (GeoJSON geometries, longitude/latitude; `type` NAI, OBJ, PL, AXIS, a tag's id or empty for none). An empty list clears them. Without `tagged: true` (a page from before tags) only the NAIs, OBJs and PLs are replaced, and the other graphics are kept. |
+| `/api/save_tags` | POST | Replace the team's own tags for graphics: `[{id, name, color}]` (at most 30; `id` `tag-` and up to 16 lowercase letters or digits, made by the page and kept through a rename; names unique, at most 30 characters, none NAI, OBJ, PL, AXIS or Axis of advance; `color` `#rrggbb`). Shared like the overlays and kept in every backup file, where the ones it wouldn't take are dropped on boot. |
 | `/api/save_basemaps` | POST | Replace the map's basemap services: `[{name, kind: wms \| tiles, url, layers?, version?, crs?, format?}]` (at most 20, names unique, http/https only; the last three are what a WMS's capabilities said to ask for). Shared like the overlays and kept in every backup file; each browser picks which to show. |
 | `/api/save_drones` | POST | Replace the drones on the map: `[{name, grid, at, look?, range?, offStation?}]` (at most 10, names unique, `grid` and `look` MGRS grids as the page writes them, `at` when it was put there, in ms, `range` in km, more than 0 and at most 1,000, `offStation` true when it is off station, kept only then). Shared like the basemaps and kept in every backup file; each browser chooses whether they and their view show. |
 | `/api/save_fmv` | POST | Turn FMV mode on or off for everyone: `{fmv: {on: true \| false}}`. Kept in every backup file. Until it is first saved the server holds `{}`, and the page takes that as on when there are drones, else off (a file that never had it, or `{}`, leaves it unsaved at boot). |
-| `/api/save_narrative` | POST | Replace the narrative's settings: `{enemy, units: [{name, places, kinds}], equipment: [{type, role, origin}], off: [rule ids], custom: [{what, words, min, hours}]}` (at most 50 units, 500 equipment entries, 30 rules; unit names and equipment types unique; roles and rule ids from the fixed lists, origin `RU`, `CN` or empty; a rule's `min` 1-20 reports within `hours` 1-168). Shared like the basemaps and kept in every backup file. |
+| `/api/save_narrative` | POST | Replace the narrative's settings: `{enemy, units: [{name, places, kinds}], equipment: [{type, role, origin}], off: [rule ids], custom: [{what, words, min, hours}], toward?}` (at most 50 units, 500 equipment entries, 30 rules; unit names and equipment types unique; roles and rule ids from the fixed lists, origin `RU`, `CN` or empty; a rule's `min` 1-20 reports within `hours` 1-168; `toward`, the AO's way of march, N, NE, E, SE, S, SW, W, NW or empty, kept only when set). Shared like the basemaps and kept in every backup file. |
 | `/api/wms_fetch` | POST | `{url}`: the server GETs an http(s) address for an editor's page and returns its status, content type, size and text (not images). For WMS capabilities and Check when a service sends no CORS headers. Changes nothing; logged in the audit log. Not on the viewer port. |
 
 ### Overlays and geography
 
 Overlays are one list shared by every workspace (since 2.8; before, one per
 workspace): `{type, name, label?, geometry}`, with GeoJSON geometry in
-longitude/latitude. The type is the graphic's one tag: NAI, OBJ or PL (built
-in), the id of one of the team's own tags (`tags`, `[{id, name, color}]`, its
+longitude/latitude. The type is the graphic's one tag: NAI, OBJ, PL or AXIS
+(an axis of advance; built in), the id of one of the team's own tags (`tags`, `[{id, name, color}]`, its
 own shared section), or empty for none. A graphic points at its tag by id, so
 a rename or recolor changes no overlay, and deleting a tag leaves its graphics
 with an id no tag has, which reads as none (Undo gives the tag back to them).
@@ -206,7 +206,9 @@ as drawn); a later built-in tag is one more entry there and in the server's
 `_OVERLAY_TYPES`. An area of the team's tags places a report as an NAI does,
 by the graphic's name (`custom` in `analyzeLocation`, added to the Location by
 `locationPlan`, the one place a grid adds a name); the statistics and the
-narrative read NAI, OBJ and PL only. Every workspace's backup file carries the
+narrative read NAI, OBJ and PL only (`PLACE_TYPES` in `core/20-reports.js`).
+An axis of advance names no place: it is a line, drawn with an arrowhead at
+its end, that the narrative reads the enemy's way of march from (below). Every workspace's backup file carries the
 whole list, and on boot the newest file in that form wins; older files' per-
 workspace dicts are pooled (`fold_overlays` in the server, `foldOverlays` in
 `core/20-reports.js`). The page converts KML, KMZ and zipped shapefiles (unzipped with
@@ -308,13 +310,26 @@ the words in a report that say the same. How strong each rule's judgment is
 and a table in `tests/js/core.test.js` fires every rule from a minimal set of
 reports and pins its level and the reports behind it.
 
+The enemy's way of march, the direction they move in, is the AO's (`toward`
+in the settings) or, within `AXIS_NEAR_METERS` (10 km) of an axis of
+advance, the direction of the axis's nearest segment as drawn
+(`wayOfMarchAt`, with `nearestSegment` in `core/30-geography.js`). A report
+that moves (the heading in its Activity, else its track's last leg of at
+least 100 m) is along it, back along it or across it (`wayRelation`: within
+60 degrees, beyond 120, between), kept on its facts as `sense`. Back along
+it is withdrawing, so not advancing; some rules take the others as signs of
+their own (the comment above `narrativeJudgments` lists them). With no way
+of march anywhere no report has a sense and no rule adds such a sign, so
+the narrative is what it was without them: a random corpus of a thousand
+report sets, run through the core before and after, gave the same bytes.
+
 `summaryDetail` (`core/60-statistics.js`) is `summaryReport` with what is
 behind the text: for each judgment shown, its rule, level, last line and the
 reports behind it by id. The page puts *From* and those reports as buttons
 under each judgment (`showSummaryText` in `app/80-summary.js`); the text it
 copies, saves and prints is `summaryReport`'s alone, the same bytes.
 
-The team's settings (`{enemy, units, equipment, off, custom}`) are one set per
+The team's settings (`{enemy, units, equipment, off, custom, toward}`) are one set per
 server, like the overlays: they arrive in `/api/sync` as `narrative`, are kept
 in `localStorage` (`salt_narrative`) and saved with `/api/save_narrative`,
 which `clean_narrative` trims to known fields and limits. A server from before
