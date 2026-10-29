@@ -34,9 +34,9 @@ const summaryEls = () => ({
     text:  document.getElementById('summaryText'),
     place: document.getElementById('summaryPlace'),
     placeRow: document.getElementById('summaryPlaceRow'),
-    subtitle: document.getElementById('summary-panel-subtitle'),
-    fromDate: document.getElementById('summary-from-date'), fromTime: document.getElementById('summary-from-time'),
-    toDate:   document.getElementById('summary-to-date'),   toTime:   document.getElementById('summary-to-time'),
+    subtitle: document.getElementById('summaryPanelSubtitle'),
+    fromDate: document.getElementById('summaryFromDate'), fromTime: document.getElementById('summaryFromTime'),
+    toDate:   document.getElementById('summaryToDate'),   toTime:   document.getElementById('summaryToTime'),
     editor: document.getElementById('summaryEditor'),
 });
 

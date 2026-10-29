@@ -26,7 +26,7 @@ const refillForm = (data) => {
     el.form.location.value = data.location;
     el.form.analysis.value = data.yourAnalysis || '';
     el.form.time.value     = clockValue(new Date(data.time), timeDisplayMode === 'local');
-    document.querySelectorAll('#salt-fields [data-custom-label]').forEach(i => { i.value = (data.custom || {})[i.dataset.customLabel] || ''; });
+    document.querySelectorAll('#saltFields [data-custom-label]').forEach(i => { i.value = (data.custom || {})[i.dataset.customLabel] || ''; });
     renderLocationHints();
 };
 
@@ -613,20 +613,20 @@ const renderStartupPresets = () => {
         ...((localConfig && localConfig.title) ? [localConfig.title] : []),
     ])].sort().slice(0, CAP);
 
-    fill('startup-preset-profiles', profs.map(p => {
+    fill('startupPresetProfiles', profs.map(p => {
         // A synced color goes into a style: only a plain color, never more CSS.
         const c = safeColor(p.color) === p.color ? p.color : '#0a84ff';
         return `<button type="button" class="startup-profile-chip" data-preset="profile" data-initials="${escapeHtml(p.initials)}" data-color="${escapeHtml(c)}"><span class="chip-dot" style="background:${c}"></span>${escapeHtml(p.initials)}</button>`;
     }).join(''));
-    fill('startup-preset-atos', atos.map(a =>
+    fill('startupPresetAtos', atos.map(a =>
         `<button type="button" class="startup-profile-chip" data-preset="ato" data-ato="${escapeHtml(a)}">${escapeHtml(a)}</button>`).join(''));
-    fill('startup-preset-titles', titles.map(t =>
+    fill('startupPresetTitles', titles.map(t =>
         `<button type="button" class="startup-profile-chip" data-preset="title" data-title="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join(''));
 
     // Whole section (and its divider) hide on a first-ever run with nothing known.
     const any = profs.length || atos.length || titles.length;
     sec.style.display = any ? '' : 'none';
-    const div = document.getElementById('startup-presets-divider');
+    const div = document.getElementById('startupPresetsDivider');
     if (div) div.style.display = any ? '' : 'none';
 };
 
@@ -1096,7 +1096,7 @@ document.addEventListener('keydown', e => {
     // AND any of the SALT fields has content. Doesn't clear when the form is
     // already empty (so Escape outside an active task doesn't do anything noisy).
     if (e.key==='Escape' && el.form.root.contains(e.target) && !el.form.reportId.value) {
-        const customInputs = [...document.querySelectorAll('#salt-fields [data-custom-label]')];
+        const customInputs = [...document.querySelectorAll('#saltFields [data-custom-label]')];
         const hasContent = el.form.size.value.trim() || el.form.activity.value.trim() ||
                            el.form.location.value.trim() || el.form.time.value.trim() ||
                            el.form.analysis.value.trim() || customInputs.some(i => i.value.trim());

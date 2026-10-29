@@ -86,12 +86,12 @@ h2 { font-size: 1.35em; font-weight: 600; margin-top: 0; margin-bottom: 0; lette
 /* Form is a flex column; the Analysis textarea grows to fill height. */
 .form-section { display: flex; flex-direction: column; min-width: 280px; overflow: hidden; }
 #saltForm { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-#salt-fields { flex: 0 0 auto; }
-#analysis-field { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 70px; margin-bottom: 12px; }
+#saltFields { flex: 0 0 auto; }
+#analysisField { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 70px; margin-bottom: 12px; }
 #yourAnalysis { flex: 1 1 auto; resize: none; min-height: 50px; box-sizing: border-box; }
 .update-controls { flex: 0 0 auto; }
 .report-section { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
-#main-form-header { text-align: center; margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+#mainFormHeader { text-align: center; margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
 .form-header-block { text-align: center; margin-bottom: 24px; padding-bottom: 15px; border-bottom: 1px solid var(--divider); }
 label { display: block; margin-bottom: 6px; font-weight: 500; color: var(--text-secondary); font-size: 0.85em; }
 .config-inputs label { white-space: nowrap; }
@@ -159,13 +159,13 @@ button:hover { opacity: 0.85; }
    Workspaces panel header, so it's one rule rather than inline styles. */
 .connected-users-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 0.78em; font-weight: 400; color: var(--text-secondary); white-space: nowrap; }
 .connected-users-chip svg { opacity: 0.6; }
-#report-count { font-size: 0.78em; color: var(--text-secondary); white-space: nowrap; font-weight: 400; }
+#reportCount { font-size: 0.78em; color: var(--text-secondary); white-space: nowrap; font-weight: 400; }
 /* Stacked metrics — active count over total-including-history. */
 .report-metrics { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; line-height: 1.25; flex-shrink: 0; }
-#report-total-count { font-size: 0.72em; color: var(--text-secondary); white-space: nowrap; font-weight: 400; opacity: 0.85; }
+#reportTotalCount { font-size: 0.72em; color: var(--text-secondary); white-space: nowrap; font-weight: 400; opacity: 0.85; }
 
 .form-header-row { display: flex; justify-content: flex-start; align-items: center; margin-bottom: 20px; margin-top: 0; padding-top: 15px; border-top: 1px solid var(--divider); gap: 10px; }
-#form-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#formTitle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .form-title-block { display: flex; flex-direction: column; min-width: 0; flex: 0 1 auto; }
 .form-editing-note { margin-top: 2px; font-size: 0.78em; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .form-editing-note[hidden] { display: none; }
@@ -192,7 +192,7 @@ button:hover { opacity: 0.85; }
 .profile-menu-divider { height: 1px; background: var(--divider); margin-bottom: 14px; }
 .profile-field { margin-bottom: 10px; }
 .profile-field-label, .startup-field-label { display: block; margin-bottom: 5px; }
-#user-initials-input { width: 100%; text-transform: uppercase; box-sizing: border-box; }
+#userInitialsInput { width: 100%; text-transform: uppercase; box-sizing: border-box; }
 .color-swatches { display: flex; gap: 7px; flex-wrap: wrap; }
 .color-swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; transition: transform 0.15s, border-color 0.15s; outline: none; }
 .color-swatch:hover { transform: scale(1.2); }
@@ -254,7 +254,7 @@ button:hover { opacity: 0.85; }
 .startup-section-label { margin-bottom: 12px; }
 
 /* Access-code field on the startup modal — server alphabet is uppercase. */
-#startup-access-code {
+#startupAccessCode {
     text-transform: uppercase;
     letter-spacing: 0.15em;
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -262,8 +262,8 @@ button:hover { opacity: 0.85; }
 }
 /* Hidden as dots until Show; the button sits inside the field's right end. */
 .access-input-wrap { position: relative; }
-.access-input-wrap #startup-access-code { padding-right: 76px; }
-#startup-access-code.access-masked { -webkit-text-security: disc; }
+.access-input-wrap #startupAccessCode { padding-right: 76px; }
+#startupAccessCode.access-masked { -webkit-text-security: disc; }
 .access-input-wrap .access-show-btn { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); }
 /* A fixed width, so Show and Hide take the same room. */
 .access-show-btn { width: 60px; padding-left: 0; padding-right: 0; text-align: center; cursor: pointer; }
@@ -392,7 +392,7 @@ body.local-mode .startup-access-divider { display: none; }
 /* Source link (AGPL): quiet, same color as the footer, underline on hover. */
 .manual-version-footer a { color: inherit; text-decoration: none; border-bottom: 1px solid currentColor; }
 .manual-version-footer a:hover { color: var(--text-primary); }
-#set-profile-btn { background-color: var(--system-blue); width: 100%; margin-top: 4px; }
+#setProfileBtn { background-color: var(--system-blue); width: 100%; margin-top: 4px; }
 
 /* Access code display in the Identity tab. Monospace and tracked so each
    character reads clearly when the host shares the code verbally. Read-only
@@ -747,7 +747,7 @@ body.local-mode .startup-access-divider { display: none; }
 .grid-container.horizontal-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(360px, 1fr); height: max(calc(105vh - 100px), 640px); justify-content: stretch; gap: 16px; }
 .horizontal-layout .form-section { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "title config" "head head" "form form"; align-items: end; gap: 14px 32px; padding: 18px 24px 20px; }
 .horizontal-layout .form-header-block { grid-area: title; align-self: center; margin: 0; padding: 0; border: none; text-align: left; }
-.horizontal-layout #main-form-header { text-align: left; font-size: 1.15em; }
+.horizontal-layout #mainFormHeader { text-align: left; font-size: 1.15em; }
 .horizontal-layout .config-controls { grid-area: config; display: flex; align-items: flex-end; gap: 10px; margin: 0; padding: 0; }
 .horizontal-layout .config-inputs { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .horizontal-layout .config-inputs label { margin-bottom: 3px; }
@@ -758,15 +758,15 @@ body.local-mode .startup-access-divider { display: none; }
 .horizontal-layout .form-header-row { grid-area: head; margin: 0; padding-top: 14px; }
 .horizontal-layout #saltForm { grid-area: form; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "fields submit" "analysis analysis"; gap: 12px 16px; align-items: start; }
 /* The fields share one row (a custom field joins it, or wraps); Location gets two shares. */
-.horizontal-layout #salt-fields { grid-area: fields; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; }
-.horizontal-layout #salt-fields .input-group:has(#location) { grid-column: span 2; }
+.horizontal-layout #saltFields { grid-area: fields; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; }
+.horizontal-layout #saltFields .input-group:has(#location) { grid-column: span 2; }
 .horizontal-layout .input-group { margin: 0; }
 .horizontal-layout .input-group input, .horizontal-layout .time-control { margin-bottom: 0; }
 .horizontal-layout .time-control { gap: 8px; }
 .horizontal-layout .time-control button { width: 64px; }
 .horizontal-layout .loc-hints { margin: 6px 0 0; }
-.horizontal-layout #analysis-field { grid-area: analysis; margin: 0; min-height: 0; }
-.horizontal-layout #analysis-field textarea { height: 52px; min-height: 52px; margin: 0; }
+.horizontal-layout #analysisField { grid-area: analysis; margin: 0; min-height: 0; }
+.horizontal-layout #analysisField textarea { height: 52px; min-height: 52px; margin: 0; }
 .horizontal-layout .update-controls { grid-area: submit; display: flex; align-items: center; gap: 8px; margin: 0; }
 .horizontal-layout #logButton, .horizontal-layout #editUpdatePair { margin: 0; }
 .horizontal-layout #logButton { width: auto; min-width: 170px; height: 46px; }
@@ -946,7 +946,7 @@ body.read-only .workspace-row-unload,
 body.read-only #importBackupBtnTrigger,
 body.read-only #importCsvBtnTrigger,
 body.read-only .ws-tab[data-tab="identity"],
-body.read-only #set-profile-btn,
+body.read-only #setProfileBtn,
 /* Settings-menu items that have no purpose in a read-only session. */
 body.read-only #toggleLayoutBtn,
 body.read-only #toggleMgrsLockBtn,

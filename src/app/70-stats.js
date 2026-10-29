@@ -117,9 +117,9 @@ const dayLabel = (iso) => `${+iso.slice(8, 10)} ${MONTH_NAMES[+iso.slice(5, 7) -
 const statsEls = () => ({
     panel: document.getElementById('statsPanel'),
     body:  document.getElementById('statsBody'),
-    subtitle: document.getElementById('stats-panel-subtitle'),
-    fromDate: document.getElementById('stats-from-date'), fromTime: document.getElementById('stats-from-time'),
-    toDate:   document.getElementById('stats-to-date'),   toTime:   document.getElementById('stats-to-time'),
+    subtitle: document.getElementById('statsPanelSubtitle'),
+    fromDate: document.getElementById('statsFromDate'), fromTime: document.getElementById('statsFromTime'),
+    toDate:   document.getElementById('statsToDate'),   toTime:   document.getElementById('statsToTime'),
 });
 
 // Set a window's From / To pickers to the last `hours` hours, or clear them

@@ -19,18 +19,18 @@
         <div id="notSavingBar" class="status-bar status-bar-error" role="alert" hidden>Not saving: your changes have waited over 30 seconds for the server. They are kept in this browser and sent when it can be reached.</div>
         <div id="versionBar" class="status-bar" role="alert" hidden><span id="versionBarText"></span> <button type="button" id="versionReloadBtn">Reload</button></div>
     </div>
-    <div id="toast-notification" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
-    <div id="confirmation-toast" class="toast confirm" role="dialog" aria-modal="true" aria-labelledby="confirmation-message">
-        <div id="confirmation-message" style="margin-bottom: 8px;"></div>
+    <div id="toastNotification" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+    <div id="confirmationToast" class="toast confirm" role="dialog" aria-modal="true" aria-labelledby="confirmationMessage">
+        <div id="confirmationMessage" style="margin-bottom: 8px;"></div>
         <div id="confirmButtons">
              <button type="button" id="cancelActionBtn" class="cancel-btn">Cancel</button>
              <button type="button" id="confirmActionBtn" class="confirm-btn">Confirm</button>
         </div>
     </div>
     <!-- A question with several answers (askChoice in app/10-state.js), e.g. settling a Location. -->
-    <div id="choice-toast" class="toast confirm choice" role="dialog" aria-modal="true" aria-labelledby="choice-message">
-        <div id="choice-message" class="choice-message"></div>
-        <div id="choice-detail" class="choice-detail"></div>
+    <div id="choiceToast" class="toast confirm choice" role="dialog" aria-modal="true" aria-labelledby="choiceMessage">
+        <div id="choiceMessage" class="choice-message"></div>
+        <div id="choiceDetail" class="choice-detail"></div>
         <div id="choiceButtons" class="choice-buttons"></div>
     </div>
 
@@ -45,47 +45,47 @@
             <div class="startup-section startup-access-section">
                 <div class="startup-section-label">Access Code</div>
                 <div class="startup-field">
-                    <label class="startup-field-label" for="startup-access-code">From the server console</label>
+                    <label class="startup-field-label" for="startupAccessCode">From the server console</label>
                     <div class="access-input-wrap">
-                        <input type="text" id="startup-access-code" class="access-masked" placeholder="e.g. K7M2X9PQR3" maxlength="64" autocomplete="off" spellcheck="false">
-                        <button type="button" id="startupAccessShowBtn" class="copy-btn access-show-btn" aria-pressed="false" aria-controls="startup-access-code">Show</button>
+                        <input type="text" id="startupAccessCode" class="access-masked" placeholder="e.g. K7M2X9PQR3" maxlength="64" autocomplete="off" spellcheck="false">
+                        <button type="button" id="startupAccessShowBtn" class="copy-btn access-show-btn" aria-pressed="false" aria-controls="startupAccessCode">Show</button>
                     </div>
-                    <div id="startup-access-error" class="startup-access-error" role="alert"></div>
+                    <div id="startupAccessError" class="startup-access-error" role="alert"></div>
                 </div>
             </div>
 
             <div class="startup-divider startup-access-divider"></div>
 
-            <div class="startup-section startup-presets-section" id="startup-presets" style="display:none;">
+            <div class="startup-section startup-presets-section" id="startupPresets" style="display:none;">
                 <div class="startup-section-label">Quick Start</div>
-                <div class="startup-preset-row" id="startup-preset-profiles">
+                <div class="startup-preset-row" id="startupPresetProfiles">
                     <span class="startup-chips-label">Operator</span>
                     <div class="startup-chip-list"></div>
                 </div>
-                <div class="startup-preset-row" id="startup-preset-atos">
+                <div class="startup-preset-row" id="startupPresetAtos">
                     <span class="startup-chips-label">ATO</span>
                     <div class="startup-chip-list"></div>
                 </div>
-                <div class="startup-preset-row" id="startup-preset-titles">
+                <div class="startup-preset-row" id="startupPresetTitles">
                     <span class="startup-chips-label">Title</span>
                     <div class="startup-chip-list"></div>
                 </div>
             </div>
 
-            <div class="startup-divider" id="startup-presets-divider" style="display:none;"></div>
+            <div class="startup-divider" id="startupPresetsDivider" style="display:none;"></div>
 
             <div class="startup-section">
                 <div class="startup-section-label">Report Identity</div>
                 <div class="startup-id-row">
-                    <div id="startup-preview-avatar" class="profile-preview-avatar startup-avatar">?</div>
+                    <div id="startupPreviewAvatar" class="profile-preview-avatar startup-avatar">?</div>
                     <div class="startup-id-fields">
-                        <label class="startup-field-label" for="startup-initials">Initials</label>
-                        <input type="text" id="startup-initials" placeholder="e.g. AB" maxlength="3" autocomplete="off">
+                        <label class="startup-field-label" for="startupInitials">Initials</label>
+                        <input type="text" id="startupInitials" placeholder="e.g. AB" maxlength="3" autocomplete="off">
                     </div>
                 </div>
                 <div class="startup-field">
-                    <label class="startup-field-label" id="startup-color-label">Tag Color</label>
-                    <div class="color-swatches" id="startup-color-swatches" role="group" aria-labelledby="startup-color-label">
+                    <label class="startup-field-label" id="startupColorLabel">Tag Color</label>
+                    <div class="color-swatches" id="startupColorSwatches" role="group" aria-labelledby="startupColorLabel">
                         <button type="button" class="color-swatch selected swatch-blue" data-color="#0a84ff" title="Blue" aria-label="Blue" aria-pressed="true"></button>
                         <button type="button" class="color-swatch swatch-sky" data-color="#5ac8fa" title="Sky" aria-label="Sky" aria-pressed="false"></button>
                         <button type="button" class="color-swatch swatch-green" data-color="#32d74b" title="Green" aria-label="Green" aria-pressed="false"></button>
@@ -95,7 +95,7 @@
                         <button type="button" class="color-swatch swatch-pink" data-color="#ff375f" title="Pink" aria-label="Pink" aria-pressed="false"></button>
                         <button type="button" class="color-swatch swatch-purple" data-color="#bf5af2" title="Purple" aria-label="Purple" aria-pressed="false"></button>
                     </div>
-                    <input type="hidden" id="startup-color" value="#0a84ff">
+                    <input type="hidden" id="startupColor" value="#0a84ff">
                 </div>
             </div>
 
@@ -104,12 +104,12 @@
             <div class="startup-section">
                 <div class="startup-section-label">Workspace</div>
                 <div class="startup-field">
-                    <label class="startup-field-label" for="startup-ato">ATO Designator</label>
-                    <input type="text" id="startup-ato" placeholder="e.g. ALPHA01" maxlength="50" autocomplete="off">
+                    <label class="startup-field-label" for="startupAto">ATO Designator</label>
+                    <input type="text" id="startupAto" placeholder="e.g. ALPHA01" maxlength="50" autocomplete="off">
                 </div>
                 <div class="startup-field">
-                    <label class="startup-field-label" for="startup-title">Report Title</label>
-                    <input type="text" id="startup-title" placeholder="e.g. Patrol Report" maxlength="100" autocomplete="off">
+                    <label class="startup-field-label" for="startupTitle">Report Title</label>
+                    <input type="text" id="startupTitle" placeholder="e.g. Patrol Report" maxlength="100" autocomplete="off">
                 </div>
             </div>
 
@@ -586,7 +586,7 @@
             <div class="grid-container" id="mainGrid">
                 <div class="form-section">
                     <div class="form-header-block">
-                        <h2 id="main-form-header">S.A.L.T. Report Workbench</h2>
+                        <h2 id="mainFormHeader">S.A.L.T. Report Workbench</h2>
                     </div>
 
                     <div class="config-controls">
@@ -608,7 +608,7 @@
 
                     <div class="form-header-row">
                         <div class="form-title-block">
-                            <h2 id="form-title">New Report</h2>
+                            <h2 id="formTitle">New Report</h2>
                             <!-- While updating: which report, in full (app/30-form.js). -->
                             <div id="formEditingNote" class="form-editing-note" hidden></div>
                         </div>
@@ -617,7 +617,7 @@
 
                     <form id="saltForm">
                         <input type="hidden" id="reportId">
-                        <div id="salt-fields">
+                        <div id="saltFields">
                             <div class="input-group">
                                 <input type="text" id="size" placeholder="Size" maxlength="500" aria-label="Size">
                             </div>
@@ -640,7 +640,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div id="analysis-field">
+                        <div id="analysisField">
                             <textarea id="yourAnalysis" rows="2" placeholder="Your Analysis (Optional)" maxlength="5000" aria-label="Your analysis (optional)"></textarea>
                         </div>
                         <div class="update-controls">
@@ -702,16 +702,16 @@
                          and each other view its one-line summary (setTopBar in app/10-state.js). -->
                     <div id="topBar" class="report-header top-bar" data-view="home">
                         <h2>
-                            <span id="status-dot" class="status-dot" title="Sync Status" role="img" aria-label="Sync status"></span>
-                            <span id="connected-users" class="connected-users-chip" title="Users connected">
+                            <span id="statusDot" class="status-dot" title="Sync Status" role="img" aria-label="Sync status"></span>
+                            <span id="connectedUsers" class="connected-users-chip" title="Users connected">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                                <span id="connected-users-count">1</span>
+                                <span id="connectedUsersCount">1</span>
                             </span>
                             <span id="appVersion" class="app-version" title="SALT Report Workbench version"></span>
                             <span id="homeTitle" class="home-title">Report Log</span>
                             <button type="button" class="home-arrow home-only" data-home-go="map" title="Show the map" aria-label="Show the map"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg></button>
                         </h2>
-                        <div class="top-subs"><div id="export-panel-subtitle" class="top-sub" data-top-for="export">Loading&#8230;</div><div id="stats-panel-subtitle" class="top-sub" data-top-for="stats"></div><div id="summary-panel-subtitle" class="top-sub" data-top-for="summary"></div></div>
+                        <div class="top-subs"><div id="exportPanelSubtitle" class="top-sub" data-top-for="export">Loading&#8230;</div><div id="statsPanelSubtitle" class="top-sub" data-top-for="stats"></div><div id="summaryPanelSubtitle" class="top-sub" data-top-for="summary"></div></div>
                         <div class="search-bar-wrapper home-only">
                              <span class="icon">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
@@ -719,8 +719,8 @@
                             <input type="search" id="searchBar" placeholder="Search..." aria-label="Search reports">
                         </div>
                         <div class="report-metrics home-only">
-                            <span id="report-count"></span>
-                            <span id="report-total-count" title="Total reports including every saved update"></span>
+                            <span id="reportCount"></span>
+                            <span id="reportTotalCount" title="Total reports including every saved update"></span>
                         </div>
 
                         <button type="button" id="deleteSelectedBtn" class="home-only">Delete</button>
@@ -746,7 +746,7 @@
                                         <th class="col-size sortable-th" data-sort="size" title="Sort by size" aria-sort="none"><button type="button" class="sort-btn">Size <span class="sort-icon" aria-hidden="true">&#8645;</span></button></th>
                                         <th class="col-activity sortable-th" data-sort="activity" title="Sort by activity" aria-sort="none"><button type="button" class="sort-btn">Activity <span class="sort-icon" aria-hidden="true">&#8645;</span></button></th>
                                         <th class="col-location sortable-th" data-sort="location" title="Sort by location" aria-sort="none"><button type="button" class="sort-btn">Location <span class="sort-icon" aria-hidden="true">&#8645;</span></button></th>
-                                        <th class="col-time sortable-th" data-sort="time" title="Sort by time" aria-sort="none"><button type="button" class="sort-btn"><span id="time-header">Time (Z)</span> <span class="sort-icon" aria-hidden="true">&#8645;</span></button></th>
+                                        <th class="col-time sortable-th" data-sort="time" title="Sort by time" aria-sort="none"><button type="button" class="sort-btn"><span id="timeHeader">Time (Z)</span> <span class="sort-icon" aria-hidden="true">&#8645;</span></button></th>
                                         <th class="col-analysis">Analysis</th>
                                     </tr>
                                 </thead>
@@ -789,10 +789,10 @@
                         <div class="export-panel-header">
                             <div class="export-panel-heading">
                                 <div class="export-panel-title">
-                                    <div id="status-dot-export" class="status-dot" title="Sync Status"></div>
+                                    <div id="statusDotExport" class="status-dot" title="Sync Status"></div>
                                     <span class="connected-users-chip" title="Users connected">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-                                        <span id="connected-users-count-export">1</span>
+                                        <span id="connectedUsersCountExport">1</span>
                                     </span>
                                     <span>Manage</span>
                                 </div>
@@ -824,10 +824,10 @@
                                 <div class="export-block-label">Report Identity</div>
                                 <div id="userProfileMenu" class="identity-section">
                                     <div class="profile-menu-header">
-                                        <div id="profile-preview-avatar" class="profile-preview-avatar">?</div>
+                                        <div id="profilePreviewAvatar" class="profile-preview-avatar">?</div>
                                         <div class="profile-header-text">
                                             <span class="profile-menu-label">Your ID</span>
-                                            <span id="profile-preview-name" class="profile-current-name">Not Set</span>
+                                            <span id="profilePreviewName" class="profile-current-name">Not Set</span>
                                         </div>
                                     </div>
 
@@ -844,12 +844,12 @@
                                     <div class="profile-menu-divider"></div>
 
                                     <div class="profile-field">
-                                        <label class="profile-field-label" for="user-initials-input">Initials</label>
-                                        <input type="text" id="user-initials-input" placeholder="e.g. AB" maxlength="3">
+                                        <label class="profile-field-label" for="userInitialsInput">Initials</label>
+                                        <input type="text" id="userInitialsInput" placeholder="e.g. AB" maxlength="3">
                                     </div>
                                     <div class="profile-field">
-                                        <label class="profile-field-label" id="profile-color-label">Tag Color</label>
-                                        <div class="color-swatches" id="color-swatches" role="group" aria-labelledby="profile-color-label">
+                                        <label class="profile-field-label" id="profileColorLabel">Tag Color</label>
+                                        <div class="color-swatches" id="colorSwatches" role="group" aria-labelledby="profileColorLabel">
                                             <button type="button" class="color-swatch swatch-blue" data-color="#0a84ff" title="Blue" aria-label="Blue" aria-pressed="false"></button>
                                             <button type="button" class="color-swatch swatch-sky" data-color="#5ac8fa" title="Sky" aria-label="Sky" aria-pressed="false"></button>
                                             <button type="button" class="color-swatch swatch-green" data-color="#32d74b" title="Green" aria-label="Green" aria-pressed="false"></button>
@@ -859,9 +859,9 @@
                                             <button type="button" class="color-swatch swatch-pink" data-color="#ff375f" title="Pink" aria-label="Pink" aria-pressed="false"></button>
                                             <button type="button" class="color-swatch swatch-purple" data-color="#bf5af2" title="Purple" aria-label="Purple" aria-pressed="false"></button>
                                         </div>
-                                        <input type="hidden" id="user-color-input" value="#0a84ff">
+                                        <input type="hidden" id="userColorInput" value="#0a84ff">
                                     </div>
-                                    <button type="button" id="set-profile-btn" class="set-btn">Set Initials</button>
+                                    <button type="button" id="setProfileBtn" class="set-btn">Set Initials</button>
                                 </div>
                             </div>
                         </div>
@@ -933,17 +933,17 @@
                                         <button type="button" id="exportClearFilterBtn" class="filter-preset-btn">Clear</button>
                                     </div>
                                     <div class="filter-field">
-                                        <label>From <span class="filter-mode" id="export-from-mode">(Z)</span></label>
+                                        <label>From <span class="filter-mode" id="exportFromMode">(Z)</span></label>
                                         <div class="filter-pair">
-                                            <input type="date" id="export-from-date" class="filter-date" aria-label="From date">
-                                            <input type="text" id="export-from-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
+                                            <input type="date" id="exportFromDate" class="filter-date" aria-label="From date">
+                                            <input type="text" id="exportFromTime" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
                                         </div>
                                     </div>
                                     <div class="filter-field">
-                                        <label>To <span class="filter-mode" id="export-to-mode">(Z)</span></label>
+                                        <label>To <span class="filter-mode" id="exportToMode">(Z)</span></label>
                                         <div class="filter-pair">
-                                            <input type="date" id="export-to-date" class="filter-date" aria-label="To date">
-                                            <input type="text" id="export-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
+                                            <input type="date" id="exportToDate" class="filter-date" aria-label="To date">
+                                            <input type="text" id="exportToTime" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
                                         </div>
                                     </div>
                                     <div class="filter-presets" aria-label="Quick range presets">
@@ -954,7 +954,7 @@
                                         <button type="button" class="filter-preset-btn" data-preset-hours="1">1h</button>
                                     </div>
                                     <div class="filter-meta">
-                                        <span id="export-filter-count" class="filter-count-line">All reports will be exported.</span>
+                                        <span id="exportFilterCount" class="filter-count-line">All reports will be exported.</span>
                                     </div>
                                 </section>
 
@@ -1027,8 +1027,8 @@
                                 <div class="filter-field">
                                     <label>From <span class="filter-mode range-mode">(Zulu)</span></label>
                                     <div class="filter-pair">
-                                        <input type="date" id="stats-from-date" class="filter-date" aria-label="From date">
-                                        <input type="text" id="stats-from-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
+                                        <input type="date" id="statsFromDate" class="filter-date" aria-label="From date">
+                                        <input type="text" id="statsFromTime" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
                                     </div>
                                 </div>
                                 <div class="filter-field">
@@ -1037,8 +1037,8 @@
                                         <button type="button" class="cancel-btn filter-clear" data-stats-hours="0">Clear</button>
                                     </div>
                                     <div class="filter-pair">
-                                        <input type="date" id="stats-to-date" class="filter-date" aria-label="To date">
-                                        <input type="text" id="stats-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
+                                        <input type="date" id="statsToDate" class="filter-date" aria-label="To date">
+                                        <input type="text" id="statsToTime" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
                                     </div>
                                 </div>
                             </div>
@@ -1081,8 +1081,8 @@
                                     <div class="filter-field">
                                         <label>From <span class="filter-mode range-mode">(Zulu)</span></label>
                                         <div class="filter-pair">
-                                            <input type="date" id="summary-from-date" class="filter-date" aria-label="From date">
-                                            <input type="text" id="summary-from-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
+                                            <input type="date" id="summaryFromDate" class="filter-date" aria-label="From date">
+                                            <input type="text" id="summaryFromTime" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="From time">
                                         </div>
                                     </div>
                                     <div class="filter-field">
@@ -1091,8 +1091,8 @@
                                             <button type="button" class="cancel-btn filter-clear" data-summary-hours="0">Clear</button>
                                         </div>
                                         <div class="filter-pair">
-                                            <input type="date" id="summary-to-date" class="filter-date" aria-label="To date">
-                                            <input type="text" id="summary-to-time" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
+                                            <input type="date" id="summaryToDate" class="filter-date" aria-label="To date">
+                                            <input type="text" id="summaryToTime" class="filter-time" placeholder="HH:MM" maxlength="5" aria-label="To time">
                                         </div>
                                     </div>
                                 </div>
