@@ -149,7 +149,11 @@ const statsWindow = () => {
     if (fromMs !== null) reps = reps.filter(r => r.time && new Date(r.time).getTime() >= fromMs);
     if (toMs !== null)   reps = reps.filter(r => r.time && new Date(r.time).getTime() <= toMs);
     const local = timeDisplayMode === 'local';
+<<<<<<< HEAD
     const when = ms => { const f = dateFields(new Date(ms), local); return `${+f.day} ${MONTH_NAMES[+f.mo - 1]} ${f.h}${f.mi}${zoneMark(local)}`; };
+=======
+    const when = ms => { const f = dateFields(new Date(ms), local); return `${+f.day} ${DAY_NAMES[+f.mo - 1]} ${f.h}${f.mi}${zoneMark(local)}`; };
+>>>>>>> main
     const phrase = fromMs === null && toMs === null ? 'all reports'
         : fromMs !== null && toMs !== null ? `${when(fromMs)} to ${when(toMs)}`
         : fromMs !== null ? `from ${when(fromMs)}` : `up to ${when(toMs)}`;
