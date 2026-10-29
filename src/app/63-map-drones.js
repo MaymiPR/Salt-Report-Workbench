@@ -1,24 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // The drones on the map (app/60-map.js): where each is, its view and range,
-// drawing them, their menu, and saving them for everyone. Their clicks are
-// handled with the map's others (app/64-map-controls.js).
+// drawing them, their menu, and saving them for everyone; and FMV mode, which
+// shows them. Their clicks are handled with the map's others
+// (app/64-map-controls.js).
 // One of the ordered scripts that make up the page (see src/app/); they
 // share one top-level scope, so names declared earlier are visible here.
 // --- Drones ---
 
-// Where each drone was last put (shared; editors move it). Whether they show,
-// and whether their view does, is each browser's own choice (mapState).
+// Where each drone was last put (shared; editors move it). With FMV mode on,
+// the drones on station show; whether they do, and whether their view does,
+// is then each browser's own choice (mapState).
 const DRONE_COLOR = '#ff9f0a';
 // The sync server's limits (MAX_DRONES, MAX_DRONE_RANGE_KM in server/salt_sync_server.py).
 const MAX_DRONES = 10, MAX_DRONE_RANGE_KM = 1000;
 const dronePoint = (d) => { const g = SaltCore.findGrids(d.grid)[0]; return g ? { lon: g.lon, lat: g.lat } : null; };
-const shownDrones = () => (mapState.droneShow ? sharedDrones.map(d => ({ d, p: dronePoint(d) })).filter(x => x.p) : []);
+const shownDrones = () => (fmvOn() && mapState.droneShow ? sharedDrones.filter(onStation).map(d => ({ d, p: dronePoint(d) })).filter(x => x.p) : []);
 // A grid as the drones keep it ("11S NV 39697 06762"), from what was typed:
 // digits alone take MGRS Lock's zone and square. Null when it isn't one.
 const droneGrid = (text) => { const g = SaltCore.findGrids(lockedLocation(String(text || '').trim()))[0]; return g ? g.mgrs : null; };
 // Where a drone is looking, when it's been given a grid to look at; without
-// one, its view follows the newest report.
+// one, its view follows its own newest report (one it was the observer of).
 const lookPoint = (d) => { const g = d.look ? SaltCore.findGrids(d.look)[0] : null; return g ? { lon: g.lon, lat: g.lat } : null; };
 const DRONE_OUT = '#ff453a';   // a view past the drone's range
 const droneTip = (d) => {
@@ -29,7 +31,7 @@ const droneTip = (d) => {
 
 // Each drone, pointing where it's looking: with its view on, a cone from the
 // drone to the grid it was given to look at, else to the newest report on the
-// map, narrow at the drone and widening to a round end (where it's looking,
+// map it was the observer of (none: no view), narrow at the drone and widening to a round end (where it's looking,
 // not the camera's footprint, which we don't know), with the sightline down
 // its middle, a box round the target, and the distance and direction. With a
 // range, a faint ring shows it, and a target past it turns the view red.
@@ -38,7 +40,13 @@ const droneLayer = (tracks, px) => {
     if (!list.length) return { view: '', marks: '' };
     const last = t => t.points[t.points.length - 1];
     const when = t => new Date(last(t).time).getTime() || 0;
-    const newest = mapState.droneView && tracks.length ? tracks.reduce((a, b) => (when(b) > when(a) ? b : a)) : null;
+    // Each drone's own newest report, so several drones aren't all looking at
+    // the one latest grid.
+    const newestOf = (d) => {
+        const name = d.name.toLowerCase();
+        const own = tracks.filter(t => String(t.report.observer || '').toLowerCase() === name);
+        return own.length ? last(own.reduce((a, b) => (when(b) > when(a) ? b : a))) : null;
+    };
     const defs = [], cones = [], marks = [];
     list.forEach(({ d, p }, i) => {
         const [x, y] = px(p.lon, p.lat);
@@ -49,7 +57,7 @@ const droneLayer = (tracks, px) => {
             cones.push(`<circle class="map-drone-range" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${DRONE_COLOR}" fill-opacity="0.025" stroke="${DRONE_COLOR}" stroke-opacity="0.6" stroke-width="1.3" stroke-dasharray="3 4"/>`);
             if (r > 36) marks.push(`<text x="${x.toFixed(1)}" y="${(y - r - 5).toFixed(1)}" text-anchor="middle" class="map-label map-label-drone">${d.range} km</text>`);
         }
-        const q = mapState.droneView ? lookPoint(d) || (newest && last(newest)) : null;
+        const q = mapState.droneView ? lookPoint(d) || newestOf(d) : null;
         if (q) {
             const [tx, ty] = px(q.lon, q.lat);
             const dx = tx - x, dy = ty - y, len = Math.hypot(dx, dy);
@@ -105,57 +113,78 @@ const droneLayer = (tracks, px) => {
     };
 };
 
-// The drone menu: two switches for this browser (show the drones, show their
-// view), each drone with Zoom, and for editors its grid to move it, a remove,
-// and a row to add one. Rebuilt from the list, keeping what was being typed.
+// The drone menu, kept small however many there are: two switches for this
+// browser (show the drones, show their view), then one row per drone (on
+// station or off, its name to zoom to it, its grid, and More for where it's
+// looking, its range and Remove), and for editors + to add one. Rebuilt from
+// the list, keeping what was being typed, what is open and where focus was.
+const droneMoreOpen = new Set();   // names whose More is open, in this browser
+let droneAdding = false;           // the add form is open
 const renderDronePop = () => {
     const pop = document.getElementById('mapDronePop');
     if (!pop) return;
     const typed = [...pop.querySelectorAll('input[type="text"][id]')].map(i => [i.id, i.value, document.activeElement === i]);
     const toggle = (id, on, label) => `<label class="map-drone-switch"><span>${label}</span><input type="checkbox" role="switch" class="narr-switch" id="${id}"${on ? ' checked' : ''}></label>`;
-    pop.innerHTML = `<div class="map-base-pop-head">Drones</div>
-        ${toggle('mapDroneShow', mapState.droneShow, 'Show on the map')}
-        ${toggle('mapDroneView', mapState.droneView, 'Show its view')}
-        ${sharedDrones.length ? `<div class="map-drone-list">${sharedDrones.map((d, i) => { const ask = isAsking(`drone|${d.name}`); return `
+    const adding = droneAdding && !isReadOnly;
+    const row = (d, i) => {
+        const name = escapeHtml(d.name), ask = isAsking(`drone|${d.name}`), more = droneMoreOpen.has(d.name) || ask;
+        return `<div class="map-drone-item${onStation(d) ? '' : ' off'}" role="listitem">
             <div class="map-drone-row">
-                <span class="map-drone-name">${escapeHtml(d.name)}</span>
-                ${ask ? `<span class="map-drone-ask"><input type="text" class="map-drone-grid-in" value="${escapeHtml(d.grid)}" tabindex="-1" aria-hidden="true"><span class="map-base-ask" role="status">Remove for everyone?</span></span>`
-                    : isReadOnly ? `<span class="map-drone-grid">${escapeHtml(d.grid)}</span>`
-                    : `<input type="text" id="mapDroneGrid${i}" class="map-drone-grid-in" data-drone-grid="${i}" value="${escapeHtml(d.grid)}" maxlength="40" spellcheck="false" aria-label="${escapeHtml(d.name)}'s grid">`}
-                <button type="button" class="text-btn" data-drone-zoom="${i}">Zoom</button>
-                <button type="button" class="overlay-remove editor-only" data-drone-remove="${i}" data-drone-name="${escapeHtml(d.name)}"${ask ? ' data-asking' : ''} title="Remove ${escapeHtml(d.name)}" aria-label="Remove ${escapeHtml(d.name)}">&times;</button>
+                <input type="checkbox" role="switch" class="narr-switch map-drone-station" data-drone-station="${i}"${onStation(d) ? ' checked' : ''}${isReadOnly ? ' disabled' : ''} aria-label="${name} on station" title="${onStation(d) ? 'On station' : 'Off station'}">
+                <button type="button" class="map-drone-name" data-drone-zoom="${i}" title="Zoom to ${name}" aria-label="Zoom to ${name}">${name}</button>
+                ${isReadOnly ? `<span class="map-drone-grid">${escapeHtml(d.grid)}</span>`
+                    : `<input type="text" id="mapDroneGrid${i}" class="map-drone-grid-in" data-drone-grid="${i}" value="${escapeHtml(d.grid)}" maxlength="40" spellcheck="false" aria-label="${name}'s grid" title="Type a grid and press Enter to move it">`}
+                <button type="button" class="map-drone-more" data-drone-more="${i}" aria-expanded="${more}" aria-controls="mapDroneMore${i}" title="More" aria-label="More for ${name}">&middot;&middot;&middot;</button>
             </div>
-            <div class="map-drone-sub">
+            <div class="map-drone-sub" id="mapDroneMore${i}"${more ? '' : ' hidden'}>
                 <span class="map-drone-sub-label">Looking at</span>
-                ${isReadOnly ? `<span class="map-drone-grid">${escapeHtml(d.look || 'the newest report')}</span>`
-                    : `<input type="text" id="mapDroneLook${i}" class="map-drone-grid-in" data-drone-look="${i}" value="${escapeHtml(d.look || '')}" placeholder="Newest report" maxlength="40" spellcheck="false" aria-label="Where ${escapeHtml(d.name)} is looking">`}
+                ${isReadOnly ? `<span class="map-drone-grid">${escapeHtml(d.look || 'its newest report')}</span>`
+                    : `<input type="text" id="mapDroneLook${i}" class="map-drone-grid-in" data-drone-look="${i}" value="${escapeHtml(d.look || '')}" placeholder="Its newest report" maxlength="40" spellcheck="false" aria-label="Where ${name} is looking">`}
                 <span class="map-drone-sub-label">Range</span>
                 ${isReadOnly ? `<span class="map-drone-grid">${d.range ? `${d.range} km` : 'none'}</span>`
-                    : `<input type="text" id="mapDroneRange${i}" class="map-drone-range-in" data-drone-range="${i}" value="${d.range || ''}" placeholder="km" maxlength="6" inputmode="decimal" aria-label="${escapeHtml(d.name)}'s range in km">`}
-            </div>`; }).join('')}</div>` : '<div class="map-base-none">No drones yet.</div>'}
-        <div class="map-form-row map-drone-add editor-only">
-            <input type="text" id="mapDroneName" placeholder="Name" maxlength="40" spellcheck="false" aria-label="Drone name (e.g. GE 1)">
-            <input type="text" id="mapDroneGridNew" placeholder="Grid" maxlength="40" spellcheck="false" aria-label="Drone grid">
-            <button type="button" id="mapDroneAdd" class="set-btn">Add</button>
-        </div>
-        <div class="map-base-hint editor-only">Shared with everyone. Type a grid or range and press Enter: a new grid moves the drone, <em>Looking at</em> points its view (empty: the newest report), and its range rings it.</div>`;
-    // The add row keeps what was typed; a drone's grid only while it's being changed.
-    typed.forEach(([id, v, focused]) => {
-        const i = document.getElementById(id);
-        if (!i || !(focused || id === 'mapDroneName' || id === 'mapDroneGridNew')) return;
-        i.value = v;
-        if (focused) i.focus();
+                    : `<input type="text" id="mapDroneRange${i}" class="map-drone-range-in" data-drone-range="${i}" value="${d.range || ''}" placeholder="km" maxlength="6" inputmode="decimal" aria-label="${name}'s range in km">`}
+                <button type="button" class="text-btn map-drone-remove editor-only" data-drone-remove="${i}" data-drone-name="${name}"${ask ? ' data-asking' : ''} aria-label="${ask ? `Remove ${name} for everyone?` : `Remove ${name}`}">${ask ? 'Remove for everyone?' : 'Remove'}</button>
+            </div>
+        </div>`;
+    };
+    refocusAfter(() => {
+        pop.innerHTML = `<div class="map-drone-head">
+                <span class="map-base-pop-head">Drones</span>
+                <button type="button" id="mapDroneAddBtn" class="map-drone-plus editor-only" aria-expanded="${adding}" aria-controls="mapDroneAddForm" title="Add a drone" aria-label="Add a drone"><svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 1.5v9M1.5 6h9"/></svg></button>
+            </div>
+            <div class="map-drone-shows">${toggle('mapDroneShow', mapState.droneShow, 'On the map')}${toggle('mapDroneView', mapState.droneView, 'Their view')}</div>
+            <div id="mapDroneAddForm" class="map-drone-add-box editor-only"${adding ? '' : ' hidden'}>
+                <div class="map-form-row map-drone-add">
+                    <input type="text" id="mapDroneName" placeholder="Name" maxlength="40" spellcheck="false" aria-label="Drone name (e.g. GE 1)">
+                    <input type="text" id="mapDroneGridNew" placeholder="Grid" maxlength="40" spellcheck="false" aria-label="Drone grid">
+                    <button type="button" id="mapDroneAdd" class="set-btn">Add</button>
+                </div>
+                <div class="map-base-hint">Shared with everyone. Type a drone's grid and press Enter to move it; More points its view (empty: its newest report), rings its range, or removes it.</div>
+            </div>
+            ${sharedDrones.length ? `<div class="map-drone-list" role="list" aria-label="Drones">${sharedDrones.map(row).join('')}</div>`
+                : `<div class="map-base-none">No drones yet.${isReadOnly ? '' : ' Press + to add one.'}</div>`}`;
+        // The add form keeps what was typed; a drone's boxes only while they're being changed.
+        typed.forEach(([id, v, focused]) => {
+            const i = document.getElementById(id);
+            if (!i || !(focused || id === 'mapDroneName' || id === 'mapDroneGridNew')) return;
+            i.value = v;
+            if (focused) i.focus();
+        });
     });
 };
 
-// As the basemaps: refused, the list goes back to what it was.
+// As the basemaps: refused, the list goes back to what it was. With FMV mode
+// never saved, it is on because there are drones: emptying the list saves it
+// as on first, so the menu doesn't go with the last drone.
 const saveDrones = (list, said, undo = null) => {
+    if (!fmvSaved() && sharedDrones.length && !list.length && !isReadOnly) saveFmv(true, '');
     const before = sharedDrones;
+    // The Observer list follows them, and FMV mode while no one has saved it.
+    const shown = () => { storeDrones(); applyFmvMode(); renderMapView(); };
     sharedDrones = list;
-    storeDrones();
-    renderMapView();
+    shown();
     return saveShared('/api/save_drones', { drones: list }, { said, undo, putBack: () => {
-        if (sharedDrones === list) { sharedDrones = before; storeDrones(); renderMapView(); }
+        if (sharedDrones === list) { sharedDrones = before; shown(); }
     } });
 };
 
@@ -168,4 +197,25 @@ const zoomToDrone = (d) => {
     mapState.view.cx = x; mapState.view.cy = y;
     mapState.view.mpp = Math.min(mapState.view.mpp, 4);
     renderMapView();
+};
+
+// --- FMV mode ---
+// Settings' FMV Mode, for the whole team (sharedFmv in app/10-state.js). On,
+// the map has its drone button, menu and drones, and the report form its
+// Observer; off, none of them. Said in the menu, and on the page's body.
+const applyFmvMode = () => {
+    const on = fmvOn();
+    el.menu.fmvBtn.textContent = `FMV Mode: ${on ? 'On' : 'Off'}`;
+    document.body.classList.toggle('fmv-mode', on);
+    renderObserverField();
+};
+// Saved for everyone, as the drones are: refused, it goes back to what it was.
+const saveFmv = (on, said = on ? 'FMV mode on for everyone: drones on the map, and an Observer in the report form.' : 'FMV mode off for everyone.') => {
+    const before = sharedFmv;
+    const shown = () => { storeFmv(); applyFmvMode(); renderMapView(); };
+    sharedFmv = { on };
+    shown();
+    return saveShared('/api/save_fmv', { fmv: sharedFmv }, { said, putBack: () => {
+        if (sharedFmv.on === on) { sharedFmv = before; shown(); }
+    }, older: "This server is an older version and can't share FMV mode: restart it with this version." });
 };

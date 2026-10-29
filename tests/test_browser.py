@@ -258,7 +258,7 @@ class BrowserTests(unittest.TestCase):
                 # What it had instead: each workspace's sizes, and the config.
                 had = page.evaluate(
                     "() => fetch('/api/sync').then(r => r.json()).then(s => JSON.stringify({"
-                    " config: s.config, workspaces: Object.fromEntries(Object.entries(s.workspaces)"
+                    " config: s.config, drones: s.drones, workspaces: Object.fromEntries(Object.entries(s.workspaces)"
                     ".map(([k, v]) => [k, v.map(r => r.size + (r.deleted ? ' (deleted)' : ''))])) }))"
                 )
                 raise AssertionError(f"the server never had {predicate}; it had {had}")
@@ -270,6 +270,14 @@ class BrowserTests(unittest.TestCase):
         saves included): a test that then fakes someone else's change in the
         page isn't undone by the pull its own save brings, a moment later."""
         page.wait_for_function("syncedVersion >= seenVersion && pushesInFlight === 0")
+
+    @staticmethod
+    def fmv(page, on=True):
+        """FMV mode on (or off) for everyone, saved: the tests share one
+        server, so a test that needs the drones says so rather than taking
+        the last test's."""
+        page.evaluate("on => saveFmv(on)", on)
+        page.wait_for_function("on => fmvOn() === on && pushesInFlight === 0", arg=on)
 
     def second_editor(self, initials, ato):
         """Another operator on the same server: a browser with storage of its own."""
@@ -768,9 +776,20 @@ class BrowserTests(unittest.TestCase):
         page = self.open_editor()
         version = page.evaluate("APP_VERSION")
         self.assertEqual(page.text_content("#appVersion"), f"v{version}")
-        # At the bottom, centered under the Report Log and the map, not in the top bar.
-        self.assertEqual(page.locator(".home-footer #appVersion").count(), 1)
+        # At the panel's foot, centered, not in the top bar; in the same place
+        # on every view, under what each view shows.
+        self.assertEqual(page.locator(".report-section > .app-footer #appVersion").count(), 1)
         self.assertEqual(page.locator("#topBar #appVersion").count(), 0)
+        where = "(() => { const r = document.getElementById('appVersion').getBoundingClientRect(); return [Math.round(r.x), Math.round(r.y)]; })()"
+        home = page.evaluate(where)
+        table = page.evaluate(
+            "document.querySelector('#logView .table-wrapper').getBoundingClientRect().bottom"
+        )
+        self.assertLessEqual(table, home[1], "the table ends above it")
+        for button in ("#exportViewToggleBtn", "#statsViewToggleBtn", "#summaryViewToggleBtn"):
+            page.click(button)
+            self.assertTrue(page.is_visible("#appVersion"), button)
+            self.assertEqual(page.evaluate(where), home, button)
         self.assertTrue(page.locator("#versionBar").is_hidden(), "the same release")
 
         def other_release(route):
@@ -852,6 +871,7 @@ class BrowserTests(unittest.TestCase):
             sorted(set(hours.evaluate_all("bs => bs.map(b => b.getAttribute('aria-pressed'))"))),
             ["false", "true"],
         )
+        self.fmv(page)
         page.click("#mapDroneBtn")
         expanded = "el => el.getAttribute('aria-expanded')"
         self.assertEqual(page.eval_on_selector("#mapDroneBtn", expanded), "true")
@@ -1182,10 +1202,10 @@ class BrowserTests(unittest.TestCase):
         page.click(".ws-tab[data-tab='overlays']")
         page.set_input_files("#overlaysFileInput", str(self.overlay_kmz()))
         page.wait_for_selector("#overlaysBody .overlay-type-select")
-        # Typed by name, folder, and folder; the untyped area waits for a choice.
+        # Typed by name, folder, and folder; the untyped area is Unknown.
         self.assertEqual(
-            page.locator("#overlaysBody tbody td:nth-child(4)").all_text_contents(),
-            ["NAI 1", "NAI 2", "skipped", "PL BLUE"],
+            page.locator("#overlaysBody tbody td:nth-child(5)").all_text_contents(),
+            ["NAI 1", "NAI 2", "Unknown Bridge", "PL BLUE"],
         )
         page.select_option("[data-review-idx='2']", "OBJ")
         page.click("#overlaysReviewAddBtn")
@@ -1246,14 +1266,13 @@ class BrowserTests(unittest.TestCase):
         page.click("#toggleNearbyBtn")
         try:
             self.assertEqual(page.text_content("#toggleNearbyBtn"), "Add Nearby Places: Off")
-            # Logged as typed; the places are still offered, to add with a click.
+            # Logged as typed; the places are only said, with nothing to add them by.
             page.fill("#location", "38SMB4500085200")
-            page.wait_for_selector("#locationHints .loc-hint.offered[data-loc-add='NAI 1']")
+            page.wait_for_selector("#locationHints .loc-hint.offered:text-is('NAI 1')")
+            self.assertEqual(page.locator("#locationHints [data-loc-add]").count(), 0)
+            self.assertNotIn("+", page.text_content("#locationHints"))
             self.log(page, "2x BTR", location="38SMB4500085200")
             self.assertEqual(here("2x BTR"), "38SMB4500085200")
-            page.fill("#location", "38SMB4500085200")
-            page.click("#locationHints [data-loc-add='NAI 1']")
-            self.assertEqual(page.input_value("#location"), "38SMB4500085200, NAI 1")
             # This browser's choice: it lasts a reload.
             page.reload()
             page.wait_for_function(
@@ -1419,6 +1438,7 @@ class BrowserTests(unittest.TestCase):
         self.import_overlays(page)
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='overlays']")
+        page.click("#overlayTagNewBtn")
         page.fill("#overlayTagNewName", "Routes")
         page.press("#overlayTagNewName", "Enter")
         page.wait_for_selector("#toastNotification:has-text('Tag Routes added.')")
@@ -1505,6 +1525,276 @@ class BrowserTests(unittest.TestCase):
         self.wait_for_server(page, "s => s.tags.length === 1")
         page.wait_for_selector(f".overlay-group[data-overlay-group='{tag}']")
 
+    def tidy_tags_and_overlays(self):
+        """The tags and overlays are every test's: start with none, and leave none."""
+
+        def tidy():
+            self.post_to_server("/api/save_tags", {"tags": []})
+            self.post_to_server("/api/save_overlays", {"overlays": [], "tagged": True})
+
+        tidy()
+        self.addCleanup(tidy)
+
+    def overlay_geojson(self, *features) -> Path:
+        """A GeoJSON file of (name, geometry) features, named so its name says
+        no type; areas are rings of (lon, lat) near 38S MB."""
+        path = self.tmp / f"{self._testMethodName}.geojson"
+        path.write_text(
+            json.dumps(
+                {
+                    "type": "FeatureCollection",
+                    "features": [
+                        {"type": "Feature", "properties": {"name": n}, "geometry": g}
+                        for n, g in features
+                    ],
+                }
+            )
+        )
+        return path
+
+    @staticmethod
+    def ring(lon0, lat0, lon1, lat1):
+        return {
+            "type": "Polygon",
+            "coordinates": [[[lon0, lat0], [lon1, lat0], [lon1, lat1], [lon0, lat1], [lon0, lat0]]],
+        }
+
+    def test_the_tag_manager_stays_one_row(self):
+        self.tidy_tags_and_overlays()
+        page = self.open_editor()
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        box = ".overlay-tags"
+        page.wait_for_selector(f"{box} .overlay-tags-count:has-text('No tags of your own yet.')")
+        # + New tag opens the boxes in place, the name focused; Escape closes them.
+        page.click("#overlayTagNewBtn")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "overlayTagNewName")
+        page.fill("#overlayTagNewName", "Routes")
+        page.press("#overlayTagNewName", "Escape")
+        page.wait_for_selector("#overlayTagNewName", state="detached")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "overlayTagNewBtn")
+        self.assertEqual(page.evaluate("sharedTags.length"), 0, "Escape adds nothing")
+        page.click("#overlayTagNewBtn")
+        self.assertEqual(page.input_value("#overlayTagNewName"), "", "what was typed went")
+        page.fill("#overlayTagNewName", "Routes")
+        page.click("#overlayTagAddBtn")
+        page.wait_for_selector("#toastNotification:has-text('Tag Routes added.')")
+        page.wait_for_selector("label[for='overlayTagPick']:has-text('1 tag')")
+        one = page.locator(box).bounding_box()["height"]
+        # Five more for everyone: the box is as tall as with one.
+        tags = [{"id": f"tag-t{i}", "name": n, "color": "#123456"} for i, n in enumerate("EDCBA")]
+        routes = page.evaluate("sharedTags[0]")
+        self.post_to_server("/api/save_tags", {"tags": [routes, *tags]})
+        page.wait_for_selector("label[for='overlayTagPick']:has-text('6 tags')")
+        self.assertEqual(page.locator(box).bounding_box()["height"], one)
+        self.assertEqual(page.locator(f"{box} .overlay-tag-row").count(), 1)
+        self.assertEqual(
+            page.locator("#overlayTagPick option").all_text_contents(),
+            ["A", "B", "C", "D", "E", "Routes"],
+            "by name",
+        )
+        # Picking one shows its name, color and ×; the focus stays on the list.
+        page.focus("#overlayTagPick")
+        page.select_option("#overlayTagPick", "tag-t2")
+        page.wait_for_selector("[data-tag-row='tag-t2'] [data-tag-name='tag-t2']")
+        self.assertEqual(page.input_value("[data-tag-name='tag-t2']"), "C")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "overlayTagPick")
+        self.assertEqual(
+            page.get_attribute("[data-remove-tag='tag-t2']", "aria-label"), "Delete tag C"
+        )
+        # Its × asks in place, and Undo puts it back.
+        page.click("[data-remove-tag='tag-t2']")
+        page.wait_for_selector(
+            "[data-tag-row='tag-t2'] .map-base-ask:has-text('Delete for everyone?')"
+        )
+        page.click("[data-remove-tag='tag-t2']")
+        page.wait_for_selector("#toastNotification:has-text('Tag C deleted.')")
+        self.wait_for_server(page, "s => s.tags.length === 5")
+        page.wait_for_selector("label[for='overlayTagPick']:has-text('5 tags')")
+        page.click("#toastNotification .toast-undo")
+        self.wait_for_server(page, "s => s.tags.some(t => t.id === 'tag-t2')")
+
+    def test_a_folder_named_as_a_tag_puts_its_graphics_in_it(self):
+        self.tidy_tags_and_overlays()
+        self.post_to_server(
+            "/api/save_tags", {"tags": [{"id": "tag-routes", "name": "Routes", "color": "#ff9f0a"}]}
+        )
+        page = self.open_editor()
+        page.wait_for_function("sharedTags.length === 1")
+        # A file (as a folder or layer would) named "Route": the tag Routes, lines or not.
+        path = self.tmp / "Route.geojson"
+        line = {"type": "LineString", "coordinates": [[44.36, 33.30], [44.57, 33.30]]}
+        path.write_text(
+            json.dumps(
+                {
+                    "type": "FeatureCollection",
+                    "features": [
+                        {"type": "Feature", "properties": {"name": "Copper"}, "geometry": line},
+                        {
+                            "type": "Feature",
+                            "properties": {"name": "Iron"},
+                            "geometry": self.ring(44.36, 33.26, 44.40, 33.30),
+                        },
+                    ],
+                }
+            )
+        )
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.set_input_files("#overlaysFileInput", str(path))
+        page.wait_for_selector("#overlaysBody .overlay-review-pick")
+        page.click("#overlaysReviewAddBtn")
+        self.wait_for_server(
+            page,
+            "s => s.overlays.filter(o => o.type === 'tag-routes').map(o => o.name).sort().join() === 'Copper,Iron'",
+        )
+
+    def test_shapes_are_sorted_while_importing(self):
+        self.tidy_tags_and_overlays()
+        self.post_to_server(
+            "/api/save_tags", {"tags": [{"id": "tag-routes", "name": "Routes", "color": "#ff9f0a"}]}
+        )
+        page = self.open_editor()
+        page.wait_for_function("sharedTags.length === 1")
+        line = {"type": "LineString", "coordinates": [[44.36, 33.30], [44.57, 33.30]]}
+        path = self.overlay_geojson(
+            ("Alpha", self.ring(44.36, 33.26, 44.40, 33.30)),
+            ("Bravo", self.ring(44.41, 33.26, 44.45, 33.30)),
+            ("Charlie", self.ring(44.46, 33.26, 44.50, 33.30)),
+            ("Delta", {"type": "Point", "coordinates": [44.52, 33.28]}),
+            ("Echo", line),
+        )
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.set_input_files("#overlaysFileInput", str(path))
+        page.wait_for_selector("#overlaysBody .overlay-review-pick")
+        becomes = "#overlaysBody tbody td:nth-child(5)"
+        # Nothing to choose first: what the rules don't know is Unknown.
+        self.assertEqual(
+            page.locator(becomes).all_text_contents(),
+            ["Unknown Alpha", "Unknown Bravo", "Unknown Charlie", "Unknown Delta", "PL ECHO"],
+        )
+        self.assertEqual(page.text_content("#overlaysReviewAddBtn"), "Add 5 overlays")
+        # Checked: one, then Shift-click for the run to another.
+        picks = "#overlaysBody .overlay-review-pick"
+        page.click(f"{picks}[data-pick='0']")
+        page.click(f"{picks}[data-pick='2']", modifiers=["Shift"])
+        self.assertEqual(page.text_content("#overlayReviewBulk .overlay-bulk-count"), "3 selected")
+        self.assertEqual(
+            page.locator("#overlayReviewBulkTag option").all_text_contents(),
+            ["Skip", "NAI", "OBJ", "PL", "Axis of advance", "Routes", "Unknown"],
+        )
+        page.select_option("#overlayReviewBulkTag", "tag-routes")
+        page.click("#overlayReviewBulkBtn")
+        page.wait_for_selector("#toastNotification:has-text('3 shapes to be added as Routes.')")
+        self.assertEqual(
+            page.locator(becomes).all_text_contents(),
+            ["Alpha", "Bravo", "Charlie", "Unknown Delta", "PL ECHO"],
+        )
+        # They stay checked, and the focus on Apply, for another pick.
+        self.assertEqual(page.text_content("#overlayReviewBulk .overlay-bulk-count"), "3 selected")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "overlayReviewBulkBtn")
+        # One row's own Use as still works: Charlie is an OBJ after all.
+        page.select_option("[aria-label='Use Charlie as']", "OBJ")
+        self.assertEqual(page.locator(becomes).nth(2).text_content(), "OBJ CHARLIE")
+        # Skip in bulk: Delta is left out.
+        page.click("#overlayReviewBulkClearBtn")
+        page.wait_for_selector("#overlayReviewBulk", state="hidden")
+        page.click(f"{picks}[data-pick='3']")
+        page.select_option("#overlayReviewBulkTag", "skip")
+        page.click("#overlayReviewBulkBtn")
+        self.assertEqual(page.locator(becomes).nth(3).text_content(), "skipped")
+        page.click("#overlaysReviewAddBtn")
+        page.wait_for_selector(
+            "#toastNotification:has-text('Imported 4 overlays: 0 NAI, 1 OBJ, 1 PL, 2 with your own tags.')"
+        )
+        self.wait_for_server(
+            page,
+            "s => s.overlays.map(o => o.type + ' ' + o.name).sort().join() === 'OBJ CHARLIE,PL ECHO,tag-routes Alpha,tag-routes Bravo'",
+        )
+
+    def test_shapes_with_no_name_are_numbered_each_its_own(self):
+        self.tidy_tags_and_overlays()
+        page = self.open_editor()
+        ring = self.ring(44.3558, 33.2573, 44.4632, 33.3480)
+        path = self.overlay_geojson(("", ring), ("", ring))
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.set_input_files("#overlaysFileInput", str(path))
+        page.click("#overlaysReviewAddBtn")
+        self.wait_for_server(
+            page,
+            "s => s.overlays.filter(o => o.type === '').map(o => o.name).sort().join() === 'UNNAMED,UNNAMED 2'",
+        )
+        # Again: two more, numbered past those, nothing replaced.
+        page.set_input_files("#overlaysFileInput", str(path))
+        page.click("#overlaysReviewAddBtn")
+        self.wait_for_server(page, "s => s.overlays.filter(o => o.type === '').length === 4")
+        self.assertEqual(
+            page.evaluate("sharedOverlays.filter(o => o.type === '').map(o => o.name).sort()"),
+            ["UNNAMED", "UNNAMED 2", "UNNAMED 3", "UNNAMED 4"],
+        )
+
+    def test_unknown_graphics_are_listed_first_and_not_drawn(self):
+        self.tidy_tags_and_overlays()
+        page = self.open_editor()
+        # Alpha's name, folder and file say nothing: it is Unknown, with no choice to make.
+        path = self.overlay_geojson(
+            ("Alpha", self.ring(44.3558, 33.2573, 44.4632, 33.3480)),  # 38SMB4500082000 is in it
+            ("NAI 5", self.ring(44.4632, 33.2573, 44.5705, 33.3480)),
+        )
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.set_input_files("#overlaysFileInput", str(path))
+        page.click("#overlaysReviewAddBtn")
+        page.wait_for_selector(
+            "#toastNotification:has-text('Imported 2 overlays: 1 NAI, 0 OBJ, 0 PL, 1 Unknown, not on the map until tagged.')"
+        )
+        self.wait_for_server(page, "s => s.overlays.some(o => o.type === '' && o.name === 'Alpha')")
+        # Listed first, open, with a count.
+        groups = page.locator(".overlay-group").evaluate_all(
+            "gs => gs.map(g => g.dataset.overlayGroup)"
+        )
+        self.assertEqual(groups, ["none", "NAI"])
+        unknown = ".overlay-group[data-overlay-group='none']"
+        page.wait_for_selector(f"{unknown}[open]")
+        self.assertIn("Unknown", page.text_content(f"{unknown} .overlay-group-title"))
+        self.assertEqual(page.text_content(f"{unknown} .overlay-group-count"), "1")
+        self.assertEqual(
+            page.text_content(f"{unknown} [data-unload-group='none']"), "Unload unknown graphics"
+        )
+        # It names nothing: a report inside it gets no name from it.
+        page.click("#exportViewToggleBtn")
+        self.log(page, "1x BTR", location="38SMB4500082000")
+
+        def cell(size):
+            return page.locator(
+                f"#reportLogBody tr[data-id]:has(.col-size:has-text('{size}')) .col-location"
+            ).evaluate("td => td.firstChild.textContent")
+
+        self.assertEqual(cell("1x BTR"), "38SMB4500082000")
+        # Not drawn, nor in the key (so not in a saved or printed map's either).
+        self.open_map(page)
+        self.assertEqual(page.locator("#mapSvg .map-overlays path").count(), 1, "NAI 5 only")
+        self.assertEqual(page.locator("#mapSvg .map-labels text").all_text_contents(), ["NAI 5"])
+        self.assertEqual(
+            page.locator("#mapLegend .map-key-tag").all_text_contents(), ["NAI", "OBJ", "PL"]
+        )
+        # Sorted from its group with the bulk bar: an OBJ now, drawn and naming reports.
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.click(f"{unknown} .overlay-pick[data-pick=' ALPHA']")
+        page.select_option("#overlayBulkTag", "OBJ")
+        page.click("#overlayBulkAddBtn")
+        page.wait_for_selector("#toastNotification:has-text('Alpha is OBJ ALPHA now.')")
+        page.wait_for_selector(unknown, state="detached")
+        page.click("#exportViewToggleBtn")
+        page.click("[data-home-go='list']")
+        self.log(page, "2x BTR", location="38SMB4500082000")
+        self.assertEqual(cell("2x BTR"), "38SMB4500082000, OBJ ALPHA")
+        self.open_map(page)
+        self.assertEqual(page.locator("#mapSvg .map-overlays path").count(), 2)
+
     def test_an_overlay_is_removed_on_the_second_press(self):
         # Regression: one press of the × removed it for everyone.
         page = self.open_editor()
@@ -1556,6 +1846,87 @@ class BrowserTests(unittest.TestCase):
         self.wait_for_server(page, "s => s.overlays.length === 5")
         page.evaluate("saveOverlays(currentOverlays().filter(o => o.name !== '9'))")
         self.wait_for_server(page, "s => s.overlays.length === 4")
+
+    def test_an_axis_of_advance_and_the_way_of_march_steer_the_narrative(self):
+        # The overlays and the narrative settings are every test's: start and leave without them.
+        def tidy():
+            self.post_to_server("/api/save_overlays", {"overlays": [], "tagged": True})
+            self.post_to_server("/api/save_narrative", {"narrative": {}})
+
+        tidy()
+        self.addCleanup(tidy)
+        page = self.open_editor()
+        # A line named AXIS loads as an axis of advance; another line is a phase line.
+        line = lambda name, *pts: {  # noqa: E731
+            "type": "Feature",
+            "properties": {"name": name},
+            "geometry": {"type": "LineString", "coordinates": [list(p) for p in pts]},
+        }
+        path = self.tmp / f"{self._testMethodName}.geojson"
+        path.write_text(
+            json.dumps(
+                {
+                    "type": "FeatureCollection",
+                    "features": [
+                        line("AXIS GOLD", (44.60, 33.31), (44.30, 33.29)),
+                        line("BLUE", (44.3555, 33.3024), (44.5703, 33.3034)),
+                    ],
+                }
+            )
+        )
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.set_input_files("#overlaysFileInput", str(path))
+        page.wait_for_selector("#overlaysBody .overlay-type-select")
+        self.assertEqual(
+            page.locator("#overlaysBody tbody td:nth-child(5)").all_text_contents(),
+            ["AXIS GOLD", "PL BLUE"],
+        )
+        page.click("#overlaysReviewAddBtn")
+        page.wait_for_selector(
+            "#toastNotification:has-text('2 overlays: 0 NAI, 0 OBJ, 1 PL, 1 AXIS')"
+        )
+        self.wait_for_server(
+            page, "s => s.overlays.some(o => o.type === 'AXIS' && o.name === 'GOLD')"
+        )
+        page.wait_for_selector(".overlay-group[data-overlay-group='AXIS']")
+        # A team tag can't take its name.
+        page.click("#overlayTagNewBtn")
+        page.fill("#overlayTagNewName", "Axis of advance")
+        page.press("#overlayTagNewName", "Enter")
+        page.wait_for_selector(
+            "#toastNotification:has-text('Axis of advance is built in already.')"
+        )
+        page.click("#exportViewToggleBtn")
+        # Drawn with an arrowhead at its end, west, with a switch in the key.
+        self.log(page, "2x T-72", activity="moving E", location="38SMB4500082000")
+        self.open_map(page)
+        page.wait_for_selector("#mapSvg .map-axis .map-axis-head")
+        head = page.locator("#mapSvg .map-axis .map-axis-head").bounding_box()
+        line_box = page.locator("#mapSvg .map-axis path").first.bounding_box()
+        self.assertLess(head["x"], line_box["x"] + line_box["width"] / 2, "at the west end")
+        self.assertEqual(
+            page.locator("#mapLegend .map-key-tag").all_text_contents(),
+            ["NAI", "OBJ", "PL", "Axis of advance"],
+        )
+        # The narrative: moving east, back along the axis, is withdrawing.
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        page.wait_for_selector("#summaryText:has-text('2. ASSESSMENT')")
+        flat = lambda: " ".join(page.inner_text("#summaryText").split())  # noqa: E731
+        self.assertIn("that enemy forces are withdrawing.", flat())
+        self.assertIn("Basis: moving back along the way of march (W)", flat())
+        self.assertIn("Way of march: along AXIS GOLD within 10 km of it.", flat())
+        # The AO's way of march, for everyone; the axis still decides near it.
+        self.assertEqual(page.input_value("#narrToward"), "")
+        page.select_option("#narrToward", "N")
+        page.wait_for_selector("#toastNotification:has-text('The enemy moves toward N in the AO')")
+        self.wait_for_server(page, "s => s.narrative.toward === 'N'")
+        page.wait_for_selector("#summaryText:has-text('toward N in the AO')")
+        self.assertIn("Basis: moving back along the way of march (W)", flat())
+        self.assertEqual(page.input_value("#narrToward"), "N")
+        page.select_option("#narrToward", "")
+        self.wait_for_server(page, "s => !('toward' in s.narrative)")
 
     def test_a_narrative_entry_removed_comes_back_with_undo(self):
         page = self.open_editor()
@@ -1847,9 +2218,9 @@ class BrowserTests(unittest.TestCase):
         page.set_input_files("#overlaysFileInput", str(zpath))
         page.wait_for_selector("#overlaysBody .overlay-type-select")
         cells = page.locator("#overlaysBody tbody tr").first.locator("td")
-        self.assertEqual(cells.nth(0).text_content(), "OBJ IRON")
-        self.assertEqual(cells.nth(1).text_content(), "Area")
-        self.assertEqual(cells.nth(3).text_content(), "OBJ IRON")
+        self.assertEqual(cells.nth(1).text_content(), "OBJ IRON")
+        self.assertEqual(cells.nth(2).text_content(), "Area")
+        self.assertEqual(cells.nth(4).text_content(), "OBJ IRON")
         page.click("#overlaysReviewCancelBtn")
         # The same files picked together, unzipped.
         loose = []
@@ -2066,6 +2437,50 @@ class BrowserTests(unittest.TestCase):
         )
         return page.locator("#mapBox").bounding_box()
 
+    def test_an_axis_of_advance_drawn_on_the_map_is_saved_for_everyone(self):
+        self.tidy_tags_and_overlays()
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        box = self.start_measure(page, "axis")
+        page.wait_for_selector("#mapMeasureOut:has-text('where the enemy comes from')")
+        # Under the tools (a row across the map's middle) and over the key at
+        # its foot, which grows a row for the axis.
+        x, y = box["x"] + 240, box["y"] + box["height"] * 0.62 + 40
+        page.mouse.click(x, y)
+        page.mouse.click(x + 50, y - 20)
+        page.mouse.click(x + 100, y - 45)
+        page.focus("#mapBox")
+        page.keyboard.press("Enter")
+        # Finished: named next, the first free number offered.
+        page.wait_for_function("document.activeElement.id === 'mapAxisName'")
+        self.assertEqual(page.input_value("#mapAxisName"), "1")
+        page.fill("#mapAxisName", "Gold")
+        page.press("#mapAxisName", "Enter")
+        page.wait_for_selector("#toastNotification:has-text('AXIS GOLD saved for everyone.')")
+        self.wait_for_server(
+            page,
+            "s => s.overlays.some(o => o.type === 'AXIS' && o.name === 'GOLD' && o.geometry.coordinates.length === 3)",
+        )
+        page.wait_for_selector("#mapSvg .map-axis .map-axis-head")
+        # A name in use asks for another.
+        # (From the keyboard this time: Space puts a point at the map's middle.)
+        self.start_measure(page, "axis")
+        page.focus("#mapBox")
+        page.keyboard.press("Space")
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("Space")
+        page.keyboard.press("Enter")
+        page.wait_for_function("document.activeElement.id === 'mapAxisName'")
+        self.assertEqual(page.input_value("#mapAxisName"), "1")
+        page.fill("#mapAxisName", "gold")
+        page.click("#mapAxisSave")
+        page.wait_for_selector("#toastNotification:has-text('AXIS GOLD exists already')")
+        self.assertEqual(page.evaluate("sharedOverlays.filter(o => o.type === 'AXIS').length"), 1)
+        # Viewers can't draw one.
+        viewer = self.open_viewer()
+        self.assertEqual(viewer.locator("[data-measure-tool='axis']:visible").count(), 0)
+
     def test_the_measure_tools_path_area_ring_and_time(self):
         page = self.open_editor()
         self.import_overlays(page)
@@ -2158,11 +2573,17 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_function("!document.querySelector('#mapSvg .map-ring-kept')")
         self.assertEqual(page.evaluate("localStorage.getItem('salt_range_rings')"), "[]")
 
-        # Time-distance: a standard rate, or a speed typed.
+        # Time-distance: empty at first; a speed typed, in a unit of the units in use.
+        page.evaluate("localStorage.removeItem('salt_measure_speed')")
+        page.evaluate("mapState.measureSpeed = ''; mapState.measureUnit = ''")
         box = self.start_measure(page, "time")
-        page.select_option("#mapMeasureRate", "foot")
-        self.assertEqual(page.input_value("#mapMeasureSpeed"), "4")
-        # Under the options (rate and speed), which float over the map's right side.
+        self.assertEqual(page.input_value("#mapMeasureSpeed"), "")
+        units = page.locator("#mapMeasureUnit option").evaluate_all(
+            "os => os.map(o => o.textContent)"
+        )
+        self.assertEqual(units, ["km/h", "m/min"], "metric units only")
+        page.fill("#mapMeasureSpeed", "4")
+        # Under the options (speed and unit), which float over the map's right side.
         low = box["y"] + box["height"] * 0.8
         page.mouse.click(x, low)
         page.mouse.click(x + 150, low)
@@ -2175,6 +2596,17 @@ class BrowserTests(unittest.TestCase):
         self.assertIn(f"takes {want}, from 38S MB", said)
         page.fill("#mapMeasureSpeed", "8")
         page.wait_for_selector("#mapMeasureOut:has-text('at 8 km/h takes')")
+        page.select_option("#mapMeasureUnit", "mmin")
+        page.wait_for_selector("#mapMeasureOut:has-text('at 8 m/min takes')")
+        # Kept for next time, in this browser.
+        self.assertEqual(
+            page.evaluate("JSON.parse(localStorage.getItem('salt_measure_speed'))"),
+            {"v": "8", "unit": "mmin"},
+        )
+        page.select_option("#mapMeasureUnit", "kmh")
+        self.start_measure(page, "path")
+        self.start_measure(page, "time")
+        self.assertEqual(page.input_value("#mapMeasureSpeed"), "8")
         # From the keyboard: the map focused, Space puts a point at its middle.
         self.start_measure(page, "path")
         page.focus("#mapBox")
@@ -2208,18 +2640,24 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#mapSvg .map-measure-line")
         said = page.text_content("#mapMeasureOut")
         self.assertRegex(said, r"^[\d.,]+ (yd|mi), \d{3}° [NESW]+, from 38S MB")
-        # Aircraft in nautical miles and knots; vehicles in miles and mph.
+        # Imperial units only: knots for aircraft (nautical miles), mph for the rest.
         self.start_measure(page, "time")
-        page.select_option("#mapMeasureRate", "air")
-        self.assertEqual(page.input_value("#mapMeasureSpeed"), "120")
+        units = page.locator("#mapMeasureUnit option").evaluate_all(
+            "os => os.map(o => o.textContent)"
+        )
+        self.assertEqual(units, ["mph", "knots"])
+        page.fill("#mapMeasureSpeed", "120")
+        page.select_option("#mapMeasureUnit", "kn")
         x = box["x"] + 260  # clear of the sidebar and the tools' options
-        page.mouse.click(x, y)
-        page.mouse.click(x + 150, y)
+        low = box["y"] + box["height"] * 0.8
+        page.mouse.click(x, low)
+        page.mouse.click(x + 150, low)
         page.wait_for_selector("#mapMeasureOut:has-text('at 120 knots takes')")
         self.assertRegex(page.text_content("#mapMeasureOut"), r"^Time-distance: [\d.]+ nm at ")
-        page.select_option("#mapMeasureRate", "road")
+        page.fill("#mapMeasureSpeed", "25")
+        page.select_option("#mapMeasureUnit", "mph")
         page.wait_for_selector("#mapMeasureOut:has-text('at 25 mph takes')")
-        self.assertIn("(25 mph)", page.text_content("#mapMeasureRate option[value='road']"))
+        page.evaluate("localStorage.removeItem('salt_measure_speed')")
         # Per browser: a reload keeps it; the toggle puts metric back.
         page.reload()
         self.assert_in_workspace(page, self.ato)
@@ -2283,6 +2721,7 @@ class BrowserTests(unittest.TestCase):
         self.log(page, "2x BMP", location="38SMB4500082000")
         self.open_map(page)
         self.synced(page)
+        self.fmv(page)
         before = page.evaluate("JSON.parse(JSON.stringify(sharedDrones))")
         page.evaluate(
             "saveDrones([{ name: 'GE 7', grid: '38S MB 40000 78000', at: Date.now() - 6 * 3600e3 - 60e3 }])"
@@ -2399,6 +2838,7 @@ class BrowserTests(unittest.TestCase):
         if not page.locator("#exportPanel").is_visible():
             page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='overlays']")
+        page.click("[data-map-sub='basemaps']")
         page.wait_for_selector("#mapBasemapForm")
 
     def back_to_map(self, page):
@@ -2571,6 +3011,12 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(
             page.locator(".ws-tab[data-tab='overlays']").get_attribute("aria-selected") == "true"
         )
+        # Its own tab of Manage > Map, beside the graphics, which are out of sight.
+        self.assertEqual(page.get_attribute("[data-map-sub='basemaps']", "aria-pressed"), "true")
+        self.assertTrue(page.locator("[data-map-sub-panel='graphics']").is_hidden())
+        page.click("[data-map-sub='graphics']")
+        self.assertTrue(page.locator("#mapBasemapForm").is_hidden())
+        page.click("[data-map-sub='basemaps']")
         # Remove is on each row and asks first, in the name's place, so nothing moves.
         page.click("[data-base-open='0']")
         page.wait_for_selector(".map-base-detail .map-layer-list")
@@ -2957,6 +3403,7 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("1x truck", page.evaluate("document.activeElement.textContent"))
         self.assertTrue(page.locator("#cancelButton").is_visible(), "still editing")
         # The basemap and drone menus close on Escape too, back to their buttons.
+        self.fmv(page)
         for btn, pop in (("#mapBaseBtn", "#mapBasePop"), ("#mapDroneBtn", "#mapDronePop")):
             page.click(btn)
             page.wait_for_selector(pop, state="visible")
@@ -3178,16 +3625,36 @@ class BrowserTests(unittest.TestCase):
 
     def test_drones_are_shared_drawn_with_their_view_and_zoomed_to(self):
         page = self.open_editor()
+        self.fmv(page)
         self.import_overlays(page)
         self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
         self.open_map(page)
         page.click("#mapDroneBtn")
+        # Adding one is behind +, which opens the form at its name.
+        self.assertTrue(page.locator("#mapDroneName").is_hidden())
+        page.click("#mapDroneAddBtn")
+        self.assertEqual(page.get_attribute("#mapDroneAddBtn", "aria-expanded"), "true")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "mapDroneName")
         page.fill("#mapDroneName", "GE 1")
         page.fill("#mapDroneGridNew", "38SMB4000078000")
         page.click("#mapDroneAdd")
         page.wait_for_selector("#toastNotification:has-text('GE 1 added at 38S MB 40000 78000')")
         page.wait_for_selector("#mapSvg .map-drone")
-        # Its view: a cone narrowing to the newest report, and the sightline.
+        self.assertTrue(page.locator("#mapDroneName").is_hidden(), "the form closes")
+        # It has seen no report yet: no view, though there is a newest report.
+        self.assertEqual(page.locator("#mapSvg .map-drone-cone").count(), 0)
+        # One logged with it as the observer: its view narrows to that.
+        page.click("[data-home-go='list']")
+        self.assertIn("GE 1", page.locator("#observer option").all_text_contents())
+        page.select_option("#observer", "GE 1")
+        self.log(page, "1x BRDM", activity="moving N", location="38SMB4500082000")
+        row = "#reportLogBody tr:has(.col-size:has-text('1x BRDM'))"
+        self.assertEqual(page.text_content(f"{row} .observer-tag"), "GE 1")
+        self.assertEqual(page.input_value("#observer"), "GE 1", "kept for the next report")
+        self.open_map(page)
+        page.click("#mapDroneBtn")
+        page.wait_for_selector("#mapSvg .map-drone-cone")
+        # Its view: a cone narrowing to its newest report, and the sightline.
         cone = page.locator("#mapSvg .map-drone-cone")
         self.assertEqual(cone.count(), 1)
         shape = cone.get_attribute("d")
@@ -3229,17 +3696,28 @@ class BrowserTests(unittest.TestCase):
         viewer.click("#mapDroneBtn")
         self.assertEqual(viewer.locator("#mapDroneGrid0").count(), 0)
         self.assertFalse(viewer.locator("#mapDroneAdd").is_visible())
+        self.assertFalse(viewer.locator("#mapDroneAddBtn").is_visible())
+        self.assertTrue(viewer.locator("[data-drone-station='0']").is_disabled())
         page.evaluate("saveDrones([])")
 
     def test_drone_view_points_where_told_and_flags_out_of_range(self):
         page = self.open_editor()
+        self.fmv(page)
         self.import_overlays(page)
+        page.evaluate("saveDrones([{ name: 'GE 1', grid: '38S MB 40000 78000', at: Date.now() }])")
+        page.select_option("#observer", "GE 1")
         self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
         self.open_map(page)
-        page.evaluate("saveDrones([{ name: 'GE 1', grid: '38S MB 40000 78000', at: Date.now() }])")
         page.wait_for_selector("#mapSvg .map-drone-cone")
         page.click("#mapDroneBtn")
-        # Told where to look: the cone points there, not at the newest report.
+        # Where it looks and its range are under More.
+        self.assertTrue(page.locator("#mapDroneLook0").is_hidden())
+        page.click("[data-drone-more='0']")
+        self.assertEqual(page.get_attribute("[data-drone-more='0']", "aria-expanded"), "true")
+        self.assertEqual(
+            page.get_attribute("[data-drone-more='0']", "aria-controls"), "mapDroneMore0"
+        )
+        # Told where to look: the cone points there, not at its newest report.
         page.fill("#mapDroneLook0", "38SMB4000090000")
         page.press("#mapDroneLook0", "Enter")
         page.wait_for_selector(
@@ -3258,11 +3736,11 @@ class BrowserTests(unittest.TestCase):
         labels = " ".join(page.locator("#mapSvg .map-label-drone").all_text_contents())
         self.assertIn("2.0 km out of range", labels)
         self.assertIn("10 km", labels)
-        # Back to the newest report (in range): no longer red; no range: no ring.
+        # Back to its newest report (in range): no longer red; no range: no ring.
         page.fill("#mapDroneLook0", "")
         page.press("#mapDroneLook0", "Enter")
         page.wait_for_selector(
-            "#toastNotification:has-text(\"GE 1's view follows the newest report\")"
+            "#toastNotification:has-text(\"GE 1's view follows its newest report\")"
         )
         page.wait_for_function("() => document.querySelector('#mapSvg .map-drone-cone:not(.out)')")
         page.fill("#mapDroneRange0", "")
@@ -3276,6 +3754,7 @@ class BrowserTests(unittest.TestCase):
         page.evaluate("saveDrones([{ ...sharedDrones[0], look: '38S MB 40000 90000', range: 15 }])")
         page.fill("#mapDroneGrid0", "38SMB4100078000")
         page.press("#mapDroneGrid0", "Enter")
+        page.wait_for_selector("#toastNotification:has-text('GE 1 moved to 38S MB 41000 78000')")
         self.wait_for_server(
             page,
             "s => s.drones[0].grid === '38S MB 41000 78000' && s.drones[0].range === 15 && s.drones[0].look === '38S MB 40000 90000'",
@@ -3286,6 +3765,144 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("38S MB 40000 90000", viewer.text_content("#mapDronePop"))
         self.assertIn("15 km", viewer.text_content("#mapDronePop"))
         self.assertEqual(viewer.locator("#mapDroneLook0").count(), 0, "viewers can't change it")
+        page.evaluate("saveDrones([])")
+
+    def test_fmv_mode_off_hides_the_drones_and_the_observer_for_everyone(self):
+        page = self.open_editor()
+        self.fmv(page)
+        self.import_overlays(page)
+        page.evaluate("saveDrones([{ name: 'GE 1', grid: '38S MB 40000 78000', at: Date.now() }])")
+        self.assertTrue(page.is_visible("#observerField"))
+        self.assertEqual(
+            page.locator("#observer option").all_text_contents(), ["No observer", "GE 1"]
+        )
+        page.select_option("#observer", "GE 1")
+        self.log(page, "3x BTR", location="38SMB4000082000")
+        self.open_map(page)
+        viewer = self.open_viewer()
+        self.open_map(viewer)
+        viewer.wait_for_selector("#mapSvg .map-drone")
+        self.assertTrue(viewer.locator("#toggleFmvBtn").is_hidden(), "viewers can't change it")
+        # Off, from the Settings menu: no drone button, menu or drones, and no Observer.
+        page.click("#dataMgmtBtn")
+        self.assertEqual(page.text_content("#toggleFmvBtn"), "FMV Mode: On")
+        page.click("#toggleFmvBtn")
+        page.wait_for_selector("#toastNotification:has-text('FMV mode off for everyone')")
+        self.wait_for_server(page, "s => s.fmv.on === false")
+        self.assertTrue(page.locator("#mapDroneBtn").is_hidden())
+        page.wait_for_function("() => !document.querySelector('#mapSvg .map-drone')")
+        self.assertTrue(page.locator("#observerField").is_hidden())
+        page.click("#dataMgmtBtn")
+        self.assertEqual(page.text_content("#toggleFmvBtn"), "FMV Mode: Off")
+        page.click("#dataMgmtBtn")
+        # For everyone: the viewer's drones go too.
+        viewer.wait_for_function("() => !document.querySelector('#mapSvg .map-drone')")
+        self.assertTrue(viewer.locator("#mapDroneBtn").is_hidden())
+        # An Edit with it off keeps the report's observer.
+        page.click("[data-home-go='list']")
+        row = "#reportLogBody tr:has(.col-size:has-text('3x BTR'))"
+        page.click(f"{row} .id-edit-btn")
+        page.fill("#size", "4x BTR")
+        page.click("#editButton")
+        self.wait_for_server(
+            page,
+            f"s => s.workspaces['{self.ato}'].some(r => r.size === '4x BTR' && r.observer === 'GE 1')",
+        )
+        # On again: back as they were, here and for the viewer.
+        page.click("#dataMgmtBtn")
+        page.click("#toggleFmvBtn")
+        self.wait_for_server(page, "s => s.fmv.on === true")
+        self.assertTrue(page.is_visible("#observerField"))
+        viewer.wait_for_selector("#mapSvg .map-drone")
+        page.evaluate("saveDrones([])")
+
+    def test_fmv_mode_never_saved_follows_the_drones(self):
+        page = self.open_editor()
+        self.synced(page)
+        # Never saved: on when there are drones (a team already using them sees
+        # no change), else off.
+        self.assertEqual(
+            page.evaluate(
+                """() => { const was = [sharedFmv, sharedDrones], out = [];
+                sharedFmv = {};
+                sharedDrones = [{ name: 'X', grid: '38S MB 40000 78000', at: 1 }]; out.push(fmvOn());
+                sharedDrones = []; out.push(fmvOn());
+                sharedFmv = { on: false }; sharedDrones = was[1].concat([{ name: 'Y', grid: '38S MB 40000 78000', at: 1 }]); out.push(fmvOn());
+                [sharedFmv, sharedDrones] = was; return out; }"""
+            ),
+            [True, False, False],
+        )
+        # Removing the last drone then saves it as on, so it doesn't go off with it.
+        sent = []
+
+        def took(route):
+            sent.append(json.loads(route.request.post_data))
+            route.fulfill(status=200, content_type="application/json", body='{"status": "success"}')
+
+        page.route("**/api/save_fmv", took)
+        page.evaluate(
+            "sharedFmv = {}; sharedDrones = [{ name: 'GE 5', grid: '38S MB 40000 78000', at: 1 }]; applyFmvMode()"
+        )
+        self.assertTrue(page.is_visible("#observerField"))
+        page.evaluate("saveDrones([])")
+        self.assertEqual(sent, [{"fmv": {"on": True}}])
+        self.assertTrue(page.evaluate("fmvSaved() && fmvOn()"))
+        self.assertTrue(page.is_visible("#observerField"))
+        page.unroute("**/api/save_fmv")
+
+    def test_each_drone_looks_at_its_own_reports_and_off_station_leaves_the_map(self):
+        page = self.open_editor()
+        self.fmv(page)
+        self.import_overlays(page)
+        page.evaluate(
+            "saveDrones([{ name: 'GE 1', grid: '38S MB 40000 78000', at: Date.now() },"
+            " { name: 'GE 2', grid: '38S MB 50000 78000', at: Date.now() }])"
+        )
+        page.select_option("#observer", "GE 1")
+        self.log(page, "2x BMP", location="38SMB4000082000")
+        page.select_option("#observer", "GE 2")
+        self.log(page, "1x BRDM", location="38SMB5000080000")
+        # The BRDM is the newest report; GE 1 still looks at its own.
+        self.open_map(page)
+        page.wait_for_function("document.querySelectorAll('#mapSvg .map-drone-cone').length === 2")
+        labels = page.locator("#mapSvg .map-label-drone").all_text_contents()
+        self.assertIn("4.0 km N", labels)
+        self.assertIn("2.0 km N", labels)
+        # Off station: off the map and out of the Observer list, still in the menu.
+        page.click("#mapDroneBtn")
+        page.uncheck("[data-drone-station='1']")
+        page.wait_for_selector("#toastNotification:has-text('GE 2 is off station')")
+        page.wait_for_function("document.querySelectorAll('#mapSvg .map-drone').length === 1")
+        self.assertEqual(page.locator("#mapSvg .map-drone-cone").count(), 1)
+        ge2 = ".map-drone-item:has(.map-drone-name:text-is('GE 2'))"
+        self.assertIn("off", page.get_attribute(ge2, "class"))
+        self.assertEqual(page.evaluate("document.activeElement.dataset.droneStation"), "1")
+        self.assertEqual(
+            page.locator("#observer option").all_text_contents(), ["No observer", "GE 1"]
+        )
+        self.wait_for_server(page, "s => s.drones[1].offStation === true")
+        # Its report, being edited, shows it all the same; an Update keeps the
+        # old version's.
+        page.click("[data-home-go='list']")
+        row = "#reportLogBody tr:has(.col-size:has-text('1x BRDM'))"
+        page.click(f"{row} .id-edit-btn")
+        self.assertEqual(page.input_value("#observer"), "GE 2")
+        self.assertIn("GE 2 (off station)", page.locator("#observer option").all_text_contents())
+        page.select_option("#observer", "GE 1")
+        page.click("#updateButton")
+        self.wait_for_server(
+            page,
+            f"s => s.workspaces['{self.ato}'].some(r => r.size === '1x BRDM' && r.observer === 'GE 1'"
+            " && r.history.length === 1 && r.history[0].observer === 'GE 2')",
+        )
+        self.assertEqual(page.input_value("#observer"), "", "the last pick, GE 2, is off station")
+        # Back on station: on the map again.
+        self.open_map(page)
+        page.click("#mapDroneBtn")
+        page.check("[data-drone-station='1']")
+        page.wait_for_selector("#toastNotification:has-text('GE 2 is on station')")
+        page.wait_for_function("document.querySelectorAll('#mapSvg .map-drone').length === 2")
+        self.wait_for_server(page, "s => !('offStation' in s.drones[1])")
         page.evaluate("saveDrones([])")
 
     def test_a_refused_save_puts_the_shared_lists_back(self):
@@ -3311,7 +3928,9 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.evaluate("JSON.stringify(sharedBasemaps)"), basemaps)
         self.assertEqual(page.evaluate("localStorage.getItem('salt_basemaps')"), basemaps)
         self.assertNotIn("Refused", page.text_content("#mapBaseSelect"))
+        self.fmv(page)
         page.click("#mapDroneBtn")
+        page.click("#mapDroneAddBtn")
         page.fill("#mapDroneName", "GE 9")
         page.fill("#mapDroneGridNew", "38SMB4000078000")
         page.click("#mapDroneAdd")
@@ -3363,14 +3982,19 @@ class BrowserTests(unittest.TestCase):
             "saveDrones([{ name: 'GE 1', grid: '38S MB 40000 78000', at: 1 }, { name: 'GE 2', grid: '38S MB 41000 78000', at: 2 }])"
         )
         self.synced(page)
+        self.fmv(page)
         page.click("#mapDroneBtn")
+        more = ".map-drone-item:has(.map-drone-name:text-is('{}')) .map-drone-more"
+        page.click(more.format("GE 1"))
         ge1 = "[data-drone-remove][data-drone-name='GE 1']"
         box = page.locator(ge1).bounding_box()
-        # The first press asks in its row, in place of its grid: nothing moves.
+        # The first press asks on the button itself, where it was: nothing moves.
         page.click(ge1)
-        page.wait_for_selector(".map-drone-row:has(.map-drone-name:text-is('GE 1')) .map-base-ask")
-        self.assertEqual(page.locator(ge1).bounding_box(), box)
+        page.wait_for_selector(f"{ge1}[data-asking]:text-is('Remove for everyone?')")
+        after = page.locator(ge1).bounding_box()
+        self.assertEqual((after["x"], after["y"]), (box["x"], box["y"]))
         self.assertEqual(page.evaluate("document.activeElement.dataset.droneName"), "GE 1")
+        self.assertEqual(page.evaluate("askSaid.textContent"), "Remove for everyone?")
         self.assertEqual(page.evaluate("sharedDrones.length"), 2, "not yet")
         page.evaluate("sharedDrones = sharedDrones.map(d => ({ ...d })).reverse()")
         page.click(ge1)
@@ -3385,6 +4009,7 @@ class BrowserTests(unittest.TestCase):
         # Gone already: it says so, rather than that it removed it.
         if not page.is_visible("#mapDronePop"):
             page.click("#mapDroneBtn")
+        page.click(more.format("GE 2"))
         page.click("[data-drone-remove][data-drone-name='GE 2']")
         page.evaluate("sharedDrones = []")
         page.click("[data-drone-remove][data-drone-name='GE 2']")
@@ -3595,11 +4220,10 @@ class BrowserTests(unittest.TestCase):
         self.log(page, "2x BMP", activity="moving north along the wadi")
         page.click("#reportLogBody tr[data-id] .col-size:has-text('2x BMP')")
         self.assertEqual(page.text_content("#formTitle"), f"Updating {self.ato}001")
-        note = page.text_content("#formEditingNote")
-        self.assertIn("2x BMP", note)
-        self.assertIn(f"{self.ato}001", note)
+        # Only that: no line under it with the full identifier and the report.
+        self.assertEqual(page.locator("#formEditingNote").count(), 0)
+        self.assertNotIn("2x BMP", page.text_content(".form-title-block"))
         page.click("#cancelButton")
-        self.assertTrue(page.locator("#formEditingNote").is_hidden())
         widths, spots, names = [], [], []
         for btn in (
             None,
@@ -3653,6 +4277,25 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector(
             "#reportLogBody .col-location:has-text('38S MB 45000 82000, vic the bridge')"
         )
+        # Put back in the form to update: the digits in Location, the zone and
+        # square in the lock's box; saved untouched, it is as it was written.
+        # (Other tests' overlays may have named a place after it: compared as stored.)
+        stored = page.evaluate("localReports.find(r => r.size === '1x BTR').location")
+        self.assertTrue(stored.startswith("38S MB 45000 82000, vic the bridge"), stored)
+        page.click("#reportLogBody tr[data-id] .col-size:has-text('1x BTR')")
+        self.assertEqual(page.input_value("#location"), stored.replace("38S MB ", "", 1))
+        self.assertEqual(page.input_value("#mgrsPrefix"), "38S MB")
+        page.fill("#activity", "halted")
+        page.click("#updateButton")
+        page.wait_for_selector("#reportLogBody tr[data-id] .col-activity:has-text('halted')")
+        self.assertEqual(
+            page.evaluate("localReports.find(r => r.size === '1x BTR').location"), stored
+        )
+        # A grid in another square stays whole.
+        self.log(page, "2x BTR", location="11S NV 39697 06762")
+        page.click("#reportLogBody tr[data-id] .col-size:has-text('2x BTR')")
+        self.assertEqual(page.input_value("#location"), "11S NV 39697 06762")
+        page.click("#cancelButton")
         # Kept across a reload; off again leaves typed digits alone.
         page.reload()
         self.assertEqual(page.input_value("#mgrsPrefix"), "38S MB")
@@ -4081,6 +4724,10 @@ class BrowserTests(unittest.TestCase):
         page.uncheck("[data-narr-rule='defense']")
         page.wait_for_selector("#toastNotification:has-text('Preparing a defense: off')")
         self.assertNotIn("preparing a defense", flat())
+        # The team's own come first, the add button at the right of their heading.
+        first = page.locator("#narrSettings .narr-label").first
+        self.assertEqual(first.locator("span").text_content(), "Your own")
+        self.assertEqual(first.locator("[data-narr-add]").text_content(), "+ Add a rule")
         page.click("[data-narr-add]")
         page.fill("#narrRuleWhat", "are preparing a river crossing")
         page.fill("#narrRuleWords", "bridging, ferry")
@@ -4177,9 +4824,20 @@ class BrowserTests(unittest.TestCase):
             page.get_attribute("#mapEndRange", "aria-valuetext"), page.text_content("#mapEndLabel")
         )
         page.click("#mapEndNow")
+        self.fmv(page)
+        page.evaluate("saveDrones([{ name: 'GE 4', grid: '38S MB 40000 78000', at: 1 }])")
         page.click("#mapDroneBtn")
-        self.assertEqual(page.locator("#mapDronePop input[role='switch']").count(), 2)
+        self.assertEqual(
+            page.locator("#mapDronePop .map-drone-shows input[role='switch']").count(), 2
+        )
+        self.assertEqual(page.get_attribute("[data-drone-station='0']", "role"), "switch")
+        self.assertEqual(
+            page.get_attribute("[data-drone-station='0']", "aria-label"), "GE 4 on station"
+        )
+        self.assertEqual(page.get_attribute("[data-drone-more='0']", "aria-label"), "More for GE 4")
+        self.assertEqual(page.get_attribute("#mapDroneAddBtn", "aria-label"), "Add a drone")
         page.click("#mapDroneBtn")
+        page.evaluate("saveDrones([])")
         page.click("#summaryViewToggleBtn")
         page.click("[data-summary-kind='narrative']")
         # The dot on Equipment is said, not only shown.

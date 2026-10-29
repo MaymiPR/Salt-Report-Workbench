@@ -5,7 +5,7 @@ const SaltCore = {
     plural, zoneMark, timeAgo,
     pad2, dateFields, clockValue, fileStamp, toTimeString, autoColon, parseFilterTime, typedTime, submittedTime, parseCsvTime,
     escapeHtml, safeColor, safeFilename,
-    atoPrefix, reportNum, duplicateIds, nextNum, displayId, formatFullId, reportText, normalizeLocation, mgrsPrefix, applyMgrsPrefix,
+    atoPrefix, reportNum, duplicateIds, nextNum, displayId, formatFullId, reportText, normalizeLocation, mgrsPrefix, applyMgrsPrefix, stripMgrsPrefix,
     BDA_EFFECTS, bdaElements, bdaSummary, bdaRollup, bdaCount, bdaPending,
     backupFilename, foldOverlays, overlayKey, cleanTags, TAG_ID, backupText, allWorkspacesBackupText, parseBackup,
     parseCsv, reportsCsv, mtiCsvs,
@@ -19,6 +19,7 @@ const SaltCore = {
     reportKey, knownVersions, changedReports, withUnsaved,
     MOVEMENT_CLASSES, formatDistance, speedUnit, kmhPerSpeedUnit, formatSpeed, formatArea, formatDuration, formatBearing,
     pathMeters, areaMeters, ringPoints, STANDARD_RATES, movementClass, MARCH_MAX_KMH, marchRates,
+    nearestSegment, AXIS_NEAR_METERS, wayOfMarchAt, axesOf, wayRelation,
 };
 
 if (typeof module === 'object' && module.exports) module.exports = SaltCore;

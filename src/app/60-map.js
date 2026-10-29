@@ -14,8 +14,9 @@
 const storedText = (key) => { try { return localStorage.getItem(key); } catch (e) { return null; } };
 
 // core: the white center of a report dot, so a dot shows on the red of a busy heat map.
-// none: a graphic with no tag (app/50-overlays.js), gray.
-const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', track: '#ff3b30', edge: '#000000', core: '#ffffff', none: '#8e8e93' };
+// none: an Unknown graphic, with no tag (app/50-overlays.js): gray, its dot in the list.
+// AXIS: an axis of advance, the enemy's dark red, wider than a track and on a white edge.
+const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', AXIS: '#b0001e', track: '#ff3b30', edge: '#000000', core: '#ffffff', none: '#8e8e93' };
 // The layers on, in any mix (per browser); the heat map alone to start with.
 const MAP_LAYERS = [['heat', 'Heat map'], ['tracks', 'Tracks'], ['reports', 'Reports']];
 // Everything the map keeps between drawings, in one place: what this browser
@@ -83,8 +84,10 @@ const mapState = {
     measureHover: null,
     measurePx: null,       // the last drawing's lon/lat to screen, for refreshMeasure (app/61-map-draw.js)
     // The time-distance tool's speed: a standard rate by id, and km/h.
-    measureRate: 'road',
-    measureKmh: 40,
+    // Time-distance: the speed as typed (empty until one is, then kept in
+    // this browser) and its unit's id (SPEED_UNITS in app/64-map-controls.js).
+    measureSpeed: '',
+    measureUnit: '',
     // Range rings kept on the map, this browser's own: [{ lon, lat, r }], r in meters.
     rings: (() => {
         const v = readStored('salt_range_rings', []);
@@ -133,15 +136,15 @@ const mapReports = () => {
     return mapWindowReports().filter(r => SaltCore.activityMatches(r.activity, mapState.activity) && matchesSearch(r, q));
 };
 
-// The area the map covers: the overlays and the reports' grids, padded so
-// that, zoomed all the way out, they clear the controls along the top and the
-// key and slider along the foot (more room above and below than at the
-// sides). The basemap is asked for this area only. Null when there is
-// nothing to show.
+// The area the map covers: the overlays drawn (not Unknown ones) and the
+// reports' grids, padded so that, zoomed all the way out, they clear the
+// controls along the top and the key and slider along the foot (more room
+// above and below than at the sides). The basemap is asked for this area
+// only. Null when there is nothing to show.
 const mapExtent = (tracks) => {
     const pts = [];
     const walk = v => (typeof v[0] === 'number' ? pts.push(SaltCore.lonLatToMerc(v[0], v[1])) : v.forEach(walk));
-    currentOverlays().forEach(o => o.geometry && walk(o.geometry.coordinates));
+    currentOverlays().forEach(o => o.geometry && !tagOf(o.type).none && walk(o.geometry.coordinates));
     tracks.forEach(t => t.points.forEach(p => pts.push(SaltCore.lonLatToMerc(p.lon, p.lat))));
     // A drone with room round it, so Zoom can put it in the middle.
     shownDrones().forEach(({ p: d }) => { const [x, y] = SaltCore.lonLatToMerc(d.lon, d.lat); pts.push([x - 3000, y - 3000], [x + 3000, y + 3000]); });

@@ -217,7 +217,11 @@ const findRefs = (text) => {
 // An overlay's name ("NAI 3", "OBJ Gold (bridge)", "Gold") as a place
 // reference. The name is its first word after the prefix, as when typed (and
 // by the same rules). Without a prefix, `fallbackType` decides, with the
-// first word that isn't a common one; null when neither does.
+// first word that isn't a common one; null when neither does. An axis of
+// advance is named so in a file too ("AXIS GOLD", "AOA 2", "Axis of advance
+// North"), though only as a graphic's name: a Location box never names one.
+const AXIS_NAME = /^(AXIS\s+OF\s+ADVANCE|AXIS|AOA)(?:\s*[-#:.]\s*|\s+|(?=\d))([A-Za-z0-9]+)/i;
+const AXIS_WORDS = new Set(['AXIS', 'AOA', 'ADVANCE']);
 const overlayRef = (rawName, fallbackType) => {
     const s = String(rawName || '').trim();
     const pc = new RegExp(`^${PC_RE.source.slice('(^|[^A-Za-z0-9])'.length)}`, 'i').exec(s);
@@ -225,7 +229,9 @@ const overlayRef = (rawName, fallbackType) => {
     const m = /^(NAI|OBJECTIVE|OBJ|PHASE\s+LINE|PL)(?:\s*[-#:.]\s*|\s+|(?=\d))([A-Za-z0-9]+)/i.exec(s);
     const own = m && refOf(m[1], m[2]);
     if (own) return own;
-    const word = (s.match(/[A-Za-z0-9]+/g) || []).find(w => !REF_STOP.has(w.toUpperCase()));
+    const axis = AXIS_NAME.exec(s);
+    if (axis && !REF_STOP.has(axis[2].toUpperCase())) { const name = refName(axis[2]); return { type: 'AXIS', name, key: `AXIS ${name}` }; }
+    const word = (s.match(/[A-Za-z0-9]+/g) || []).find(w => !REF_STOP.has(w.toUpperCase()) && !(fallbackType === 'AXIS' && AXIS_WORDS.has(w.toUpperCase())));
     if (!fallbackType || !word) return null;
     const name = refName(word);
     return { type: fallbackType, name, key: `${fallbackType} ${name}` };
@@ -258,6 +264,25 @@ const metersToLine = (lon, lat, line) => {
         const dx = bx - ax, dy = by - ay, len2 = dx*dx + dy*dy;
         const t  = len2 ? Math.max(0, Math.min(1, -(ax*dx + ay*dy) / len2)) : 0;
         best = Math.min(best, Math.hypot(ax + t*dx, ay + t*dy));
+    }
+    return best;
+};
+// The segment of a line nearest a point, on the same flat projection:
+// { meters, bearingDeg }, its bearing from the segment's start to its end
+// (the way the line was drawn), or null for a line of no length.
+const nearestSegment = (lon, lat, line) => {
+    const kx = 111320 * Math.cos(lat * Math.PI / 180), ky = 110574;
+    let best = null;
+    for (let i = 1; i < line.length; i++) {
+        const ax = (line[i-1][0] - lon) * kx, ay = (line[i-1][1] - lat) * ky;
+        const bx = (line[i][0]   - lon) * kx, by = (line[i][1]   - lat) * ky;
+        const dx = bx - ax, dy = by - ay, len2 = dx*dx + dy*dy;
+        if (!len2) continue;
+        const t = Math.max(0, Math.min(1, -(ax*dx + ay*dy) / len2));
+        const meters = Math.hypot(ax + t*dx, ay + t*dy);
+        if (!best || meters < best.meters) {
+            best = { meters, bearingDeg: bearingBetween({ lon: line[i-1][0], lat: line[i-1][1] }, { lon: line[i][0], lat: line[i][1] }) };
+        }
     }
     return best;
 };

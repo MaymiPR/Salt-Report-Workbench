@@ -22,16 +22,64 @@ const typeCount = (type, n, kit) => {
     return `${n}x ${[...words, many].join(' ')}`;
 };
 
+// The enemy's way of march, the direction they move in, where a point is:
+// along the nearest axis of advance within AXIS_NEAR_METERS of it, by the
+// direction of that line's nearest segment as drawn (from where they come
+// from to where they head); else the AO's, from the narrative settings
+// (`toward`, one of HEADINGS_8); else none. { deg, dir (of HEADINGS_8),
+// axis (the axis's name, or '' for the AO's) }, or null. `axes` are axesOf's.
+const AXIS_NEAR_METERS = 10000;
+const wayOfMarchAt = (pt, axes = [], toward = '') => {
+    let best = null;
+    if (pt) {
+        axes.forEach(a => a.lines.forEach(l => {
+            const s = nearestSegment(pt.lon, pt.lat, l);
+            if (s && s.meters <= AXIS_NEAR_METERS && (!best || s.meters < best.meters)) best = { ...s, axis: a.key };
+        }));
+    }
+    if (best) return { deg: best.bearingDeg, dir: HEADINGS_8[Math.round(best.bearingDeg / 45) % 8], axis: best.axis };
+    const i = HEADINGS_8.indexOf(toward);
+    return i >= 0 ? { deg: i * 45, dir: toward, axis: '' } : null;
+};
+// The axes of advance among some overlays, each by its name with its lines.
+const axesOf = (overlays) => (overlays || []).filter(o => overlayOk(o) && o.type === 'AXIS' && /LineString/.test(o.geometry.type))
+    .map(o => ({ key: overlayKey(o), lines: o.geometry.type === 'LineString' ? [o.geometry.coordinates] : o.geometry.coordinates }));
+// A direction of movement (degrees) against the way of march: within 60
+// degrees of it is along it (advancing), more than 120 is back along it
+// (withdrawing), and between is across it (flanking, or moving laterally).
+const wayRelation = (deg, wayDeg) => {
+    const d = Math.abs((((deg - wayDeg) % 360) + 540) % 360 - 180);
+    return d <= 60 ? 'along' : d > 120 ? 'back' : 'across';
+};
+// Which way a report moves, in degrees: the heading its Activity gives, else
+// its track's last leg, from the latest earlier grid at least
+// MOVE_MIN_METERS from its latest (so a grid typed again a few meters off is
+// no move); null when it says none and hasn't moved.
+const MOVE_MIN_METERS = 100;
+const movementDeg = (f) => {
+    if (f.act.headingDeg !== null) return f.act.headingDeg;
+    const t = reportTracks([f.r])[0];
+    if (!t || !t.moved) return null;
+    const end = t.points[t.points.length - 1];
+    for (let i = t.points.length - 2; i >= 0; i--) if (metersBetween(t.points[i], end) >= MOVE_MIN_METERS) return bearingBetween(t.points[i], end);
+    return null;
+};
+
 // What the narrative needs about a report, beyond the summaries' facts: its
 // equipment, the roles in it, its size by kind, and the areas it counts in
-// (its NAIs and OBJs, else its 10 km square, else none).
-const narrativeFacts = (f, team) => {
+// (its NAIs and OBJs, else its 10 km square, else none). With a way of
+// march (`march`: { axes, toward }), the way of march where it is (`way`,
+// wayOfMarchAt at its first grid) and, when it moves, how (`sense`: along,
+// back or across, wayRelation); without one, both null.
+const narrativeFacts = (f, team, march = null) => {
     const els = sizeElements(f.r.size, team).map(e => ({ ...e, kit: lookupEquipment(e.type, team) }));
     const groups = {};
     els.forEach(e => { const k = e.kit && ECHELON_KIND[e.kit.role]; if (k) groups[k] = (groups[k] || 0) + e.count; });
     const sq = f.a.points.length ? gridSquare(f.a.points[0].mgrs, 1) : null;
+    const way = march ? wayOfMarchAt(f.a.points[0] || null, march.axes, march.toward) : null;
+    const deg = way ? movementDeg(f) : null;
     return {
-        ...f, els, groups,
+        ...f, els, groups, way, sense: deg === null ? null : wayRelation(deg, way.deg),
         // Every element seen as possible, probable or likely ("2x poss T-72"): the
         // least sure of those words, else empty;
         // a weaker sign (see judge in narrativeJudgments).
@@ -181,6 +229,27 @@ const mostIn = (list) => {
 //   - A sign seen only in hedged reports ("2x possible T-72") still lets a
 //     rule fire, but adds no strength: each such sign takes a step off the
 //     level, down to roughly even chance at least.
+// The way of march (wayOfMarchAt: an axis of advance near a report, else the
+// AO's direction in the settings) gives a moving report a sense (along it,
+// back along it, across it), and some rules a sign of their own, named with
+// the way of march ("moving along the way of march (W)"). With no way of
+// march anywhere, no report has a sense and no rule shows that sign, so the
+// narrative is word for word what it was before. With one:
+//   - Back along it is withdrawing, as the word is: such a report is not
+//     advancing (`advancing`), so the rules that look for forces advancing
+//     leave it out. Withdrawal fires on combat forces moving back along it,
+//     reported as withdrawing or not, and its level counts both kinds of
+//     report together (one even chance, two likely, three very likely);
+//     reconnaissance in force takes them moving back within 3 hrs of the
+//     probe as it takes pulling back.
+//   - Along it: a kind of sign for offense (kindsOf, so +1 step at most),
+//     and with it logistics pushing forward fires on supply vehicles
+//     moving along it with no armor massing or fuel and ammunition (+1 kind
+//     besides); +1 step for a forward detachment, several axes, an
+//     exploitation and a pursuit whose forces move along it.
+//   - Across it: +1 step for an envelopment whose forces move across it.
+// The tests' table of rules fires each one from the same minimal reports
+// with a way of march too, to pin those steps.
 // The judgments are sorted by level, then by how many reports are
 // behind them, then by NARRATIVE_RULES' order; the narrative shows ten.
 const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) => {
@@ -188,6 +257,20 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
     const byArea = new Map();
     facts.forEach(f => f.areas.forEach(a => { if (!byArea.has(a)) byArea.set(a, []); byArea.get(a).push(f); }));
     const on = (rule) => !off.has(rule);
+    // A sign about the way of march, only when there is one somewhere:
+    // named with its directions where the reports are, most first ("(W)",
+    // "(W, SW)"), or without them while none is seen.
+    const marchKnown = facts.some(f => f.way);
+    const marchSign = (what, list) => {
+        if (!marchKnown) return [];
+        const n = new Map();
+        list.forEach(f => n.set(f.way.dir, (n.get(f.way.dir) || 0) + 1));
+        const dirs = [...n].sort((x, y) => y[1] - x[1] || HEADINGS_8.indexOf(x[0]) - HEADINGS_8.indexOf(y[0])).map(([d]) => d);
+        return [[dirs.length ? `${what} (${dirs.join(', ')})` : what, list]];
+    };
+    const along = (f) => f.sense === 'along';
+    // Fighting forces, as against supply, command or support vehicles.
+    const combat = (f) => isManeuver(f) || (f.groups.infantry || 0) > 0 || f.roles.has('light');
     const judge = (rule, level, what, signs, places = null) => {
         const seen = signs.filter(([, l]) => l.length);
         const list = byTime(seen.flatMap(([, l]) => l));
@@ -202,8 +285,9 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
     };
     // Contact: firing words that aren't about fire support or a firing position.
     const shot = (f) => has(f, 'Firing') && FIRING_WORDS.test(String(f.r.activity || '').replace(NOT_CONTACT, ' '));
-    // Moving, but not away: a withdrawal isn't an advance.
-    const advancing = (f) => has(f, 'Moving') && !WITHDRAW.test(f.r.activity || '');
+    // Moving, but not away: a withdrawal isn't an advance, nor is moving
+    // back along the way of march.
+    const advancing = (f) => has(f, 'Moving') && !WITHDRAW.test(f.r.activity || '') && f.sense !== 'back';
     const after = (list, f, span) => list.some(e => f.ms > e.ms && f.ms - e.ms <= span);
     const firing = (f) => (f.roles.has('fires') && shot(f)) || SHELLING.test(f.r.activity || '');
     const ewOf = (f) => f.roles.has('ew') || can(f, 'ew');
@@ -275,11 +359,13 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
         if (on('forward') && escorts.length) {
             const alongside = movers.filter(m => escorts.some(e => Math.abs(m.ms - e.ms) <= 2 * HOUR));
             const big = Math.max(...alongside.map(m => m.groups.maneuver || 0), 0) >= 10 || alongside.length >= 3;
-            judge('forward', EVEN + (big ? 1 : 0), {
+            const ahead = byTime([...alongside, ...escorts]).filter(along);
+            judge('forward', EVEN + (big ? 1 : 0) + (ahead.length ? 1 : 0), {
                 RU: `are moving a combined-arms group through ${area}, possibly a forward detachment or advance guard`,
                 CN: `are moving a combined-arms group through ${area}, possibly a vanguard ahead of the main body`,
                 '': `are moving a combined-arms group through ${area}`,
-            }, [['armor or mechanized forces moving', alongside], ['artillery, air defense or engineers moving with them', escorts]], [area]);
+            }, [['armor or mechanized forces moving', alongside], ['artillery, air defense or engineers moving with them', escorts],
+                ...marchSign('moving along the way of march', ahead)], [area]);
         }
         // A water obstacle or gap: bridging or ferries, smoke, cover, armor waiting.
         const bridge = at(f => can(f, 'bridging'));
@@ -427,13 +513,15 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
         // Reconnaissance in force: a platoon or more firing, then pulling back.
         const probes = at(f => shot(f) && ((f.groups.maneuver || 0) >= 3 || (f.groups.infantry || 0) >= 8));
         const pulled = at(f => WITHDRAW.test(f.r.activity || '') && (probes.includes(f) || after(probes, f, 3 * HOUR)));
-        if (on('reconforce') && probes.length && pulled.length) {
-            const struck = at(f => firing(f) && after(pulled, f, 6 * HOUR));
+        const pulledBack = at(f => f.sense === 'back' && combat(f) && (probes.includes(f) || after(probes, f, 3 * HOUR)));
+        if (on('reconforce') && probes.length && (pulled.length || pulledBack.length)) {
+            const struck = at(f => firing(f) && after([...pulled, ...pulledBack], f, 6 * HOUR));
             judge('reconforce', EVEN + (struck.length ? 1 : 0) + (probes.length >= 2 ? 1 : 0), {
                 RU: `are conducting reconnaissance in force (razvedka boyem) in ${area}, to make friendly positions show themselves`,
                 CN: `are conducting reconnaissance in force in ${area}, to make friendly positions show themselves`,
                 '': `are conducting reconnaissance in force in ${area}`,
-            }, [['a platoon or more firing', probes], ['pulling back within 3 hrs', pulled], ['artillery on the place within 6 hrs after', struck]], [area]);
+            }, [['a platoon or more firing', probes], ['pulling back within 3 hrs', pulled],
+                ...marchSign('moving back along the way of march within 3 hrs', pulledBack), ['artillery on the place within 6 hrs after', struck]], [area]);
         }
         // Infantry building up: small groups halted or hidden here, again and again.
         const lurk = densest(at(f => smallGroup(f) && (has(f, 'Stationary', 'Observing', 'Dismounted') || GATHER.test(f.r.activity || '')) && !advancing(f)), 48 * HOUR);
@@ -557,6 +645,7 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
         ['engineers moving, or breaching and bridging', facts.filter(f => (f.roles.has('engineer') && has(f, 'Moving')) || can(f, 'breaching') || can(f, 'bridging'))],
         ['electronic warfare', ewAll],
         ['contact by armor or mechanized forces', facts.filter(f => isManeuver(f) && shot(f))],
+        ...marchSign('armor or mechanized forces moving along the way of march', facts.filter(f => isManeuver(f) && advancing(f) && along(f))),
     ];
     const kinds = kindsOf(offense);
     if (on('offense') && kinds >= 2 && (fires.length || mass.length)) {
@@ -573,11 +662,12 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
     const axisNames = [...new Set(axes.flatMap(g => g.areas))];
     if (on('axes') && axisNames.length >= 2) {
         const named = axisNames.slice(0, 4).join(', ');
-        judge('axes', levelBy(axisNames.length, 3, 4), {
+        const onward = axes.filter(along);
+        judge('axes', levelBy(axisNames.length + (onward.length ? 1 : 0), 3, 4), {
             RU: `are advancing on more than one axis (${named}), likely a main effort and supporting attacks`,
             CN: `are advancing in more than one direction (${named}), likely converging assault groups`,
             '': `are advancing on more than one axis (${named})`,
-        }, [['armor or mechanized forces moving in different places within 6 hrs', axes]], axisNames);
+        }, [['armor or mechanized forces moving in different places within 6 hrs', axes], ...marchSign('moving along the way of march', onward)], axisNames);
     }
     // Small dismounted groups moving or observing, again and again.
     const small = densest(facts.filter(f => smallGroup(f) && has(f, 'Moving', 'Observing', 'Dismounted')), 12 * HOUR);
@@ -654,11 +744,14 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
         }, [['EW systems or jamming reported', ewAll],
             ['an attack following it', facts.filter(f => isManeuver(f) && (advancing(f) || shot(f)) && ewAll.some(e => f.ms > e.ms && f.ms - e.ms <= 6 * HOUR))]]);
     }
-    // Withdrawal, when reports say so.
+    // Withdrawal, when reports say so, or forces move back along the way of march.
     const back = facts.filter(f => WITHDRAW.test(f.r.activity || ''));
-    if (on('withdrawal') && back.length) {
-        judge('withdrawal', back.length >= 3 ? VERY_LIKELY : back.length === 2 ? LIKELY : EVEN, 'are withdrawing',
-            [['withdrawal or breaking contact reported', back], ['covering forces left behind', []], ['obstacles or demolitions behind them', []]]);
+    const backAlong = facts.filter(f => f.sense === 'back' && combat(f));
+    if (on('withdrawal') && (back.length || backAlong.length)) {
+        const n = byTime([...back, ...backAlong]).length;
+        judge('withdrawal', n >= 3 ? VERY_LIKELY : n === 2 ? LIKELY : EVEN, 'are withdrawing',
+            [['withdrawal or breaking contact reported', back], ...marchSign('moving back along the way of march', backAlong),
+                ['covering forces left behind', []], ['obstacles or demolitions behind them', []]]);
     }
     // Firing: probing with small elements, or attacking with a company or more.
     const shots = facts.filter(f => shot(f));
@@ -704,12 +797,13 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
     }
     if (on('exploit') && exp) {
         const into = exp.fresh.slice(0, 3).join(', ');
-        judge('exploit', levelBy(exp.fresh.length, 2, 3), {
+        const onward = byTime([...exp.through, ...exp.beyond]).filter(along);
+        judge('exploit', levelBy(exp.fresh.length + (onward.length ? 1 : 0), 2, 3), {
             RU: `are exploiting a breakthrough at ${exp.area}, pushing armor on into ${into} (a forward detachment or second echelon)`,
             CN: `are exploiting a breakthrough at ${exp.area}, pushing depth-attack groups on into ${into}`,
             '': `are exploiting a breakthrough at ${exp.area}, pushing armor on into ${into}`,
         }, [[`contact in ${exp.area}`, [exp.c]], [`armor moving through ${exp.area} within 12 hrs`, exp.through],
-            ['armor moving on into places with no reports before it', exp.beyond]], [exp.area, ...exp.fresh]);
+            ['armor moving on into places with no reports before it', exp.beyond], ...marchSign('moving along the way of march', onward)], [exp.area, ...exp.fresh]);
     }
     // Envelopment: flanking reported, or forces pressing in three or more 10 km squares around one.
     const flanking = facts.filter(f => FLANK.test(f.r.activity || ''));
@@ -739,19 +833,23 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
     if (on('encircle') && (flanking.length || ring)) {
         const where = ring ? ring.center : mostIn(flanking);
         const around = ring ? byTime(ring.around.flatMap(c => c.list)) : [];
-        judge('encircle', EVEN + (ring && ring.around.length >= 4 ? 1 : 0) + (ring && flanking.length ? 1 : 0), {
+        // Across the way of march: of the forces around it, or pressing within 24 hrs of the flanking reported.
+        const across = (ring ? around : pressing.filter(f => flanking.some(g => Math.abs(g.ms - f.ms) <= 24 * HOUR))).filter(f => f.sense === 'across');
+        judge('encircle', EVEN + (ring && ring.around.length >= 4 ? 1 : 0) + (ring && flanking.length ? 1 : 0) + (across.length ? 1 : 0), {
             RU: `are enveloping or encircling${where ? ` ${where}` : ' friendly positions'}, to cut it off (a pocket, kotyol)`,
             CN: `are splitting and encircling${where ? ` ${where}` : ' friendly positions'}, to isolate it`,
             '': `are enveloping or encircling${where ? ` ${where}` : ' friendly positions'}`,
         }, [['flanking, envelopment or encirclement reported', flanking],
-            [ring ? `forces moving or fighting in ${ring.around.length} squares around ${ring.center} within 24 hrs` : 'forces moving or fighting on several sides of one place', around]],
+            [ring ? `forces moving or fighting in ${ring.around.length} squares around ${ring.center} within 24 hrs` : 'forces moving or fighting on several sides of one place', around],
+            ...marchSign('moving across the way of march', across)],
         where ? [where] : null);
     }
     // Pursuit, when reports say so.
     const chase = densest(facts.filter(f => PURSUIT.test(f.r.activity || '') && (isManeuver(f) || f.roles.has('light') || (f.groups.infantry || 0) > 0)), 6 * HOUR);
     if (on('pursuit') && chase.length) {
-        const where = mostIn(chase);
-        judge('pursuit', levelBy(chase.length, 2, 4), `are pursuing${where ? ` through ${where}` : ''}`, [['pursuit reported within 6 hrs', chase]]);
+        const where = mostIn(chase), onward = chase.filter(along);
+        judge('pursuit', levelBy(chase.length + (onward.length ? 1 : 0), 2, 4), `are pursuing${where ? ` through ${where}` : ''}`,
+            [['pursuit reported within 6 hrs', chase], ...marchSign('moving along the way of march', onward)]);
     }
     // A fortified line: digging in, obstacles or engineers in three or more places within 48 hrs.
     const works = densest(facts.filter(f => has(f, 'Emplacing') || OBSTACLE.test(f.r.activity || '') || (f.roles.has('engineer') && has(f, 'Stationary'))), 48 * HOUR);
@@ -840,9 +938,11 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
     // Logistics moving forward, with armor massing or with fuel and ammunition.
     const convoys = densest(facts.filter(f => f.roles.has('logistics') && advancing(f)), 12 * HOUR);
     const fuelAmmo = convoys.filter(f => FUEL_AMMO.test(textOf(f)));
-    if (on('logforward') && convoys.length >= 2 && (mass.length || fuelAmmo.length)) {
+    const forwardOn = convoys.filter(along);
+    if (on('logforward') && convoys.length >= 2 && (mass.length || fuelAmmo.length || forwardOn.length)) {
         const signs = [['supply vehicles moving within 12 hrs', convoys], ['fuel or ammunition among them', fuelAmmo],
-            [focus ? `armor or mechanized forces massing in ${focus}` : 'armor or mechanized forces massing', mass]];
+            [focus ? `armor or mechanized forces massing in ${focus}` : 'armor or mechanized forces massing', mass],
+            ...marchSign('moving forward along the way of march', forwardOn)];
         judge('logforward', levelBy(kindsOf(signs) + (convoys.length >= 4 ? 1 : 0), 3, 4), {
             RU: `are pushing fuel and ammunition forward${focus ? ` toward ${focus}` : ''}, as before an attack`,
             CN: `are pushing fuel and ammunition forward${focus ? ` toward ${focus}` : ''}, as before an attack`,
@@ -887,6 +987,8 @@ const narrativeSettings = (s) => {
         units: list(s.units).filter(u => u && text(u.name)).map(u => ({ name: text(u.name), places: list(u.places).map(text).filter(Boolean), kinds: list(u.kinds).map(text).filter(Boolean) })),
         team: teamEquipment(list(s.equipment).filter(e => e && text(e.type) && text(e.role)).map(e => ({ type: text(e.type), role: text(e.role), origin: text(e.origin) }))),
         off: new Set(list(s.off)),
+        // The AO's way of march: the direction the enemy moves toward, or '' for none.
+        toward: HEADINGS_8.includes(text(s.toward).toUpperCase()) ? text(s.toward).toUpperCase() : '',
         custom: list(s.custom).filter(c => c && typeof c === 'object')
             .map(c => ({ what: text(c.what), words: text(c.words), min: Number(c.min), hours: Number(c.hours) }))
             .filter(c => c.what && c.words.split(',').some(w => w.trim()) && Number.isFinite(c.min) && c.min > 0 && Number.isFinite(c.hours) && c.hours > 0),
@@ -905,11 +1007,14 @@ const confidenceOf = (list) => {
 // The narrative's sections, for the reports in the period (`cur`, in time
 // order) and the period before (`prev`, or null). `settings` are the team's
 // (what the enemy is called, units, equipment, rules: narrativeSettings).
-// Gives { lines, judgments }: the lines, and for each judgment shown its rule,
-// the index of its last line, and the reports behind it (summaryDetail).
-const narrativeLines = (cur, prev, { local, hrs, end, places, settings, width = 100 }) => {
+// `overlays` give the axes of advance. Gives { lines, judgments }: the lines,
+// and for each judgment shown its rule, the index of its last line, and the
+// reports behind it (summaryDetail).
+const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays = [], width = 100 }) => {
     const set = narrativeSettings(settings);
-    const facts = cur.map(f => narrativeFacts(f, set.team));
+    const axes = axesOf(overlays);
+    const march = set.toward || axes.length ? { axes, toward: set.toward } : null;
+    const facts = cur.map(f => narrativeFacts(f, set.team, march));
     const out = [], shown = [];
     const say = (text, first = '   ', rest = '   ') => out.push(...wrapText(text, first, rest, width));
     const cite = (list, max = 4) => {
@@ -960,6 +1065,14 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, width = 
     const heads = new Map();
     facts.forEach(f => { if (f.act.heading) { const h = HEADINGS_8[Math.round(f.act.headingDeg / 45) % 8]; heads.set(h, (heads.get(h) || 0) + 1); } });
     if (heads.size) say(`Movement: headed ${[...heads].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).slice(0, 3).map(([h, n]) => `${h} (${n})`).join(', ')}.`);
+    // The way of march, when there is one, and how the reports moving moved against it.
+    if (march) {
+        const ways = [set.toward && `toward ${set.toward} in the AO`,
+            axes.length && `along ${andList(axes.map(a => a.key))} within ${AXIS_NEAR_METERS / 1000} km of ${axes.length === 1 ? 'it' : 'them'}`].filter(Boolean);
+        const moved = facts.filter(f => f.sense);
+        const n = (s) => moved.filter(f => f.sense === s).length;
+        say(`Way of march: ${ways.join('; ')}.${moved.length ? ` Of ${plural(moved.length, 'report')} moving there: ${n('along')} along it, ${n('back')} back along it, ${n('across')} across it.` : ''}`);
+    }
     const shots = facts.filter(f => f.act.tags.includes('Firing'));
     if (shots.length) {
         say(`Firing: ${plural(shots.length, 'report')}: ${shots.slice(0, 5).map(f => `${f.id} ${dayTime(f.ms, local)} ${f.r.size || '-'}, ${f.r.activity || '-'}`).join('; ')}`

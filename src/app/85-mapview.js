@@ -152,7 +152,7 @@ const renderMapCard = () => {
         <div class="map-card-head"><strong>${escapeHtml(formatFullId(r))}</strong>
             <button type="button" class="map-card-close" data-card-act="close" title="Close" aria-label="Close">&times;</button></div>
         ${row('Size', r.size)}${row('Activity', r.activity)}${row('Location', r.location)}
-        ${row(local ? 'Time (L)' : 'Time (Z)', mapTimeFmt(r.time))}${row('Analysis', r.yourAnalysis)}
+        ${row(local ? 'Time (L)' : 'Time (Z)', mapTimeFmt(r.time))}${row('Observer', r.observer)}${row('Analysis', r.yourAnalysis)}
         ${b.total && (r.bda || []).length ? row('BDA', `${b.done} of ${b.total} assessed`) : ''}
         ${(r.history || []).length ? row('Updates', String(r.history.length)) : ''}${marchRows}
         <div class="map-card-actions">
@@ -196,11 +196,12 @@ const centerMapOn = (id) => {
 // A click on the map: a report opens its card; an NAI, OBJ, phase line or
 // graphic of the team's tags narrows the table to it (again to widen it);
 // anywhere else closes the card. Lines first, within ten pixels; then areas.
-// Graphics with no tag, or whose tag is switched off in the key, aren't picked.
+// Graphics with no tag, or whose tag is switched off in the key, aren't
+// picked, nor is an axis of advance, which names no place.
 mapState.clickHook = ({ item, at, lonLat: [lon, lat], mpp }) => {
     if (item && item.t) { mapCardFrom = null; selectMapReport(item.t.report.id, at); return; }
     const near = mpp * Math.cos(lat * Math.PI / 180) * 10;   // ten pixels, on the ground
-    const shown = currentOverlays().map(o => [o, tagOf(o.type)]).filter(([o, t]) => !t.none && !mapState.tagsOff.has(t.key) && o.geometry)
+    const shown = currentOverlays().map(o => [o, tagOf(o.type)]).filter(([o, t]) => !t.none && !t.axis && !mapState.tagsOff.has(t.key) && o.geometry)
         .map(([o, t]) => [o, t.shape === 'area' ? SaltCore.asArea(o.geometry) : o.geometry]);
     const lines = shown.filter(([, g]) => /LineString/.test(g.type) && SaltCore.metersToGeometry(g, lon, lat) <= near);
     const areas = shown.filter(([, g]) => /Polygon/.test(g.type) && SaltCore.geometryContains(g, lon, lat));

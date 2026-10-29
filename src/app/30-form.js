@@ -62,6 +62,9 @@ const rebuildFormFields = (fields, groupFor, fmt) => {
             fields.appendChild(g);
         }
     });
+    // FMV mode's Observer stays last, after the custom fields.
+    const observer = document.getElementById('observerField');
+    if (observer) fields.appendChild(observer);
     if (focusKey) {
         const again = focusKey.startsWith('custom:')
             ? [...fields.querySelectorAll('[data-custom-label]')].find(i => `custom:${i.dataset.customLabel}` === focusKey)
@@ -107,6 +110,29 @@ const saveFormat = (format) => {
     });
 };
 
+// --- Observer (FMV mode) ---
+// The drone a report was seen from: one on station, or none. The pick stays
+// for the next report (an operator watches one feed); a report being edited
+// shows its own, even a drone taken off station or removed since.
+let observerPick = readRaw('salt_observer', '') || '';
+const renderObserverField = (value = el.form.observer.value) => {
+    const box = document.getElementById('observerField'), sel = el.form.observer;
+    if (!box || !sel) return;
+    box.hidden = !fmvOn();
+    const names = sharedDrones.filter(onStation).map(d => d.name);
+    const editing = el.form.reportId.value && localReports.find(r => r.id === el.form.reportId.value);
+    const own = editing && editing.observer && !names.includes(editing.observer) ? editing.observer : '';
+    const gone = own && !sharedDrones.some(d => d.name === own) ? 'removed' : 'off station';
+    const opts = [['', 'No observer'], ...names.map(n => [n, n]), ...(own ? [[own, `${own} (${gone})`]] : [])];
+    const html = opts.map(([v, t]) => `<option value="${escapeHtml(v)}">${escapeHtml(t)}</option>`).join('');
+    if (sel.dataset.options !== html) { sel.innerHTML = html; sel.dataset.options = html; }
+    sel.value = opts.some(([v]) => v === value) ? value : '';
+};
+// The pick a new report starts with: the last one, while it's on station.
+const observerForNew = () => (sharedDrones.some(d => onStation(d) && d.name === observerPick) ? observerPick : '');
+// What a history entry keeps of it: with FMV mode on, or when the report has one.
+const observerOf = (r) => (r.observer !== undefined || fmvOn() ? { observer: r.observer || '' } : {});
+
 // --- Location against the overlays ---
 
 // Under the Location box: what Log / Update will add (click one to add it
@@ -119,7 +145,13 @@ const renderLocationHints = () => {
     const plan = ovs.length && text.trim() ? SaltCore.locationPlan(text, ovs) : { add: [], conflicts: [] };
     const near = plan.add.some(k => k.startsWith('PL ')) ? locationInfo(text).nearestPl : null;
     const chips = [
-        ...plan.add.map(k => `<button type="button" class="loc-hint${addNearby ? '' : ' offered'}" data-loc-add="${escapeHtml(k)}" title="${addNearby ? 'Added when you log. Click to add it now.' : 'Not added when you log (Add Nearby Places is off). Click to add it.'}">+ ${escapeHtml(k)}${near && near.key === k ? ` <span class="loc-hint-sub">${Math.round(near.meters)} m</span>` : ''}</button>`),
+        // Add Nearby Places off: only said, with nothing to add it with.
+        ...plan.add.map(k => {
+            const sub = near && near.key === k ? ` <span class="loc-hint-sub">${Math.round(near.meters)} m</span>` : '';
+            return addNearby
+                ? `<button type="button" class="loc-hint" data-loc-add="${escapeHtml(k)}" title="Added when you log. Click to add it now.">+ ${escapeHtml(k)}${sub}</button>`
+                : `<span class="loc-hint offered" title="Nearby; not added (Add Nearby Places is off).">${escapeHtml(k)}${sub}</span>`;
+        }),
         ...plan.conflicts.map(c => `<span class="loc-hint warn" title="When you log, you pick which to keep.">${escapeHtml(c.message)}</span>`),
     ];
     box.innerHTML = chips.join('');
@@ -160,7 +192,7 @@ const fixReportLocation = async (id) => {
     if (loc === null || loc === r.location) return;
     const now = nextStamp(r);
     const hist = [...(r.history || []), { size: r.size || '', activity: r.activity || '', location: r.location || '', time: r.time,
-        yourAnalysis: r.yourAnalysis || '', custom: r.custom || {}, user: r.user, lastModified: r.lastModified }];
+        yourAnalysis: r.yourAnalysis || '', custom: r.custom || {}, ...observerOf(r), user: r.user, lastModified: r.lastModified }];
     const next = { ...r, location: loc, history: hist, updated: true, lastModified: now, user: userProfile };
     localReports = localReports.map(x => x === r ? next : x);
     reportsByAto[activeAto] = localReports;
@@ -174,7 +206,7 @@ const fixReportLocation = async (id) => {
 // asks before writing over it.
 let editingVersion = null;
 const editedFields = (r) => JSON.stringify([r.size, r.activity, r.location, r.time, r.yourAnalysis || '',
-    r.custom || {}, r.displayId, r.title]);
+    r.custom || {}, r.displayId, r.title, r.observer || '']);
 const loadedVersion = (r) => ({ id: r.id, fields: editedFields(r), at: Number(r.lastModified) || 0 });
 
 // Someone else saved the report in the form after it was loaded: a line
@@ -203,7 +235,6 @@ const resetForm = () => {
     el.form.root.reset();
     el.form.reportId.value = '';
     el.form.title.textContent = 'New Report';
-    el.form.editingNote.hidden = true;
     el.form.logBtn.textContent = 'Log New Report';
     el.form.logBtn.style.display  = '';
     el.form.editPair.style.display = 'none';
@@ -215,6 +246,7 @@ const resetForm = () => {
     // The reset empties every box in the form, MGRS Lock's zone and square too.
     const lockBox = document.getElementById('mgrsPrefix');
     if (lockBox) lockBox.value = mgrsLockPrefix;
+    renderObserverField(observerForNew());
     document.querySelectorAll('.selected-row').forEach(r => r.classList.remove('selected-row'));
     renderLocationHints();
 };
@@ -226,23 +258,20 @@ const loadReportForEditing = (reportId) => {
     document.querySelectorAll('.selected-row').forEach(r => r.classList.remove('selected-row'));
     const rowEl = [...el.log.body.rows].find(tr => tr.dataset.id === report.id);
     if (rowEl) rowEl.classList.add('selected-row');
-    // The short ID always fits; the full identifier and what the report says go
-    // on the line below, cut to fit, whole on hover.
     el.form.title.textContent = `Updating ${report.displayId || formatFullId(report)}`;
-    const note = [formatFullId(report), report.size, report.activity].filter(Boolean).join(' · ');
-    el.form.editingNote.textContent = note;
-    el.form.editingNote.title = note;
-    el.form.editingNote.hidden = false;
     el.form.reportId.value    = report.id;
     editingVersion = loadedVersion(report);
     renderPeerChange();
     el.form.startNum.value = reportNum(report) || 1;
     el.form.size.value     = report.size;
     el.form.activity.value = report.activity;
-    el.form.location.value = report.location;
+    // With MGRS Lock on, its grids in the locked zone and square as their
+    // digits, the zone and square being in the lock's box.
+    el.form.location.value = mgrsLock ? SaltCore.stripMgrsPrefix(report.location, mgrsLockPrefix) : report.location;
     renderLocationHints();
     el.form.analysis.value = report.yourAnalysis || '';
     document.querySelectorAll('#saltFields [data-custom-label]').forEach(i => { i.value = (report.custom || {})[i.dataset.customLabel] || ''; });
+    renderObserverField(report.observer || '');
     el.form.time.value = clockValue(new Date(report.time), timeDisplayMode === 'local');
     // Swap the single "Log New Report" submit for the Edit / Update pair.
     el.form.logBtn.style.display   = 'none';
@@ -382,6 +411,8 @@ const restoreHistoryVersion = (reportId, lastModified) => {
         // Snapshots taken before custom fields existed have no `custom`; keep
         // the current values rather than wiping them.
         if ('custom' in snapshot) report.custom = { ...snapshot.custom };
+        // Likewise the observer, for snapshots from before FMV mode.
+        if ('observer' in snapshot) report.observer = snapshot.observer;
         report.updated      = report.history.length > 0;
         report.lastModified = now;
         // Attribute the restore to the operator who performed it.

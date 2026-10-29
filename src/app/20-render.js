@@ -254,7 +254,7 @@ const matchesSearch = (r, filterText) => {
     // so "destroyed" or a weather note finds its report.
     const cus = Object.values(r.custom || {}).join(' ');
     const bda = (r.bda || []).map(b => `${b.effect||''} ${b.target||''} ${b.coords||''} ${b.note||''}`).join(' ');
-    return `${r.fullId} ${r.displayId} ${r.size} ${r.activity} ${r.location} ${r.yourAnalysis||''} ${r.user?.initials||''} ${ts} ${cus} ${bda}`.toLowerCase().includes(q);
+    return `${r.fullId} ${r.displayId} ${r.size} ${r.activity} ${r.location} ${r.yourAnalysis||''} ${r.user?.initials||''} ${r.observer||''} ${ts} ${cus} ${bda}`.toLowerCase().includes(q);
 };
 
 // Forget checked rows and expanded cells whose report (or history entry) is
@@ -324,6 +324,8 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
     const cusCells = (obj, key) => cusCols.map(l =>
         `<td class="col-custom">${clampCell((obj || {})[l.label] || '', `${key}|custom:${l.label}`)}</td>`).join('');
     const editingId = el.form.reportId.value;
+    // The drone a report (or a version of it) was seen from, small under its time.
+    const observerTag = (o) => (o ? `<span class="observer-tag" title="Observer: ${escapeHtml(o)}">${escapeHtml(o)}</span>` : '');
     // Numbers two live reports share, in the whole workspace (not only the
     // rows a search leaves).
     const dupes = SaltCore.duplicateIds(localReports);
@@ -378,7 +380,7 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
                         : `All ${done} assessed`;
             bdaBtn = `<button class="bda-btn ${state}${worstCls ? ' bda-worst-' + worstCls : ''}${openBdaRows.has(report.id) ? ' open' : ''}" data-bda-id="${escapeHtml(report.id)}" title="${tip}" aria-expanded="${openBdaRows.has(report.id)}">${label}</button>`;
         }
-        row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${escapeHtml(report.id)}" title="Select" aria-label="Select ${escapeHtml(shownId)}"${selectedRows.has(rid) ? ' checked' : ''}> ${histBtn} <button class="copy-btn" data-id="${escapeHtml(report.id)}" aria-label="Copy ${escapeHtml(shownId)}">Copy</button>${discardBtn}${renumberBtn}${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${clampCell(report.size, `${rid}|size`)}</td><td class="col-activity">${clampCell(report.activity, `${rid}|activity`)}</td><td class="col-location">${clampCell(report.location, `${rid}|location`)}${locationTags(report.location, report.id)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}</td><td class="col-analysis">${clampCell(report.yourAnalysis, `${rid}|analysis`)}</td>${cusCells(report.custom, rid)}`;
+        row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${escapeHtml(report.id)}" title="Select" aria-label="Select ${escapeHtml(shownId)}"${selectedRows.has(rid) ? ' checked' : ''}> ${histBtn} <button class="copy-btn" data-id="${escapeHtml(report.id)}" aria-label="Copy ${escapeHtml(shownId)}">Copy</button>${discardBtn}${renumberBtn}${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${clampCell(report.size, `${rid}|size`)}</td><td class="col-activity">${clampCell(report.activity, `${rid}|activity`)}</td><td class="col-location">${clampCell(report.location, `${rid}|location`)}${locationTags(report.location, report.id)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}${observerTag(report.observer)}</td><td class="col-analysis">${clampCell(report.yourAnalysis, `${rid}|analysis`)}</td>${cusCells(report.custom, rid)}`;
         // With its updates open: its rate of march from the grid before
         // (app/60-map.js, marchOf), and overall, under its time.
         const march = isOpen && report.history && report.history.length ? marchOf(report) : null;
@@ -401,7 +403,7 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
                 const hRep  = h.user || null;
                 const hHTML = hRep ? `<span style="color:${safeColor(hRep.color)};">${escapeHtml(hRep.initials)}</span>` : '?';
                 const hk = `${rid}|${h.lastModified}`;
-                hRow.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="history-selector" data-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Select history entry" aria-label="Select update ${arr.length - i} of ${escapeHtml(shownId)}"${selectedHistory.has(hk) ? ' checked' : ''}> <span class="hist-arrow">&#8618;</span> <button class="restore-btn" data-restore-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Restore this version as current">Restore</button></div></td><td class="col-by reporter-col">${hHTML}</td><td class="col-id"><span class="id-cell-wrap">${escapeHtml(formatFullId(report))}<span class="id-updated-badge">(Update #${arr.length - i})</span></span></td><td class="col-size">${clampCell(h.size, `${hk}|size`)}</td><td class="col-activity">${clampCell(h.activity, `${hk}|activity`)}</td><td class="col-location">${clampCell(h.location, `${hk}|location`)}</td><td class="col-time">${escapeHtml(timeFmt(h.time))}</td><td class="col-analysis">${clampCell(h.yourAnalysis, `${hk}|analysis`)}</td>${cusCells(h.custom, hk)}`;
+                hRow.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="history-selector" data-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Select history entry" aria-label="Select update ${arr.length - i} of ${escapeHtml(shownId)}"${selectedHistory.has(hk) ? ' checked' : ''}> <span class="hist-arrow">&#8618;</span> <button class="restore-btn" data-restore-id="${escapeHtml(report.id)}" data-lm="${escapeHtml(h.lastModified)}" title="Restore this version as current">Restore</button></div></td><td class="col-by reporter-col">${hHTML}</td><td class="col-id"><span class="id-cell-wrap">${escapeHtml(formatFullId(report))}<span class="id-updated-badge">(Update #${arr.length - i})</span></span></td><td class="col-size">${clampCell(h.size, `${hk}|size`)}</td><td class="col-activity">${clampCell(h.activity, `${hk}|activity`)}</td><td class="col-location">${clampCell(h.location, `${hk}|location`)}</td><td class="col-time">${escapeHtml(timeFmt(h.time))}${observerTag(h.observer)}</td><td class="col-analysis">${clampCell(h.yourAnalysis, `${hk}|analysis`)}</td>${cusCells(h.custom, hk)}`;
                 if (march) marchCell(hRow, h, false);
                 frag.appendChild(hRow);
             });

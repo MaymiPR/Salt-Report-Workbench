@@ -104,6 +104,22 @@ const applyMgrsPrefix = (text, prefix) => {
     }).join(',');
 };
 
+// applyMgrsPrefix the other way, for a report put back in the form: each
+// grid in the locked zone and square ("38S MB 45000 82000", "38SMB4500082000")
+// as its digits ("45000 82000"). Grids in another square, and everything
+// else, are left as they are.
+const stripMgrsPrefix = (text, prefix) => {
+    const p = mgrsPrefix(prefix), s = String(text || '');
+    if (!p) return s;
+    return s.split(',').map(seg => {
+        const t = seg.trim(), lead = seg.slice(0, seg.length - seg.trimStart().length);
+        const m = /^(\d{1,2})\s*([C-HJ-NP-X])\s*([A-HJ-NP-Z])\s*([A-HJ-NP-V])\s*(\d{1,10})(?:\s+(\d{1,5}))?$/i.exec(t);
+        if (!m || mgrsPrefix(`${m[1]}${m[2]} ${m[3]}${m[4]}`) !== p) return seg;
+        if (m[6] !== undefined) return m[5].length === m[6].length ? `${lead}${m[5]} ${m[6]}` : seg;
+        return m[5].length % 2 === 0 ? `${lead}${m[5].slice(0, m[5].length / 2)} ${m[5].slice(m[5].length / 2)}` : seg;
+    }).join(',');
+};
+
 const normalizeLocation = (loc) => {
     const s = String(loc || '').trim();
     if (!s || s.includes(',')) return s;
@@ -220,6 +236,7 @@ const backupReportBlocks = (reps) => [...reps].sort((a,b) => reportNum(a) - repo
     let out = `${BACKUP_SUB}\n REPORT ${r.displayId}${r.updated ? '  [UPDATED]' : ''}\n${BACKUP_SUB}\n`;
     out += ` Size     : ${r.size||'-'}\n Activity : ${r.activity||'-'}\n Location : ${r.location||'-'}\n Time     : ${backupTime(r.time)}\n`;
     if (r.yourAnalysis) out += ` Analysis : ${r.yourAnalysis}\n`;
+    if (r.observer) out += ` Observer : ${r.observer}\n`;
     Object.entries(r.custom || {}).forEach(([ck, cv]) => { out += ` ${ck} : ${cv}\n`; });
     if (r.user?.initials) out += ` By       : ${r.user.initials}\n`;
     (r.bda || []).forEach((b, bi) => { out += `   BDA ${bi+1}  : ${b.effect || 'Unknown'} - ${b.target || ''}${b.coords ? ' @ ' + b.coords : ''}${b.note ? ' - ' + b.note : ''}\n`; });
@@ -239,8 +256,14 @@ const backupMachineData = (payload) =>
 // The built-in overlay types, as the server's _OVERLAY_TYPES, and how deep
 // each geometry's coordinates nest above the [lon, lat] pairs (its
 // _GEOMETRY_DEPTH). An overlay's type can also be one of the team's own tags,
-// by its id (TAG_ID, as the server's _TAG_ID_RE), or '' for none.
-const OVERLAY_TYPES = new Set(['NAI', 'OBJ', 'PL']);
+// by its id (TAG_ID, as the server's _TAG_ID_RE), or '' for none. NAI, OBJ
+// and PL name places (PLACE_TYPES); an axis of advance (AXIS) names none: it
+// gives the enemy's way of march near it (wayOfMarchAt).
+const PLACE_TYPES = new Set(['NAI', 'OBJ', 'PL']);
+const OVERLAY_TYPES = new Set([...PLACE_TYPES, 'AXIS']);
+// The names a tag of the team's can't have: the built-in tags', as the
+// server's _BUILT_IN_TAG_NAMES.
+const BUILT_IN_TAG_NAMES = new Set([...OVERLAY_TYPES, 'AXIS OF ADVANCE']);
 const TAG_ID = /^tag-[a-z0-9]{1,16}$/;
 const isOverlayType = (t) => typeof t === 'string' && (OVERLAY_TYPES.has(t) || t === '' || TAG_ID.test(t));
 const GEOMETRY_DEPTH = { Point: 0, LineString: 1, Polygon: 2, MultiLineString: 2, MultiPolygon: 3 };
@@ -292,7 +315,7 @@ const cleanTags = (value) => {
         if (!t || typeof t !== 'object' || typeof t.id !== 'string' || !TAG_ID.test(t.id) || ids.has(t.id)) return false;
         const name = typeof t.name === 'string' ? t.name.trim() : '';
         const key = name.toUpperCase();
-        if (!name || name.length > 30 || names.has(key) || OVERLAY_TYPES.has(key)) return false;
+        if (!name || name.length > 30 || names.has(key) || BUILT_IN_TAG_NAMES.has(key)) return false;
         if (typeof t.color !== 'string' || !/^#[0-9A-Fa-f]{6}$/.test(t.color)) return false;
         ids.add(t.id); names.add(key);
         return true;
@@ -378,26 +401,32 @@ const historyRows = (r) => {
     return h.map((hh, i) => [`Update #${h.length-i} (Old)`, hh]);
 };
 
+// Whether any of the reports, or a saved version of one, names its observer.
+const anyObserver = (reps) => (reps || []).some(r => r && (r.observer || (r.history || []).some(h => h && h.observer)));
+
 // The CSV export: each report, then its history, then its BDA assessments.
 // Custom builder fields become extra columns after Analysis, so the first
-// seven stay index-stable for existing consumers.
+// seven stay index-stable for existing consumers; FMV mode's Observer (the
+// drone it was seen from) comes last, when `observer` (by default: when any
+// report names one).
 // `latestOnly`: one row per report (its current version), so a platform that
 // plots every row puts each report on the map once.
-const reportsCsv = (reps, { local, customLabels, idOf, latestOnly = false }) => {
+const reportsCsv = (reps, { local, customLabels, idOf, latestOnly = false, observer = anyObserver(reps) }) => {
     const t = d => toTimeString(d, local);
     const cus = (o) => customLabels.map(c => csvField((o || {})[c] || ''));
-    let csv = csvHeader(local, customLabels);
+    const obs = (v) => (observer ? [csvField(v || '')] : []);
+    let csv = csvHeader(local, observer ? [...customLabels, 'Observer'] : customLabels);
     for (const r of reps) {
         const id = idOf(r);
-        csv += [csvField(id),csvField(r.updated?'Current Update':'Original'),csvField(r.size),csvField(r.activity),csvField(r.location),csvField(t(r.time)),csvField(r.yourAnalysis),...cus(r.custom)].join(',')+'\r\n';
+        csv += [csvField(id),csvField(r.updated?'Current Update':'Original'),csvField(r.size),csvField(r.activity),csvField(r.location),csvField(t(r.time)),csvField(r.yourAnalysis),...cus(r.custom),...obs(r.observer)].join(',')+'\r\n';
         if (latestOnly) continue;
         historyRows(r).forEach(([label, hh]) => {
-            csv += [csvField(id),csvField(label),csvField(hh.size),csvField(hh.activity),csvField(hh.location),csvField(t(hh.time)),csvField(hh.yourAnalysis),...cus(hh.custom)].join(',')+'\r\n';
+            csv += [csvField(id),csvField(label),csvField(hh.size),csvField(hh.activity),csvField(hh.location),csvField(t(hh.time)),csvField(hh.yourAnalysis),...cus(hh.custom),...obs(hh.observer)].join(',')+'\r\n';
         });
         // BDA assessments ride the existing columns: target in Size,
         // effect in Activity, coords in MGRS, note in Analysis.
         (r.bda||[]).forEach((b,i) => {
-            csv += [csvField(id),csvField(`BDA #${i+1}`),csvField(b.target),csvField(b.effect),csvField(b.coords),csvField(t(b.time)),csvField(b.note),...customLabels.map(()=>csvField(''))].join(',')+'\r\n';
+            csv += [csvField(id),csvField(`BDA #${i+1}`),csvField(b.target),csvField(b.effect),csvField(b.coords),csvField(t(b.time)),csvField(b.note),...customLabels.map(()=>csvField('')),...obs('')].join(',')+'\r\n';
         });
     }
     return csv;

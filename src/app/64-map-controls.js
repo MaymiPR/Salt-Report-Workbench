@@ -65,7 +65,7 @@ const renderMapPanel = (box) => {
                     <div class="map-measure-wrap">
                         <button type="button" id="mapMeasureBtn" title="Measure" aria-label="Measure" aria-pressed="false" aria-controls="mapMeasureTools"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 11.5 11.5 2 14 4.5 4.5 14Z"/><path d="M5 9.5l1.2 1.2M7 7.5l1.2 1.2M9 5.5l1.2 1.2"/></svg></button>
                         <div id="mapMeasureTools" class="map-measure-tools" role="toolbar" aria-label="Measure tools" inert>
-                            ${MEASURE_TOOLS.map(([k, t, tip]) => `<button type="button" class="map-measure-tool" data-measure-tool="${k}" title="${tip}" aria-pressed="false">${t}</button>`).join('')}
+                            ${MEASURE_TOOLS.map(([k, t, tip]) => `<button type="button" class="map-measure-tool${k === 'axis' ? ' editor-only' : ''}" data-measure-tool="${k}" title="${tip}" aria-pressed="false">${t}</button>`).join('')}
                         </div>
                         <div id="mapMeasurePanel" class="map-measure-panel" hidden></div>
                     </div>
@@ -116,7 +116,10 @@ const renderMapPanel = (box) => {
     document.getElementById('mapBaseNone').hidden = !!sharedBasemaps.length;
     // Viewers can only pick: with nothing to pick, no button.
     document.getElementById('mapBaseBtn').hidden = isReadOnly && !sharedBasemaps.length;
-    document.getElementById('mapDroneBtn').hidden = isReadOnly && !sharedDrones.length;
+    // The drones only with FMV mode on; for viewers, only when there are some.
+    const droneBtn = document.getElementById('mapDroneBtn');
+    droneBtn.hidden = !fmvOn() || (isReadOnly && !sharedDrones.length);
+    if (droneBtn.hidden) toggleDronePop(false);
     renderDronePop();
     renderBasemapManager();
     redrawMap();
@@ -208,8 +211,23 @@ if (mapBody) {
             return;
         }
         if (e.target.closest('#mapBaseBtn')) { toggleBasePop(); return; }
-        if (e.target.closest('#mapBaseManage')) { toggleBasePop(false); openManageView(); switchManageTab('overlays'); return; }
+        if (e.target.closest('#mapBaseManage')) { toggleBasePop(false); openManageView(); switchManageTab('overlays'); showMapSub('basemaps'); return; }
         if (e.target.closest('#mapDroneBtn')) { toggleDronePop(); return; }
+        // + opens the add form (and its name box); More, a drone's look, range and Remove.
+        if (e.target.closest('#mapDroneAddBtn')) {
+            droneAdding = !droneAdding;
+            renderDronePop();
+            if (droneAdding) document.getElementById('mapDroneName').focus();
+            return;
+        }
+        const more = e.target.closest('[data-drone-more]');
+        if (more) {
+            const d = sharedDrones[+more.dataset.droneMore];
+            if (!d) return;
+            if (droneMoreOpen.has(d.name)) droneMoreOpen.delete(d.name); else droneMoreOpen.add(d.name);
+            renderDronePop();
+            return;
+        }
         const zoomTo = e.target.closest('[data-drone-zoom]');
         if (zoomTo) { const d = sharedDrones[+zoomTo.dataset.droneZoom]; if (d) zoomToDrone(d); return; }
         const gone = e.target.closest('[data-drone-remove]');
@@ -237,7 +255,10 @@ if (mapBody) {
             if (sharedDrones.length >= MAX_DRONES) { showToast(`${MAX_DRONES} drones at most.`, true); return; }
             document.getElementById('mapDroneName').value = '';
             document.getElementById('mapDroneGridNew').value = '';
+            droneAdding = false;
             saveDrones([...sharedDrones, { name, grid, at: Date.now() }], `${name} added at ${grid}.`);
+            const plus = document.getElementById('mapDroneAddBtn');
+            if (plus) plus.focus();
             return;
         }
     });
@@ -252,17 +273,17 @@ if (mapBody) {
             moved.blur();
             saveDrones(sharedDrones.map(x => (x === d ? { ...d, grid, at: Date.now() } : x)), `${d.name} moved to ${grid}.`);
         }
-        // Where it's looking (empty: back to the newest report), and its range (empty: none).
+        // Where it's looking (empty: back to its newest report), and its range (empty: none).
         const look = e.target.closest('[data-drone-look]');
         if (e.key === 'Enter' && look) {
             e.preventDefault();
             const d = sharedDrones[+look.dataset.droneLook], text = look.value.trim(), grid = text ? droneGrid(text) : null;
             if (!d) return;
-            if (text && !grid) { showToast('Type the grid it\'s looking at, e.g. 11S NV 44000 07000, or leave it empty for the newest report.', true); return; }
+            if (text && !grid) { showToast('Type the grid it\'s looking at, e.g. 11S NV 44000 07000, or leave it empty for its newest report.', true); return; }
             look.blur();
             const { look: _, ...rest } = d;
             saveDrones(sharedDrones.map(x => (x === d ? (grid ? { ...d, look: grid } : rest) : x)),
-                grid ? `${d.name} is looking at ${grid}.` : `${d.name}'s view follows the newest report.`);
+                grid ? `${d.name} is looking at ${grid}.` : `${d.name}'s view follows its newest report.`);
         }
         const ranged = e.target.closest('[data-drone-range]');
         if (e.key === 'Enter' && ranged) {
@@ -278,6 +299,16 @@ if (mapBody) {
         if (e.key === 'Enter' && (e.target.id === 'mapDroneName' || e.target.id === 'mapDroneGridNew')) { e.preventDefault(); document.getElementById('mapDroneAdd').click(); }
     });
     mapBody.addEventListener('change', e => {
+        // On station or off: off, it stays in the list but leaves the map and the Observer list.
+        const station = e.target.closest('[data-drone-station]');
+        if (station) {
+            const d = sharedDrones[+station.dataset.droneStation];
+            if (!d || isReadOnly) return;
+            const { offStation: _, ...rest } = d;
+            saveDrones(sharedDrones.map(x => (x === d ? (station.checked ? rest : { ...d, offStation: true }) : x)),
+                station.checked ? `${d.name} is on station.` : `${d.name} is off station.`);
+            return;
+        }
         if (e.target.id === 'mapDroneShow' || e.target.id === 'mapDroneView') {
             const on = e.target.checked;
             if (e.target.id === 'mapDroneShow') mapState.droneShow = on; else mapState.droneView = on;
@@ -311,10 +342,32 @@ const MEASURE_TOOLS = [
     ['area', 'Area', 'Click round a shape: its area and perimeter'],
     ['ring', 'Range ring', 'Click a center, then the radius (or drag it out)'],
     ['time', 'Time-distance', 'Click along a route: how long it takes at a speed'],
+    // Editors only: an axis of advance drawn, then named and saved for everyone.
+    ['axis', 'Draw axis', 'Click from where the enemy comes from, along its way, to where it heads; then name it and save it'],
 ];
 const MAX_RINGS = 20;
-// The time-distance tool's rate: a standard one, or the speed typed with its class.
-const measureRate = () => SaltCore.STANDARD_RATES.find(r => r.id === mapState.measureRate) || SaltCore.STANDARD_RATES[0];
+// The time-distance tool's speed: a number typed and a unit of the units
+// in use (Settings > Units), which also says how the distance reads (a
+// knot is an aircraft's, so its distance is in nautical miles). Kept in this
+// browser once typed.
+const SPEED_UNITS = {
+    metric: [{ id: 'kmh', label: 'km/h', kmh: 1, kind: 'vehicle' }, { id: 'mmin', label: 'm/min', kmh: 0.06, kind: 'dismount' }],
+    imperial: [{ id: 'mph', label: 'mph', kmh: 1.609344, kind: 'vehicle' }, { id: 'kn', label: 'knots', kmh: 1.852, kind: 'aircraft' }],
+};
+const measureSpeedUnit = () => {
+    const list = SPEED_UNITS[unitSystem] || SPEED_UNITS.metric;
+    return list.find(u => u.id === mapState.measureUnit) || list[0];
+};
+const measureKind = () => measureSpeedUnit().kind;
+const measureKmh = () => { const v = Number(mapState.measureSpeed); return mapState.measureSpeed !== '' && v > 0 ? v * measureSpeedUnit().kmh : 0; };
+try {
+    const kept = JSON.parse(storedText('salt_measure_speed') || 'null');
+    if (kept && typeof kept === 'object') {
+        mapState.measureSpeed = typeof kept.v === 'string' ? kept.v.slice(0, 12) : '';
+        mapState.measureUnit = typeof kept.unit === 'string' ? kept.unit : '';
+    }
+} catch (e) { /* none kept */ }
+const keepMeasureSpeed = () => writeStored('salt_measure_speed', JSON.stringify({ v: mapState.measureSpeed, unit: mapState.measureUnit }));
 // On, the ruler says so, its tools slide out and the cursor is a crosshair;
 // off, they slide back and what was measured goes (kept rings stay).
 const setMapMeasuring = (on) => {
@@ -352,12 +405,14 @@ const renderMeasureTools = () => {
     tools.querySelectorAll('[data-measure-tool]').forEach(b => setOn(b, b.dataset.measureTool === mapState.measureTool));
     const tool = mapState.measuring ? mapState.measureTool : '';
     if (tool === 'time') {
-        const rate = measureRate(), per = SaltCore.kmhPerSpeedUnit(unitSystem, rate.kind);
-        const typed = Math.round(mapState.measureKmh / per * 10) / 10;
-        panel.innerHTML = `<label for="mapMeasureRate">Speed</label>
-            <select id="mapMeasureRate">${SaltCore.STANDARD_RATES.map(r => `<option value="${r.id}"${r.id === rate.id ? ' selected' : ''}>${escapeHtml(r.label)} (${escapeHtml(SaltCore.formatSpeed(r.kmh, unitSystem, r.kind))})</option>`).join('')}</select>
-            <span class="map-measure-speed"><input type="number" id="mapMeasureSpeed" min="0" step="any" inputmode="decimal" value="${typed}" aria-label="Speed in ${SaltCore.speedUnit(unitSystem, rate.kind)}">
-            <span aria-hidden="true">${SaltCore.speedUnit(unitSystem, rate.kind)}</span></span>`;
+        const unit = measureSpeedUnit();
+        panel.innerHTML = `<label for="mapMeasureSpeed">Speed</label>
+            <span class="map-measure-speed"><input type="number" id="mapMeasureSpeed" min="0" step="any" inputmode="decimal" placeholder="Speed" value="${escapeHtml(mapState.measureSpeed)}">
+            <select id="mapMeasureUnit" aria-label="Speed unit">${(SPEED_UNITS[unitSystem] || SPEED_UNITS.metric).map(u => `<option value="${u.id}"${u.id === unit.id ? ' selected' : ''}>${escapeHtml(u.label)}</option>`).join('')}</select></span>`;
+    } else if (tool === 'axis' && mapState.measureDone && mapState.measure.length > 1 && !isReadOnly) {
+        panel.innerHTML = `<label for="mapAxisName">Name</label>
+            <span class="map-measure-speed"><span aria-hidden="true">AXIS</span><input type="text" id="mapAxisName" maxlength="20" spellcheck="false" value="${escapeHtml(nextAxisName())}" aria-label="Name, after AXIS"></span>
+            <button type="button" id="mapAxisSave" class="text-btn">Save axis</button>`;
     } else if (tool === 'ring') {
         const done = mapState.measure.length && mapState.ringR > 0;
         panel.innerHTML = `<button type="button" id="mapRingKeep" class="text-btn"${done ? '' : ' disabled'}>Keep ring on the map</button>
@@ -376,10 +431,37 @@ const addMeasurePoint = ([lon, lat]) => {
         if (!pts.length || mapState.ringR) { mapState.measure = [p]; mapState.ringR = 0; }
         else mapState.ringR = SaltCore.metersBetween(pts[0], p);
         renderMeasureTools();
-    } else if (mapState.measureDone) { mapState.measure = [p]; mapState.measureDone = false; }
-    else mapState.measure = [...pts, p];
+    } else if (mapState.measureDone) {
+        mapState.measure = [p];
+        mapState.measureDone = false;
+        if (mapState.measureTool === 'axis') renderMeasureTools();
+    } else mapState.measure = [...pts, p];
     showMeasure();
     redrawMap();
+};
+// The first free number for a new axis: AXIS 1, AXIS 2...
+const nextAxisName = () => {
+    const taken = new Set(currentOverlays().filter(o => o.type === 'AXIS').map(o => String(o.name).toUpperCase()));
+    let n = 1;
+    while (taken.has(String(n))) n++;
+    return String(n);
+};
+// The axis drawn, saved as an overlay for everyone under the name typed
+// (one word, as an imported axis's: "Gold" is AXIS GOLD). A name in use asks
+// for another; a saved one is drawn with the overlays, the tool ready for
+// the next.
+const saveDrawnAxis = async () => {
+    const box = document.getElementById('mapAxisName');
+    const ref = SaltCore.overlayRef(`AXIS ${(box && box.value) || ''}`, 'AXIS');
+    if (!ref || ref.type !== 'AXIS') { showToast('Give the axis a name: a word or a number.', true); if (box) box.focus(); return; }
+    if (currentOverlays().some(o => overlayKey(o) === ref.key)) { showToast(`${ref.key} exists already: pick another name.`, true); if (box) box.focus(); return; }
+    const pts = mapState.measure;
+    const axis = { type: 'AXIS', name: ref.name, geometry: { type: 'LineString', coordinates: pts.map(p => [+p.lon.toFixed(6), +p.lat.toFixed(6)]) } };
+    resetMeasure();
+    renderMeasureTools();
+    showMeasure();
+    const undo = () => saveOverlays(sharedOverlays.filter(o => overlayKey(o) !== ref.key), `${ref.key} removed.`);
+    await saveOverlays([...sharedOverlays, axis], `${ref.key} saved for everyone.`, undo);
 };
 // Double-click or Enter: a path, area or route is finished (a click then
 // starts another). The second click of a double-click added a point where
@@ -396,6 +478,12 @@ const finishMeasure = (dbl) => {
     mapState.measureHover = null;
     showMeasure();
     redrawMap();
+    // A drawn axis: its name next, then Save.
+    if (tool === 'axis') {
+        renderMeasureTools();
+        const box = document.getElementById('mapAxisName');
+        if (box) { box.focus(); box.select(); }
+    }
 };
 // What is measured, with its grids, for reading and copying; a screen
 // reader hears it (role=status).
@@ -422,15 +510,20 @@ const showMeasure = () => {
     } else if (tool === 'area') {
         out.textContent = pts.length < 3 ? `Area: click round the shape, three points or more.${pts.length ? ` ${plural(pts.length, 'point')} so far.` : ''}`
             : `Area: ${SaltCore.formatArea(SaltCore.areaMeters(pts), unitSystem)}, perimeter ${dist(SaltCore.pathMeters([...pts, pts[0]]))} (${plural(pts.length, 'point')}).${finish}`;
+    } else if (tool === 'axis') {
+        out.textContent = !pts.length ? 'Draw axis: click where the enemy comes from, then along its way to where it heads.'
+            : pts.length === 1 ? `From ${grid(pts[0])}: click the next point.`
+            : !mapState.measureDone ? `Axis: ${dist(SaltCore.pathMeters(pts))}, from ${grid(pts[0])} to ${grid(pts[pts.length - 1])}.${finish}`
+            : `Axis: ${dist(SaltCore.pathMeters(pts))}, from ${grid(pts[0])} to ${grid(pts[pts.length - 1])}. Name it and Save, or click to draw it again.`;
     } else if (tool === 'path') {
         out.textContent = !pts.length ? 'Path: click points along the way.'
             : pts.length === 1 ? `From ${grid(pts[0])}: click the next point.`
             : `Path: ${dist(SaltCore.pathMeters(pts))} in ${plural(pts.length - 1, 'leg')} (${legs()}), from ${grid(pts[0])} to ${grid(pts[pts.length - 1])}.${finish}`;
     } else {
-        const rate = measureRate(), m = SaltCore.pathMeters(pts), kmh = mapState.measureKmh;
-        out.textContent = pts.length < 2 ? `Time-distance: pick or type a speed, then click points along the route.${pts.length ? ` From ${grid(pts[0])}: click the next point.` : ''}`
-            : !(kmh > 0) ? `Time-distance: ${dist(m, rate.kind)}. Type a speed above 0.`
-            : `Time-distance: ${dist(m, rate.kind)} at ${SaltCore.formatSpeed(kmh, unitSystem, rate.kind)} takes ${SaltCore.formatDuration(m / 1000 / kmh)}, from ${grid(pts[0])} to ${grid(pts[pts.length - 1])}.${finish}`;
+        const kind = measureKind(), m = SaltCore.pathMeters(pts), kmh = measureKmh();
+        out.textContent = pts.length < 2 ? `Time-distance: type a speed and pick its unit, then click points along the route.${pts.length ? ` From ${grid(pts[0])}: click the next point.` : ''}`
+            : !(kmh > 0) ? `Time-distance: ${dist(m, kind)}. Type a speed above 0.`
+            : `Time-distance: ${dist(m, kind)} at ${mapState.measureSpeed} ${measureSpeedUnit().label} takes ${SaltCore.formatDuration(m / 1000 / kmh)}, from ${grid(pts[0])} to ${grid(pts[pts.length - 1])}.${finish}`;
     }
 };
 // Range rings kept on the map, in this browser only.
@@ -475,27 +568,29 @@ if (mapBody) {
             if (next) next.focus();
             return;
         }
+        if (e.target.closest('#mapAxisSave')) { saveDrawnAxis(); return; }
         if (e.target.closest('#mapRingClear')) {
             saveRings([], 'Kept rings cleared.');
             const keep = document.getElementById('mapRingKeep');
             if (keep) keep.focus();
         }
     });
-    // The time-distance tool's speed: a standard rate fills the box, in its
-    // class's unit; a speed typed there is used as it is.
+    // The time-distance tool's speed and its unit, kept for next time.
     mapBody.addEventListener('change', e => {
-        if (e.target.id !== 'mapMeasureRate') return;
-        mapState.measureRate = e.target.value;
-        mapState.measureKmh = measureRate().kmh;
-        renderMeasureTools();
+        if (e.target.id !== 'mapMeasureUnit') return;
+        mapState.measureUnit = e.target.value;
+        keepMeasureSpeed();
         showMeasure();
         refreshMeasure();
-        document.getElementById('mapMeasureRate').focus();
+    });
+    // Enter in the axis's name saves it.
+    mapBody.addEventListener('keydown', e => {
+        if (e.target.id === 'mapAxisName' && e.key === 'Enter') { e.preventDefault(); saveDrawnAxis(); }
     });
     mapBody.addEventListener('input', e => {
         if (e.target.id !== 'mapMeasureSpeed') return;
-        const v = Number(e.target.value);
-        mapState.measureKmh = v > 0 ? v * SaltCore.kmhPerSpeedUnit(unitSystem, measureRate().kind) : 0;
+        mapState.measureSpeed = e.target.value.trim().slice(0, 12);
+        keepMeasureSpeed();
         showMeasure();
         refreshMeasure();
     });
