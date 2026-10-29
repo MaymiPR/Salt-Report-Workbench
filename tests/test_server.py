@@ -74,6 +74,7 @@ def reset_state() -> None:
             "drones": [],
             "narrative": {},
             "tags": [],
+            "fmv": {},
         }
     )
     srv.workspace_sources.clear()
@@ -439,6 +440,35 @@ class ValidatorTests(unittest.TestCase):
         self.assertRejects(v, {"drones": [{**ge, "look": "the bridge"}]}, "look")
         for bad in (0, -3, 5000, "10", True):
             self.assertRejects(v, {"drones": [{**ge, "range": bad}]}, "range")
+        # On station or off: true or false, and optional.
+        self.assertIsNone(v({"drones": [{**ge, "offStation": True}, {**ge, "name": "GE 2"}]}))
+        for bad in ("yes", 1, None):
+            self.assertRejects(v, {"drones": [{**ge, "offStation": bad}]}, "offStation")
+
+    def test_fmv_mode_is_checked(self):
+        v = srv._v_save_fmv
+        self.assertIsNone(v({"fmv": {"on": True}}))
+        self.assertIsNone(v({"fmv": {"on": False, "x": 1}}))
+        for bad in ({}, {"fmv": {}}, {"fmv": True}, {"fmv": {"on": 1}}, {"fmv": {"on": "on"}}):
+            self.assertRejects(v, bad, "fmv")
+        # A backup's copy: never saved, or from before it, is none at all.
+        self.assertEqual(srv.read_fmv({"on": False, "x": 1}), {"on": False})
+        for nothing in ({}, None, [], {"on": "yes"}):
+            self.assertIsNone(srv.read_fmv(nothing))
+
+    def test_a_report_says_which_drone_it_was_seen_from(self):
+        v = srv._v_save_reports
+        ok = report(observer="GE 1", history=[report(observer="")])
+        self.assertIsNone(v({"ato": "ALPHA", "reports": [ok]}))
+        self.assertIsNone(v({"ato": "ALPHA", "reports": [report(observer=None)]}))
+        self.assertRejects(v, {"ato": "ALPHA", "reports": [report(observer=7)]}, "observer")
+        long = report(observer="x" * 41)
+        self.assertRejects(v, {"ato": "ALPHA", "reports": [long]}, "observer")
+        hist = report(history=[report(observer=["GE 1"])])
+        self.assertRejects(v, {"ato": "ALPHA", "reports": [hist]}, "history[0].observer")
+        edit = {"ato": "ALPHA", "reportId": "r1", "fields": {"observer": 1}}
+        self.assertRejects(srv._v_edit_report, edit, "observer")
+        self.assertIn("observer", srv._EDITABLE_FIELDS)
 
     def test_the_server_knows_every_kind_of_equipment_the_page_has(self):
         import re
@@ -1088,8 +1118,9 @@ class RestoreTests(unittest.TestCase):
 
 
 # What the server wrote and served for every_setting_saved in 2.21.0, before
-# SHARED_SECTIONS and the route table: they must not change by a byte (but for
-# the tags, a section of 2.30.0, written empty at the end). Shared
+# SHARED_SECTIONS and the route table: they must not change by a byte, but
+# for the sections added since, at the end: the tags (2.30.0, written empty)
+# and FMV mode (2.31.0). Shared
 # settings.json is the same values as /api/sync, indented (see the test).
 EVERY_SETTING_SAVED = {
     "ALPHA_Patrol.txt": (
@@ -1132,7 +1163,7 @@ EVERY_SETTING_SAVED = {
         "\",\"at\":1}],\"narrative\":{\"enemy\":\"OPFOR\",\"units\":[{\"name\":\"1st Tank\",\"places\":[\"Hill "
         "1\"],\"kinds\":[\"armor\"]}],\"equipment\":[{\"type\":\"T-90M\",\"role\":\"armor\",\"origin\":\"RU\"}],"
         "\"off\":[\"axes\",\"deep\"],\"custom\":[{\"what\":\"Bridge\",\"words\":\"bridge, crossing\",\"min\":2,"
-        "\"hours\":6}]},\"tags\":[]}\n"
+        "\"hours\":6}]},\"tags\":[],\"fmv\":{\"on\":true}}\n"
         "##SALT_BACKUP_END##\n"
     ),
     "BRAVO_Screen.txt": (
@@ -1173,7 +1204,7 @@ EVERY_SETTING_SAVED = {
         " NV 40000 07000\",\"range\":5},{\"name\":\"Puma\",\"grid\":\"11S NV 1 2\",\"at\":1}],\"narrative\":"
         "{\"enemy\":\"OPFOR\",\"units\":[{\"name\":\"1st Tank\",\"places\":[\"Hill 1\"],\"kinds\":[\"armor\"]}]"
         ",\"equipment\":[{\"type\":\"T-90M\",\"role\":\"armor\",\"origin\":\"RU\"}],\"off\":[\"axes\",\"deep\"],\""
-        "custom\":[{\"what\":\"Bridge\",\"words\":\"bridge, crossing\",\"min\":2,\"hours\":6}]},\"tags\":[]}\n"
+        "custom\":[{\"what\":\"Bridge\",\"words\":\"bridge, crossing\",\"min\":2,\"hours\":6}]},\"tags\":[],\"fmv\":{\"on\":true}}\n"
         "##SALT_BACKUP_END##\n"
     ),
     "audit": (
@@ -1185,7 +1216,8 @@ EVERY_SETTING_SAVED = {
         "save_overlays: 2 overlay(s)\n"
         "save_basemaps: 2 service(s)\n"
         "save_drones: 2 drone(s)\n"
-        "save_narrative: 1 unit(s), 1 type(s), 1 rule(s)"
+        "save_narrative: 1 unit(s), 1 type(s), 1 rule(s)\n"
+        "save_fmv: on"
     ),
     "sync": (
         "{\"workspaces\":{\"ALPHA\":[{\"id\":\"r1\",\"displayId\":\"ALPHA001\",\"ato\":\"ALPHA\",\"title\":\"Pat"
@@ -1206,7 +1238,7 @@ EVERY_SETTING_SAVED = {
         "40000 07000\",\"range\":5},{\"name\":\"Puma\",\"grid\":\"11S NV 1 2\",\"at\":1}],\"narrative\":{\"en"
         "emy\":\"OPFOR\",\"units\":[{\"name\":\"1st Tank\",\"places\":[\"Hill 1\"],\"kinds\":[\"armor\"]}],\"eq"
         "uipment\":[{\"type\":\"T-90M\",\"role\":\"armor\",\"origin\":\"RU\"}],\"off\":[\"axes\",\"deep\"],\"cust"
-        "om\":[{\"what\":\"Bridge\",\"words\":\"bridge, crossing\",\"min\":2,\"hours\":6}]},\"tags\":[],\"sources\":{\"AL"
+        "om\":[{\"what\":\"Bridge\",\"words\":\"bridge, crossing\",\"min\":2,\"hours\":6}]},\"tags\":[],\"fmv\":{\"on\":true},\"sources\":{\"AL"
         "PHA\":\"In-session\",\"BRAVO\":\"In-session\"},\"unloaded\":[]"
     ),
 }
@@ -1415,7 +1447,7 @@ class HttpApiTests(unittest.TestCase):
             self.assertNotIn("_bad_request", inspect.getsource(handler), route.path)
 
     def test_every_post_route_has_a_validator(self):
-        self.assertEqual(len(self.post_routes()), 13)
+        self.assertEqual(len(self.post_routes()), 14)
         for route in self.post_routes():
             self.assertTrue(callable(route.validator), route.path)
         # A shared setting's route has its section's validator.
@@ -2189,15 +2221,21 @@ class HttpApiTests(unittest.TestCase):
             "look": "11S NV 44000 07000",
             "range": 12.5,
         }
-        self.assertEqual(self.post("/api/save_drones", {"drones": [sent]})[0], 200)
+        # Off station is kept; on station (false) is the same as saying nothing.
+        docked = {**sent, "name": "GE 2", "offStation": True}
+        flying = {**sent, "name": "GE 3", "offStation": False}
+        drones = {"drones": [sent, docked, flying]}
+        self.assertEqual(self.post("/api/save_drones", drones)[0], 200)
+        one = {
+            "grid": "11S NV 39697 06762",
+            "at": 1793018940000,
+            "look": "11S NV 44000 07000",
+            "range": 12.5,
+        }
         clean = [
-            {
-                "name": "GE 1",
-                "grid": "11S NV 39697 06762",
-                "at": 1793018940000,
-                "look": "11S NV 44000 07000",
-                "range": 12.5,
-            }
+            {"name": "GE 1", **one},
+            {"name": "GE 2", **one, "offStation": True},
+            {"name": "GE 3", **one},
         ]
         self.assertEqual(self.sync()["drones"], clean, "trimmed, known fields only")
         srv.flush_pending_save()
@@ -2208,6 +2246,52 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(status, 405, "viewers cannot move them")
         self.assertEqual(self.post("/api/save_drones", {"drones": []})[0], 200)
         self.assertEqual(self.sync()["drones"], [])
+
+    def test_fmv_mode_syncs_and_survives_a_restart(self):
+        shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        # Never saved: empty, and the page decides from the drones.
+        self.assertEqual(self.sync()["fmv"], {})
+        srv.flush_pending_save()
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(self.sync()["fmv"], {}, "a file that never had it leaves it unsaved")
+        status, _ = self.post("/api/save_fmv", {"fmv": {"on": True}}, base=self.viewer_base)
+        self.assertEqual(status, 405, "viewers cannot change it")
+        self.assertEqual(self.post("/api/save_fmv", {"fmv": {"on": True, "x": 1}})[0], 200)
+        self.assertEqual(self.sync()["fmv"], {"on": True}, "known fields only")
+        self.assertEqual(self.post("/api/save_fmv", {"fmv": {"on": False}})[0], 200)
+        self.assertEqual(self.post("/api/save_fmv", {"fmv": {"on": "yes"}})[0], 400)
+        self.assertEqual(
+            [what for _, what, _ in self.said()],
+            ["turned FMV mode on", "turned FMV mode off"],
+        )
+        srv.flush_pending_save()
+        reset_state()
+        srv.load_data_from_disk()
+        self.assertEqual(self.sync()["fmv"], {"on": False}, "off is kept too")
+
+    def test_a_reports_observer_is_kept_edited_and_written_out(self):
+        shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
+        seen = report(observer="GE 1", history=[report(lm=0, observer="GE 2")])
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [seen]})
+        held = self.sync()["workspaces"]["ALPHA"][0]
+        self.assertEqual((held["observer"], held["history"][0]["observer"]), ("GE 1", "GE 2"))
+        # An Edit may change it, and that is a change people see.
+        edit = {"ato": "ALPHA", "reportId": "r1", "fields": {"observer": "GE 3", "lastModified": 2}}
+        self.assertEqual(self.post("/api/edit_report", edit)[0], 200)
+        self.assertEqual(self.sync()["workspaces"]["ALPHA"][0]["observer"], "GE 3")
+        again = report(lm=3, observer="", history=held["history"])
+        self.assertEqual(self.post("/api/save_reports", {"ato": "ALPHA", "reports": [again]})[0], 200)
+        self.assertEqual(
+            [what for _, what, _ in self.said()],
+            ["logged ALPHA001", "updated ALPHA001", "updated ALPHA001"],
+        )
+        # The backup file says it, for a person reading it, when there is one.
+        self.post("/api/edit_report", {**edit, "fields": {"observer": "GE 3", "lastModified": 4}})
+        srv.flush_pending_save()
+        text = next(Path(srv.BACKUP_DIR).glob("ALPHA_*.txt")).read_text("utf-8")
+        self.assertIn(" Observer : GE 3\n", text)
 
     def test_narrative_settings_sync_and_survive_a_restart(self):
         shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
@@ -2455,6 +2539,7 @@ class HttpApiTests(unittest.TestCase):
                 {"drones": [raven, {"name": "Puma", "grid": "11S NV 1 2", "at": 1}]},
             ),
             ("/api/save_narrative", {"narrative": narrative}),
+            ("/api/save_fmv", {"fmv": {"on": True, "x": 1}}),
         ):
             self.assertEqual(self.post(path, body)[0], 200, path)
         srv.flush_pending_save()
@@ -2479,7 +2564,7 @@ class HttpApiTests(unittest.TestCase):
         keys = [s.key for s in srv.SHARED_SECTIONS]
         self.assertEqual(
             keys,
-            ["config", "profiles", "format", "overlays", "basemaps", "drones", "narrative", "tags"],
+            ["config", "profiles", "format", "overlays", "basemaps", "drones", "narrative", "tags", "fmv"],
         )
         self.assertEqual(
             shared, json.dumps({k: sync[k] for k in keys}, indent=1, ensure_ascii=False) + "\n"
@@ -3081,6 +3166,9 @@ class HttpApiTests(unittest.TestCase):
             [drone, other],
             [drone, {**other, "grid": "11S NV 40000 07000"}],
             [drone, {**other, "grid": "11S NV 40000 07000", "range": 5}],
+            [drone, {**other, "grid": "11S NV 40000 07000", "range": 5, "offStation": True}],
+            [drone, {**other, "grid": "11S NV 40000 07000", "range": 5}],
+            [drone, {**other, "grid": "11S NV 40000 07000", "range": 6, "offStation": True}],
             [drone],
             [{**drone, "name": "GE 3"}, other],
             [],
@@ -3092,6 +3180,9 @@ class HttpApiTests(unittest.TestCase):
                 "added drone GE 1",
                 "added drone GE 2",
                 "moved drone GE 2",
+                "changed drone GE 2",
+                "took drone GE 2 off station",
+                "put drone GE 2 on station",
                 "changed drone GE 2",
                 "removed drone GE 2",
                 "changed the drones",

@@ -743,6 +743,7 @@ _EDITABLE_FIELDS = (
     'title',
     'updated',
     'custom',
+    'observer',
     'user',
     'lastModified',
 )
@@ -800,6 +801,9 @@ def _check_report_fields(r: dict, prefix: str) -> str | None:
             return f'{prefix}.{k} must be a string ≤{MAX_FIELD_LEN} chars'
     if 'yourAnalysis' in r and not _is_str(r['yourAnalysis'] or '', MAX_ANALYSIS_LEN):
         return f'{prefix}.yourAnalysis must be a string ≤{MAX_ANALYSIS_LEN} chars'
+    # FMV mode: the drone it was seen from, by name ('' or none: no drone).
+    if 'observer' in r and not _is_str(r['observer'] or '', MAX_DRONE_NAME):
+        return f'{prefix}.observer must be a string ≤{MAX_DRONE_NAME} chars'
     t = r.get('time', '')
     if t and not (isinstance(t, str) and _ISO_TIME_RE.match(t)):
         return f'{prefix}.time must be ISO 8601 (e.g. 2024-01-15T14:30:00Z)'
@@ -1179,6 +1183,16 @@ def _v_save_drones(data: dict) -> str | None:
             return (
                 f'drones[{i}].range must be a number of km, more than 0 and ≤{MAX_DRONE_RANGE_KM}'
             )
+        # Optional: true when it is off station (kept in the list, not flying).
+        if 'offStation' in d and not isinstance(d['offStation'], bool):
+            return f'drones[{i}].offStation must be true or false'
+    return None
+
+
+def _v_save_fmv(data: dict) -> str | None:
+    f = data.get('fmv')
+    if not isinstance(f, dict) or not isinstance(f.get('on'), bool):
+        return 'fmv must be an object with on: true or false'
     return None
 
 
@@ -1428,14 +1442,20 @@ def clean_drones(drones: list) -> list:
             'at': d['at'],
             **({'look': d['look']} if d.get('look') else {}),
             **({'range': d['range']} if d.get('range') is not None else {}),
+            **({'offStation': True} if d.get('offStation') else {}),
         }
         for d in drones
     ]
 
 
+def _but_station(d: dict) -> dict:
+    """A drone without whether it is on station."""
+    return {k: v for k, v in d.items() if k != 'offStation'}
+
+
 def said_of_drones(before, after: list) -> str:
-    """A drones save in plain words: the one drone added, removed, moved or
-    changed, by name; else 'changed the drones'."""
+    """A drones save in plain words: the one drone added, removed, moved, put
+    on or taken off station, or changed, by name; else 'changed the drones'."""
     old = {d.get('name'): d for d in _dicts(before)}
     new = {d['name']: d for d in after}
     added, gone = [n for n in new if n not in old], [n for n in old if n not in new]
@@ -1445,9 +1465,25 @@ def said_of_drones(before, after: list) -> str:
         return f'removed drone {gone[0]}'
     changed = [] if added or gone else [n for n in new if new[n] != old[n]]
     if len(changed) == 1:
-        moved = new[changed[0]].get('grid') != old[changed[0]].get('grid')
-        return f'{"moved" if moved else "changed"} drone {changed[0]}'
+        was, now = old[changed[0]], new[changed[0]]
+        if was.get('grid') != now.get('grid'):
+            return f'moved drone {changed[0]}'
+        # Only its station changed: put on, or taken off.
+        if _but_station(was) == _but_station(now):
+            if now.get('offStation'):
+                return f'took drone {changed[0]} off station'
+            return f'put drone {changed[0]} on station'
+        return f'changed drone {changed[0]}'
     return 'changed the drones'
+
+
+def read_fmv(value) -> dict | None:
+    """FMV mode as a backup file holds it: ``{'on': bool}``; None when it was
+    never saved (``{}``) or the file is older than it, so the boot leaves it
+    unsaved rather than taking an empty one over a file that has it."""
+    if isinstance(value, dict) and isinstance(value.get('on'), bool):
+        return {'on': value['on']}
+    return None
 
 
 def clean_narrative(n: dict) -> dict:
@@ -1535,8 +1571,9 @@ SHARED_SECTIONS: tuple[SharedSection, ...] = (
         logged=lambda maps: f'save_basemaps: {len(maps)} service(s)',
         said=lambda *_: 'changed the basemaps',
     ),
-    # Drones shown on the map: [{name, grid, at}], where they were last put
-    # (an MGRS grid) and when (ms). Shared like the basemaps.
+    # Drones shown on the map: [{name, grid, at, look?, range?, offStation?}],
+    # where they were last put (an MGRS grid) and when (ms). Shared like the
+    # basemaps.
     SharedSection(
         'drones',
         list,
@@ -1573,6 +1610,20 @@ SHARED_SECTIONS: tuple[SharedSection, ...] = (
         logged=lambda tags: f'save_tags: {len(tags)} tag(s)',
         said=said_of_tags,
         read=read_tags,
+    ),
+    # FMV mode (Settings): {on: true | false} for the whole team, or {} when
+    # it has never been saved. Never saved, a page takes it as on when there
+    # are drones (a team already using them sees no change), else off. On:
+    # the drones and the report form's Observer show.
+    SharedSection(
+        'fmv',
+        dict,
+        '/api/save_fmv',
+        _v_save_fmv,
+        clean=lambda f: {'on': f['on']},
+        logged=lambda f: f'save_fmv: {"on" if f["on"] else "off"}',
+        said=lambda _, f: f'turned FMV mode {"on" if f["on"] else "off"}',
+        read=read_fmv,
     ),
 )
 
@@ -2162,6 +2213,8 @@ def render_backup(
             ]
             if report.get('yourAnalysis'):
                 lines.append(f' Analysis : {report["yourAnalysis"]}')
+            if report.get('observer'):
+                lines.append(f' Observer : {report["observer"]}')
             custom = report.get('custom')
             for ck, cv in custom.items() if isinstance(custom, dict) else ():
                 lines.append(f' {ck} : {cv}')
