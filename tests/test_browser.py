@@ -1902,8 +1902,12 @@ class BrowserTests(unittest.TestCase):
         self.log(page, "2x T-72", activity="moving E", location="38SMB4500082000")
         self.open_map(page)
         page.wait_for_selector("#mapSvg .map-axis .map-axis-head")
-        head = page.locator("#mapSvg .map-axis .map-axis-head").bounding_box()
-        line_box = page.locator("#mapSvg .map-axis path").first.bounding_box()
+        # Both read at once: the map may be drawn again between two reads.
+        head, line_box = page.wait_for_function(
+            """() => { const h = document.querySelector('#mapSvg .map-axis .map-axis-head'), l = document.querySelector('#mapSvg .map-axis path');
+                if (!h || !l) return null; const a = h.getBoundingClientRect(), b = l.getBoundingClientRect();
+                return [{ x: a.x }, { x: b.x, width: b.width }]; }"""
+        ).json_value()
         self.assertLess(head["x"], line_box["x"] + line_box["width"] / 2, "at the west end")
         self.assertEqual(
             page.locator("#mapLegend .map-key-tag").all_text_contents(),
