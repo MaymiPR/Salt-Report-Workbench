@@ -2031,7 +2031,11 @@ class BrowserTests(unittest.TestCase):
         )
         page.focus("#mapBox")
         page.keyboard.press("Escape")
-        self.assertEqual(page.locator("#mapSvg .map-ring-kept.map-measure-line").count(), 2)
+        # Drawn again (on the next frame) with both kept rings, and no ring in progress.
+        page.wait_for_function(
+            "document.querySelectorAll('#mapSvg .map-ring-kept.map-measure-line').length === 2"
+            " && !document.querySelector('#mapSvg .map-ring-now')"
+        )
         # Kept in this browser: a reload still shows them; x removes one, Clear all the rest.
         page.reload()
         self.assert_in_workspace(page, self.ato)
