@@ -93,6 +93,10 @@ All notable changes to this project are documented here. The format follows
   are still phase lines.
 
 ### Fixed
+
+- **Shapes with no name** are numbered as they are imported (UNNAMED,
+  UNNAMED 2...), past those already there, so each is a graphic of its own
+  instead of all being one.
 - **MGRS Lock when updating a report**: its grids in the locked zone and
   square go back in the form as their digits, the zone and square staying in
   the lock's box, instead of the whole grid landing in Location. Saved
