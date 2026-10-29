@@ -35,7 +35,7 @@ Three constraints drive almost every decision:
 │       ├── 60-map.js         The map: its state, colors and shared helpers
 │       ├── 61-map-draw.js    Drawing it: overlays, heat map, tracks, report dots, legend
 │       ├── 62-map-basemaps.js  Basemaps: drawing them, finding, adding, checking services
-│       ├── 63-map-drones.js  Drones: where, their view and range, their menu, saving
+│       ├── 63-map-drones.js  Drones: where, their view and range, their menu, saving; FMV mode
 │       ├── 64-map-controls.js  Full screen, the panel above, menus, grab a grid, pointer
 │       ├── 70-stats.js       Statistics panel: charts, hover, tables, PNG / SVG / Excel export
 │       ├── 80-summary.js     Summary Reports panel: written reports, copy, .txt, print, edit
@@ -149,7 +149,7 @@ is a route's validator, `_check_<thing>` returns what is wrong (or `None`) and
 the validators share them, and `_is_<thing>` answers yes or no.
 
 The settings every workspace shares (the config, profiles, report format,
-overlays, basemaps, drones, the narrative's settings and the tags) are each one entry in
+overlays, basemaps, drones, the narrative's settings, the tags and FMV mode) are each one entry in
 `SHARED_SECTIONS`: its key, its empty value, its save route, validator and
 cleaner, and how a backup file's copy is read. `DATA_STORE`, the `/api/sync`
 payload, `Shared settings.json`, the copy in every workspace backup, the boot
@@ -171,12 +171,12 @@ outside `/api`) gets the standard library's HTML `404`.
 | --- | --- | --- |
 | `/`, `/index.html` | GET | The bundled page. On the viewer port it is stamped `read-only` before any script runs; for the host's own browser the access code is injected into a `<meta>` tag. |
 | `/Salt%20Report%20Workbench.html` | GET | The same page, under its old single-file name, so old bookmarks still open it. |
-| `/api/sync` | GET | Full state: workspaces, config (the workspace viewers are shown), profiles, the report format, overlays, basemaps, drones, the narrative's settings, the tags (`tags`), sources, the workspaces unloaded since the server started (`unloaded`), connected users, which workspace each connected editor is in (`connected_where`, initials to ATO), the last 50 changes for the Activity list (`activity`: `{at, who, what, ato}`, newest last, who as initials and what in plain words such as `logged ALPHA012`; kept in memory only, so a restart empties it, and no addresses), the number of the change it is as of (`version`, read before the data, so the answer holds at least that change) and the server's release (`server_version`). |
+| `/api/sync` | GET | Full state: workspaces, config (the workspace viewers are shown), profiles, the report format, overlays, basemaps, drones, the narrative's settings, the tags (`tags`), FMV mode (`fmv`), sources, the workspaces unloaded since the server started (`unloaded`), connected users, which workspace each connected editor is in (`connected_where`, initials to ATO), the last 50 changes for the Activity list (`activity`: `{at, who, what, ato}`, newest last, who as initials and what in plain words such as `logged ALPHA012`; kept in memory only, so a restart empties it, and no addresses), the number of the change it is as of (`version`, read before the data, so the answer holds at least that change) and the server's release (`server_version`). |
 | `/api/events` | GET | Server-Sent Events stream. Each message says the newest change's number, `{"v": n}`; a page that already has it doesn't pull, and others call `/api/sync`. Changes within 150 ms of each other go out as one message. |
 | `/api/health` | GET | No code needed, on either port: `{status: ok \| not saving, version, uptime_seconds, last_saved, save_failures, connected_machines, change}`. Nothing about the reports. |
 | `/api/basemap?u=` | GET | An image from an `http://` basemap, for an HTTPS page that can't load it itself. Only from the host of a saved basemap; a redirect followed only on that host (to https, say); images only, up to 16 MB. |
 | `/api/save_reports` | POST | Merge a batch of reports into a workspace. A report that is new or says something new is stamped with the sender's profile as its author; one only deleted or put back keeps the author it has; an import (`source` `backup` or `csv`) keeps its reports' own. |
-| `/api/edit_report` | POST | Overwrite fields of one report in place, without touching its history, stamped with the sender's profile. The page's Edit sends only this; `save_reports` carries it when the server can't be reached. |
+| `/api/edit_report` | POST | Overwrite fields of one report in place (its `observer` among them), without touching its history, stamped with the sender's profile. The page's Edit sends only this; `save_reports` carries it when the server can't be reached. |
 | `/api/delete_history` | POST | Remove individual history entries. |
 | `/api/unload_ato` | POST | Drop a workspace from memory. |
 | `/api/save_config` | POST | Say which ATO and title this editor is in, and make it the one viewers are shown. Each editor keeps their own workspace; no other editor moves. |
@@ -185,7 +185,8 @@ outside `/api`) gets the standard library's HTML `404`.
 | `/api/save_overlays` | POST | Replace the shared overlays: `{overlays: [{type, name, label?, geometry}], tagged?}` (GeoJSON geometries, longitude/latitude; `type` NAI, OBJ, PL, a tag's id or empty for none). An empty list clears them. Without `tagged: true` (a page from before tags) only the NAIs, OBJs and PLs are replaced, and the other graphics are kept. |
 | `/api/save_tags` | POST | Replace the team's own tags for graphics: `[{id, name, color}]` (at most 30; `id` `tag-` and up to 16 lowercase letters or digits, made by the page and kept through a rename; names unique, at most 30 characters, none NAI, OBJ or PL; `color` `#rrggbb`). Shared like the overlays and kept in every backup file, where the ones it wouldn't take are dropped on boot. |
 | `/api/save_basemaps` | POST | Replace the map's basemap services: `[{name, kind: wms \| tiles, url, layers?, version?, crs?, format?}]` (at most 20, names unique, http/https only; the last three are what a WMS's capabilities said to ask for). Shared like the overlays and kept in every backup file; each browser picks which to show. |
-| `/api/save_drones` | POST | Replace the drones on the map: `[{name, grid, at, look?, range?}]` (at most 10, names unique, `grid` and `look` MGRS grids as the page writes them, `at` when it was put there, in ms, `range` in km, more than 0 and at most 1,000). Shared like the basemaps and kept in every backup file; each browser chooses whether they and their view show. |
+| `/api/save_drones` | POST | Replace the drones on the map: `[{name, grid, at, look?, range?, offStation?}]` (at most 10, names unique, `grid` and `look` MGRS grids as the page writes them, `at` when it was put there, in ms, `range` in km, more than 0 and at most 1,000, `offStation` true when it is off station, kept only then). Shared like the basemaps and kept in every backup file; each browser chooses whether they and their view show. |
+| `/api/save_fmv` | POST | Turn FMV mode on or off for everyone: `{fmv: {on: true \| false}}`. Kept in every backup file. Until it is first saved the server holds `{}`, and the page takes that as on when there are drones, else off (a file that never had it, or `{}`, leaves it unsaved at boot). |
 | `/api/save_narrative` | POST | Replace the narrative's settings: `{enemy, units: [{name, places, kinds}], equipment: [{type, role, origin}], off: [rule ids], custom: [{what, words, min, hours}]}` (at most 50 units, 500 equipment entries, 30 rules; unit names and equipment types unique; roles and rule ids from the fixed lists, origin `RU`, `CN` or empty; a rule's `min` 1-20 reports within `hours` 1-168). Shared like the basemaps and kept in every backup file. |
 | `/api/wms_fetch` | POST | `{url}`: the server GETs an http(s) address for an editor's page and returns its status, content type, size and text (not images). For WMS capabilities and Check when a service sends no CORS headers. Changes nothing; logged in the audit log. Not on the viewer port. |
 
@@ -271,6 +272,20 @@ The one place a report's text is changed for it: on Log and Update,
 and typed names the grids disagree with; the operator settles each of those
 (`askChoice`), and `editLocation` writes the result into the Location before
 it is saved, like anything else typed there.
+
+### FMV mode and the drones
+
+FMV mode (`fmv`, Settings) shows the drones, their menu and the report
+form's Observer. A report seen from a drone carries its name as `observer`
+(a string of at most 40 characters, `''` for none once it has been set; a
+history entry keeps the version's), which the page saves on Log, Edit and
+Update, shows under the time and in the map's card, and the CSV export puts
+in a last *Observer* column when any report has one or FMV mode is on; the
+copied SALT text and the report format leave it out. With FMV mode on, each
+drone's view points at its `look` grid, else at the newest report on the map
+whose observer it is, else nowhere; a drone with `offStation` is left off the
+map and out of the Observer list. With FMV mode off, a report keeps its
+observer through an Edit or Update.
 
 ### The narrative
 

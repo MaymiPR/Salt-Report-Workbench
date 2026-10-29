@@ -258,7 +258,7 @@ class BrowserTests(unittest.TestCase):
                 # What it had instead: each workspace's sizes, and the config.
                 had = page.evaluate(
                     "() => fetch('/api/sync').then(r => r.json()).then(s => JSON.stringify({"
-                    " config: s.config, workspaces: Object.fromEntries(Object.entries(s.workspaces)"
+                    " config: s.config, drones: s.drones, workspaces: Object.fromEntries(Object.entries(s.workspaces)"
                     ".map(([k, v]) => [k, v.map(r => r.size + (r.deleted ? ' (deleted)' : ''))])) }))"
                 )
                 raise AssertionError(f"the server never had {predicate}; it had {had}")
@@ -270,6 +270,14 @@ class BrowserTests(unittest.TestCase):
         saves included): a test that then fakes someone else's change in the
         page isn't undone by the pull its own save brings, a moment later."""
         page.wait_for_function("syncedVersion >= seenVersion && pushesInFlight === 0")
+
+    @staticmethod
+    def fmv(page, on=True):
+        """FMV mode on (or off) for everyone, saved: the tests share one
+        server, so a test that needs the drones says so rather than taking
+        the last test's."""
+        page.evaluate("on => saveFmv(on)", on)
+        page.wait_for_function("on => fmvOn() === on && pushesInFlight === 0", arg=on)
 
     def second_editor(self, initials, ato):
         """Another operator on the same server: a browser with storage of its own."""
@@ -852,6 +860,7 @@ class BrowserTests(unittest.TestCase):
             sorted(set(hours.evaluate_all("bs => bs.map(b => b.getAttribute('aria-pressed'))"))),
             ["false", "true"],
         )
+        self.fmv(page)
         page.click("#mapDroneBtn")
         expanded = "el => el.getAttribute('aria-expanded')"
         self.assertEqual(page.eval_on_selector("#mapDroneBtn", expanded), "true")
@@ -2282,6 +2291,7 @@ class BrowserTests(unittest.TestCase):
         self.log(page, "2x BMP", location="38SMB4500082000")
         self.open_map(page)
         self.synced(page)
+        self.fmv(page)
         before = page.evaluate("JSON.parse(JSON.stringify(sharedDrones))")
         page.evaluate(
             "saveDrones([{ name: 'GE 7', grid: '38S MB 40000 78000', at: Date.now() - 6 * 3600e3 - 60e3 }])"
@@ -2956,6 +2966,7 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("1x truck", page.evaluate("document.activeElement.textContent"))
         self.assertTrue(page.locator("#cancelButton").is_visible(), "still editing")
         # The basemap and drone menus close on Escape too, back to their buttons.
+        self.fmv(page)
         for btn, pop in (("#mapBaseBtn", "#mapBasePop"), ("#mapDroneBtn", "#mapDronePop")):
             page.click(btn)
             page.wait_for_selector(pop, state="visible")
@@ -3177,16 +3188,36 @@ class BrowserTests(unittest.TestCase):
 
     def test_drones_are_shared_drawn_with_their_view_and_zoomed_to(self):
         page = self.open_editor()
+        self.fmv(page)
         self.import_overlays(page)
         self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
         self.open_map(page)
         page.click("#mapDroneBtn")
+        # Adding one is behind +, which opens the form at its name.
+        self.assertTrue(page.locator("#mapDroneName").is_hidden())
+        page.click("#mapDroneAddBtn")
+        self.assertEqual(page.get_attribute("#mapDroneAddBtn", "aria-expanded"), "true")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "mapDroneName")
         page.fill("#mapDroneName", "GE 1")
         page.fill("#mapDroneGridNew", "38SMB4000078000")
         page.click("#mapDroneAdd")
         page.wait_for_selector("#toastNotification:has-text('GE 1 added at 38S MB 40000 78000')")
         page.wait_for_selector("#mapSvg .map-drone")
-        # Its view: a cone narrowing to the newest report, and the sightline.
+        self.assertTrue(page.locator("#mapDroneName").is_hidden(), "the form closes")
+        # It has seen no report yet: no view, though there is a newest report.
+        self.assertEqual(page.locator("#mapSvg .map-drone-cone").count(), 0)
+        # One logged with it as the observer: its view narrows to that.
+        page.click("[data-home-go='list']")
+        self.assertIn("GE 1", page.locator("#observer option").all_text_contents())
+        page.select_option("#observer", "GE 1")
+        self.log(page, "1x BRDM", activity="moving N", location="38SMB4500082000")
+        row = "#reportLogBody tr:has(.col-size:has-text('1x BRDM'))"
+        self.assertEqual(page.text_content(f"{row} .observer-tag"), "GE 1")
+        self.assertEqual(page.input_value("#observer"), "GE 1", "kept for the next report")
+        self.open_map(page)
+        page.click("#mapDroneBtn")
+        page.wait_for_selector("#mapSvg .map-drone-cone")
+        # Its view: a cone narrowing to its newest report, and the sightline.
         cone = page.locator("#mapSvg .map-drone-cone")
         self.assertEqual(cone.count(), 1)
         shape = cone.get_attribute("d")
@@ -3228,17 +3259,28 @@ class BrowserTests(unittest.TestCase):
         viewer.click("#mapDroneBtn")
         self.assertEqual(viewer.locator("#mapDroneGrid0").count(), 0)
         self.assertFalse(viewer.locator("#mapDroneAdd").is_visible())
+        self.assertFalse(viewer.locator("#mapDroneAddBtn").is_visible())
+        self.assertTrue(viewer.locator("[data-drone-station='0']").is_disabled())
         page.evaluate("saveDrones([])")
 
     def test_drone_view_points_where_told_and_flags_out_of_range(self):
         page = self.open_editor()
+        self.fmv(page)
         self.import_overlays(page)
+        page.evaluate("saveDrones([{ name: 'GE 1', grid: '38S MB 40000 78000', at: Date.now() }])")
+        page.select_option("#observer", "GE 1")
         self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
         self.open_map(page)
-        page.evaluate("saveDrones([{ name: 'GE 1', grid: '38S MB 40000 78000', at: Date.now() }])")
         page.wait_for_selector("#mapSvg .map-drone-cone")
         page.click("#mapDroneBtn")
-        # Told where to look: the cone points there, not at the newest report.
+        # Where it looks and its range are under More.
+        self.assertTrue(page.locator("#mapDroneLook0").is_hidden())
+        page.click("[data-drone-more='0']")
+        self.assertEqual(page.get_attribute("[data-drone-more='0']", "aria-expanded"), "true")
+        self.assertEqual(
+            page.get_attribute("[data-drone-more='0']", "aria-controls"), "mapDroneMore0"
+        )
+        # Told where to look: the cone points there, not at its newest report.
         page.fill("#mapDroneLook0", "38SMB4000090000")
         page.press("#mapDroneLook0", "Enter")
         page.wait_for_selector(
@@ -3257,11 +3299,11 @@ class BrowserTests(unittest.TestCase):
         labels = " ".join(page.locator("#mapSvg .map-label-drone").all_text_contents())
         self.assertIn("2.0 km out of range", labels)
         self.assertIn("10 km", labels)
-        # Back to the newest report (in range): no longer red; no range: no ring.
+        # Back to its newest report (in range): no longer red; no range: no ring.
         page.fill("#mapDroneLook0", "")
         page.press("#mapDroneLook0", "Enter")
         page.wait_for_selector(
-            "#toastNotification:has-text(\"GE 1's view follows the newest report\")"
+            "#toastNotification:has-text(\"GE 1's view follows its newest report\")"
         )
         page.wait_for_function("() => document.querySelector('#mapSvg .map-drone-cone:not(.out)')")
         page.fill("#mapDroneRange0", "")
@@ -3275,6 +3317,7 @@ class BrowserTests(unittest.TestCase):
         page.evaluate("saveDrones([{ ...sharedDrones[0], look: '38S MB 40000 90000', range: 15 }])")
         page.fill("#mapDroneGrid0", "38SMB4100078000")
         page.press("#mapDroneGrid0", "Enter")
+        page.wait_for_selector("#toastNotification:has-text('GE 1 moved to 38S MB 41000 78000')")
         self.wait_for_server(
             page,
             "s => s.drones[0].grid === '38S MB 41000 78000' && s.drones[0].range === 15 && s.drones[0].look === '38S MB 40000 90000'",
@@ -3285,6 +3328,144 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("38S MB 40000 90000", viewer.text_content("#mapDronePop"))
         self.assertIn("15 km", viewer.text_content("#mapDronePop"))
         self.assertEqual(viewer.locator("#mapDroneLook0").count(), 0, "viewers can't change it")
+        page.evaluate("saveDrones([])")
+
+    def test_fmv_mode_off_hides_the_drones_and_the_observer_for_everyone(self):
+        page = self.open_editor()
+        self.fmv(page)
+        self.import_overlays(page)
+        page.evaluate("saveDrones([{ name: 'GE 1', grid: '38S MB 40000 78000', at: Date.now() }])")
+        self.assertTrue(page.is_visible("#observerField"))
+        self.assertEqual(
+            page.locator("#observer option").all_text_contents(), ["No observer", "GE 1"]
+        )
+        page.select_option("#observer", "GE 1")
+        self.log(page, "3x BTR", location="38SMB4000082000")
+        self.open_map(page)
+        viewer = self.open_viewer()
+        self.open_map(viewer)
+        viewer.wait_for_selector("#mapSvg .map-drone")
+        self.assertTrue(viewer.locator("#toggleFmvBtn").is_hidden(), "viewers can't change it")
+        # Off, from the Settings menu: no drone button, menu or drones, and no Observer.
+        page.click("#dataMgmtBtn")
+        self.assertEqual(page.text_content("#toggleFmvBtn"), "FMV Mode: On")
+        page.click("#toggleFmvBtn")
+        page.wait_for_selector("#toastNotification:has-text('FMV mode off for everyone')")
+        self.wait_for_server(page, "s => s.fmv.on === false")
+        self.assertTrue(page.locator("#mapDroneBtn").is_hidden())
+        page.wait_for_function("() => !document.querySelector('#mapSvg .map-drone')")
+        self.assertTrue(page.locator("#observerField").is_hidden())
+        page.click("#dataMgmtBtn")
+        self.assertEqual(page.text_content("#toggleFmvBtn"), "FMV Mode: Off")
+        page.click("#dataMgmtBtn")
+        # For everyone: the viewer's drones go too.
+        viewer.wait_for_function("() => !document.querySelector('#mapSvg .map-drone')")
+        self.assertTrue(viewer.locator("#mapDroneBtn").is_hidden())
+        # An Edit with it off keeps the report's observer.
+        page.click("[data-home-go='list']")
+        row = "#reportLogBody tr:has(.col-size:has-text('3x BTR'))"
+        page.click(f"{row} .id-edit-btn")
+        page.fill("#size", "4x BTR")
+        page.click("#editButton")
+        self.wait_for_server(
+            page,
+            f"s => s.workspaces['{self.ato}'].some(r => r.size === '4x BTR' && r.observer === 'GE 1')",
+        )
+        # On again: back as they were, here and for the viewer.
+        page.click("#dataMgmtBtn")
+        page.click("#toggleFmvBtn")
+        self.wait_for_server(page, "s => s.fmv.on === true")
+        self.assertTrue(page.is_visible("#observerField"))
+        viewer.wait_for_selector("#mapSvg .map-drone")
+        page.evaluate("saveDrones([])")
+
+    def test_fmv_mode_never_saved_follows_the_drones(self):
+        page = self.open_editor()
+        self.synced(page)
+        # Never saved: on when there are drones (a team already using them sees
+        # no change), else off.
+        self.assertEqual(
+            page.evaluate(
+                """() => { const was = [sharedFmv, sharedDrones], out = [];
+                sharedFmv = {};
+                sharedDrones = [{ name: 'X', grid: '38S MB 40000 78000', at: 1 }]; out.push(fmvOn());
+                sharedDrones = []; out.push(fmvOn());
+                sharedFmv = { on: false }; sharedDrones = was[1].concat([{ name: 'Y', grid: '38S MB 40000 78000', at: 1 }]); out.push(fmvOn());
+                [sharedFmv, sharedDrones] = was; return out; }"""
+            ),
+            [True, False, False],
+        )
+        # Removing the last drone then saves it as on, so it doesn't go off with it.
+        sent = []
+
+        def took(route):
+            sent.append(json.loads(route.request.post_data))
+            route.fulfill(status=200, content_type="application/json", body='{"status": "success"}')
+
+        page.route("**/api/save_fmv", took)
+        page.evaluate(
+            "sharedFmv = {}; sharedDrones = [{ name: 'GE 5', grid: '38S MB 40000 78000', at: 1 }]; applyFmvMode()"
+        )
+        self.assertTrue(page.is_visible("#observerField"))
+        page.evaluate("saveDrones([])")
+        self.assertEqual(sent, [{"fmv": {"on": True}}])
+        self.assertTrue(page.evaluate("fmvSaved() && fmvOn()"))
+        self.assertTrue(page.is_visible("#observerField"))
+        page.unroute("**/api/save_fmv")
+
+    def test_each_drone_looks_at_its_own_reports_and_off_station_leaves_the_map(self):
+        page = self.open_editor()
+        self.fmv(page)
+        self.import_overlays(page)
+        page.evaluate(
+            "saveDrones([{ name: 'GE 1', grid: '38S MB 40000 78000', at: Date.now() },"
+            " { name: 'GE 2', grid: '38S MB 50000 78000', at: Date.now() }])"
+        )
+        page.select_option("#observer", "GE 1")
+        self.log(page, "2x BMP", location="38SMB4000082000")
+        page.select_option("#observer", "GE 2")
+        self.log(page, "1x BRDM", location="38SMB5000080000")
+        # The BRDM is the newest report; GE 1 still looks at its own.
+        self.open_map(page)
+        page.wait_for_function("document.querySelectorAll('#mapSvg .map-drone-cone').length === 2")
+        labels = page.locator("#mapSvg .map-label-drone").all_text_contents()
+        self.assertIn("4.0 km N", labels)
+        self.assertIn("2.0 km N", labels)
+        # Off station: off the map and out of the Observer list, still in the menu.
+        page.click("#mapDroneBtn")
+        page.uncheck("[data-drone-station='1']")
+        page.wait_for_selector("#toastNotification:has-text('GE 2 is off station')")
+        page.wait_for_function("document.querySelectorAll('#mapSvg .map-drone').length === 1")
+        self.assertEqual(page.locator("#mapSvg .map-drone-cone").count(), 1)
+        ge2 = ".map-drone-item:has(.map-drone-name:text-is('GE 2'))"
+        self.assertIn("off", page.get_attribute(ge2, "class"))
+        self.assertEqual(page.evaluate("document.activeElement.dataset.droneStation"), "1")
+        self.assertEqual(
+            page.locator("#observer option").all_text_contents(), ["No observer", "GE 1"]
+        )
+        self.wait_for_server(page, "s => s.drones[1].offStation === true")
+        # Its report, being edited, shows it all the same; an Update keeps the
+        # old version's.
+        page.click("[data-home-go='list']")
+        row = "#reportLogBody tr:has(.col-size:has-text('1x BRDM'))"
+        page.click(f"{row} .id-edit-btn")
+        self.assertEqual(page.input_value("#observer"), "GE 2")
+        self.assertIn("GE 2 (off station)", page.locator("#observer option").all_text_contents())
+        page.select_option("#observer", "GE 1")
+        page.click("#updateButton")
+        self.wait_for_server(
+            page,
+            f"s => s.workspaces['{self.ato}'].some(r => r.size === '1x BRDM' && r.observer === 'GE 1'"
+            " && r.history.length === 1 && r.history[0].observer === 'GE 2')",
+        )
+        self.assertEqual(page.input_value("#observer"), "", "the last pick, GE 2, is off station")
+        # Back on station: on the map again.
+        self.open_map(page)
+        page.click("#mapDroneBtn")
+        page.check("[data-drone-station='1']")
+        page.wait_for_selector("#toastNotification:has-text('GE 2 is on station')")
+        page.wait_for_function("document.querySelectorAll('#mapSvg .map-drone').length === 2")
+        self.wait_for_server(page, "s => !('offStation' in s.drones[1])")
         page.evaluate("saveDrones([])")
 
     def test_a_refused_save_puts_the_shared_lists_back(self):
@@ -3310,7 +3491,9 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.evaluate("JSON.stringify(sharedBasemaps)"), basemaps)
         self.assertEqual(page.evaluate("localStorage.getItem('salt_basemaps')"), basemaps)
         self.assertNotIn("Refused", page.text_content("#mapBaseSelect"))
+        self.fmv(page)
         page.click("#mapDroneBtn")
+        page.click("#mapDroneAddBtn")
         page.fill("#mapDroneName", "GE 9")
         page.fill("#mapDroneGridNew", "38SMB4000078000")
         page.click("#mapDroneAdd")
@@ -3362,14 +3545,19 @@ class BrowserTests(unittest.TestCase):
             "saveDrones([{ name: 'GE 1', grid: '38S MB 40000 78000', at: 1 }, { name: 'GE 2', grid: '38S MB 41000 78000', at: 2 }])"
         )
         self.synced(page)
+        self.fmv(page)
         page.click("#mapDroneBtn")
+        more = ".map-drone-item:has(.map-drone-name:text-is('{}')) .map-drone-more"
+        page.click(more.format("GE 1"))
         ge1 = "[data-drone-remove][data-drone-name='GE 1']"
         box = page.locator(ge1).bounding_box()
-        # The first press asks in its row, in place of its grid: nothing moves.
+        # The first press asks on the button itself, where it was: nothing moves.
         page.click(ge1)
-        page.wait_for_selector(".map-drone-row:has(.map-drone-name:text-is('GE 1')) .map-base-ask")
-        self.assertEqual(page.locator(ge1).bounding_box(), box)
+        page.wait_for_selector(f"{ge1}[data-asking]:text-is('Remove for everyone?')")
+        after = page.locator(ge1).bounding_box()
+        self.assertEqual((after["x"], after["y"]), (box["x"], box["y"]))
         self.assertEqual(page.evaluate("document.activeElement.dataset.droneName"), "GE 1")
+        self.assertEqual(page.evaluate("askSaid.textContent"), "Remove for everyone?")
         self.assertEqual(page.evaluate("sharedDrones.length"), 2, "not yet")
         page.evaluate("sharedDrones = sharedDrones.map(d => ({ ...d })).reverse()")
         page.click(ge1)
@@ -3384,6 +3572,7 @@ class BrowserTests(unittest.TestCase):
         # Gone already: it says so, rather than that it removed it.
         if not page.is_visible("#mapDronePop"):
             page.click("#mapDroneBtn")
+        page.click(more.format("GE 2"))
         page.click("[data-drone-remove][data-drone-name='GE 2']")
         page.evaluate("sharedDrones = []")
         page.click("[data-drone-remove][data-drone-name='GE 2']")
@@ -4176,9 +4365,20 @@ class BrowserTests(unittest.TestCase):
             page.get_attribute("#mapEndRange", "aria-valuetext"), page.text_content("#mapEndLabel")
         )
         page.click("#mapEndNow")
+        self.fmv(page)
+        page.evaluate("saveDrones([{ name: 'GE 4', grid: '38S MB 40000 78000', at: 1 }])")
         page.click("#mapDroneBtn")
-        self.assertEqual(page.locator("#mapDronePop input[role='switch']").count(), 2)
+        self.assertEqual(
+            page.locator("#mapDronePop .map-drone-shows input[role='switch']").count(), 2
+        )
+        self.assertEqual(page.get_attribute("[data-drone-station='0']", "role"), "switch")
+        self.assertEqual(
+            page.get_attribute("[data-drone-station='0']", "aria-label"), "GE 4 on station"
+        )
+        self.assertEqual(page.get_attribute("[data-drone-more='0']", "aria-label"), "More for GE 4")
+        self.assertEqual(page.get_attribute("#mapDroneAddBtn", "aria-label"), "Add a drone")
         page.click("#mapDroneBtn")
+        page.evaluate("saveDrones([])")
         page.click("#summaryViewToggleBtn")
         page.click("[data-summary-kind='narrative']")
         # The dot on Equipment is said, not only shown.

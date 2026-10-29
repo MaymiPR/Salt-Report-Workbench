@@ -2282,7 +2282,9 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(self.post("/api/edit_report", edit)[0], 200)
         self.assertEqual(self.sync()["workspaces"]["ALPHA"][0]["observer"], "GE 3")
         again = report(lm=3, observer="", history=held["history"])
-        self.assertEqual(self.post("/api/save_reports", {"ato": "ALPHA", "reports": [again]})[0], 200)
+        self.assertEqual(
+            self.post("/api/save_reports", {"ato": "ALPHA", "reports": [again]})[0], 200
+        )
         self.assertEqual(
             [what for _, what, _ in self.said()],
             ["logged ALPHA001", "updated ALPHA001", "updated ALPHA001"],

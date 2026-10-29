@@ -48,6 +48,22 @@ All notable changes to this project are documented here. The format follows
   your tags gets that area's name in its Location, as with an NAI, and the map
   view's busiest places and place filter know them. Statistics and the
   Narrative still count NAI, OBJ and PL only.
+- **FMV mode**: a team-wide switch in Settings, *FMV Mode: On / Off*. On, the
+  map has its drone button, menu and drones, and the report form an
+  **Observer**: the drone the report was seen from, one on station or none.
+  The observer is saved on the report and its history (kept through Edit and
+  Update), shown small under its time and in its map card, written in backups
+  and as the CSV export's last column; it is not in the copied SALT text, and
+  the Report Builder doesn't offer it. Off, there are no drones on the map and
+  no Observer, and reports keep the observers they have. Until someone sets
+  it, it is on when the team has drones and off when it has none, so a team
+  already using drones sees no change. Shared like the drones
+  (`/api/save_fmv`, `fmv` in `/api/sync` and every backup file); an older
+  server keeps it in the browser and says so.
+- **Drones on or off station**: a switch on each drone, for everyone. Off
+  station, it stays in the drone list but leaves the map and the Observer
+  list. The Activity list says *put drone GE 1 on station* and *took drone
+  GE 1 off station*, and *turned FMV mode on* or *off*.
 
 ### Changed
 
@@ -55,6 +71,13 @@ All notable changes to this project are documented here. The format follows
   none, as a graphic's type, and `/api/save_tags` saves the tags. A page from
   before tags saves only the NAIs, OBJs and PLs it knows, and the graphics it
   never saw are kept.
+- **Each drone looks at its own reports**: with no grid to look at, a drone's
+  view points at its own newest report (one logged with it as the Observer),
+  not at everyone's newest, so several drones aren't all looking at the same
+  grid. A drone that has seen no report on the map shows no view.
+- **A smaller drone menu**: one row per drone (station switch, its name to
+  zoom to it, its grid, and More for where it's looking, its range and
+  Remove), the two switches on one line, and adding a drone behind **+**.
 
 ## [2.29.0] - 2026-10-29
 

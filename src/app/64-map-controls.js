@@ -116,7 +116,10 @@ const renderMapPanel = (box) => {
     document.getElementById('mapBaseNone').hidden = !!sharedBasemaps.length;
     // Viewers can only pick: with nothing to pick, no button.
     document.getElementById('mapBaseBtn').hidden = isReadOnly && !sharedBasemaps.length;
-    document.getElementById('mapDroneBtn').hidden = isReadOnly && !sharedDrones.length;
+    // The drones only with FMV mode on; for viewers, only when there are some.
+    const droneBtn = document.getElementById('mapDroneBtn');
+    droneBtn.hidden = !fmvOn() || (isReadOnly && !sharedDrones.length);
+    if (droneBtn.hidden) toggleDronePop(false);
     renderDronePop();
     renderBasemapManager();
     redrawMap();
@@ -210,6 +213,21 @@ if (mapBody) {
         if (e.target.closest('#mapBaseBtn')) { toggleBasePop(); return; }
         if (e.target.closest('#mapBaseManage')) { toggleBasePop(false); openManageView(); switchManageTab('overlays'); return; }
         if (e.target.closest('#mapDroneBtn')) { toggleDronePop(); return; }
+        // + opens the add form (and its name box); More, a drone's look, range and Remove.
+        if (e.target.closest('#mapDroneAddBtn')) {
+            droneAdding = !droneAdding;
+            renderDronePop();
+            if (droneAdding) document.getElementById('mapDroneName').focus();
+            return;
+        }
+        const more = e.target.closest('[data-drone-more]');
+        if (more) {
+            const d = sharedDrones[+more.dataset.droneMore];
+            if (!d) return;
+            if (droneMoreOpen.has(d.name)) droneMoreOpen.delete(d.name); else droneMoreOpen.add(d.name);
+            renderDronePop();
+            return;
+        }
         const zoomTo = e.target.closest('[data-drone-zoom]');
         if (zoomTo) { const d = sharedDrones[+zoomTo.dataset.droneZoom]; if (d) zoomToDrone(d); return; }
         const gone = e.target.closest('[data-drone-remove]');
@@ -237,7 +255,10 @@ if (mapBody) {
             if (sharedDrones.length >= MAX_DRONES) { showToast(`${MAX_DRONES} drones at most.`, true); return; }
             document.getElementById('mapDroneName').value = '';
             document.getElementById('mapDroneGridNew').value = '';
+            droneAdding = false;
             saveDrones([...sharedDrones, { name, grid, at: Date.now() }], `${name} added at ${grid}.`);
+            const plus = document.getElementById('mapDroneAddBtn');
+            if (plus) plus.focus();
             return;
         }
     });
@@ -252,17 +273,17 @@ if (mapBody) {
             moved.blur();
             saveDrones(sharedDrones.map(x => (x === d ? { ...d, grid, at: Date.now() } : x)), `${d.name} moved to ${grid}.`);
         }
-        // Where it's looking (empty: back to the newest report), and its range (empty: none).
+        // Where it's looking (empty: back to its newest report), and its range (empty: none).
         const look = e.target.closest('[data-drone-look]');
         if (e.key === 'Enter' && look) {
             e.preventDefault();
             const d = sharedDrones[+look.dataset.droneLook], text = look.value.trim(), grid = text ? droneGrid(text) : null;
             if (!d) return;
-            if (text && !grid) { showToast('Type the grid it\'s looking at, e.g. 11S NV 44000 07000, or leave it empty for the newest report.', true); return; }
+            if (text && !grid) { showToast('Type the grid it\'s looking at, e.g. 11S NV 44000 07000, or leave it empty for its newest report.', true); return; }
             look.blur();
             const { look: _, ...rest } = d;
             saveDrones(sharedDrones.map(x => (x === d ? (grid ? { ...d, look: grid } : rest) : x)),
-                grid ? `${d.name} is looking at ${grid}.` : `${d.name}'s view follows the newest report.`);
+                grid ? `${d.name} is looking at ${grid}.` : `${d.name}'s view follows its newest report.`);
         }
         const ranged = e.target.closest('[data-drone-range]');
         if (e.key === 'Enter' && ranged) {
@@ -278,6 +299,16 @@ if (mapBody) {
         if (e.key === 'Enter' && (e.target.id === 'mapDroneName' || e.target.id === 'mapDroneGridNew')) { e.preventDefault(); document.getElementById('mapDroneAdd').click(); }
     });
     mapBody.addEventListener('change', e => {
+        // On station or off: off, it stays in the list but leaves the map and the Observer list.
+        const station = e.target.closest('[data-drone-station]');
+        if (station) {
+            const d = sharedDrones[+station.dataset.droneStation];
+            if (!d || isReadOnly) return;
+            const { offStation: _, ...rest } = d;
+            saveDrones(sharedDrones.map(x => (x === d ? (station.checked ? rest : { ...d, offStation: true }) : x)),
+                station.checked ? `${d.name} is on station.` : `${d.name} is off station.`);
+            return;
+        }
         if (e.target.id === 'mapDroneShow' || e.target.id === 'mapDroneView') {
             const on = e.target.checked;
             if (e.target.id === 'mapDroneShow') mapState.droneShow = on; else mapState.droneView = on;

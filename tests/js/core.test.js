@@ -368,6 +368,27 @@ test('the CSV export lists each report, its history, then its BDA', () => {
     assert.ok(csv.endsWith('\r\n'));
 });
 
+test('the CSV export says each report\'s observer last, when there is one', () => {
+    const seen = report({ observer: 'GE 1', updated: true, custom: { W: 'Rain' },
+        history: [{ size: 'v1', observer: 'GE 2', time: '2026-10-24T01:00:00Z', lastModified: 1 }],
+        bda: [{ target: 'T-72', effect: 'Destroyed', time: '2026-10-24T05:00:00Z' }] });
+    const opts = { local: false, customLabels: ['W'], idOf: x => x.fullId };
+    const rows = core.parseCsv(core.reportsCsv([seen, report({ id: 'r2' })], opts)).filter(row => row.length > 1);
+    assert.deepEqual(rows[0], ['Identifier', 'UpdateStatus', 'Size', 'Activity', 'MGRS', 'Time (Z)', 'Analysis', 'W', 'Observer']);
+    assert.deepEqual(rows.slice(1).map(row => row[8]), ['GE 1', 'GE 2', '', '']);
+    assert.equal(rows[1][7], 'Rain', 'the custom columns stay where they were');
+    // None names one: no column, unless the caller asks for it (FMV mode on).
+    const none = core.parseCsv(core.reportsCsv([report()], opts));
+    assert.equal(none[0].length, 8);
+    assert.equal(core.parseCsv(core.reportsCsv([report()], { ...opts, observer: true }))[0][8], 'Observer');
+    // The backup says it for a person reading it; the machine data keeps it as it is.
+    const text = core.backupText('ALPHA', [seen], 'Patrol', {}, {}, NOW);
+    assert.ok(text.includes(' Observer : GE 1\n'));
+    assert.equal(core.parseBackup(text).data.workspaces.ALPHA[0].history[0].observer, 'GE 2');
+    // Not in the copied SALT line.
+    assert.ok(!core.reportText(seen, { lines: [{ type: 'id' }, { type: 'size' }, { type: 'custom', label: 'W' }] }).includes('GE 1'));
+});
+
 test('the MTI export splits tracked and wheeled counts', () => {
     const reps = [report({ size: '2 tracked, 3 wheeled' }), report({ id: 'r2', size: '6 dismounts' })];
     const mti = core.mtiCsvs(reps, { local: false, idOf: x => x.fullId });

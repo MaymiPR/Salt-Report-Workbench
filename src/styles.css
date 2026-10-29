@@ -578,6 +578,9 @@ body.local-mode .startup-access-divider { display: none; }
     width: 1%;
     white-space: nowrap;
 }
+/* FMV mode: the drone a report was seen from, small under its time. */
+.observer-tag { display: block; margin-top: 2px; font-size: 0.78em; color: var(--text-secondary); }
+.observer-field[hidden] { display: none; }
 
 /* Wrappable columns: max-width on th+td; min-width on td only (keeps headers
    compact in the empty state, prevents content cells from crushing). */
@@ -1352,27 +1355,38 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-base-select { width: 100%; margin: 0; padding: 7px 34px 7px 12px; font-size: 0.85em; border-radius: 10px; }
 .map-base-none { font-size: 0.82em; color: var(--text-secondary); }
 .map-base-pop > .text-btn { align-self: flex-start; }
-/* The drone menu: two switches, the drones (Zoom; editors: grid, remove), and the add row. */
-.map-drone-pop { width: min(380px, calc(100% - 70px)); max-height: calc(100% - 20px); overflow-y: auto; }
+/* The drone menu, small however many there are: its head with + (editors),
+   two switches on one line, then one row per drone (on station, name, grid,
+   More); More opens where it's looking, its range and Remove under it. */
+.map-drone-pop { width: min(360px, calc(100% - 70px)); max-height: calc(100% - 20px); overflow-y: auto; gap: 6px; }
 #mapDroneBtn[hidden] { display: none; }
 #mapDroneBtn.active { color: var(--system-blue); }
-.map-drone-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; font-size: 0.84em; font-weight: 400; color: var(--text-primary); cursor: pointer; }
-.map-drone-list { display: flex; flex-direction: column; gap: 2px; }
-.map-drone-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 4px 2px; border-bottom: 1px solid var(--divider); font-size: 0.84em; }
-.map-drone-name { font-weight: 600; color: var(--system-orange); white-space: nowrap; }
+.map-drone-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.map-drone-plus { width: 24px; height: 24px; margin: 0; padding: 0; border: none; border-radius: 50%; background: var(--input-bg); color: var(--system-blue); font-size: 1.05em; font-weight: 600; line-height: 1; cursor: pointer; }
+.map-drone-plus:hover, .map-drone-plus[aria-expanded="true"] { background: var(--input-bg-hover); }
+.map-drone-shows { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.map-drone-switch { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; font-size: 0.8em; font-weight: 400; color: var(--text-secondary); cursor: pointer; }
+.map-drone-switch input[type="checkbox"].narr-switch, input[type="checkbox"].narr-switch.map-drone-station { width: 30px; height: 18px; border-radius: 9px; }
+.map-drone-switch .narr-switch::after, .map-drone-station::after { width: 14px; height: 14px; }
+.map-drone-switch .narr-switch:checked::after, .map-drone-station:checked::after { transform: translateX(12px); }
+.map-drone-add-box { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 2px; border-top: 1px solid var(--divider); }
+.map-drone-list { display: flex; flex-direction: column; }
+.map-drone-item { border-top: 1px solid var(--divider); }
+.map-drone-row { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 4px 0; font-size: 0.84em; }
+.map-drone-name { width: auto; max-width: 110px; margin: 0; padding: 0; border: none; background: none; font: inherit; font-weight: 600; color: var(--system-orange); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; cursor: pointer; }
+.map-drone-name:hover { text-decoration: underline; }
+.map-drone-item.off .map-drone-name, .map-drone-item.off .map-drone-grid, .map-drone-item.off .map-drone-grid-in { opacity: 0.55; }
 .map-drone-grid, .map-drone-grid-in { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
 .map-drone-grid { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.map-drone-grid-in { margin: 0; padding: 5px 8px; font-size: 0.95em; }
-/* Remove pressed once: the question sits where its grid was, over a hidden
-   copy of the box, so the row keeps its height and nothing moves. */
-.map-drone-ask { display: grid; align-items: center; min-width: 0; }
-.map-drone-ask > * { grid-area: 1 / 1; }
-.map-drone-ask .map-drone-grid-in { visibility: hidden; }
-/* Under each drone: where it's looking and its range. */
-.map-drone-sub { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 64px; align-items: center; gap: 8px; padding: 2px 2px 6px; border-bottom: 1px solid var(--divider); font-size: 0.84em; }
-.map-drone-row:has(+ .map-drone-sub) { border-bottom: none; }
+.map-drone-grid-in { margin: 0; padding: 4px 8px; font-size: 0.95em; border-radius: 8px; }
+.map-drone-more { width: 26px; height: 22px; margin: 0; padding: 0; border: none; border-radius: 6px; background: none; color: var(--text-secondary); font-size: 0.95em; letter-spacing: -1px; line-height: 1; cursor: pointer; }
+.map-drone-more:hover, .map-drone-more[aria-expanded="true"] { background: var(--input-bg); color: var(--text-primary); }
+.map-drone-pop button:focus-visible, .map-drone-station:focus-visible { outline: 2px solid var(--system-blue); outline-offset: 2px; }
+/* Under a drone, from More: where it's looking, its range, and Remove. */
+.map-drone-sub { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 58px; align-items: center; gap: 6px 8px; padding: 0 0 6px 38px; font-size: 0.8em; }
 .map-drone-sub-label { color: var(--text-secondary); white-space: nowrap; }
-.map-drone-range-in { margin: 0; padding: 5px 8px; font-size: 0.95em; text-align: right; }
+.map-drone-range-in { margin: 0; padding: 4px 8px; font-size: 0.95em; text-align: right; border-radius: 8px; }
+.map-drone-remove { grid-column: 1 / -1; justify-self: start; color: var(--system-red); font-size: 0.95em; }
 .map-drone-add input { padding: 7px 10px; font-size: 0.84em; }
 .map-drone-add #mapDroneName { flex: 0 1 120px; }
 .map-drone-add #mapDroneGridNew { flex: 1 1 150px; }

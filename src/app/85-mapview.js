@@ -152,7 +152,7 @@ const renderMapCard = () => {
         <div class="map-card-head"><strong>${escapeHtml(formatFullId(r))}</strong>
             <button type="button" class="map-card-close" data-card-act="close" title="Close" aria-label="Close">&times;</button></div>
         ${row('Size', r.size)}${row('Activity', r.activity)}${row('Location', r.location)}
-        ${row(local ? 'Time (L)' : 'Time (Z)', mapTimeFmt(r.time))}${row('Analysis', r.yourAnalysis)}
+        ${row(local ? 'Time (L)' : 'Time (Z)', mapTimeFmt(r.time))}${row('Observer', r.observer)}${row('Analysis', r.yourAnalysis)}
         ${b.total && (r.bda || []).length ? row('BDA', `${b.done} of ${b.total} assessed`) : ''}
         ${(r.history || []).length ? row('Updates', String(r.history.length)) : ''}${marchRows}
         <div class="map-card-actions">

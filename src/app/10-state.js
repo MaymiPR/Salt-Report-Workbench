@@ -22,6 +22,7 @@ const el = {
         location:  document.getElementById('location'),
         time:      document.getElementById('time'),
         analysis:  document.getElementById('yourAnalysis'),
+        observer:  document.getElementById('observer'),
         nowBtn:    document.getElementById('updateTimeBtn'),
         startNum:  document.getElementById('reportStartNum'),
     },
@@ -86,6 +87,7 @@ const el = {
         bdaBtn:    document.getElementById('toggleBdaBtn'),
         mgrsLockBtn: document.getElementById('toggleMgrsLockBtn'),
         nearbyBtn: document.getElementById('toggleNearbyBtn'),
+        fmvBtn:    document.getElementById('toggleFmvBtn'),
         exportBtn: document.getElementById('exportViewToggleBtn'),
         clearBtn:  document.getElementById('clearAllBtn'),
     },
@@ -389,9 +391,21 @@ const currentOverlays = () => sharedOverlays;
 // overlays; each browser picks which one it shows.
 let sharedBasemaps = viewerAtLoad ? [] : (Array.isArray(readStored('salt_basemaps', [])) ? readStored('salt_basemaps', []) : []);
 const storeBasemaps = () => { if (!isReadOnly && !viewerAtLoad) writeStored('salt_basemaps', JSON.stringify(sharedBasemaps)); };
-// Drones on the map ([{ name, grid, at }]): shared like the basemaps.
+// Drones on the map ([{ name, grid, at, look?, range?, offStation? }]):
+// shared like the basemaps.
 let sharedDrones = viewerAtLoad ? [] : (Array.isArray(readStored('salt_drones', [])) ? readStored('salt_drones', []) : []);
 const storeDrones = () => { if (!isReadOnly && !viewerAtLoad) writeStored('salt_drones', JSON.stringify(sharedDrones)); };
+// FMV mode (Settings), for the whole team: { on: true | false }, or {} when
+// no one has saved it yet. Then it is on when there are drones (a team
+// already using them sees no change), else off. On, the map has its drones
+// and the report form its Observer (app/63-map-drones.js).
+const asFmv = (v) => (v && typeof v === 'object' && typeof v.on === 'boolean' ? { on: v.on } : {});
+let sharedFmv = viewerAtLoad ? {} : asFmv(readStored('salt_fmv', {}));
+const storeFmv = () => { if (!isReadOnly && !viewerAtLoad) writeStored('salt_fmv', JSON.stringify(sharedFmv)); };
+const fmvSaved = () => typeof sharedFmv.on === 'boolean';
+const fmvOn = () => (fmvSaved() ? sharedFmv.on : sharedDrones.length > 0);
+// The drones on station: on the map, and in the Observer list.
+const onStation = (d) => !d.offStation;
 // The narrative's settings (app/81-narrative.js), shared the same way.
 const asNarrative = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 let sharedNarrative = viewerAtLoad ? {} : asNarrative(readStored('salt_narrative', {}));

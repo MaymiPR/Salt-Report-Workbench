@@ -165,7 +165,7 @@ async function syncWithServer(again = false) {
 
 // `state` is the server's /api/sync answer.
 function applyServerUpdate(state) {
-    const { workspaces, config, profiles, sources, format, overlays, basemaps, narrative, drones, tags } = state;
+    const { workspaces, config, profiles, sources, format, overlays, basemaps, narrative, drones, tags, fmv } = state;
     const readOnly = state.read_only, connectedUsers = state.connected_users;
     // The report format: the server's wins. A server that has none yet (a new
     // one, or one upgraded from per-workspace formats) is given this browser's.
@@ -201,6 +201,14 @@ function applyServerUpdate(state) {
         sharedDrones = drones;
         if (!readOnly) storeDrones();
     }
+    // FMV mode: the server's ({} while no one has saved it). A server from
+    // before it sends none, and this browser's stays.
+    if (fmv && typeof fmv === 'object' && !Array.isArray(fmv) && JSON.stringify(asFmv(fmv)) !== JSON.stringify(sharedFmv)) {
+        sharedFmv = asFmv(fmv);
+        if (!readOnly) storeFmv();
+    }
+    // It follows the drones too, while no one has saved it.
+    applyFmvMode();
     // The narrative's settings: the server's win. A server that has none yet
     // is given this browser's, like the format.
     if (narrative && typeof narrative === 'object' && !Array.isArray(narrative)) {
