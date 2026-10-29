@@ -149,7 +149,7 @@ const statsWindow = () => {
     if (fromMs !== null) reps = reps.filter(r => r.time && new Date(r.time).getTime() >= fromMs);
     if (toMs !== null)   reps = reps.filter(r => r.time && new Date(r.time).getTime() <= toMs);
     const local = timeDisplayMode === 'local';
-    const when = ms => { const f = dateFields(new Date(ms), local); return `${+f.day} ${DAY_NAMES[+f.mo - 1]} ${f.h}${f.mi}${local ? 'L' : 'Z'}`; };
+    const when = ms => { const f = dateFields(new Date(ms), local); return `${+f.day} ${DAY_NAMES[+f.mo - 1]} ${f.h}${f.mi}${zoneMark(local)}`; };
     const phrase = fromMs === null && toMs === null ? 'all reports'
         : fromMs !== null && toMs !== null ? `${when(fromMs)} to ${when(toMs)}`
         : fromMs !== null ? `from ${when(fromMs)}` : `up to ${when(toMs)}`;
@@ -164,7 +164,7 @@ const renderStats = () => {
     const local = timeDisplayMode === 'local';
     const d = SaltCore.statsData(reps, currentOverlays(), { local, team: narrTeam() });
     const scope = statsScope === 'all' ? `All ATOs (${atos})` : (ato || 'No workspace');
-    const context = `${scope} · ${phrase} · ${reps.length} report${reps.length === 1 ? '' : 's'}`;
+    const context = `${scope} · ${phrase} · ${plural(reps.length, 'report')}`;
     s.subtitle.textContent = context;
     s.panel.querySelectorAll('.range-mode').forEach(n => { n.textContent = local ? '(Local)' : '(Zulu)'; });
     document.querySelectorAll('[data-stats-scope]').forEach(b => setOn(b, b.dataset.statsScope === statsScope));
@@ -181,7 +181,7 @@ const renderStats = () => {
         { id: 'pl', title: 'Reports at each phase line', kind: 'bar', items: d.pl, empty: 'No phase line typed or near a grid.',
           note: `Typed, or a grid within ${SaltCore.PL_NEAR_METRES / 1000} km of the line` },
         { id: 'hours', title: `Reports by hour of day (${local ? 'local' : 'Zulu'})`, kind: 'column', items: d.hours, labelEvery: 3, fmtX: ident,
-          tipX: h => `${h}:00–${h}:59${local ? 'L' : 'Z'}`, axis: `Hour (${local ? 'L' : 'Z'})` },
+          tipX: h => `${h}:00–${h}:59${zoneMark(local)}`, axis: `Hour (${zoneMark(local)})` },
         { id: 'days', title: 'Reports by day', kind: 'column', items: d.days, labelEvery: Math.max(1, Math.ceil(d.days.length / 8)), fmtX: dayLabel, axis: 'Day' },
         { id: 'tags', title: 'Activity', kind: 'bar', items: d.tags, note: 'A report can carry several tags', axis: 'Activity' },
         { id: 'headings', title: 'Heading of moving reports', kind: 'column', items: d.headings, labelEvery: 1, fmtX: ident, axis: 'Heading' },
@@ -363,7 +363,7 @@ const exportStatsXlsx = () => {
         reports: SaltCore.workbookReportRows(reps, currentOverlays(), { local, idOf: formatFullId, customLabels }),
     });
     triggerDownload(`${statsFileBase()}.xlsx`, bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    showToast(`Exported ${charts.length} charts and ${reps.length} report${reps.length === 1 ? '' : 's'} to Excel.`);
+    showToast(`Exported ${charts.length} charts and ${plural(reps.length, 'report')} to Excel.`);
 };
 
 // --- Wiring ---

@@ -45,7 +45,7 @@ const renderExportPreview = () => {
     const allLive = localReports.filter(r => !r.deleted);
     const total   = allLive.length;
     const modeLb  = timeDisplayMode === 'local' ? '(Local)' : '(Zulu)';
-    el.exp.subtitle.textContent = `ATO: ${activeAto||'-'} · ${total} report${total !== 1 ? 's' : ''}`;
+    el.exp.subtitle.textContent = `ATO: ${activeAto||'-'} · ${plural(total, 'report')}`;
     el.exp.fromMode.textContent = modeLb;
     el.exp.toMode.textContent   = modeLb;
     const hasFilter = !!(el.exp.fromDate.value || el.exp.toDate.value || el.exp.fromTime.value || el.exp.toTime.value);

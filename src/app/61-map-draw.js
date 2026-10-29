@@ -235,7 +235,7 @@ const trackLayer = (tracks, px) => {
             const local = timeDisplayMode === 'local';
             pts.forEach((p, k) => {
                 const d = new Date(t.points[k].time);
-                if (!isNaN(d.getTime())) out.push(`<text x="${(p[0] - 7).toFixed(1)}" y="${(p[1] - 8).toFixed(1)}" class="map-label map-label-time" text-anchor="end">${svgEsc(SaltCore.clockValue(d, local).replace(':', '') + (local ? 'L' : 'Z'))}</text>`);
+                if (!isNaN(d.getTime())) out.push(`<text x="${(p[0] - 7).toFixed(1)}" y="${(p[1] - 8).toFixed(1)}" class="map-label map-label-time" text-anchor="end">${svgEsc(SaltCore.clockValue(d, local).replace(':', '') + zoneMark(local))}</text>`);
             });
         }
     });

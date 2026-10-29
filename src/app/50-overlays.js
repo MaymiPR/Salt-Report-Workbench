@@ -268,7 +268,7 @@ const finishOverlayImport = async () => {
     overlayReview = null;
     if (await saveOverlays(mergeOverlays(currentOverlays(), added))) {
         const n = t => added.filter(o => o.type === t).length;
-        showToast(`Imported ${added.length} overlay${added.length === 1 ? '' : 's'}: ${n('NAI')} NAI, ${n('OBJ')} OBJ, ${n('PL')} PL`
+        showToast(`Imported ${plural(added.length, 'overlay')}: ${n('NAI')} NAI, ${n('OBJ')} OBJ, ${n('PL')} PL`
             + (replaced ? ` (${replaced} replaced an older one).` : '.'));
     }
 };
@@ -315,7 +315,7 @@ const renderOverlays = () => {
                 }).join('')}</tbody>
             </table>
             <div class="overlays-actions">
-                <button type="button" id="overlaysReviewAddBtn" class="set-btn"${count ? '' : ' disabled'}>Add ${count} overlay${count === 1 ? '' : 's'}</button>
+                <button type="button" id="overlaysReviewAddBtn" class="set-btn"${count ? '' : ' disabled'}>Add ${plural(count, 'overlay')}</button>
                 <button type="button" id="overlaysReviewCancelBtn" class="cancel-btn">Cancel</button>
             </div>`;
         return;
@@ -421,7 +421,7 @@ if (overlaysBody && overlaysFileInput) {
             const type = group.dataset.unloadGroup;
             if (!askFirst(`overlays|${type}`, renderOverlays)) return;
             const gone = currentOverlays().filter(o => o.type === type);
-            removeOverlays(gone, `${gone.length} ${type} overlay${gone.length === 1 ? '' : 's'} unloaded.`);
+            removeOverlays(gone, `${plural(gone.length, `${type} overlay`)} unloaded.`);
             return;
         }
     });
@@ -465,20 +465,20 @@ const exportForArcgis = (kind) => {
         if (kind === 'tracks-shp') triggerDownload(`${base}_tracks.zip`, SaltCore.arcgisTracksShapefileZip(tracks, layerName(`${base}_tracks`)), zipType);
         else if (kind === 'tracks-esri') triggerDownload(`${base}_tracks.json`, SaltCore.arcgisTracksEsriJson(tracks), 'application/json');
         else triggerDownload(`${base}_tracks.geojson`, SaltCore.arcgisTracksGeoJson(tracks), 'application/geo+json');
-        showToast(`Exported ${tracks.length} track${tracks.length === 1 ? '' : 's'}.`);
+        showToast(`Exported ${plural(tracks.length, 'track')}.`);
         clearExportFilter();
         return;
     }
     const { rows, skipped } = SaltCore.arcgisRows(reps, currentOverlays(), {
         local: timeDisplayMode === 'local', customLabels, idOf: formatFullId,
     });
-    if (!rows.length) { showToast(`None of the ${skipped} report${skipped === 1 ? '' : 's'} has a readable MGRS grid.`, true); return; }
+    if (!rows.length) { showToast(`None of the ${plural(skipped, 'report')} has a readable MGRS grid.`, true); return; }
     if (kind === 'shp') triggerDownload(`${base}.zip`, SaltCore.arcgisShapefileZip(rows, layerName(base)), zipType);
     else if (kind === 'csv') triggerDownload(`${base}.csv`, SaltCore.arcgisCsv(rows), 'text/csv;charset=utf-8;');
     else if (kind === 'esri') triggerDownload(`${base}.json`, SaltCore.arcgisEsriJson(rows), 'application/json');
     else triggerDownload(`${base}.geojson`, SaltCore.arcgisGeoJson(rows), 'application/geo+json');
     const reportsOut = reps.length - skipped;
-    showToast(`Exported ${rows.length} point${rows.length === 1 ? '' : 's'} from ${reportsOut} report${reportsOut === 1 ? '' : 's'}`
+    showToast(`Exported ${plural(rows.length, 'point')} from ${plural(reportsOut, 'report')}`
         + (skipped ? `; ${skipped} without a readable grid left out.` : '.'), false, { ms: 6000 });
     clearExportFilter();
 };

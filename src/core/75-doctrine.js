@@ -138,7 +138,7 @@ const DOCTRINE = {
         CN: 'PLA infantry fighting vehicles carry assault teams to the dismount point, then support them with cannon and missile fire as they close.',
     },
     buildup: {
-        RU: 'Russian assault infantry seep through the grey zone in twos and threes and gather in tree lines or buildings near the line until there are enough to assault.',
+        RU: 'Russian assault infantry seep through the gray zone in twos and threes and gather in tree lines or buildings near the line until there are enough to assault.',
         CN: 'PLA light infantry close the range in small three-man teams and concentrate near a weak point before the assault.',
     },
     infiltration: {
@@ -146,7 +146,7 @@ const DOCTRINE = {
         CN: 'PLA special operations and reconnaissance teams penetrate in small three-man groups to scout and designate targets.',
     },
     lightassault: {
-        RU: 'Since 2024 Russian assault groups ride motorcycles, buggies and civilian vehicles in pairs and small groups to dash through the drone-covered grey zone.',
+        RU: 'Since 2024 Russian assault groups ride motorcycles, buggies and civilian vehicles in pairs and small groups to dash through the drone-covered gray zone.',
         CN: 'PLA light combined-arms battalions move on Mengshi light vehicles and all-terrain vehicles for fast, dispersed approaches and raids.',
     },
     urban: {

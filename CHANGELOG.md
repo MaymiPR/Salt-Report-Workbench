@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **One way to count and to mark a time.** Every "3 reports" / "1 report" comes
+  from one `plural()`, and every L or Z after a time from one `zoneMark()`, both
+  in the core. The page says "workspace" where two messages still said "ATO
+  board", and its text uses American spelling throughout (meters, center,
+  colors, canceled, gray zone).
+
 ## [2.22.0] - 2026-10-28
 
 ### Changed

@@ -409,11 +409,10 @@ const dtg = (ms, local) => {
     const d = timeOf(ms);
     if (!d) return NO_TIME;
     const f = dateFields(d, local);
-    return `${f.day}${f.h}${f.mi}${local ? 'L' : 'Z'} ${MONTHS[+f.mo - 1]} ${String(f.y).slice(2)}`;
+    return `${f.day}${f.h}${f.mi}${zoneMark(local)} ${MONTHS[+f.mo - 1]} ${String(f.y).slice(2)}`;
 };
 // "251400Z": day and time, so a list crossing midnight still reads in order.
-const dayTime = (ms, local) => { const d = timeOf(ms); if (!d) return NO_TIME; const f = dateFields(d, local); return `${f.day}${f.h}${f.mi}${local ? 'L' : 'Z'}`; };
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const dayTime = (ms, local) => { const d = timeOf(ms); if (!d) return NO_TIME; const f = dateFields(d, local); return `${f.day}${f.h}${f.mi}${zoneMark(local)}`; };
 const countList = (items) => items.map(i => `${i.label} ${i.value}`).join(', ');
 
 // What the summaries need about each report, worked out once.
@@ -435,7 +434,7 @@ const peakHour = (facts, local) => {
     const hours = new Array(24).fill(0);
     facts.forEach(f => { hours[+dateFields(new Date(f.ms), local).h]++; });
     const h = hours.indexOf(Math.max(...hours));
-    return facts.length ? `${pad2(h)}00${local ? 'L' : 'Z'} (${hours[h]})` : '-';
+    return facts.length ? `${pad2(h)}00${zoneMark(local)} (${hours[h]})` : '-';
 };
 // "Moving 7 (N 4, E 2), Stationary 3", the tags largest first.
 const activityLine = (facts) => {
@@ -538,7 +537,7 @@ const summaryReport = (kind, reps, overlays, opts) => {
             return `${row(s.label, list)}${where ? `; in ${where}` : ''}`;
         }) : ['   No readable grids.']));
         const hours = [...d.hours].sort((x, y) => y.value - x.value || x.label.localeCompare(y.label)).filter(h => h.value).slice(0, 3);
-        out.push('', '4. BUSIEST HOURS', `   ${hours.map(h => `${h.label}00-${h.label}59${local ? 'L' : 'Z'} (${h.value})`).join(', ') || 'none'}`);
+        out.push('', '4. BUSIEST HOURS', `   ${hours.map(h => `${h.label}00-${h.label}59${zoneMark(local)} (${h.value})`).join(', ') || 'none'}`);
     } else if (kind === 'place') {
         const list = place ? atPlace(place) : [];
         if (!place) out.push('Pick an NAI, OBJ, or phase line.');

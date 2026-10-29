@@ -161,6 +161,14 @@ test('the ATO prefix is upper case with no dashes, everywhere', () => {
     assert.equal(core.atoPrefix(null), '');
 });
 
+test('one plural and one zone letter for every count and time', () => {
+    assert.equal(core.plural(1, 'report'), '1 report');
+    assert.equal(core.plural(0, 'report'), '0 reports');
+    assert.equal(core.plural(3, 'NAI overlay'), '3 NAI overlays');
+    assert.equal(core.zoneMark(true), 'L');
+    assert.equal(core.zoneMark(false), 'Z');
+});
+
 test('report numbers ignore digits that belong to the ATO', () => {
     assert.equal(core.reportNum({ displayId: 'TEST01001', ato: 'TEST01' }), 1);
     assert.equal(core.reportNum({ displayId: 'ALPHA012', ato: 'ALPHA' }), 12);
@@ -326,7 +334,7 @@ test('backup parsing explains what is wrong with a file', () => {
     assert.match(core.parseBackup('').error, /empty/);
     assert.match(core.parseBackup('just notes').error, /no ##SALT_BACKUP## block/);
     assert.match(core.parseBackup('##SALT_BACKUP##{oops##SALT_BACKUP_END##').error, /corrupt/);
-    assert.match(core.parseBackup('{"other": 1}').error, /recognisable/);
+    assert.match(core.parseBackup('{"other": 1}').error, /recognizable/);
     assert.deepEqual(core.parseBackup('﻿{"reports": []}').data, { reports: [] }, 'BOM and raw JSON');
 });
 

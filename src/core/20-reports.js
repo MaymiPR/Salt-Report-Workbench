@@ -298,7 +298,7 @@ const allWorkspacesBackupText = (workspaces, activeAto, title, profiles, formats
     atoKeys.forEach(ato => {
         const active   = (workspaces[ato]||[]).filter(r => !r.deleted);
         const atoTitle = (active.find(r => r.title)||{}).title || ato;
-        out += `${BACKUP_DIV}\n ATO: ${ato}  -  ${atoTitle}  (${active.length} report${active.length !== 1 ? 's' : ''})\n${BACKUP_DIV}\n\n`;
+        out += `${BACKUP_DIV}\n ATO: ${ato}  -  ${atoTitle}  (${plural(active.length, 'report')})\n${BACKUP_DIV}\n\n`;
         out += backupReportBlocks(active);
     });
     return out + backupMachineData({ workspaces, config: { ato: activeAto, title }, profiles: profiles||{}, formats, overlays: foldOverlays(overlays), ...narrativeData(narrative) });
@@ -323,7 +323,7 @@ const parseBackup = (rawText) => {
             : 'Import failed: machine-data block is corrupt (' + (err.message || 'parse error') + ').' };
     }
     if (!data || typeof data !== 'object' || (!data.workspaces && !data.reports)) {
-        return { error: 'Import failed: file does not contain a recognisable backup payload.' };
+        return { error: 'Import failed: file does not contain a recognizable backup payload.' };
     }
     return { data };
 };

@@ -541,8 +541,8 @@ const drawClearBtn = () => {
     el.menu.clearBtn.toggleAttribute('data-asking', ask);
 };
 el.menu.clearBtn.addEventListener('click', () => {
-    if (!activeAto) { showToast('No active ATO board to clear.', true); return; }
-    if (localReports.filter(r=>!r.deleted).length===0) { showToast('This board is already empty.', true); return; }
+    if (!activeAto) { showToast('No workspace to clear.', true); return; }
+    if (localReports.filter(r=>!r.deleted).length===0) { showToast('This workspace is already empty.', true); return; }
     if (askFirst(`clear|${activeAto}`, drawClearBtn)) unloadWorkspace(activeAto);
 });
 
@@ -1086,7 +1086,7 @@ document.addEventListener('keydown', e => {
     if (e.key==='Escape' && el.menu.panel.style.display === 'block') { e.preventDefault(); el.menu.panel.style.display = 'none'; el.menu.btn.focus(); return; }
     if (e.key==='Escape' && el.manual.modal.classList.contains('show')) { e.preventDefault(); closeManual(); return; }
     if (e.key==='Escape' && el.csv.panel.style.display === 'flex') { e.preventDefault(); closeCsvImportView(); return; }
-    if (e.key==='Escape' && el.form.cancelBtn.style.visibility==='visible') { e.preventDefault(); resetForm(); showToast('Editing cancelled.'); return; }
+    if (e.key==='Escape' && el.form.cancelBtn.style.visibility==='visible') { e.preventDefault(); resetForm(); showToast('Editing canceled.'); return; }
     // Escape clears any selected table rows (before the form-clear fallback).
     if (e.key==='Escape') {
         const sel = document.querySelectorAll('.row-selector:checked, .history-selector:checked');
