@@ -1589,10 +1589,14 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("[data-tag-row='tag-t2'] [data-tag-name='tag-t2']")
         self.assertEqual(page.input_value("[data-tag-name='tag-t2']"), "C")
         self.assertEqual(page.evaluate("document.activeElement.id"), "overlayTagPick")
-        self.assertEqual(page.get_attribute("[data-remove-tag='tag-t2']", "aria-label"), "Delete tag C")
+        self.assertEqual(
+            page.get_attribute("[data-remove-tag='tag-t2']", "aria-label"), "Delete tag C"
+        )
         # Its × asks in place, and Undo puts it back.
         page.click("[data-remove-tag='tag-t2']")
-        page.wait_for_selector("[data-tag-row='tag-t2'] .map-base-ask:has-text('Delete for everyone?')")
+        page.wait_for_selector(
+            "[data-tag-row='tag-t2'] .map-base-ask:has-text('Delete for everyone?')"
+        )
         page.click("[data-remove-tag='tag-t2']")
         page.wait_for_selector("#toastNotification:has-text('Tag C deleted.')")
         self.wait_for_server(page, "s => s.tags.length === 5")
@@ -1689,10 +1693,13 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector(f"{unknown}[open]")
         self.assertIn("Unknown", page.text_content(f"{unknown} .overlay-group-title"))
         self.assertEqual(page.text_content(f"{unknown} .overlay-group-count"), "1")
-        self.assertEqual(page.text_content(f"{unknown} [data-unload-group='none']"), "Unload unknown graphics")
+        self.assertEqual(
+            page.text_content(f"{unknown} [data-unload-group='none']"), "Unload unknown graphics"
+        )
         # It names nothing: a report inside it gets no name from it.
         page.click("#exportViewToggleBtn")
         self.log(page, "1x BTR", location="38SMB4500082000")
+
         def cell(size):
             return page.locator(
                 f"#reportLogBody tr[data-id]:has(.col-size:has-text('{size}')) .col-location"
