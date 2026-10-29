@@ -70,7 +70,7 @@ async function handleFormSubmit(mode) {
         const cur = localReports.find(r => r.id === idToUpdate);
         if (cur && !cur.deleted && editedFields(cur) !== editingVersion.fields) {
             if (await askEditConflict(cur) !== 'mine') return;
-            editingVersion = { id: cur.id, fields: editedFields(cur) };
+            editingVersion = loadedVersion(cur);
         }
     }
 

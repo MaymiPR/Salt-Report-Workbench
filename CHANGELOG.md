@@ -18,6 +18,13 @@ All notable changes to this project are documented here. The format follows
   its service lets the page copy its images, else it says it was left out);
   Print lays out the same on a landscape page, basemap included, and can save
   a PDF.
+- **Who changed what, lately**: Manage > Workspaces has an Activity list of
+  the last 50 changes on the server, newest first ("CD logged ALPHA012 · 2 min
+  ago", "AB moved to BRAVO", "imported 40 reports"); viewers see it in their
+  sidebar. It is kept in memory only, so it starts empty when the server does,
+  and holds no addresses. While a report is open for Edit or Update, a line
+  under its name says when someone else saves it ("CD updated this report
+  just now"); the question at submit is unchanged.
 
 ### Changed
 

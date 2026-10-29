@@ -79,6 +79,7 @@ def reset_state() -> None:
     srv.client_initials.clear()
     srv.client_workspace.clear()
     srv.unloaded_workspaces.clear()
+    srv.activity_log.clear()
     srv._rate_buckets.clear()
     srv._auth_fail_buckets.clear()
     srv._basemap_buckets.clear()
@@ -1817,6 +1818,7 @@ class HttpApiTests(unittest.TestCase):
             ),
             ("/api/unload_ato", {"ato": "NOT-LOADED"}),
         )
+        said = srv.activity()
         with (
             mock.patch.object(srv, "schedule_save") as saved,
             mock.patch.object(srv, "broadcast_update") as broadcast,
@@ -1830,6 +1832,7 @@ class HttpApiTests(unittest.TestCase):
         broadcast.assert_not_called()
         audited.assert_not_called()
         self.assertEqual((srv._dirty_atos, srv._shared_dirty), (set(), False), "nothing to write")
+        self.assertEqual(srv.activity(), said, "nor on the Activity list")
 
     def test_importing_reports_does_not_change_who_the_importer_is(self):
         # Regression: a backup of someone else's reports re-labeled the
@@ -2869,6 +2872,179 @@ class HttpApiTests(unittest.TestCase):
             self.assertEqual(self.sync()["connected_where"], {})
         finally:
             resp.close()
+
+    # -- the Activity list ---------------------------------------------------- #
+    def said(self):
+        """The Activity list as /api/sync gives it: (who, what, ato), oldest first."""
+        return [(e["who"], e["what"], e["ato"]) for e in self.sync()["activity"]]
+
+    def test_the_activity_list_says_each_kind_of_write_in_plain_words(self):
+        self.assertEqual(self.sync()["activity"], [], "empty at the start")
+        steps = (
+            ("/api/save_profile", {"profile": {"initials": "AB", "color": "#32d74b"}}),
+            ("/api/save_reports", {"ato": "ALPHA", "reports": [report()]}),
+            ("/api/save_reports", {"ato": "ALPHA", "reports": [report(lm=2, size="3x T-72")]}),
+            (
+                "/api/save_reports",
+                {"ato": "ALPHA", "reports": [report("r2", "ALPHA002"), report("r3", "ALPHA003")]},
+            ),
+            ("/api/save_reports", {"ato": "ALPHA", "reports": [report(lm=3, deleted=True)]}),
+            ("/api/save_reports", {"ato": "ALPHA", "reports": [report(lm=4)]}),
+            (
+                "/api/save_reports",
+                {
+                    "ato": "ALPHA",
+                    "reports": [
+                        report("r2", "ALPHA002", lm=2, deleted=True),
+                        report("r3", "ALPHA003", lm=2, deleted=True),
+                        report("r4", "ALPHA004"),
+                    ],
+                },
+            ),
+            (
+                "/api/edit_report",
+                {
+                    "ato": "ALPHA",
+                    "reportId": "r1",
+                    "fields": {"size": "4x T-72", "lastModified": 5},
+                },
+            ),
+            (
+                "/api/save_reports",
+                {"ato": "ALPHA", "reports": [report(lm=6, history=[{"lastModified": 1}])]},
+            ),
+            (
+                "/api/delete_history",
+                {"ato": "ALPHA", "deletions": [{"reportId": "r1", "lastModified": 1}]},
+            ),
+            (
+                "/api/save_reports",
+                {
+                    "ato": "BRAVO",
+                    "reports": [report(f"b{n}", f"BRAVO00{n}", ato="BRAVO") for n in (1, 2, 3)],
+                    "source": "csv",
+                },
+            ),
+            ("/api/unload_ato", {"ato": "BRAVO"}),
+            ("/api/save_config", {"config": {"ato": "CHARLIE", "title": "Patrol"}}),
+            ("/api/save_config", {"config": {"ato": "CHARLIE", "title": "Screen"}}),
+            ("/api/save_format", {"format": {"preset": "custom", "lines": [{"type": "id"}]}}),
+            ("/api/save_overlays", {"overlays": [NAI1]}),
+            (
+                "/api/save_basemaps",
+                {
+                    "basemaps": [
+                        {
+                            "name": "Topo",
+                            "kind": "tiles",
+                            "url": "http://10.0.0.5/t/{z}/{y}/{x}.png",
+                        }
+                    ]
+                },
+            ),
+            ("/api/save_narrative", {"narrative": {"enemy": "OPFOR"}}),
+        )
+        for path, body in steps:
+            self.assertEqual(self.post(path, body)[0], 200, path)
+        self.assertEqual(
+            self.said(),
+            [
+                ("AB", "set their profile", ""),
+                ("AB", "logged ALPHA001", "ALPHA"),
+                ("AB", "updated ALPHA001", "ALPHA"),
+                ("AB", "logged 2 reports", "ALPHA"),
+                ("AB", "deleted ALPHA001", "ALPHA"),
+                ("AB", "restored ALPHA001", "ALPHA"),
+                ("AB", "logged ALPHA004, deleted 2 reports", "ALPHA"),
+                ("AB", "updated ALPHA001", "ALPHA"),
+                ("AB", "updated ALPHA001", "ALPHA"),
+                ("AB", "removed 1 earlier version of ALPHA001", "ALPHA"),
+                ("AB", "imported 3 reports", "BRAVO"),
+                ("AB", "unloaded BRAVO", "BRAVO"),
+                ("AB", "moved to CHARLIE", "CHARLIE"),
+                ("AB", "set the title of CHARLIE", "CHARLIE"),
+                ("AB", "changed the report format", ""),
+                ("AB", "changed the overlays", ""),
+                ("AB", "changed the basemaps", ""),
+                ("AB", "changed the narrative settings", ""),
+            ],
+        )
+        entry = self.sync()["activity"][-1]
+        self.assertEqual(set(entry), {"at", "who", "what", "ato"}, "no addresses")
+        self.assertAlmostEqual(entry["at"] / 1000, time.time(), delta=60)
+
+    def test_the_activity_list_leaves_out_writes_that_change_nothing(self):
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report(lm=5)]})
+        for body in (
+            # The same again, an older copy, and only a new stamp.
+            {"ato": "ALPHA", "reports": [report(lm=5)]},
+            {"ato": "ALPHA", "reports": [report(lm=4, size="stale")]},
+            {"ato": "ALPHA", "reports": [report(lm=6)]},
+            # Deleted before the server ever had it.
+            {"ato": "ALPHA", "reports": [report("r9", "ALPHA009", deleted=True)]},
+            # An import of what it already holds.
+            {"ato": "ALPHA", "reports": [report(lm=6)], "source": "backup"},
+        ):
+            self.assertEqual(self.post("/api/save_reports", body)[0], 200)
+        edit = {"ato": "ALPHA", "reportId": "r1", "fields": {"size": "2x T-72"}}
+        self.assertEqual(self.post("/api/edit_report", edit)[0], 200)
+        self.assertEqual([what for _, what, _ in self.said()], ["logged ALPHA001"])
+
+    def test_the_activity_list_names_the_drone(self):
+        drone = {"name": "GE 1", "grid": "11S NV 39697 06762", "at": 1793018940000}
+        other = {**drone, "name": "GE 2"}
+        for drones in (
+            [drone],
+            [drone, other],
+            [drone, {**other, "grid": "11S NV 40000 07000"}],
+            [drone, {**other, "grid": "11S NV 40000 07000", "range": 5}],
+            [drone],
+            [{**drone, "name": "GE 3"}, other],
+            [],
+        ):
+            self.assertEqual(self.post("/api/save_drones", {"drones": drones})[0], 200)
+        self.assertEqual(
+            [what for _, what, _ in self.said()],
+            [
+                "added drone GE 1",
+                "added drone GE 2",
+                "moved drone GE 2",
+                "changed drone GE 2",
+                "removed drone GE 2",
+                "changed the drones",
+                "changed the drones",
+            ],
+        )
+
+    def test_the_activity_list_says_who_from_their_initials(self):
+        # Not known yet: no one, and the page says "Someone".
+        self.post("/api/save_overlays", {"overlays": [NAI1]})
+        # Learned from the reports this machine writes, as attribution is.
+        self.post(
+            "/api/save_reports",
+            {"ato": "ALPHA", "reports": [report(user={"initials": "CD", "color": "#ff9f0a"})]},
+        )
+        # Moved by a switch alone (the config already said so): still said.
+        self.post("/api/save_config", {"config": {"ato": "BRAVO", "title": "Patrol"}})
+        srv.client_workspace.clear()
+        self.post("/api/save_config", {"config": {"ato": "BRAVO", "title": "Patrol"}})
+        self.assertEqual(
+            self.said(),
+            [
+                ("", "changed the overlays", ""),
+                ("CD", "logged ALPHA001", "ALPHA"),
+                ("CD", "moved to BRAVO", "BRAVO"),
+                ("CD", "moved to BRAVO", "BRAVO"),
+            ],
+        )
+
+    def test_the_activity_list_keeps_the_last_fifty(self):
+        reports = [report(f"r{n}", f"ALPHA{n:03}") for n in range(55)]
+        for r in reports:
+            self.post("/api/save_reports", {"ato": "ALPHA", "reports": [r]})
+        said = [what for _, what, _ in self.said()]
+        self.assertEqual(len(said), srv.ACTIVITY_KEEP)
+        self.assertEqual((said[0], said[-1]), ("logged ALPHA005", "logged ALPHA054"), "newest last")
 
     def test_every_change_is_numbered_in_syncs_replies_and_notices(self):
         first = self.sync()

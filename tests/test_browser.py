@@ -385,6 +385,20 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector(".bda-entry")
         self.wait_for_server(page, assessed)
 
+    def test_the_activity_list_shows_another_editors_change(self):
+        page = self.open_editor()
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='workspaces']")
+        page.wait_for_selector("#activityList .peer-activity-row")
+        other = self.second_editor("CD", self.ato)
+        self.log(other, "2x BTR")
+        newest = "#activityList .peer-activity-row:first-child"
+        page.wait_for_selector(f"{newest}:has-text('CD logged')")
+        self.assertRegex(page.text_content(newest), r"^CD logged \S+001 · just now$")
+        # Viewers see it too, beside the workspaces.
+        viewer = self.open_viewer()
+        viewer.wait_for_selector("#activitySidebarList .peer-activity-row:has-text('CD logged')")
+
     def test_unloading_a_workspace_asks_in_its_row_and_undo_sends_it_back(self):
         page = self.open_editor()
         self.log(page, "2x BTR")
@@ -1020,6 +1034,23 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(
             page.evaluate("localReports.find(r => r.size === '2x BMP').history.length"), 0
         )
+
+    def test_the_form_says_when_someone_else_updates_the_report_in_it(self):
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        other = self.second_editor("CD", self.ato)
+        other.wait_for_selector("#reportLogBody .col-size:has-text('2x BTR')")
+        page.click("#reportLogBody .id-edit-btn")
+        self.assertTrue(page.is_hidden("#formPeerNote"), "nothing to say yet")
+        other.click("#reportLogBody .id-edit-btn")
+        other.fill("#size", "3x BTR")
+        other.click("#updateButton")
+        page.wait_for_selector("#formPeerNote:has-text('CD updated this report just now')")
+        # What was typed stays; the line only says so.
+        self.assertEqual(page.input_value("#size"), "2x BTR")
+        # Another report, or none, and it goes.
+        page.click("#cancelButton")
+        self.assertTrue(page.is_hidden("#formPeerNote"))
 
     def test_an_update_asks_when_someone_else_changed_the_report(self):
         # Regression: Edit and Update wrote over a peer's newer change, silently.

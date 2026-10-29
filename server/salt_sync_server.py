@@ -38,6 +38,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
+from collections import deque
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any, NamedTuple
@@ -108,6 +109,8 @@ SNAPSHOT_INTERVAL_SECONDS: float = 3600.0
 SNAPSHOT_KEEP: int = 48
 # One line per accepted write (when, who, what), beside the backups.
 AUDIT_LOG_NAME = 'audit.log'
+# How many changes the Activity list (Manage > Workspaces) keeps: the newest.
+ACTIVITY_KEEP = 50
 # The settings every workspace shares (SHARED_SECTIONS), beside the backups in
 # a file of their own, so they last with no workspace loaded. Not a .txt: the
 # loader never takes it for a workspace backup. Workspace backups still carry
@@ -178,6 +181,13 @@ workspace_sources: dict = {}
 # told to leave it by this list, not by the config. Rides on /api/sync.
 # Protected by data_lock.
 unloaded_workspaces: set = set()
+
+# The last changes, for the Activity list: {at (ms), who (initials, or ''),
+# what (plain words), ato (the workspace, or '')}, newest last. In memory only,
+# so a restart empties it, and no addresses. Rides on /api/sync. Protected by
+# _activity_lock.
+activity_log: deque = deque(maxlen=ACTIVITY_KEEP)
+_activity_lock = threading.Lock()
 
 # This release. The page carries the same (APP_VERSION in src/app/10-state.js)
 # and warns when the two differ; tests/test_docs.py checks they agree.
@@ -462,6 +472,27 @@ def audit(actor: str, what: str) -> None:
         if not _audit_failed:
             _audit_failed = True
             safe_print(f'[!] Could not write {AUDIT_LOG_NAME}: {exc}')
+
+
+def plural(n: int, word: str) -> str:
+    """``3 reports``, ``1 report``: as the page's plural() says it."""
+    return f'{n} {word}{"" if n == 1 else "s"}'
+
+
+def note_activity(who: str, what: str, ato: str = '') -> None:
+    """Add a change to the Activity list: who made it (their initials, or ''
+    while the server doesn't know them), what it did in plain words, and in
+    which workspace. Called before the change is numbered, so the pull that
+    number brings has it."""
+    entry = {'at': int(time.time() * 1000), 'who': who, 'what': what, 'ato': ato}
+    with _activity_lock:
+        activity_log.append(entry)
+
+
+def activity() -> list:
+    """The Activity list as it is, oldest first."""
+    with _activity_lock:
+        return list(activity_log)
 
 
 def get_local_ip() -> str:
@@ -1205,11 +1236,13 @@ class SharedSection(NamedTuple):
     # The POST route that saves it, and that route's validator.
     route: str
     validator: Callable[[dict], str | None]
-    # What is stored from the validated body's value (known fields only), and
-    # the audit line for it. None: its route is a handler of its own (see
+    # What is stored from the validated body's value (known fields only), the
+    # audit line for it, and the Activity list's words for it (from what it
+    # held before, and now). None: its route is a handler of its own (see
     # _OWN_SAVE_ROUTES under Routes).
     clean: Callable[[Any], Any] | None = None
     logged: Callable[[Any], str] | None = None
+    said: Callable[[Any, Any], str] | None = None
     # What it holds before anything is loaded; None: empty.
     start: Callable[[], Any] | None = None
     # Tidies what a backup file holds; None: taken as it is (None when absent).
@@ -1294,6 +1327,23 @@ def clean_drones(drones: list) -> list:
     ]
 
 
+def said_of_drones(before, after: list) -> str:
+    """A drones save in plain words: the one drone added, removed, moved or
+    changed, by name; else 'changed the drones'."""
+    old = {d.get('name'): d for d in _dicts(before)}
+    new = {d['name']: d for d in after}
+    added, gone = [n for n in new if n not in old], [n for n in old if n not in new]
+    if len(added) == 1 and not gone:
+        return f'added drone {added[0]}'
+    if len(gone) == 1 and not added:
+        return f'removed drone {gone[0]}'
+    changed = [] if added or gone else [n for n in new if new[n] != old[n]]
+    if len(changed) == 1:
+        moved = new[changed[0]].get('grid') != old[changed[0]].get('grid')
+        return f'{"moved" if moved else "changed"} drone {changed[0]}'
+    return 'changed the drones'
+
+
 def clean_narrative(n: dict) -> dict:
     """Known fields only, trimmed, from settings ``_v_save_narrative`` accepted."""
     return {
@@ -1351,6 +1401,7 @@ SHARED_SECTIONS: tuple[SharedSection, ...] = (
         _v_save_format,
         clean=lambda fmt: fmt,
         logged=lambda _: 'save_format',
+        said=lambda *_: 'changed the report format',
         newest_file=False,
     ),
     # NAI / OBJ / PL features, imported from KML, KMZ, GeoJSON or shapefile.
@@ -1362,6 +1413,7 @@ SHARED_SECTIONS: tuple[SharedSection, ...] = (
         _v_save_overlays,
         clean=clean_overlays,
         logged=lambda ovs: f'save_overlays: {len(ovs)} overlay(s)',
+        said=lambda *_: 'changed the overlays',
         newest_file=False,
     ),
     # The map's background services: [{name, kind: 'wms' | 'tiles', url, layers?}].
@@ -1374,6 +1426,7 @@ SHARED_SECTIONS: tuple[SharedSection, ...] = (
         _v_save_basemaps,
         clean=clean_basemaps,
         logged=lambda maps: f'save_basemaps: {len(maps)} service(s)',
+        said=lambda *_: 'changed the basemaps',
     ),
     # Drones shown on the map: [{name, grid, at}], where they were last put
     # (an MGRS grid) and when (ms). Shared like the basemaps.
@@ -1384,6 +1437,7 @@ SHARED_SECTIONS: tuple[SharedSection, ...] = (
         _v_save_drones,
         clean=clean_drones,
         logged=lambda drones: f'save_drones: {len(drones)} drone(s)',
+        said=said_of_drones,
     ),
     # The narrative's settings (Summary Reports > Narrative): what the enemy
     # is called, the known units and where they operate, equipment added to
@@ -1398,6 +1452,7 @@ SHARED_SECTIONS: tuple[SharedSection, ...] = (
             f'save_narrative: {len(n["units"])} unit(s), {len(n["equipment"])} type(s), '
             f'{len(n["custom"])} rule(s)'
         ),
+        said=lambda *_: 'changed the narrative settings',
     ),
 )
 
@@ -1682,6 +1737,55 @@ def _written(existing_list: list, incoming_list: list) -> list:
     """The reports in ``incoming_list`` that are new or changed."""
     have = {k: r for r in existing_list if (k := _report_key(r))}
     return [r for r in incoming_list if _says_more(have.get(_report_key(r)), r)]
+
+
+# A report's fields that say when and by whom it was saved, not what it says.
+_SAVED_BY = ('lastModified', 'user')
+
+
+def _differs(old: dict, r: dict) -> bool:
+    """Whether ``r`` holds anything else than ``old``, its history and BDA
+    included, but not when and by whom it was saved."""
+    return any(r.get(f) != old.get(f) for f in r.keys() | old.keys() if f not in _SAVED_BY)
+
+
+def report_changes(existing_list: list, incoming_list: list) -> dict:
+    """What merging ``incoming_list`` does to the server's copy, for the
+    Activity list: 'logged', 'updated', 'deleted' and 'restored', each the
+    displayIds of the reports it did that to. A copy older than the server's
+    (the merge keeps the server's), or the same but for when and by whom it
+    was saved, does nothing; nor does one never saved that comes deleted."""
+    have = {k: r for r in existing_list if (k := _report_key(r))}
+    out: dict = {'logged': [], 'updated': [], 'deleted': [], 'restored': []}
+    for r in incoming_list:
+        if not (key := _report_key(r)):
+            continue
+        old = have.get(key)
+        gone = bool(r.get('deleted'))
+        if old is None:
+            if gone:
+                continue
+            kind = 'logged'
+        elif _sort_num(r.get('lastModified')) < _sort_num(old.get('lastModified')):
+            continue
+        elif gone != bool(old.get('deleted')):
+            kind = 'deleted' if gone else 'restored'
+        elif gone or not _differs(old, r):
+            continue
+        else:
+            kind = 'updated'
+        out[kind].append(str(r.get('displayId') or key))
+    return out
+
+
+def said_of_reports(changes: dict) -> str:
+    """``report_changes`` in plain words: 'logged ALPHA012', 'deleted 3
+    reports', 'logged ALPHA013, updated ALPHA004'; '' when nothing changed."""
+    return ', '.join(
+        f'{kind} {ids[0]}' if len(ids) == 1 else f'{kind} {plural(len(ids), "report")}'
+        for kind, ids in changes.items()
+        if ids
+    )
 
 
 def _stamp_operator(existing_list: list, incoming_list: list, operator: dict) -> list:
@@ -2507,6 +2611,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                         where[ini] = ato
         initials_json = json.dumps(initials_list, ensure_ascii=False).encode('utf-8')
         where_json = json.dumps(where, ensure_ascii=False).encode('utf-8')
+        activity_json = json.dumps(activity(), ensure_ascii=False).encode('utf-8')
         # `read_only` is per-listener — lives in the dynamic tail, not the shared prefix.
         ro = b'true' if getattr(self.server, 'view_only', False) else b'false'
         body = (
@@ -2517,6 +2622,8 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             + initials_json
             + b',"connected_where":'
             + where_json
+            + b',"activity":'
+            + activity_json
             + b',"read_only":'
             + ro
             + b',"version":'
@@ -2683,20 +2790,23 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
     def _bad_request(self, message: str) -> None:
         self._error(400, message)
 
+    def _initials(self) -> str:
+        """The initials of the operator at this machine, as the server knows
+        them (from their profile and their saves), or ''."""
+        machine = _machine(self.client_address[0])
+        with sse_lock:
+            return client_initials.get(machine, '')
+
     def _actor(self) -> str:
         """Who is behind this connection, for the audit log: ``AB@10.0.0.12`` or the address."""
         ip = self.client_address[0]
-        machine = _machine(ip)
-        with sse_lock:
-            ini = client_initials.get(machine, '')
+        ini = self._initials()
         return f'{ini}@{ip}' if ini else ip
 
     def _operator(self) -> dict | None:
         """The profile of the operator at this machine, as the server knows it
         (from their profile and their saves), or None while it doesn't."""
-        machine = _machine(self.client_address[0])
-        with sse_lock:
-            ini = client_initials.get(machine, '')
+        ini = self._initials()
         if not ini:
             return None
         with data_lock:
@@ -2713,9 +2823,13 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             note_machines()
         return changed
 
-    def _commit(self, what: str, **extra) -> None:
-        """The end of every successful write: log it, persist, notify clients, confirm."""
+    def _commit(self, what: str, *, said: str = '', ato: str = '', **extra) -> None:
+        """The end of every successful write: log it, persist, notify clients, confirm.
+        ``said``: what it did in plain words, for the Activity list, in ``ato``
+        (none for a write that changed nothing anyone would notice)."""
         audit(self._actor(), what)
+        if said:
+            note_activity(self._initials(), said, ato)
         schedule_save()
         version = broadcast_update()
         # In a header too, so a page reads it before (or without) the body.
@@ -2725,14 +2839,17 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             headers=(('X-Salt-Change', str(version)),),
         )
 
-    def _unchanged(self, seen: bool = False, **extra) -> None:
+    def _unchanged(self, seen: bool = False, *, said: str = '', ato: str = '', **extra) -> None:
         """The end of a write that changed nothing: the same reply, but nothing
         is saved, broadcast to every client, or written to the audit log.
         ``seen``: it changed only what others see of this machine (who is
-        connected, and where), which is numbered and broadcast, but not saved."""
+        connected, and where), which is numbered and broadcast, but not saved;
+        ``said`` and ``ato`` then go on the Activity list, as in _commit."""
         if not seen:
             self._send_json({'status': 'success', **extra})
             return
+        if said:
+            note_activity(self._initials(), said, ato)
         version = broadcast_update()
         self._send_body(
             json.dumps({'status': 'success', 'version': version, **extra}).encode('utf-8'),
@@ -2740,16 +2857,18 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             headers=(('X-Salt-Change', str(version)),),
         )
 
-    def _store_shared(self, key: str, value) -> bool:
-        """Put a shared setting in place, for every workspace. False, with
-        nothing stored, when it already holds exactly that."""
+    def _store_shared(self, key: str, value) -> tuple[bool, Any]:
+        """Put a shared setting in place, for every workspace. Says whether it
+        was, and what it held before: it wasn't, with nothing stored, when it
+        already holds exactly that."""
         with data_lock:
-            if DATA_STORE.get(key) == value:
-                return False
+            before = DATA_STORE.get(key)
+            if before == value:
+                return False, before
             DATA_STORE[key] = value
             invalidate_sync_cache()
             mark_dirty()  # every workspace's backup carries it, and the shared file
-        return True
+        return True, before
 
     # -------------------------------------------------------------------------
     # POST routes. Each gets the parsed, validated body and sends the reply.
@@ -2784,6 +2903,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         with data_lock:
             is_new = ato not in DATA_STORE['workspaces']
             existing = DATA_STORE['workspaces'].get(ato, [])
+            changes = report_changes(existing, incoming)
             if operator:
                 incoming = _stamp_operator(existing, incoming, operator)
             DATA_STORE['workspaces'][ato] = _merge_reports(existing, incoming)
@@ -2809,7 +2929,12 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             what += f', {deleted} deleted'
         if source in ('backup', 'csv'):
             what += f', from {source}'
-        self._commit(what)
+        if imported:
+            count = sum(len(ids) for ids in changes.values())
+            said = f'imported {plural(count, "report")}' if count else ''
+        else:
+            said = said_of_reports(changes)
+        self._commit(what, said=said, ato=ato)
 
     def _post_unload_ato(self, data: dict) -> None:
         ato = data['ato'].strip().upper()
@@ -2837,7 +2962,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             return
         # Saved at once like any write, so the cleared active workspace is on
         # disk; the workspace itself comes back on a restart, from its own file.
-        self._commit(f'unload_ato {ato}', message='ATO unloaded.')
+        self._commit(f'unload_ato {ato}', said=f'unloaded {ato}', ato=ato, message='ATO unloaded.')
 
     def _post_edit_report(self, data: dict) -> None:
         ato = data['ato'].strip().upper()
@@ -2848,7 +2973,8 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         if operator := self._operator():
             fields['user'] = operator
         self._now_in(ato)
-        found = stale = False
+        found = stale = changed = False
+        display_id = report_id
         with data_lock:
             for r in DATA_STORE['workspaces'].get(ato, []):
                 if r.get('id') != report_id:
@@ -2861,9 +2987,16 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 ):
                     stale = True
                     break
+                # Not when and by whom alone: that changes nothing anyone reads.
+                changed = any(
+                    r.get(k) != fields[k]
+                    for k in _EDITABLE_FIELDS
+                    if k in fields and k not in _SAVED_BY
+                )
                 for k in _EDITABLE_FIELDS:
                     if k in fields:
                         r[k] = fields[k]
+                display_id = str(r.get('displayId') or report_id)
                 if 'lastModified' not in fields:
                     r['lastModified'] = int(time.time() * 1000)
                 break
@@ -2880,7 +3013,8 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 'It was not edited; open it again.',
             )
             return
-        self._commit(f'edit_report {ato} {report_id}')
+        said = f'updated {display_id}' if changed else ''
+        self._commit(f'edit_report {ato} {report_id}', said=said, ato=ato)
 
     def _post_delete_history(self, data: dict) -> None:
         ato = data['ato'].strip().upper()
@@ -2888,6 +3022,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         for d in data['deletions']:
             drop.setdefault(d['reportId'], set()).add(d['lastModified'])
         removed = 0
+        trimmed: list = []  # the displayIds of the reports they were removed from
         now_ms = int(time.time() * 1000)
         with data_lock:
             for r in DATA_STORE['workspaces'].get(ato, []):
@@ -2899,6 +3034,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 ]
                 if len(kept) != len(hist):
                     removed += len(hist) - len(kept)
+                    trimmed.append(str(r.get('displayId') or r.get('id')))
                     r['history'] = kept
                     r['lastModified'] = now_ms
             if removed > 0:
@@ -2907,7 +3043,12 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         if not removed:
             self._unchanged(removed=0)
             return
-        self._commit(f'delete_history {ato}: {removed} entries', removed=removed)
+        said = f'removed {plural(removed, "earlier version")}'
+        if len(trimmed) == 1:
+            said += f' of {trimmed[0]}'
+        self._commit(
+            f'delete_history {ato}: {removed} entries', said=said, ato=ato, removed=removed
+        )
 
     def _post_save_config(self, data: dict) -> None:
         cfg = data.get('config')
@@ -2920,16 +3061,27 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         clean = {'ato': cfg.get('ato', ''), 'title': cfg.get('title', '')}
         # Each editor has their own workspace: this is the one viewers are
         # shown, and where this editor now is.
-        moved = self._now_in((clean['ato'] or '').strip().upper())
+        where = (clean['ato'] or '').strip().upper()
+        moved = self._now_in(where)
         with data_lock:
             revived = clean['ato'] in unloaded_workspaces
             unloaded_workspaces.discard(clean['ato'])
             if revived:
                 invalidate_sync_cache()
-        if not self._store_shared('config', clean):  # the config rides in every file
-            self._unchanged(seen=moved or revived)
+        stored, before = self._store_shared('config', clean)  # the config rides in every file
+        # For the Activity list: this editor's switch, else what viewers are shown.
+        if not where:
+            said = ''
+        elif moved:
+            said = f'moved to {where}'
+        elif (before or {}).get('ato') == clean['ato']:
+            said = f'set the title of {where}'
+        else:
+            said = f'showed viewers {where}'
+        if not stored:
+            self._unchanged(seen=moved or revived, said=said if moved else '', ato=where)
             return
-        self._commit(f'save_config {clean["ato"]} / {clean["title"]}')
+        self._commit(f'save_config {clean["ato"]} / {clean["title"]}', said=said, ato=where)
 
     def _post_save_shared(self, data: dict, section: SharedSection) -> None:
         """The save route of every shared setting stored as its section cleans
@@ -2937,10 +3089,11 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         SHARED_SECTIONS). One for every workspace; an ATO an older page sends
         is ignored."""
         clean = section.clean(data[section.key])
-        if not self._store_shared(section.key, clean):
+        stored, before = self._store_shared(section.key, clean)
+        if not stored:
             self._unchanged()
             return
-        self._commit(section.logged(clean))
+        self._commit(section.logged(clean), said=section.said(before, clean))
 
     def _post_wms_fetch(self, data: dict) -> None:
         # Changes nothing here, so no save and no broadcast; logged all the
@@ -2971,7 +3124,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         if not changed:
             self._unchanged(seen=not known)  # who is connected changed, if nothing else did
             return
-        self._commit(f'save_profile {ini}')
+        self._commit(f'save_profile {ini}', said='set their profile')
 
 
 # =============================================================================

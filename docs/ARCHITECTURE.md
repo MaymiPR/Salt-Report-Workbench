@@ -169,7 +169,7 @@ outside `/api`) gets the standard library's HTML `404`.
 | --- | --- | --- |
 | `/`, `/index.html` | GET | The bundled page. On the viewer port it is stamped `read-only` before any script runs; for the host's own browser the access code is injected into a `<meta>` tag. |
 | `/Salt%20Report%20Workbench.html` | GET | The same page, under its old single-file name, so old bookmarks still open it. |
-| `/api/sync` | GET | Full state: workspaces, config (the workspace viewers are shown), profiles, the report format, overlays, basemaps, drones, the narrative's settings, sources, the workspaces unloaded since the server started (`unloaded`), connected users, which workspace each connected editor is in (`connected_where`, initials to ATO), the number of the change it is as of (`version`, read before the data, so the answer holds at least that change) and the server's release (`server_version`). |
+| `/api/sync` | GET | Full state: workspaces, config (the workspace viewers are shown), profiles, the report format, overlays, basemaps, drones, the narrative's settings, sources, the workspaces unloaded since the server started (`unloaded`), connected users, which workspace each connected editor is in (`connected_where`, initials to ATO), the last 50 changes for the Activity list (`activity`: `{at, who, what, ato}`, newest last, who as initials and what in plain words such as `logged ALPHA012`; kept in memory only, so a restart empties it, and no addresses), the number of the change it is as of (`version`, read before the data, so the answer holds at least that change) and the server's release (`server_version`). |
 | `/api/events` | GET | Server-Sent Events stream. Each message says the newest change's number, `{"v": n}`; a page that already has it doesn't pull, and others call `/api/sync`. Changes within 150 ms of each other go out as one message. |
 | `/api/health` | GET | No code needed, on either port: `{status: ok \| not saving, version, uptime_seconds, last_saved, save_failures, connected_machines, change}`. Nothing about the reports. |
 | `/api/basemap?u=` | GET | An image from an `http://` basemap, for an HTTPS page that can't load it itself. Only from the host of a saved basemap; a redirect followed only on that host (to https, say); images only, up to 16 MB. |
@@ -303,8 +303,8 @@ The server is the meeting point, not the authority over content.
 - **Cached sync payload.** The JSON for workspaces, config, profiles, the
   format, overlays, basemaps, drones and narrative settings is serialized
   once and cached as a byte prefix; only the small per-request tail
-  (connected users, where they are, read-only flag, the change number and
-  the server's release) is appended each time. Any mutation
+  (connected users, where they are, the activity list, read-only flag, the
+  change number and the server's release) is appended each time. Any mutation
   clears the cache. A client that accepts gzip (every browser) gets
   the body compressed, five to eight times smaller; since every client pulls
   the same state after a change, the compressed form is cached too and one
@@ -370,6 +370,14 @@ Every accepted write passes through `_commit`, which also appends a line to
 that address (`AB@10.0.0.12`), and what changed. Server start and stop are
 logged the same way. The log is append-only and nothing reads it.
 
+`_commit` also puts a change people would notice on the Activity list
+(`note_activity`), in plain words: for a batch of reports, `report_changes`
+compares each with the server's copy before the merge (new is *logged*, a
+deleted flag set or cleared is *deleted* or *restored*, anything else but
+`lastModified` and `user` is *updated*; a copy older than the server's, or
+the same, is nothing), and an import counts them. A write that changes
+nothing adds nothing.
+
 Unloading a workspace removes it from memory and leaves its file in place:
 unload is "from view", and a restart reloads the file. That is documented
 behavior, not a limitation.
@@ -430,6 +438,7 @@ against.
 | `_save_timer_lock` | the debounce timer |
 | `_workbench_html_lock` | the cached page (`index.html` and its mtime) |
 | `_audit_lock` | appends to `audit.log` |
+| `_activity_lock` | `activity_log`, the Activity list |
 | `_rate_lock` | rate-limit buckets |
 
 Each SSE connection holds a thread that waits in `select()` with a timeout of

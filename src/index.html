@@ -296,6 +296,8 @@
                         <li>Lists every workspace currently loaded with its source (which backup file it was loaded from, or &ldquo;Uploaded backup&rdquo;, &ldquo;Uploaded CSV&rdquo;, or &ldquo;In-session&rdquo;), live report count, and history count.</li>
                         <li>The workspace you are in is highlighted blue and tagged <em>Active</em>. The initials after a workspace&rsquo;s source are the editors working in it.</li>
                         <li>Each row has an <strong>Unload</strong> button. The first press asks <em>Unload for everyone?</em> under the workspace's name, and a second unloads it. Unloading clears the workspace from memory and notifies peers; the backup file on disk is preserved, so a server restart would reload it. <strong>Undo</strong>, for ten seconds after, sends its reports back to the server, each with its own author, and puts you back in it if you were in it; its source then reads <em>Uploaded backup (.txt)</em>.</li>
+                        <li><strong>Activity</strong>, under the list: the last 50 changes made on the server, newest first, such as <em>CD logged ALPHA012 &middot; 2 min ago</em> or <em>AB moved to BRAVO</em>. A change in another workspace than yours says which. It starts empty each time the server starts (<em>Nothing yet since the server started.</em>), and holds no addresses. Viewers see it in their sidebar, under the workspaces.</li>
+                        <li>While you are updating a report, a line under its name says when someone else saves it, such as <em>CD updated this report just now</em>. Edit or Update still asks before writing over their change.</li>
                     </ul>
 
                     <p class="manual-step">Identity tab (person icon)</p>
@@ -543,7 +545,7 @@
                         <li>Viewers connect with <strong>no access code</strong>. The read/write distinction is enforced by the port itself: every POST to the viewer port returns 405.</li>
                         <li><strong>No startup modal</strong> on viewer load. Viewers don&rsquo;t need an identity or workspace selection, so the page paints straight to the report log without prompting.</li>
                         <li>A small orange <strong>VIEW ONLY</strong> badge sits to the right of the &ldquo;Workspaces&rdquo; sidebar header so the operator knows the mode without crowding the report-log header.</li>
-                        <li>The form panel is replaced by a persistent <strong>Workspaces sidebar</strong> on the left, listing every loaded workspace with click-to-switch (local-only: switching here only changes the viewer&rsquo;s own view, not anyone else&rsquo;s).</li>
+                        <li>The form panel is replaced by a persistent <strong>Workspaces sidebar</strong> on the left, listing every loaded workspace with click-to-switch (local-only: switching here only changes the viewer&rsquo;s own view, not anyone else&rsquo;s). Under it, <strong>Activity</strong> lists the editors&rsquo; last changes, as in the Workspaces tab.</li>
                         <li>Each row shows the <strong>ATO designator</strong> in bold and the workspace <strong>title</strong> as a subdued sublabel right after it, separated by a dash or a space according to the <strong>Title Separator</strong> setting.</li>
                         <li>Each row carries up to two small circular indicators next to the workspace title so the viewer can tell their local view apart from the editor&rsquo;s:
                             <ul>
@@ -615,6 +617,8 @@
                             <h2 id="formTitle">New Report</h2>
                             <!-- While updating: which report, in full (app/30-form.js). -->
                             <div id="formEditingNote" class="form-editing-note" hidden></div>
+                            <!-- Someone else saved it since it was loaded: who, and when. -->
+                            <div id="formPeerNote" class="form-peer-note" role="status" hidden></div>
                         </div>
                         <input type="number" id="reportStartNum" min="1" placeholder="Number" aria-label="Report number">
                     </div>
@@ -665,6 +669,8 @@
                         <span class="view-only-badge" title="This server is read-only. You cannot create, edit, or delete reports.">VIEW ONLY</span>
                     </div>
                     <div id="workspacesSidebarList" class="workspaces-list"></div>
+                    <div class="export-block-label peer-activity-label">Activity</div>
+                    <div id="activitySidebarList" class="peer-activity-list"></div>
                 </aside>
 
                 <div class="report-section">
@@ -819,6 +825,11 @@
                             <div class="export-block ws-block-fill">
                                 <div class="export-block-label">Loaded Workspaces</div>
                                 <div id="workspacesList" class="workspaces-list"></div>
+                            </div>
+                            <!-- What editors changed since the server started, newest first (app/40-io.js). -->
+                            <div class="export-block">
+                                <div class="export-block-label">Activity</div>
+                                <div id="activityList" class="peer-activity-list"></div>
                             </div>
                         </div>
 

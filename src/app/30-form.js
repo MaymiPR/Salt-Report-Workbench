@@ -168,15 +168,38 @@ const fixReportLocation = async (id) => {
     await saveLocalAndSync(reportsByAto);
 };
 
-// The report in the form, as it was when loaded: { id, fields }, where fields
-// is what the form edits. A submit that finds it changed since (someone
-// else's Update, or a sync from before) asks before writing over it.
+// The report in the form, as it was when loaded: { id, fields, at }, where
+// fields is what the form edits and `at` its version (lastModified). A submit
+// that finds it changed since (someone else's Update, or a sync from before)
+// asks before writing over it.
 let editingVersion = null;
 const editedFields = (r) => JSON.stringify([r.size, r.activity, r.location, r.time, r.yourAnalysis || '',
     r.custom || {}, r.displayId, r.title]);
+const loadedVersion = (r) => ({ id: r.id, fields: editedFields(r), at: Number(r.lastModified) || 0 });
+
+// Someone else saved the report in the form after it was loaded: a line
+// under its name says who and when, "CD updated this report 2 min ago". The
+// prompt at submit still asks. Drawn on each sync, and by the Activity
+// list's timer so the time stays right. A deleted report keeps its author,
+// so its line names no one.
+const renderPeerChange = () => {
+    if (!el.form.peerNote) return;
+    const cur = editingVersion && localReports.find(r => r.id === editingVersion.id);
+    const who = cur && cur.user && cur.user.initials;
+    const newer = cur && (Number(cur.lastModified) || 0) > editingVersion.at;
+    const when = newer ? timeAgo(Number(cur.lastModified)) : '';
+    let text = '';
+    if (newer && cur.deleted) text = `This report was deleted ${when}`;
+    else if (newer && editedFields(cur) !== editingVersion.fields && !(who && userProfile && who === userProfile.initials)) {
+        text = `${who || 'Someone'} updated this report ${when}`;
+    }
+    if (el.form.peerNote.textContent !== text) el.form.peerNote.textContent = text;
+    el.form.peerNote.hidden = !text;
+};
 
 const resetForm = () => {
     editingVersion = null;
+    renderPeerChange();
     el.form.root.reset();
     el.form.reportId.value = '';
     el.form.title.textContent = 'New Report';
@@ -211,7 +234,8 @@ const loadReportForEditing = (reportId) => {
     el.form.editingNote.title = note;
     el.form.editingNote.hidden = false;
     el.form.reportId.value    = report.id;
-    editingVersion = { id: report.id, fields: editedFields(report) };
+    editingVersion = loadedVersion(report);
+    renderPeerChange();
     el.form.startNum.value = reportNum(report) || 1;
     el.form.size.value     = report.size;
     el.form.activity.value = report.activity;
