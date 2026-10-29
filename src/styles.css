@@ -1472,13 +1472,14 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 /* The measure tools slide out of the ruler to its left (instantly with
    reduced motion, by the rule for every transition), their options under them. */
 .map-measure-wrap { position: relative; width: 30px; height: 30px; }
-.map-measure-tools { position: absolute; right: calc(100% + 6px); top: 0; display: flex; gap: 4px; padding: 0; white-space: nowrap; transform-origin: right center;
+/* Two rows of three, so they cover less of the map. */
+.map-measure-tools { position: absolute; right: calc(100% + 6px); top: 0; display: grid; grid-template-columns: repeat(3, auto); gap: 4px; padding: 0; white-space: nowrap; transform-origin: right top;
     opacity: 0; visibility: hidden; transform: translateX(14px) scaleX(0.4); transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.18s ease, visibility 0s linear 0.24s; }
 .map-measure-tools.open { opacity: 1; visibility: visible; transform: none; transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.18s ease, visibility 0s linear 0s; }
 .map-zoom .map-measure-tools button { width: auto; padding: 0 10px; font-size: 0.8em; font-weight: 600; color: var(--text-secondary); }
 .map-zoom .map-measure-tools button:hover { color: var(--text-primary); }
 .map-zoom .map-measure-tools button[aria-pressed="true"] { background: var(--blue-hover); border-color: var(--blue-outline); color: var(--system-blue); }
-.map-measure-panel { position: absolute; right: calc(100% + 6px); top: 36px; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; width: max-content; max-width: 320px; box-sizing: border-box; padding: 8px 10px; border-radius: 12px;
+.map-measure-panel { position: absolute; right: calc(100% + 6px); top: 70px; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; width: max-content; max-width: 320px; box-sizing: border-box; padding: 8px 10px; border-radius: 12px;
     background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px var(--shadow); font-size: 0.8em; color: var(--text-primary); cursor: default; }
 .map-measure-panel[hidden] { display: none; }
 .map-measure-panel select { width: auto; max-width: 100%; margin: 0; padding: 6px 30px 6px 10px; font-size: 1em; }
