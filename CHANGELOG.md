@@ -48,6 +48,10 @@ All notable changes to this project are documented here. The format follows
   and Observed says the way of march and how many reports went each way.
   With no way of march set and no axis, the Narrative is word for word as
   before.
+- **Sort graphics while importing**: the import's review has a checkbox on
+  each shape (Shift-click checks a run of them) and, while some are checked,
+  a bar to use them all as one tag: NAI, OBJ, PL, Axis of advance, one of
+  yours, Unknown, or Skip. Each shape's own *Use as* is still beside it.
 
 ### Changed
 
@@ -74,6 +78,19 @@ All notable changes to this project are documented here. The format follows
 - **A smaller drone menu**: one row per drone (station switch, its name to
   zoom to it, its grid, and More for where it's looking, its range and
   Remove), the two switches on one line, and adding a drone behind **+**.
+- **The Tags box is one row**, however many tags there are: a list of your
+  tags (it says how many) with the one picked beside it (its color, name,
+  count of graphics and delete, which still asks in place and has Undo), and
+  **+ New tag**, which opens the new tag's name, color and Add Tag in the
+  same row.
+- **Unknown graphics**: a shape the import's name and folder rules don't
+  recognize (an area or point whose name, folder or file doesn't say NAI,
+  OBJ, PL or axis) no longer waits for a choice: it is added with no tag, in
+  the **Unknown** group (once *No tag*), now first in the list, open, with
+  its count, to be sorted with the same pickers and bar. Unknown graphics
+  aren't drawn on the map, in its key, a saved PNG or a print, and don't
+  name reports, until they have a tag. Lines with no name or folder to go by
+  are still phase lines.
 
 ### Fixed
 - **MGRS Lock when updating a report**: its grids in the locked zone and

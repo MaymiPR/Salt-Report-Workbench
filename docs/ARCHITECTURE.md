@@ -199,6 +199,10 @@ longitude/latitude. The type is the graphic's one tag: NAI, OBJ, PL or AXIS
 own shared section), or empty for none. A graphic points at its tag by id, so
 a rename or recolor changes no overlay, and deleting a tag leaves its graphics
 with an id no tag has, which reads as none (Undo gives the tag back to them).
+A graphic with none is Unknown: an import adds an area or point its names
+don't place that way, rather than asking, and the page lists it first to be
+sorted but doesn't draw it, key it or read a Location against it
+(`placeOverlays`) until it has a tag.
 The page keeps the tags' list (`BUILTIN_TAGS` and `tagOf` in
 `app/50-overlays.js`): each tag's color and how its graphics are read
 (`shape`: `area` closes a path into an area, `line` keeps it, `any` keeps it

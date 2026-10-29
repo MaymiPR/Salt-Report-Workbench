@@ -1202,10 +1202,10 @@ class BrowserTests(unittest.TestCase):
         page.click(".ws-tab[data-tab='overlays']")
         page.set_input_files("#overlaysFileInput", str(self.overlay_kmz()))
         page.wait_for_selector("#overlaysBody .overlay-type-select")
-        # Typed by name, folder, and folder; the untyped area waits for a choice.
+        # Typed by name, folder, and folder; the untyped area is Unknown.
         self.assertEqual(
-            page.locator("#overlaysBody tbody td:nth-child(4)").all_text_contents(),
-            ["NAI 1", "NAI 2", "skipped", "PL BLUE"],
+            page.locator("#overlaysBody tbody td:nth-child(5)").all_text_contents(),
+            ["NAI 1", "NAI 2", "Unknown Bridge", "PL BLUE"],
         )
         page.select_option("[data-review-idx='2']", "OBJ")
         page.click("#overlaysReviewAddBtn")
@@ -1438,6 +1438,7 @@ class BrowserTests(unittest.TestCase):
         self.import_overlays(page)
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='overlays']")
+        page.click("#overlayTagNewBtn")
         page.fill("#overlayTagNewName", "Routes")
         page.press("#overlayTagNewName", "Enter")
         page.wait_for_selector("#toastNotification:has-text('Tag Routes added.')")
@@ -1524,6 +1525,219 @@ class BrowserTests(unittest.TestCase):
         self.wait_for_server(page, "s => s.tags.length === 1")
         page.wait_for_selector(f".overlay-group[data-overlay-group='{tag}']")
 
+    def tidy_tags_and_overlays(self):
+        """The tags and overlays are every test's: start with none, and leave none."""
+
+        def tidy():
+            self.post_to_server("/api/save_tags", {"tags": []})
+            self.post_to_server("/api/save_overlays", {"overlays": [], "tagged": True})
+
+        tidy()
+        self.addCleanup(tidy)
+
+    def overlay_geojson(self, *features) -> Path:
+        """A GeoJSON file of (name, geometry) features, named so its name says
+        no type; areas are rings of (lon, lat) near 38S MB."""
+        path = self.tmp / f"{self._testMethodName}.geojson"
+        path.write_text(
+            json.dumps(
+                {
+                    "type": "FeatureCollection",
+                    "features": [
+                        {"type": "Feature", "properties": {"name": n}, "geometry": g}
+                        for n, g in features
+                    ],
+                }
+            )
+        )
+        return path
+
+    @staticmethod
+    def ring(lon0, lat0, lon1, lat1):
+        return {
+            "type": "Polygon",
+            "coordinates": [[[lon0, lat0], [lon1, lat0], [lon1, lat1], [lon0, lat1], [lon0, lat0]]],
+        }
+
+    def test_the_tag_manager_stays_one_row(self):
+        self.tidy_tags_and_overlays()
+        page = self.open_editor()
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        box = ".overlay-tags"
+        page.wait_for_selector(f"{box} .overlay-tags-count:has-text('No tags of your own yet.')")
+        # + New tag opens the boxes in place, the name focused; Escape closes them.
+        page.click("#overlayTagNewBtn")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "overlayTagNewName")
+        page.fill("#overlayTagNewName", "Routes")
+        page.press("#overlayTagNewName", "Escape")
+        page.wait_for_selector("#overlayTagNewName", state="detached")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "overlayTagNewBtn")
+        self.assertEqual(page.evaluate("sharedTags.length"), 0, "Escape adds nothing")
+        page.click("#overlayTagNewBtn")
+        self.assertEqual(page.input_value("#overlayTagNewName"), "", "what was typed went")
+        page.fill("#overlayTagNewName", "Routes")
+        page.click("#overlayTagAddBtn")
+        page.wait_for_selector("#toastNotification:has-text('Tag Routes added.')")
+        page.wait_for_selector("label[for='overlayTagPick']:has-text('1 tag')")
+        one = page.locator(box).bounding_box()["height"]
+        # Five more for everyone: the box is as tall as with one.
+        tags = [{"id": f"tag-t{i}", "name": n, "color": "#123456"} for i, n in enumerate("EDCBA")]
+        routes = page.evaluate("sharedTags[0]")
+        self.post_to_server("/api/save_tags", {"tags": [routes, *tags]})
+        page.wait_for_selector("label[for='overlayTagPick']:has-text('6 tags')")
+        self.assertEqual(page.locator(box).bounding_box()["height"], one)
+        self.assertEqual(page.locator(f"{box} .overlay-tag-row").count(), 1)
+        self.assertEqual(
+            page.locator("#overlayTagPick option").all_text_contents(),
+            ["A", "B", "C", "D", "E", "Routes"],
+            "by name",
+        )
+        # Picking one shows its name, color and ×; the focus stays on the list.
+        page.focus("#overlayTagPick")
+        page.select_option("#overlayTagPick", "tag-t2")
+        page.wait_for_selector("[data-tag-row='tag-t2'] [data-tag-name='tag-t2']")
+        self.assertEqual(page.input_value("[data-tag-name='tag-t2']"), "C")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "overlayTagPick")
+        self.assertEqual(
+            page.get_attribute("[data-remove-tag='tag-t2']", "aria-label"), "Delete tag C"
+        )
+        # Its × asks in place, and Undo puts it back.
+        page.click("[data-remove-tag='tag-t2']")
+        page.wait_for_selector(
+            "[data-tag-row='tag-t2'] .map-base-ask:has-text('Delete for everyone?')"
+        )
+        page.click("[data-remove-tag='tag-t2']")
+        page.wait_for_selector("#toastNotification:has-text('Tag C deleted.')")
+        self.wait_for_server(page, "s => s.tags.length === 5")
+        page.wait_for_selector("label[for='overlayTagPick']:has-text('5 tags')")
+        page.click("#toastNotification .toast-undo")
+        self.wait_for_server(page, "s => s.tags.some(t => t.id === 'tag-t2')")
+
+    def test_shapes_are_sorted_while_importing(self):
+        self.tidy_tags_and_overlays()
+        self.post_to_server(
+            "/api/save_tags", {"tags": [{"id": "tag-routes", "name": "Routes", "color": "#ff9f0a"}]}
+        )
+        page = self.open_editor()
+        page.wait_for_function("sharedTags.length === 1")
+        line = {"type": "LineString", "coordinates": [[44.36, 33.30], [44.57, 33.30]]}
+        path = self.overlay_geojson(
+            ("Alpha", self.ring(44.36, 33.26, 44.40, 33.30)),
+            ("Bravo", self.ring(44.41, 33.26, 44.45, 33.30)),
+            ("Charlie", self.ring(44.46, 33.26, 44.50, 33.30)),
+            ("Delta", {"type": "Point", "coordinates": [44.52, 33.28]}),
+            ("Echo", line),
+        )
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.set_input_files("#overlaysFileInput", str(path))
+        page.wait_for_selector("#overlaysBody .overlay-review-pick")
+        becomes = "#overlaysBody tbody td:nth-child(5)"
+        # Nothing to choose first: what the rules don't know is Unknown.
+        self.assertEqual(
+            page.locator(becomes).all_text_contents(),
+            ["Unknown Alpha", "Unknown Bravo", "Unknown Charlie", "Unknown Delta", "PL ECHO"],
+        )
+        self.assertEqual(page.text_content("#overlaysReviewAddBtn"), "Add 5 overlays")
+        # Checked: one, then Shift-click for the run to another.
+        picks = "#overlaysBody .overlay-review-pick"
+        page.click(f"{picks}[data-pick='0']")
+        page.click(f"{picks}[data-pick='2']", modifiers=["Shift"])
+        self.assertEqual(page.text_content("#overlayReviewBulk .overlay-bulk-count"), "3 selected")
+        self.assertEqual(
+            page.locator("#overlayReviewBulkTag option").all_text_contents(),
+            ["Skip", "NAI", "OBJ", "PL", "Axis of advance", "Routes", "Unknown"],
+        )
+        page.select_option("#overlayReviewBulkTag", "tag-routes")
+        page.click("#overlayReviewBulkBtn")
+        page.wait_for_selector("#toastNotification:has-text('3 shapes to be added as Routes.')")
+        self.assertEqual(
+            page.locator(becomes).all_text_contents(),
+            ["Alpha", "Bravo", "Charlie", "Unknown Delta", "PL ECHO"],
+        )
+        # They stay checked, and the focus on Apply, for another pick.
+        self.assertEqual(page.text_content("#overlayReviewBulk .overlay-bulk-count"), "3 selected")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "overlayReviewBulkBtn")
+        # One row's own Use as still works: Charlie is an OBJ after all.
+        page.select_option("[aria-label='Use Charlie as']", "OBJ")
+        self.assertEqual(page.locator(becomes).nth(2).text_content(), "OBJ CHARLIE")
+        # Skip in bulk: Delta is left out.
+        page.click("#overlayReviewBulkClearBtn")
+        page.wait_for_selector("#overlayReviewBulk", state="hidden")
+        page.click(f"{picks}[data-pick='3']")
+        page.select_option("#overlayReviewBulkTag", "skip")
+        page.click("#overlayReviewBulkBtn")
+        self.assertEqual(page.locator(becomes).nth(3).text_content(), "skipped")
+        page.click("#overlaysReviewAddBtn")
+        page.wait_for_selector(
+            "#toastNotification:has-text('Imported 4 overlays: 0 NAI, 1 OBJ, 1 PL, 2 with your own tags.')"
+        )
+        self.wait_for_server(
+            page,
+            "s => s.overlays.map(o => o.type + ' ' + o.name).sort().join() === 'OBJ CHARLIE,PL ECHO,tag-routes Alpha,tag-routes Bravo'",
+        )
+
+    def test_unknown_graphics_are_listed_first_and_not_drawn(self):
+        self.tidy_tags_and_overlays()
+        page = self.open_editor()
+        # Alpha's name, folder and file say nothing: it is Unknown, with no choice to make.
+        path = self.overlay_geojson(
+            ("Alpha", self.ring(44.3558, 33.2573, 44.4632, 33.3480)),  # 38SMB4500082000 is in it
+            ("NAI 5", self.ring(44.4632, 33.2573, 44.5705, 33.3480)),
+        )
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.set_input_files("#overlaysFileInput", str(path))
+        page.click("#overlaysReviewAddBtn")
+        page.wait_for_selector(
+            "#toastNotification:has-text('Imported 2 overlays: 1 NAI, 0 OBJ, 0 PL, 1 Unknown, not on the map until tagged.')"
+        )
+        self.wait_for_server(page, "s => s.overlays.some(o => o.type === '' && o.name === 'Alpha')")
+        # Listed first, open, with a count.
+        groups = page.locator(".overlay-group").evaluate_all(
+            "gs => gs.map(g => g.dataset.overlayGroup)"
+        )
+        self.assertEqual(groups, ["none", "NAI"])
+        unknown = ".overlay-group[data-overlay-group='none']"
+        page.wait_for_selector(f"{unknown}[open]")
+        self.assertIn("Unknown", page.text_content(f"{unknown} .overlay-group-title"))
+        self.assertEqual(page.text_content(f"{unknown} .overlay-group-count"), "1")
+        self.assertEqual(
+            page.text_content(f"{unknown} [data-unload-group='none']"), "Unload unknown graphics"
+        )
+        # It names nothing: a report inside it gets no name from it.
+        page.click("#exportViewToggleBtn")
+        self.log(page, "1x BTR", location="38SMB4500082000")
+
+        def cell(size):
+            return page.locator(
+                f"#reportLogBody tr[data-id]:has(.col-size:has-text('{size}')) .col-location"
+            ).evaluate("td => td.firstChild.textContent")
+
+        self.assertEqual(cell("1x BTR"), "38SMB4500082000")
+        # Not drawn, nor in the key (so not in a saved or printed map's either).
+        self.open_map(page)
+        self.assertEqual(page.locator("#mapSvg .map-overlays path").count(), 1, "NAI 5 only")
+        self.assertEqual(page.locator("#mapSvg .map-labels text").all_text_contents(), ["NAI 5"])
+        self.assertEqual(
+            page.locator("#mapLegend .map-key-tag").all_text_contents(), ["NAI", "OBJ", "PL"]
+        )
+        # Sorted from its group with the bulk bar: an OBJ now, drawn and naming reports.
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.click(f"{unknown} .overlay-pick[data-pick=' ALPHA']")
+        page.select_option("#overlayBulkTag", "OBJ")
+        page.click("#overlayBulkAddBtn")
+        page.wait_for_selector("#toastNotification:has-text('Alpha is OBJ ALPHA now.')")
+        page.wait_for_selector(unknown, state="detached")
+        page.click("#exportViewToggleBtn")
+        page.click("[data-home-go='list']")
+        self.log(page, "2x BTR", location="38SMB4500082000")
+        self.assertEqual(cell("2x BTR"), "38SMB4500082000, OBJ ALPHA")
+        self.open_map(page)
+        self.assertEqual(page.locator("#mapSvg .map-overlays path").count(), 2)
+
     def test_an_overlay_is_removed_on_the_second_press(self):
         # Regression: one press of the × removed it for everyone.
         page = self.open_editor()
@@ -1608,7 +1822,7 @@ class BrowserTests(unittest.TestCase):
         page.set_input_files("#overlaysFileInput", str(path))
         page.wait_for_selector("#overlaysBody .overlay-type-select")
         self.assertEqual(
-            page.locator("#overlaysBody tbody td:nth-child(4)").all_text_contents(),
+            page.locator("#overlaysBody tbody td:nth-child(5)").all_text_contents(),
             ["AXIS GOLD", "PL BLUE"],
         )
         page.click("#overlaysReviewAddBtn")
@@ -1620,6 +1834,7 @@ class BrowserTests(unittest.TestCase):
         )
         page.wait_for_selector(".overlay-group[data-overlay-group='AXIS']")
         # A team tag can't take its name.
+        page.click("#overlayTagNewBtn")
         page.fill("#overlayTagNewName", "Axis of advance")
         page.press("#overlayTagNewName", "Enter")
         page.wait_for_selector(
@@ -1946,9 +2161,9 @@ class BrowserTests(unittest.TestCase):
         page.set_input_files("#overlaysFileInput", str(zpath))
         page.wait_for_selector("#overlaysBody .overlay-type-select")
         cells = page.locator("#overlaysBody tbody tr").first.locator("td")
-        self.assertEqual(cells.nth(0).text_content(), "OBJ IRON")
-        self.assertEqual(cells.nth(1).text_content(), "Area")
-        self.assertEqual(cells.nth(3).text_content(), "OBJ IRON")
+        self.assertEqual(cells.nth(1).text_content(), "OBJ IRON")
+        self.assertEqual(cells.nth(2).text_content(), "Area")
+        self.assertEqual(cells.nth(4).text_content(), "OBJ IRON")
         page.click("#overlaysReviewCancelBtn")
         # The same files picked together, unzipped.
         loose = []
