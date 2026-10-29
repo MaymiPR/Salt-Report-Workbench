@@ -1763,6 +1763,148 @@ Object.entries(RULE_TABLE).forEach(([rule, [level, fires, behind, doesNot]]) => 
     });
 });
 
+// --- The way of march ---
+
+// An axis of advance through NAI 1 and NAI 2 from east to west, then turning
+// south-west; one drawn the other way, from west to east.
+const AXIS_W = { type: 'AXIS', name: 'GOLD', geometry: { type: 'LineString', coordinates: [ll('38SMB7000082000'), ll('38SMB4000082000'), ll('38SMB3000072000')] } };
+const AXIS_E = { type: 'AXIS', name: 'RED', geometry: { type: 'LineString', coordinates: [ll('38SMB4000082000'), ll('38SMB7000082000')] } };
+const pt = g => { const [lon, lat] = ll(g); return { lon, lat }; };
+
+test('a direction is along the way of march within 60 degrees, back along it beyond 120, else across it', () => {
+    const cases = [[270, 270, 'along'], [300, 270, 'along'], [330, 270, 'along'], [331, 270, 'across'], [0, 270, 'across'],
+        [150, 270, 'across'], [149, 270, 'back'], [90, 270, 'back'], [10, 350, 'along'], [350, 10, 'along'], [170, 350, 'back'], [80, 350, 'across']];
+    cases.forEach(([deg, way, want]) => assert.equal(core.wayRelation(deg, way), want, `${deg} against ${way}`));
+});
+
+test("the way of march: an axis near the report, else the AO's direction, else none", () => {
+    const axes = core.axesOf([...OVERLAYS, AXIS_W]);
+    assert.deepEqual(axes.map(a => a.key), ['AXIS GOLD'], 'only the axes, by name');
+    // None set: none.
+    assert.equal(core.wayOfMarchAt(pt(NAI1), [], ''), null);
+    assert.equal(core.wayOfMarchAt(null, axes, ''), null, 'no grid: no axis to be near');
+    // The AO's direction alone.
+    assert.deepEqual(core.wayOfMarchAt(pt(NAI1), [], 'N'), { deg: 0, dir: 'N', axis: '' });
+    assert.deepEqual(core.wayOfMarchAt(null, axes, 'SE'), { deg: 135, dir: 'SE', axis: '' }, 'no grid: the AO\'s');
+    // On the axis, its direction there overrides the AO's.
+    const on = core.wayOfMarchAt(pt(NAI1), axes, 'N');
+    assert.equal(on.dir, 'W');
+    assert.equal(on.axis, 'AXIS GOLD');
+    assert.ok(Math.abs(on.deg - 270) < 1, on.deg);
+    // Within 10 km of it still; beyond, the AO's again (or none).
+    assert.equal(core.wayOfMarchAt(pt('38SMB5000091000'), axes, 'N').dir, 'W', '9 km off');
+    assert.equal(core.wayOfMarchAt(pt('38SMB5000093000'), axes, 'N').dir, 'N', '11 km off');
+    assert.equal(core.wayOfMarchAt(pt('38SMB5000093000'), axes, ''), null);
+    assert.equal(core.AXIS_NEAR_METERS, 10000);
+    // The nearest segment decides: past the turn, south-west.
+    assert.equal(core.wayOfMarchAt(pt('38SMB3200075000'), axes, '').dir, 'SW');
+    // The way it was drawn decides: from where they come from to where they head.
+    assert.equal(core.wayOfMarchAt(pt(NAI1), core.axesOf([AXIS_E]), '').dir, 'E');
+    // Of two axes, the nearer.
+    const two = core.axesOf([AXIS_W, { ...AXIS_E, geometry: { type: 'LineString', coordinates: [ll('38SMB4000088000'), ll('38SMB7000088000')] } }]);
+    assert.equal(core.wayOfMarchAt(pt('38SMB5000083000'), two, '').axis, 'AXIS GOLD');
+    assert.equal(core.wayOfMarchAt(pt('38SMB5000087000'), two, '').axis, 'AXIS RED');
+    // A line in several parts; an area tagged AXIS gives none.
+    const multi = core.axesOf([{ type: 'AXIS', name: 'M', geometry: { type: 'MultiLineString', coordinates: [AXIS_E.geometry.coordinates, [ll('38SMB3000060000'), ll('38SMB3000050000')]] } }]);
+    assert.equal(core.wayOfMarchAt(pt('38SMB3100055000'), multi, '').dir, 'S');
+    assert.deepEqual(core.axesOf([{ type: 'AXIS', name: 'A', geometry: OVERLAYS[0].geometry }]), []);
+    const s = core.nearestSegment(...ll('38SMB5500083000'), AXIS_W.geometry.coordinates);
+    assert.ok(Math.abs(s.meters - 1000) < 20 && Math.abs(s.bearingDeg - 270) < 1, JSON.stringify(s));
+    assert.equal(core.nearestSegment(0, 0, [[1, 1], [1, 1]]), null, 'a line of no length');
+});
+
+test('an axis of advance is named AXIS, AOA or Axis of advance in a file, is a graphic the server takes, and names no place', () => {
+    assert.deepEqual(core.overlayRef('AXIS GOLD', null), { type: 'AXIS', name: 'GOLD', key: 'AXIS GOLD' });
+    assert.equal(core.overlayRef('AOA 02', null).key, 'AXIS 2');
+    assert.equal(core.overlayRef('Axis of advance North', null).key, 'AXIS NORTH');
+    assert.equal(core.overlayRef('axis-3', null).key, 'AXIS 3');
+    assert.equal(core.overlayRef('Axis of attack', null), null, 'a common word is not a name');
+    assert.equal(core.overlayRef('AOAs', null), null);
+    // Given the tag: the name is the first word that isn't one of its own.
+    assert.equal(core.overlayRef('Route Gold', 'AXIS').key, 'AXIS ROUTE');
+    assert.equal(core.overlayRef('Axis', 'AXIS'), null);
+    // Not a place: Location boxes don't name one, the summaries don't list one.
+    assert.deepEqual(core.findRefs('AXIS GOLD, NAI 1').map(r => r.key), ['NAI 1']);
+    const a = core.analyzeLocation('38SMB4500082000', [...OVERLAYS, AXIS_W]);
+    assert.deepEqual(a, core.analyzeLocation('38SMB4500082000', OVERLAYS));
+    assert.ok(!core.summaryPlaces([], [...OVERLAYS, AXIS_W]).some(p => /AXIS/.test(p)));
+    // Kept with the other graphics, and its names kept from the team's tags.
+    assert.deepEqual(core.foldOverlays([...OVERLAYS, AXIS_W]).map(o => o.type), ['NAI', 'NAI', 'OBJ', 'PL', 'AXIS']);
+    assert.deepEqual(core.cleanTags([{ id: 'tag-a', name: 'Axis', color: '#ff0000' }, { id: 'tag-b', name: 'axis of advance', color: '#ff0000' },
+        { id: 'tag-c', name: 'Axes', color: '#ff0000' }]).map(t => t.id), ['tag-c']);
+});
+
+// The rules the way of march touches: the reports (as the table's), the
+// settings and overlays that set a way of march, the level and reports behind
+// the rule with it, and its level without it (null: it doesn't fire).
+const TOWARD = (dir) => ({ narrative: { toward: dir } });
+const wayJudged = (rows, { narrative = {}, overlays = OVERLAYS } = {}) => core.summaryDetail('narrative', tableReps(rows), overlays, { ...TABLE_OPTS, narrative });
+const WAY_TABLE = {
+    offense: [[['2x 2S19', 'firing', NAI1, 0], ['2x T-72', 'moving W', NAI1, 30], TRUCKS], TOWARD('W'), 'roughly even chance', [0, 1], null],
+    axes: [RULE_TABLE.axes[1], TOWARD('W'), 'likely', [0, 1], 'roughly even chance'],
+    forward: [RULE_TABLE.forward[1], TOWARD('N'), 'likely', [0, 1], 'roughly even chance'],
+    exploit: [RULE_TABLE.exploit[1], { overlays: [...OVERLAYS, AXIS_W] }, 'likely', [0, 1, 2], 'roughly even chance'],
+    // Moving N in squares around one is across the way of march W.
+    encircle: [RULE_TABLE.encircle[1], TOWARD('W'), 'likely', [0, 1, 2], 'roughly even chance'],
+    pursuit: [[['2x T-72', 'pursuing our patrol, moving W', NAI1, 0], TRUCKS], { overlays: [...OVERLAYS, AXIS_W] }, 'likely', [0], 'roughly even chance'],
+    withdrawal: [[['2x T-72', 'moving E', NAI1, 0], TRUCKS], TOWARD('W'), 'roughly even chance', [0], null],
+    reconforce: [[['4x BMP-2', 'firing on our positions', NAI1, 0], ['4x BMP-2', 'moving E', NAI1, 60], TRUCKS], { overlays: [...OVERLAYS, AXIS_W] },
+        'roughly even chance', [0, 1], null],
+    logforward: [[['3x trucks', 'moving W', NAI1, 0], ['3x trucks', 'moving W', NAI1, 60]], TOWARD('W'), 'roughly even chance', [0, 1], null],
+};
+Object.entries(WAY_TABLE).forEach(([rule, [rows, way, level, behind, without]]) => {
+    test(`rule ${rule}: the way of march is a sign, named with its direction; without one it is as it was`, () => {
+        const yes = wayJudged(rows, way), j = yes.judgments.find(x => x.rule === rule);
+        assert.ok(j, `${rule} fires\n${yes.text}`);
+        assert.equal(core.ICD203[j.level][0], level, `${rule}: its level\n${yes.text}`);
+        assert.deepEqual(j.sources, behind.map(i => `t${i}`), `${rule}: the reports behind it`);
+        assert.ok(/Basis: [^.]*(along|across) the way of march[a-z0-9 ]* \((N|E|S|W)\)/.test(yes.text.replace(/\s+/g, ' ')), `${rule}: the sign, with its direction\n${yes.text}`);
+        const no = wayJudged(rows), k = no.judgments.find(x => x.rule === rule);
+        if (without === null) assert.ok(!k, `${rule} doesn't fire without it\n${no.text}`);
+        else assert.equal(core.ICD203[k.level][0], without, `${rule}: its level without it\n${no.text}`);
+        assert.ok(!/way of march/.test(no.text), no.text);
+    });
+});
+
+test('moving back along the way of march is withdrawing, not advancing; a track says which way a report moved', () => {
+    // Armor moving east in two places, the way of march west: withdrawing, not advancing on two axes.
+    const rows = [['2x T-72', 'moving E', NAI1, 0], ['3x BMP-2', 'moving E', NAI2, 60]];
+    const d = wayJudged(rows, TOWARD('W'));
+    assert.deepEqual(d.judgments.map(j => j.rule), ['withdrawal']);
+    assert.equal(core.ICD203[d.judgments[0].level][0], 'likely');
+    assert.ok(d.text.replace(/\s+/g, ' ').includes('Basis: moving back along the way of march (W) (T0 250000Z, T1 250100Z)'), d.text);
+    assert.ok(d.text.includes('Watch for: withdrawal or breaking contact reported; covering forces left behind'), d.text);
+    assert.deepEqual(wayJudged(rows).judgments.map(j => j.rule), ['axes'], 'without a way of march, an advance on two axes');
+    // A report saying it halted, whose earlier version was 3 km west: it moved east.
+    const halted = (from) => report({ id: 'h', displayId: 'H1', size: '2x T-72', activity: 'halted', location: NAI1, time: '2026-10-25T02:00:00Z',
+        history: [{ size: '2x T-72', activity: 'moving', location: from, time: '2026-10-25T01:00:00Z', lastModified: 5 }] });
+    const run = (r) => core.summaryDetail('narrative', [r], OVERLAYS, { ...TABLE_OPTS, narrative: { toward: 'W' } });
+    assert.deepEqual(run(halted('38SMB4200082000')).judgments.map(j => j.rule), ['withdrawal']);
+    // Moved west, or only a few meters (a grid typed again): no withdrawal.
+    assert.deepEqual(run(halted('38SMB4800082000')).judgments.map(j => j.rule), []);
+    assert.deepEqual(run(halted('38SMB4500082050')).judgments.map(j => j.rule), []);
+    // A supply truck going back is no withdrawal.
+    assert.deepEqual(wayJudged([['3x trucks', 'moving E', NAI1, 0]], TOWARD('W')).judgments.map(j => j.rule), []);
+});
+
+test('the way of march is said under OBSERVED, and a sign not yet seen is one to watch for', () => {
+    const d = wayJudged([...RULE_TABLE.offense[1], ['2x T-72', 'moving E', NAI2, 90]], { narrative: { toward: 'W' }, overlays: [...OVERLAYS, AXIS_W] });
+    const t = d.text.replace(/\s+/g, ' ');
+    assert.ok(t.includes('Way of march: toward W in the AO; along AXIS GOLD within 10 km of it. Of 2 reports moving there: 0 along it, 1 back along it, 1 across it.'), t);
+    // Offense fired from artillery and air defense: armor moving along it is to watch for.
+    assert.ok(/Watch for: [^.]*armor or mechanized forces moving along the way of march[;.]/.test(t), t);
+    // An axis far from every report and no AO direction: the judgments are as they were.
+    const far = { type: 'AXIS', name: 'FAR', geometry: { type: 'LineString', coordinates: [ll('38SMB4000040000'), ll('38SMB7000040000')] } };
+    const rows = [...RULE_TABLE.offense[1], ...RULE_TABLE.withdrawal[1]];
+    const was = wayJudged(rows).text, now = wayJudged(rows, { overlays: [...OVERLAYS, far] }).text;
+    assert.equal(now.split('\n').filter(l => !/Way of march/.test(l)).join('\n'), was);
+    assert.ok(now.includes('Way of march: along AXIS FAR within 10 km of it.'), now);
+    // The setting is read as a direction, or none.
+    assert.ok(wayJudged(rows, TOWARD('w')).text.includes('toward W in the AO'));
+    assert.equal(wayJudged(rows, TOWARD('WEST')).text, was);
+    assert.equal(wayJudged(rows, TOWARD('')).text, was);
+});
+
 test("each judgment's detail points at its last line, and the text is summaryReport's", () => {
     const reps = tableReps([...RULE_TABLE.defense[1], ...RULE_TABLE.recon[1].map(([s, a, l, m]) => [s, a, l, m + 300])]);
     [100, 60, Infinity].forEach(width => {
