@@ -6,6 +6,61 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **FMV mode**: a team-wide switch in Settings, *FMV Mode: On / Off*. On, the
+  map has its drone button, menu and drones, and the report form an
+  **Observer**: the drone the report was seen from, one on station or none.
+  The observer is saved on the report and its history (kept through Edit and
+  Update), shown small under its time and in its map card, written in backups
+  and as the CSV export's last column; it is not in the copied SALT text, and
+  the Report Builder doesn't offer it. Off, there are no drones on the map and
+  no Observer, and reports keep the observers they have. Until someone sets
+  it, it is on when the team has drones and off when it has none, so a team
+  already using drones sees no change. Shared like the drones
+  (`/api/save_fmv`, `fmv` in `/api/sync` and every backup file); an older
+  server keeps it in the browser and says so.
+- **Drones on or off station**: a switch on each drone, for everyone. Off
+  station, it stays in the drone list but leaves the map and the Observer
+  list. The Activity list says *put drone GE 1 on station* and *took drone
+  GE 1 off station*, and *turned FMV mode on* or *off*.
+- **The enemy's way of march**: *Enemy moves toward* in the Narrative
+  settings (none, or N, NE, E, SE, S, SW, W, NW) is the direction the enemy
+  moves in the AO, shared like the other narrative settings (`toward` in
+  `/api/save_narrative`; settings without it read as none, and an older page
+  keeps it when it saves).
+- **Axis of advance**, a built-in line tag (`AXIS`): drawn in dark red on a
+  white edge with an arrowhead at its end, from where the enemy comes from to
+  where it heads, with a switch in the map's key while there is one. A line
+  named *AXIS ...*, *AOA ...* or *Axis of advance ...* (or in a folder or
+  layer called *Axes of advance*, *Axis* or *AOA*) imports as one, and any
+  graphic can be given the tag. It names no place. Within 10 km of an axis,
+  the direction of its nearest part is the way of march, over the AO's.
+- **The Narrative judges which way reports move**: a report heading
+  somewhere (its Activity, else its track between updates) is along the way
+  of march (within 60 degrees), back along it (beyond 120) or across it.
+  Combat forces moving back along it are withdrawing, as if the report said
+  so, and no longer count as advancing; moving along it is a sign for
+  preparing an offensive and for logistics pushing forward, and a step
+  firmer for a forward detachment, several axes, an exploitation and a
+  pursuit; moving across it is a step firmer for an envelopment. The Basis
+  names the sign with its direction (*moving along the way of march (W)*),
+  and Observed says the way of march and how many reports went each way.
+  With no way of march set and no axis, the Narrative is word for word as
+  before.
+
+### Changed
+
+- **AXIS is built in**: `/api/save_overlays` takes it as a graphic's type,
+  and a tag of the team's can't be named *AXIS* or *Axis of advance*.
+- **Each drone looks at its own reports**: with no grid to look at, a drone's
+  view points at its own newest report (one logged with it as the Observer),
+  not at everyone's newest, so several drones aren't all looking at the same
+  grid. A drone that has seen no report on the map shows no view.
+- **A smaller drone menu**: one row per drone (station switch, its name to
+  zoom to it, its grid, and More for where it's looking, its range and
+  Remove), the two switches on one line, and adding a drone behind **+**.
+
 ## [2.31.0] - 2026-10-29
 
 ### Added

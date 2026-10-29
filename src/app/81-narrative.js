@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // The narrative's settings, in a column beside the Narrative: what the enemy
-// is called, the units and where they operate, equipment the team adds to
+// is called, which way they move in the AO (its way of march, which an axis
+// of advance overrides near it), the units and where they operate, equipment the team adds to
 // the catalogue (or puts right), the built-in rules switched on or off, and
 // the team's own rules. Shared with everyone like the basemaps; editors
 // change them, viewers see them. The narrative itself is SaltCore's.
@@ -22,6 +23,9 @@ const narrId = (k, x) => (k === 'units' ? String(x.name || '').trim().toLowerCas
     : k === 'equipment' ? String(x.type || '').trim().toUpperCase()
     : `${String(x.what || '').trim()}|${String(x.words || '').trim()}`.toLowerCase());
 const ROLE_NAMES = Object.fromEntries(SaltCore.EQUIPMENT_ROLES);
+// The AO's way of march: the compass points the server takes (_MARCH_DIRECTIONS), or none.
+const NARR_TOWARD = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+const narrToward = () => (NARR_TOWARD.includes(sharedNarrative.toward) ? sharedNarrative.toward : '');
 const ORIGIN_NAMES = { '': 'Any army', RU: 'Russian', CN: 'Chinese' };
 const CHEVRON = '<svg class="narr-chevron" viewBox="0 0 8 14" width="7" height="12" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
@@ -254,6 +258,10 @@ const renderNarrSettings = () => {
         <label class="narr-call"><span>Call them</span>
             <input type="text" id="narrEnemy" value="${escapeHtml(sharedNarrative.enemy || '')}" placeholder="enemy forces" maxlength="60" spellcheck="false"${isReadOnly ? ' disabled' : ''}></label>
         <div class="narr-hint narr-call-hint">When no unit fits a judgment.</div>
+        <label class="narr-call"><span>Enemy moves toward</span>
+            <select id="narrToward"${isReadOnly ? ' disabled' : ''}>${[['', 'None'], ...NARR_TOWARD.map(d => [d, d])].map(([v, l]) =>
+                `<option value="${v}"${v === narrToward() ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+        <div class="narr-hint narr-call-hint">The way of march in the AO, for judging which way reports move. Within 10 km of an axis of advance on the map, the axis's way instead.</div>
         <div class="summary-kinds narr-tabs" role="group" aria-label="Narrative settings">${tabs.map(([t, n]) =>
             `<button type="button" class="ws-tab${t === narrTab ? ' active' : ''}" data-narr-tab="${t}">${n}<span class="narr-count">${counts[t]}</span>${t === 'equipment' && unknown && !isReadOnly ? '<span class="narr-dot" title="Types in your reports that the catalogue doesn\'t know" aria-hidden="true"></span><span class="visually-hidden">, with types in your reports that the catalogue doesn\'t know</span>' : ''}</button>`).join('')}</div>
         <div class="narr-body">${{ units: unitsTab, equipment: equipmentTab, rules: rulesTab }[narrTab]()}</div>
@@ -390,6 +398,11 @@ const saveNarrForm = () => {
         if (e.target.id === 'narrEnemy') {
             const name = e.target.value.trim();
             if (name !== String(sharedNarrative.enemy || '')) saveNarrative({ enemy: name }, `The narrative calls them ${name || 'enemy forces'}.`);
+            return;
+        }
+        if (e.target.id === 'narrToward') {
+            const dir = NARR_TOWARD.includes(e.target.value) ? e.target.value : '';
+            if (dir !== narrToward()) saveNarrative({ toward: dir }, dir ? `The enemy moves toward ${dir} in the AO, for everyone.` : 'No way of march for the AO, for everyone.');
             return;
         }
         const rule = e.target.closest('[data-narr-rule]');

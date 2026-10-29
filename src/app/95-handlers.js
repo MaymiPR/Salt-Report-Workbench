@@ -27,6 +27,7 @@ const refillForm = (data) => {
     el.form.analysis.value = data.yourAnalysis || '';
     el.form.time.value     = clockValue(new Date(data.time), timeDisplayMode === 'local');
     document.querySelectorAll('#saltFields [data-custom-label]').forEach(i => { i.value = (data.custom || {})[i.dataset.customLabel] || ''; });
+    if (data.observer !== undefined) renderObserverField(data.observer);
     renderLocationHints();
 };
 
@@ -86,6 +87,8 @@ async function handleFormSubmit(mode) {
     // Past the version being replaced, whatever this browser's clock says.
     const now  = nextStamp(editing);
     const data = { size:el.form.size.value, activity:el.form.activity.value, location:normalizeLocation(el.form.location.value), time:finalTime, yourAnalysis:el.form.analysis.value, custom:collectCustomValues() };
+    // FMV mode: the drone it was seen from ('' for none). Off, a report keeps the one it has.
+    if (fmvOn()) data.observer = el.form.observer.value;
     let finalReport;
     // Track whether this iteration is an Edit so we can route to the dedicated
     // server endpoint AFTER the local mutation succeeds.
@@ -118,9 +121,10 @@ async function handleFormSubmit(mode) {
             editTargetId = idToUpdate;
         } else {
             // UPDATE: snapshot the old values into history if anything changed.
-            const changed = orig.size!==data.size||orig.activity!==data.activity||orig.location!==data.location||(orig.yourAnalysis||'')!==(data.yourAnalysis||'')||new Date(orig.time).getTime()!==new Date(finalTime).getTime()||JSON.stringify(orig.custom||{})!==JSON.stringify(data.custom||{});
+            const changed = orig.size!==data.size||orig.activity!==data.activity||orig.location!==data.location||(orig.yourAnalysis||'')!==(data.yourAnalysis||'')||new Date(orig.time).getTime()!==new Date(finalTime).getTime()||JSON.stringify(orig.custom||{})!==JSON.stringify(data.custom||{})
+                ||('observer' in data && (orig.observer||'')!==data.observer);
             let hist = orig.history||[];
-            if (changed) hist = [...hist, { size:orig.size||'', activity:orig.activity||'', location:orig.location||'', time:orig.time, yourAnalysis:orig.yourAnalysis||'', custom:orig.custom||{}, user:orig.user, lastModified:orig.lastModified }];
+            if (changed) hist = [...hist, { size:orig.size||'', activity:orig.activity||'', location:orig.location||'', time:orig.time, yourAnalysis:orig.yourAnalysis||'', custom:orig.custom||{}, ...observerOf(orig), user:orig.user, lastModified:orig.lastModified }];
             finalReport = { ...orig, ...data, history:hist, updated:changed, lastModified:now, user:userProfile };
         }
         reports[idx] = finalReport;
@@ -133,6 +137,7 @@ async function handleFormSubmit(mode) {
         const newDid      = SaltCore.displayId(atoPrefix, newNum);
         if (reports.some(r => !r.deleted && r.displayId === newDid)) { showToast(`${newDid} already exists.`, true); return; }
         finalReport = { ...data, id:generateUUID(), displayId:newDid, ato:atoPrefix, title:titlePrefix, fullId:`${titlePrefix}${newDid}`, history:[], updated:false, lastModified:now, user:userProfile };
+        if (!finalReport.observer) delete finalReport.observer;   // none: not written at all
         reports.push(finalReport);
     }
 
@@ -173,6 +178,7 @@ async function handleFormSubmit(mode) {
                 title:        finalReport.title,
                 updated:      finalReport.updated,
                 custom:       finalReport.custom || {},
+                ...('observer' in finalReport ? { observer: finalReport.observer } : {}),
                 user:         userProfile,
                 lastModified: now
             }
@@ -905,7 +911,7 @@ document.getElementById('exportPanelCsvBtn').addEventListener('click', () => {
                 ...reps.flatMap(r => Object.keys(r.custom || {})),
             ])];
             const latestOnly = document.getElementById('exportLatestOnlyToggle').checked;
-            triggerDownload(`${base}${latestOnly ? '_latest' : ''}.csv`, SaltCore.reportsCsv(reps, { local, customLabels, idOf, latestOnly }), 'text/csv;charset=utf-8;');
+            triggerDownload(`${base}${latestOnly ? '_latest' : ''}.csv`, SaltCore.reportsCsv(reps, { local, customLabels, idOf, latestOnly, ...(fmvOn() ? { observer: true } : {}) }), 'text/csv;charset=utf-8;');
             showToast(latestOnly ? 'CSV exported: one row per report.' : 'CSV exported!');
             clearExportFilter();
         }
@@ -1047,6 +1053,13 @@ el.menu.nearbyBtn.addEventListener('click', () => {
     renderLocationHints();
     el.menu.panel.style.display = 'none';
     showToast(addNearby ? 'Nearby places on: Log and Update add the NAI, OBJ or PL a grid is in or near.' : 'Nearby places off: they are offered under Location, added only when you click them.');
+});
+el.menu.fmvBtn.addEventListener('click', () => { el.menu.panel.style.display = 'none'; saveFmv(!fmvOn()); });
+// A new report's Observer stays for the next one.
+el.form.observer.addEventListener('change', () => {
+    if (el.form.reportId.value) return;
+    observerPick = el.form.observer.value;
+    writeStored('salt_observer', observerPick);
 });
 el.menu.bdaBtn.addEventListener('click', () => { bdaMode = !bdaMode; bdaFilter = null; writeStored('salt_bda_mode', bdaMode ? 'on' : 'off'); document.body.classList.toggle('bda-mode', bdaMode); updateBdaBtnText(); renderLog(); el.menu.panel.style.display='none'; showToast(bdaMode ? 'BDA tracking shown.' : 'BDA tracking hidden.'); });
 

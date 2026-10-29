@@ -15,7 +15,8 @@ const storedText = (key) => { try { return localStorage.getItem(key); } catch (e
 
 // core: the white center of a report dot, so a dot shows on the red of a busy heat map.
 // none: a graphic with no tag (app/50-overlays.js), gray.
-const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', track: '#ff3b30', edge: '#000000', core: '#ffffff', none: '#8e8e93' };
+// AXIS: an axis of advance, the enemy's dark red, wider than a track and on a white edge.
+const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', AXIS: '#b0001e', track: '#ff3b30', edge: '#000000', core: '#ffffff', none: '#8e8e93' };
 // The layers on, in any mix (per browser); the heat map alone to start with.
 const MAP_LAYERS = [['heat', 'Heat map'], ['tracks', 'Tracks'], ['reports', 'Reports']];
 // Everything the map keeps between drawings, in one place: what this browser

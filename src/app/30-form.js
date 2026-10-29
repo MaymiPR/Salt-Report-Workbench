@@ -62,6 +62,9 @@ const rebuildFormFields = (fields, groupFor, fmt) => {
             fields.appendChild(g);
         }
     });
+    // FMV mode's Observer stays last, after the custom fields.
+    const observer = document.getElementById('observerField');
+    if (observer) fields.appendChild(observer);
     if (focusKey) {
         const again = focusKey.startsWith('custom:')
             ? [...fields.querySelectorAll('[data-custom-label]')].find(i => `custom:${i.dataset.customLabel}` === focusKey)
@@ -106,6 +109,29 @@ const saveFormat = (format) => {
         return r.ok;
     });
 };
+
+// --- Observer (FMV mode) ---
+// The drone a report was seen from: one on station, or none. The pick stays
+// for the next report (an operator watches one feed); a report being edited
+// shows its own, even a drone taken off station or removed since.
+let observerPick = readRaw('salt_observer', '') || '';
+const renderObserverField = (value = el.form.observer.value) => {
+    const box = document.getElementById('observerField'), sel = el.form.observer;
+    if (!box || !sel) return;
+    box.hidden = !fmvOn();
+    const names = sharedDrones.filter(onStation).map(d => d.name);
+    const editing = el.form.reportId.value && localReports.find(r => r.id === el.form.reportId.value);
+    const own = editing && editing.observer && !names.includes(editing.observer) ? editing.observer : '';
+    const gone = own && !sharedDrones.some(d => d.name === own) ? 'removed' : 'off station';
+    const opts = [['', 'No observer'], ...names.map(n => [n, n]), ...(own ? [[own, `${own} (${gone})`]] : [])];
+    const html = opts.map(([v, t]) => `<option value="${escapeHtml(v)}">${escapeHtml(t)}</option>`).join('');
+    if (sel.dataset.options !== html) { sel.innerHTML = html; sel.dataset.options = html; }
+    sel.value = opts.some(([v]) => v === value) ? value : '';
+};
+// The pick a new report starts with: the last one, while it's on station.
+const observerForNew = () => (sharedDrones.some(d => onStation(d) && d.name === observerPick) ? observerPick : '');
+// What a history entry keeps of it: with FMV mode on, or when the report has one.
+const observerOf = (r) => (r.observer !== undefined || fmvOn() ? { observer: r.observer || '' } : {});
 
 // --- Location against the overlays ---
 
@@ -160,7 +186,7 @@ const fixReportLocation = async (id) => {
     if (loc === null || loc === r.location) return;
     const now = nextStamp(r);
     const hist = [...(r.history || []), { size: r.size || '', activity: r.activity || '', location: r.location || '', time: r.time,
-        yourAnalysis: r.yourAnalysis || '', custom: r.custom || {}, user: r.user, lastModified: r.lastModified }];
+        yourAnalysis: r.yourAnalysis || '', custom: r.custom || {}, ...observerOf(r), user: r.user, lastModified: r.lastModified }];
     const next = { ...r, location: loc, history: hist, updated: true, lastModified: now, user: userProfile };
     localReports = localReports.map(x => x === r ? next : x);
     reportsByAto[activeAto] = localReports;
@@ -174,7 +200,7 @@ const fixReportLocation = async (id) => {
 // asks before writing over it.
 let editingVersion = null;
 const editedFields = (r) => JSON.stringify([r.size, r.activity, r.location, r.time, r.yourAnalysis || '',
-    r.custom || {}, r.displayId, r.title]);
+    r.custom || {}, r.displayId, r.title, r.observer || '']);
 const loadedVersion = (r) => ({ id: r.id, fields: editedFields(r), at: Number(r.lastModified) || 0 });
 
 // Someone else saved the report in the form after it was loaded: a line
@@ -215,6 +241,7 @@ const resetForm = () => {
     // The reset empties every box in the form, MGRS Lock's zone and square too.
     const lockBox = document.getElementById('mgrsPrefix');
     if (lockBox) lockBox.value = mgrsLockPrefix;
+    renderObserverField(observerForNew());
     document.querySelectorAll('.selected-row').forEach(r => r.classList.remove('selected-row'));
     renderLocationHints();
 };
@@ -243,6 +270,7 @@ const loadReportForEditing = (reportId) => {
     renderLocationHints();
     el.form.analysis.value = report.yourAnalysis || '';
     document.querySelectorAll('#saltFields [data-custom-label]').forEach(i => { i.value = (report.custom || {})[i.dataset.customLabel] || ''; });
+    renderObserverField(report.observer || '');
     el.form.time.value = clockValue(new Date(report.time), timeDisplayMode === 'local');
     // Swap the single "Log New Report" submit for the Edit / Update pair.
     el.form.logBtn.style.display   = 'none';
@@ -382,6 +410,8 @@ const restoreHistoryVersion = (reportId, lastModified) => {
         // Snapshots taken before custom fields existed have no `custom`; keep
         // the current values rather than wiping them.
         if ('custom' in snapshot) report.custom = { ...snapshot.custom };
+        // Likewise the observer, for snapshots from before FMV mode.
+        if ('observer' in snapshot) report.observer = snapshot.observer;
         report.updated      = report.history.length > 0;
         report.lastModified = now;
         // Attribute the restore to the operator who performed it.

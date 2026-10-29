@@ -64,13 +64,16 @@ const combineGeometry = ({ polygons, lines, points }) => {
     return null;
 };
 
-// NAI / OBJ / PL from a folder, layer, or file name ("NAIs", "Phase Lines").
-const typeHint = (...texts) => {
+// NAI / OBJ / PL from a folder, layer, or file name ("NAIs", "Phase Lines"),
+// the first of `texts` that says one; for a line, AXIS too, from "Axes of
+// advance", "Axis" or "AOA".
+const typeHint = (texts, line) => {
     for (const t of texts) {
         const s = String(t || '');
         if (/\bNAIs?\b/i.test(s)) return 'NAI';
         if (/\bOBJ(ECTIVE)?S?\b/i.test(s)) return 'OBJ';
         if (/\bPLs?\b|phase\s*lines?/i.test(s)) return 'PL';
+        if (line && /\b(ax[ie]s|AOAs?)\b/i.test(s)) return 'AXIS';
     }
     return null;
 };
@@ -100,7 +103,7 @@ const kmlFeatures = (text, fileName) => {
             lines:  all(pm, 'LineString').map(l => coords(child(l, 'coordinates'))),
             points: all(pm, 'Point').map(pt => coords(child(pt, 'coordinates'))[0]).filter(Boolean),
         });
-        return { label: ((child(pm, 'name') || {}).textContent || '').trim(), hint: typeHint(folder, fileName), geometry };
+        return { label: ((child(pm, 'name') || {}).textContent || '').trim(), hints: [folder, fileName], geometry };
     });
 };
 
@@ -137,7 +140,7 @@ const geojsonFeatures = (obj, fileName) => {
         const props = f.properties || {};
         const label = ['name', 'Name', 'NAME', 'title', 'Title', 'label', 'Label'].map(k => props[k]).find(v => v != null && String(v).trim());
         const kind  = ['type', 'Type', 'TYPE', 'category', 'Category', 'layer', 'Layer'].map(k => props[k]).find(v => v != null);
-        return { label: String(label || '').trim(), hint: typeHint(kind, fileName), geometry: combineGeometry(into) };
+        return { label: String(label || '').trim(), hints: [kind, fileName], geometry: combineGeometry(into) };
     });
     const flat = [...parts.polygons.flat(2), ...parts.lines.flat(1), ...parts.points];
     if (flat.some(c => Math.abs(c[0]) > 180 || Math.abs(c[1]) > 90)) {
@@ -200,12 +203,16 @@ const readOverlayFile = async (file) => {
 // nothing. `shape` is how a tag's graphics are read: 'area' (a path is closed
 // into one: NAI, OBJ), 'line' (as drawn: PL) or 'any' (as drawn; an area
 // names the reports inside it, a line or a point doesn't). A later built-in
-// tag (an axis of advance, a line) is one more entry here, with its color in
-// MAP_COLORS and its id in the server's _OVERLAY_TYPES.
+// tag is one more entry here, with its color in MAP_COLORS and its id in the
+// server's _OVERLAY_TYPES. An axis of advance (`axis`) is a line drawn with an
+// arrowhead at its end, from where the enemy comes from to where it heads:
+// the narrative's way of march near it. It names no place, so the map
+// doesn't pick it, and its key shows only while the map has one.
 const BUILTIN_TAGS = [
     { id: 'NAI', name: 'NAI', title: 'NAIs', many: 'NAIs', shape: 'area' },
     { id: 'OBJ', name: 'OBJ', title: 'Objectives', many: 'OBJs', shape: 'area' },
     { id: 'PL', name: 'PL', title: 'Phase lines', many: 'PLs', shape: 'line' },
+    { id: 'AXIS', name: 'Axis of advance', title: 'Axes of advance', many: 'axes of advance', shape: 'line', axis: true },
 ];
 const OVERLAY_TYPES = BUILTIN_TAGS.map(t => t.id);
 // A type's tag, with its color: built in, the team's, or none (its key 'none').
@@ -233,6 +240,8 @@ const tagNameProblem = (name, id = null) => {
     if (!name) return 'Type a name for the tag first.';
     if (name.length > 30) return 'A tag\'s name is 30 characters at most.';
     if (OVERLAY_TYPES.includes(name.toUpperCase())) return `${name.toUpperCase()} is built in already.`;
+    const named = BUILTIN_TAGS.find(t => t.name.toUpperCase() === name.toUpperCase());
+    if (named) return `${named.name} is built in already.`;
     if (sharedTags.some(t => t.id !== id && t.name.toUpperCase() === name.toUpperCase())) return `There is a tag named ${name} already.`;
     return '';
 };
@@ -333,8 +342,10 @@ const startOverlayImport = async (files) => {
                 if (!ft.geometry) return;
                 // A prefix in the name ("NAI 3") wins; then the folder or file
                 // name; lines with neither are phase lines; areas need a choice.
+                // An axis of advance ("AXIS GOLD", "AOA 2") is a line.
+                const line = /Line/.test(ft.geometry.type);
                 const own = SaltCore.overlayRef(ft.label, null);
-                const type = own ? own.type : ft.hint || (/Line/.test(ft.geometry.type) ? 'PL' : '');
+                const type = own && (own.type !== 'AXIS' || line) ? own.type : typeHint(ft.hints, line) || (line ? 'PL' : '');
                 rows.push({ label: ft.label, geometry: ft.geometry, type });
             });
             names.push(f.name);
@@ -378,6 +389,7 @@ const finishOverlayImport = async () => {
         const n = t => added.filter(o => o.type === t).length;
         const own = added.filter(o => !OVERLAY_TYPES.includes(o.type)).length;
         showToast(`Imported ${plural(added.length, 'overlay')}: ${n('NAI')} NAI, ${n('OBJ')} OBJ, ${n('PL')} PL`
+            + (n('AXIS') ? `, ${n('AXIS')} AXIS` : '')
             + (own ? `, ${own} with your own tags` : '')
             + (replaced ? ` (${replaced} replaced an older one).` : '.'));
     }
@@ -516,7 +528,7 @@ const tagsBlock = (list) => {
     }).join('');
     return `<div class="overlay-tags editor-only" role="group" aria-label="Tags">
         <div class="overlay-tags-head">Tags</div>
-        <div class="overlays-note">NAI, OBJ and PL are built in. Add your own for the other graphics: each draws in its color, and a report inside an area with one gets that area's name in its Location, as with an NAI.</div>
+        <div class="overlays-note">NAI, OBJ, PL and Axis of advance are built in. An axis of advance is a line from where the enemy comes from to where it heads; the narrative reads its way of march from it. Add your own tags for the other graphics: each draws in its color, and a report inside an area with one gets that area's name in its Location, as with an NAI.</div>
         ${rows}
         <div class="overlay-tag-row overlay-tag-new">
             <input type="color" id="overlayTagNewColor" class="overlay-tag-color" value="${escapeHtml(tagDraft.color || nextTagColor())}" title="Color" aria-label="The new tag's color">
@@ -535,7 +547,7 @@ const drawOverlays = (box) => {
         const opts = (sel) => [{ id: '', name: 'Skip' }, ...everyTag()].map(t => `<option value="${escapeHtml(t.id)}"${t.id === sel ? ' selected' : ''}>${escapeHtml(t.name)}</option>`).join('');
         const count = rows.filter(r => reviewOverlay(r)).length;
         box.innerHTML = `
-            <div class="overlays-note">From ${escapeHtml(overlayReview.files.join(', '))}. Pick what each shape is. Areas place reports in NAIs and OBJs by grid, lines are phase lines, points are kept as labels. Your own tags are in the list too.</div>
+            <div class="overlays-note">From ${escapeHtml(overlayReview.files.join(', '))}. Pick what each shape is. Areas place reports in NAIs and OBJs by grid, lines are phase lines (or axes of advance, when named AXIS or AOA), points are kept as labels. Your own tags are in the list too.</div>
             <table class="overlays-table">
                 <thead><tr><th>Name in file</th><th>Shape</th><th>Use as</th><th>Becomes</th></tr></thead>
                 <tbody>${rows.map((r, i) => {
