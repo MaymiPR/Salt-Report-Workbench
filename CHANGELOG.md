@@ -8,27 +8,6 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- **Measure tools slide out of the ruler**: pressing it opens a toolbar with
-  *Distance* (the two-point tool as before), *Path* (each leg's distance and
-  bearing, and the total), *Area* (area and perimeter), *Range ring* (a
-  center, then a radius clicked or dragged out; *Keep ring on the map* keeps
-  it in this browser, listed with a remove button and *Clear all*) and
-  *Time-distance* (a route at a standard rate, vehicles on a road march,
-  dismounts on a road or across country, a helicopter, or a speed typed:
-  how long it takes). Double-click or Enter finishes a path, area or route;
-  Escape puts the tools away. From the keyboard, Space puts a point at the
-  crosshair in the map's middle.
-- **Units: Metric / Imperial** in the Settings menu, per browser: km and m
-  or miles and yards, dismounts in m or yd, aircraft in km or nautical
-  miles, areas in km² or mi², speeds in km/h, mph, or knots for aircraft.
-  The measure tools, track hovers and rates of march follow it.
-- **Rate of march**: a report whose track has times shows its rate overall
-  and for each leg on its map card, and under each time in its updates in
-  the Report Log, in the unit for what it is (aircraft, dismounts or
-  vehicles, from the equipment catalogue). A leg with no time between its
-  updates, a time that can't be read, or a speed nothing of its kind could
-  make is left out. The core gives the units, areas, class and rates
-  (`core/45-measure.js`).
 - **Your own tags for graphics**: in Manage > Map, make a tag (a name and a
   color), rename it, recolor it, or delete it (asked in place, with Undo; its
   graphics stay, with no tag). NAI, OBJ and PL stay built in. Tags are shared
@@ -55,6 +34,32 @@ All notable changes to this project are documented here. The format follows
   none, as a graphic's type, and `/api/save_tags` saves the tags. A page from
   before tags saves only the NAIs, OBJs and PLs it knows, and the graphics it
   never saw are kept.
+
+## [2.30.0] - 2026-10-29
+
+### Added
+
+- **Measure tools slide out of the ruler**: pressing it opens a toolbar with
+  *Distance* (the two-point tool as before), *Path* (each leg's distance and
+  bearing, and the total), *Area* (area and perimeter), *Range ring* (a
+  center, then a radius clicked or dragged out; *Keep ring on the map* keeps
+  it in this browser, listed with a remove button and *Clear all*) and
+  *Time-distance* (a route at a standard rate, vehicles on a road march,
+  dismounts on a road or across country, a helicopter, or a speed typed:
+  how long it takes). Double-click or Enter finishes a path, area or route;
+  Escape puts the tools away. From the keyboard, Space puts a point at the
+  crosshair in the map's middle.
+- **Units: Metric / Imperial** in the Settings menu, per browser: km and m
+  or miles and yards, dismounts in m or yd, aircraft in km or nautical
+  miles, areas in km² or mi², speeds in km/h, mph, or knots for aircraft.
+  The measure tools, track hovers and rates of march follow it.
+- **Rate of march**: a report whose track has times shows its rate overall
+  and for each leg on its map card, and under each time in its updates in
+  the Report Log, in the unit for what it is (aircraft, dismounts or
+  vehicles, from the equipment catalogue). A leg with no time between its
+  updates, a time that can't be read, or a speed nothing of its kind could
+  make is left out. The core gives the units, areas, class and rates
+  (`core/45-measure.js`).
 
 ## [2.29.0] - 2026-10-29
 
@@ -1288,7 +1293,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.29.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.30.0...HEAD
+[2.30.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.29.0...v2.30.0
 [2.29.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.28.0...v2.29.0
 [2.28.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.27.0...v2.28.0
 [2.27.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.26.0...v2.27.0
