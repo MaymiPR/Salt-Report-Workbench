@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.25.0] - 2026-10-28
+
 ### Added
 
 - **A measure tool on the map**: the ruler button, then two clicks, gives the
@@ -1161,7 +1163,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.24.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.25.0...HEAD
+[2.25.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.24.0...v2.25.0
 [2.24.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.23.0...v2.24.0
 [2.23.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.22.0...v2.23.0
 [2.22.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.21.0...v2.22.0
