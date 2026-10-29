@@ -94,7 +94,8 @@ const droneLayer = (tracks, px) => {
         marks.push(`<g class="map-drone" data-map-item="${k}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})">`
             + `<g transform="rotate(${angle.toFixed(0)})"><path d="M0,-10 L2.2,-3 L10,0.5 L10,2.6 L2.2,1.4 L1.6,6.5 L4.4,8.6 L4.4,10 L0,8.8 L-4.4,10 L-4.4,8.6 L-1.6,6.5 L-2.2,1.4 L-10,2.6 L-10,0.5 L-2.2,-3 Z" fill="${DRONE_COLOR}" stroke="#000" stroke-width="1.3" stroke-linejoin="round"/></g>`
             + `<circle r="14" fill="transparent" class="map-hit"/>`
-            + `<text x="14" y="-10" class="map-label map-label-drone">${svgEsc(d.name)}</text></g>`);
+            // How old the position is, so a drone left where it was hours ago shows it.
+            + `<text x="14" y="-10" class="map-label map-label-drone">${svgEsc(d.name)}${d.at ? ` · moved ${timeAgo(d.at)}` : ''}</text></g>`);
     });
     // The view goes under the graphics and reports (their names stay readable);
     // the drones themselves go on top.

@@ -167,6 +167,13 @@ test('one plural and one zone letter for every count and time', () => {
     assert.equal(core.plural(3, 'NAI overlay'), '3 NAI overlays');
     assert.equal(core.zoneMark(true), 'L');
     assert.equal(core.zoneMark(false), 'Z');
+    const now = Date.UTC(2026, 9, 28, 12);
+    assert.equal(core.timeAgo(now - 20e3, now), 'just now');
+    assert.equal(core.timeAgo(now + 5e3, now), 'just now', 'a clock a little ahead');
+    assert.equal(core.timeAgo(now - 12 * 60e3, now), '12 min ago');
+    assert.equal(core.timeAgo(now - 6 * 3600e3, now), '6h ago');
+    assert.equal(core.timeAgo(now - 47 * 3600e3, now), '47h ago');
+    assert.equal(core.timeAgo(now - 3 * 86400e3, now), '3 days ago');
 });
 
 test('report numbers ignore digits that belong to the ATO', () => {

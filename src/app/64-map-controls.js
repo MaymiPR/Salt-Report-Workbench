@@ -52,6 +52,7 @@ const renderMapPanel = (box) => {
                     <!-- On its own line under the controls, however many rows they wrap to. -->
                     <span class="map-tools-break" aria-hidden="true"></span>
                     <div id="mapNote" class="map-note" hidden></div>
+                    <div id="mapMeasureOut" class="map-note map-measure-out" role="status" hidden></div>
                 </div>
                 <div class="map-zoom">
                     <button type="button" data-map-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>
@@ -59,6 +60,7 @@ const renderMapPanel = (box) => {
                     <button type="button" data-map-zoom="fit" title="Show all" aria-label="Show all">&#10530;</button>
                     <button type="button" data-map-zoom="full" id="mapFullBtn" title="Full screen" aria-label="Full screen">${FULL_ICON}</button>
                     <button type="button" id="mapBaseBtn" title="Basemap" aria-label="Basemap" aria-expanded="false"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2 1.8 5.2 8 8.4l6.2-3.2z"/><path d="m1.8 8 6.2 3.2L14.2 8"/><path d="m1.8 10.8 6.2 3.2 6.2-3.2"/></svg></button>
+                    <button type="button" id="mapMeasureBtn" title="Measure: click two points on the map" aria-label="Measure" aria-pressed="false"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 11.5 11.5 2 14 4.5 4.5 14Z"/><path d="M5 9.5l1.2 1.2M7 7.5l1.2 1.2M9 5.5l1.2 1.2"/></svg></button>
                     <button type="button" id="mapDroneBtn" title="Drones" aria-label="Drones" aria-expanded="false"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M8 1.5 9.3 5.6 14.5 7.6v1.6L9.3 8.4 9 11.8l1.9 1.4v1.1L8 13.6l-2.9.7v-1.1L7 11.8l-.3-3.4-5.2.8V7.6l5.2-2z"/></svg></button>
                 </div>
                 <!-- The basemap: which one to show. Editors add and change them in Manage > Map. -->
@@ -77,6 +79,7 @@ const renderMapPanel = (box) => {
                 <div class="map-bottom">
                     <div id="mapLegend" class="map-legend"></div>
                     <div class="map-time">
+                        <button type="button" id="mapEndPlay" class="text-btn" aria-pressed="false" title="Play the reports from the first to now">Play</button>
                         <label for="mapEndRange">Up to</label>
                         <input type="range" id="mapEndRange" min="0" max="1000" step="1" value="1000" aria-label="Show reports up to this time">
                         <span id="mapEndLabel" class="map-time-label"></span>
@@ -165,6 +168,7 @@ if (mapBody) {
         }
         const hrs = e.target.closest('[data-map-hours]');
         if (hrs) { mapState.hours = +hrs.dataset.mapHours; renderMapView(); return; }
+        if (e.target.closest('#mapMeasureBtn')) { setMapMeasuring(!mapState.measuring); return; }
         const zoom = e.target.closest('[data-map-zoom]');
         if (zoom && zoom.dataset.mapZoom === 'full') { toggleMapFullscreen(); return; }
         if (zoom && mapState.view) {
@@ -268,6 +272,32 @@ const togglePop = (popId, btnId) => (open) => {
     pop.hidden = open === undefined ? !pop.hidden : !open;
     setOn(btn, !pop.hidden, 'aria-expanded');
 };
+// The measure tool: on, its button says so and the cursor is a crosshair;
+// off, the line goes. Each click adds a point; a third starts again.
+const setMapMeasuring = (on) => {
+    mapState.measuring = on;
+    mapState.measure = [];
+    const btn = document.getElementById('mapMeasureBtn'), box = document.getElementById('mapBox');
+    setOn(btn, on, 'aria-pressed', 'active');
+    if (box) box.classList.toggle('measuring', on);
+    showMeasure();
+    redrawMap();
+};
+const addMeasurePoint = ([lon, lat]) => {
+    mapState.measure = mapState.measure.length >= 2 ? [{ lon, lat }] : [...mapState.measure, { lon, lat }];
+    showMeasure();
+    redrawMap();
+};
+// What the line measures, with both ends' grids, for reading and copying.
+const showMeasure = () => {
+    const out = document.getElementById('mapMeasureOut');
+    if (!out) return;
+    const pts = mapState.measure, grid = p => SaltCore.latLonToMgrs(p.lat, p.lon);
+    out.hidden = !mapState.measuring;
+    out.textContent = !pts.length ? 'Measure: click a point on the map, then another.'
+        : pts.length === 1 ? `From ${grid(pts[0])}: click the second point.`
+        : `${measureText(pts)}, from ${grid(pts[0])} to ${grid(pts[1])}.`;
+};
 const toggleBasePop = togglePop('mapBasePop', 'mapBaseBtn');
 const toggleDronePop = togglePop('mapDronePop', 'mapDroneBtn');
 // Escape closes an open menu, back to its button, and goes no further (the
@@ -275,6 +305,13 @@ const toggleDronePop = togglePop('mapDronePop', 'mapDroneBtn');
 // from nowhere in particular.
 document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
+    const pane0 = document.getElementById('mapPane'), at0 = document.activeElement;
+    if (mapState.measuring && (!at0 || at0 === document.body || (pane0 && pane0.contains(at0)))) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setMapMeasuring(false);
+        return;
+    }
     const open = [['mapBasePop', 'mapBaseBtn', toggleBasePop], ['mapDronePop', 'mapDroneBtn', toggleDronePop]]
         .find(([popId]) => { const pop = document.getElementById(popId); return pop && !pop.hidden; });
     const pane = document.getElementById('mapPane'), at = document.activeElement;
@@ -346,10 +383,13 @@ const wireMapBox = () => {
         mapState.pointer = { clientX: e.clientX, clientY: e.clientY, target: e.target };
         showGridReadout(e, e.shiftKey && !drag);
         if (drag) {
-            mapState.view.cx = drag.cx - (e.clientX - drag.x) * mapState.view.mpp;
-            mapState.view.cy = drag.cy + (e.clientY - drag.y) * mapState.view.mpp;
+            const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+            mapState.view.cx = drag.cx - dx * mapState.view.mpp;
+            mapState.view.cy = drag.cy + dy * mapState.view.mpp;
             m.tip.hidden = true;
-            redrawMap();
+            // The picture slides; it is drawn afresh once, when the drag ends.
+            mapState.dragging = true;
+            m.svg.style.transform = m.base.style.transform = `translate(${dx}px, ${dy}px)`;
             return;
         }
         const g = e.target.closest('[data-map-item]');
@@ -361,7 +401,17 @@ const wireMapBox = () => {
         m.tip.style.left = `${Math.min(x + 14, m.box.clientWidth - m.tip.offsetWidth - 6)}px`;
         m.tip.style.top = `${Math.max(6, y - m.tip.offsetHeight - 10)}px`;
     });
-    const end = () => { drag = null; m.box.classList.remove('dragging'); };
+    const end = () => {
+        drag = null;
+        m.box.classList.remove('dragging');
+        if (!mapState.dragging) return;
+        mapState.dragging = false;
+        // Drawn at the new view and the slide undone in one go, so the
+        // picture doesn't jump back for a frame.
+        cancelAnimationFrame(mapState.frame);
+        drawMap();
+        m.svg.style.transform = m.base.style.transform = '';
+    };
     m.box.addEventListener('pointerup', e => {
         const d = drag;
         end();
@@ -376,10 +426,11 @@ const wireMapBox = () => {
             }
             return;
         }
-        const item = d.item && mapState.items[+d.item.dataset.mapItem];
-        if (item && item.kind === 'drone') return;
         const [x, y] = at(e), w = m.box.clientWidth, h = m.box.clientHeight;
         const merc = [mapState.view.cx + (x - w / 2) * mapState.view.mpp, mapState.view.cy - (y - h / 2) * mapState.view.mpp];
+        if (mapState.measuring) { addMeasurePoint(SaltCore.mercToLonLat(merc[0], merc[1])); return; }
+        const item = d.item && mapState.items[+d.item.dataset.mapItem];
+        if (item && item.kind === 'drone') return;
         m.tip.hidden = true;
         mapState.clickHook({ item, at: [x, y], lonLat: SaltCore.mercToLonLat(merc[0], merc[1]), mpp: mapState.view.mpp });
     });

@@ -198,6 +198,29 @@ mapState.clickHook = ({ item, at, lonLat: [lon, lat], mpp }) => {
 
 // --- The view ---
 
+// Play: the time slider's end walks from the first report to now in about
+// ten seconds, so movement can be watched; Pause stops it where it is.
+const MAP_PLAY_MS = 10000, MAP_PLAY_STEPS = 100;
+let mapPlayTimer = 0;
+const stopMapPlay = () => { clearInterval(mapPlayTimer); mapPlayTimer = 0; };
+const toggleMapPlay = () => {
+    if (mapPlayTimer) { stopMapPlay(); renderMapTime(); return; }
+    const range = document.getElementById('mapEndRange');
+    if (!range || range.disabled) return;
+    const first = +range.dataset.first;
+    // From where it stands, or from the start when it stands at now.
+    let at = mapState.end === null ? 0 : Math.round((mapState.end - first) / Math.max(1, Date.now() - first) * MAP_PLAY_STEPS);
+    if (at >= MAP_PLAY_STEPS) at = 0;
+    const step = () => {
+        at++;
+        if (at >= MAP_PLAY_STEPS) { mapState.end = null; stopMapPlay(); }
+        else mapState.end = Math.round(first + (Date.now() - first) * at / MAP_PLAY_STEPS);
+        renderMapView();
+    };
+    mapPlayTimer = setInterval(step, MAP_PLAY_MS / MAP_PLAY_STEPS);
+    step();
+};
+
 // The time slider: from the first report to now; at its right end, "now".
 const renderMapTime = () => {
     const range = document.getElementById('mapEndRange'), label = document.getElementById('mapEndLabel'), now = document.getElementById('mapEndNow');
@@ -212,6 +235,12 @@ const renderMapTime = () => {
     if (!any) first = Date.now();
     range.dataset.first = String(first);
     range.disabled = !any;
+    const play = document.getElementById('mapEndPlay');
+    if (play) {
+        play.disabled = !any;
+        play.textContent = mapPlayTimer ? 'Pause' : 'Play';
+        play.setAttribute('aria-pressed', String(!!mapPlayTimer));
+    }
     const span = Math.max(1, Date.now() - first);
     range.value = String(mapState.end === null ? 1000 : Math.round((mapState.end - first) / span * 1000));
     const local = timeDisplayMode === 'local';
@@ -318,7 +347,8 @@ const hideHomeViews = () => {
             }
             return;
         }
-        if (e.target.id === 'mapEndNow') { mapState.end = null; renderMapView(); return; }
+        if (e.target.id === 'mapEndNow') { stopMapPlay(); mapState.end = null; renderMapView(); return; }
+        if (e.target.id === 'mapEndPlay') { toggleMapPlay(); return; }
         if (e.target.closest('#mapSideBtn')) {
             mapSideShown = !mapSideShown;
             writeStored('salt_map_side', mapSideShown ? 'shown' : 'hidden');
@@ -369,6 +399,7 @@ const hideHomeViews = () => {
     });
     s.panel.addEventListener('input', e => {
         if (e.target.id !== 'mapEndRange') return;
+        stopMapPlay();   // the slider taken in hand stops Play
         const v = +e.target.value, first = +e.target.dataset.first;
         mapState.end = v >= 1000 ? null : Math.round(first + (Date.now() - first) * v / 1000);
         renderMapView();

@@ -17,6 +17,14 @@ const clockValue = (d, local) => { const f = dateFields(d, local); return `${f.h
 const zoneMark = (local) => (local ? 'L' : 'Z');
 // "3 reports", "1 report": a count and its word, plural unless one.
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+// "just now", "12 min ago", "6h ago", "3 days ago": how long before `now` a time was.
+const timeAgo = (ms, now = Date.now()) => {
+    const s = Math.max(0, (now - ms) / 1000);
+    if (s < 60) return 'just now';
+    if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+    if (s < 48 * 3600) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)} days ago`;
+};
 
 // "YYYYMMDD_HHMMZ" (or "...L"), for export filenames.
 const fileStamp = (d, local) => { const f = dateFields(d, local); return `${f.y}${f.mo}${f.day}_${f.h}${f.mi}${zoneMark(local)}`; };

@@ -13,7 +13,8 @@
 // view and Statistics; writes go through writeStored.
 const storedText = (key) => { try { return localStorage.getItem(key); } catch (e) { return null; } };
 
-const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', track: '#ff3b30', edge: '#000000' };
+// core: the white center of a report dot, so a dot shows on the red of a busy heat map.
+const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', track: '#ff3b30', edge: '#000000', core: '#ffffff' };
 // The layers on, in any mix (per browser); the heat map alone to start with.
 const MAP_LAYERS = [['heat', 'Heat map'], ['tracks', 'Tracks'], ['reports', 'Reports']];
 // Everything the map keeps between drawings, in one place: what this browser
@@ -61,6 +62,14 @@ const mapState = {
     droneShow: storedText('salt_drone_show') !== 'off',
     droneView: storedText('salt_drone_view') !== 'off',
     pointer: null,         // where the pointer last was over the map: { clientX, clientY, target }
+    // While the map is dragged, the picture already drawn slides with the
+    // pointer and nothing redraws (app/64-map-controls.js); it is drawn once,
+    // at the new view, when the drag ends.
+    dragging: false,
+    // The measure tool: on, and the points clicked ([{ lon, lat }], two at
+    // most; a third click starts again from it).
+    measuring: false,
+    measure: [],
 };
 const activeBasemap = () => (mapState.baseChoice === 'off' ? null
     : sharedBasemaps.find(b => b.name === mapState.baseChoice) || sharedBasemaps[0] || null);

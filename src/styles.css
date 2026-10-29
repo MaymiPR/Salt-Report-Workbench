@@ -1397,6 +1397,15 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-box.grabbing, .map-box.grabbing [data-map-item] { cursor: crosshair; }
 .map-grid-readout { position: absolute; z-index: 3; padding: 4px 8px; border-radius: 8px; background: var(--map-scrim); color: var(--on-color); font: 600 12px ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; white-space: nowrap; pointer-events: none; }
 .map-grid-readout[hidden] { display: none; }
+/* The measure tool: a crosshair while on; the line, its ends and its label. */
+.map-box.measuring { cursor: crosshair; }
+/* White over a dark outline: apart from the drones' orange and the graphics' colors. */
+.map-measure-halo { stroke: var(--map-halo); stroke-width: 5; }
+.map-measure-line { stroke: var(--on-color); stroke-width: 2; stroke-dasharray: 7 4; }
+.map-measure-end { fill: var(--on-color); stroke: var(--map-halo); stroke-width: 1.5; }
+.map-measure-label { fill: var(--on-color); font-weight: 700; }
+.map-note.map-measure-out { top: auto; bottom: 10px; color: var(--text-primary); }
+.map-measure-out[hidden] { display: none; }
 .map-drone { cursor: default; }
 /* Full screen: the controls on top, the map filling the rest, the key below. */
 .map-pane:fullscreen { display: flex; flex-direction: column; padding: 20px; background: var(--panel-bg); box-sizing: border-box; }

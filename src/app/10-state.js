@@ -479,7 +479,7 @@ const generateUUID = () => {
 };
 // Pure helpers live in core.js (window.SaltCore) so the tests can reach them.
 const { dateFields, clockValue, fileStamp, escapeHtml, safeColor,
-        reportNum, normalizeLocation, BDA_EFFECTS, bdaElements, bdaSummary, plural, zoneMark } = SaltCore;
+        reportNum, normalizeLocation, BDA_EFFECTS, bdaElements, bdaSummary, plural, zoneMark, timeAgo } = SaltCore;
 // The lastModified for a report's next version: now, but always past the
 // version it replaces. The server keeps the higher stamp, so a browser whose
 // clock runs behind a peer's would otherwise have its change thrown away.

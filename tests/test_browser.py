@@ -1670,6 +1670,106 @@ class BrowserTests(unittest.TestCase):
             page.click("[data-home-go='map']")
         page.wait_for_selector("#mapSvg .map-overlays path")
 
+    def test_report_dots_have_a_white_core_and_dragging_slides_the_picture(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        self.open_map(page)
+        page.click("[data-map-layer='reports']")
+        page.wait_for_selector("#mapSvg .map-report .map-report-core")
+        self.assertEqual(
+            page.locator("#mapSvg .map-report").count(),
+            page.locator("#mapSvg .map-report-core").count(),
+        )
+        self.assertEqual(
+            page.get_attribute("#mapSvg .map-report-core", "fill"), "#ffffff", "white, on red"
+        )
+        # Zoomed in, so the map has room to move.
+        page.click("[data-map-zoom='in']")
+        page.click("[data-map-zoom='in']")
+        self.next_frames(page)
+        box = page.locator("#mapBox").bounding_box()
+        x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+        before = page.evaluate("[mapState.view.cx, mapState.view.cy]")
+        drawn = page.evaluate("document.getElementById('mapSvg').innerHTML")
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.mouse.move(x + 60, y + 30, steps=6)
+        # While dragged: the picture slides, nothing is redrawn.
+        self.assertEqual(
+            page.evaluate("document.getElementById('mapSvg').style.transform"),
+            "translate(60px, 30px)",
+        )
+        self.assertTrue(page.evaluate("mapState.dragging"))
+        self.next_frames(page)
+        self.assertEqual(page.evaluate("document.getElementById('mapSvg').innerHTML"), drawn)
+        page.mouse.up()
+        # Let go: drawn once at the new view, the slide undone.
+        self.assertFalse(page.evaluate("mapState.dragging"))
+        self.assertEqual(page.evaluate("document.getElementById('mapSvg').style.transform"), "")
+        after = page.evaluate("[mapState.view.cx, mapState.view.cy]")
+        self.assertLess(after[0], before[0], "dragged right: the view moved west")
+        self.assertGreater(after[1], before[1], "dragged down: the view moved north")
+        self.assertNotEqual(page.evaluate("document.getElementById('mapSvg').innerHTML"), drawn)
+
+    def test_the_measure_tool_gives_distance_bearing_and_grids(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        self.open_map(page)
+        page.click("#mapMeasureBtn")
+        self.assertEqual(page.get_attribute("#mapMeasureBtn", "aria-pressed"), "true")
+        page.wait_for_selector("#mapMeasureOut:has-text('click a point')")
+        box = page.locator("#mapBox").bounding_box()
+        x, y = box["x"] + box["width"] * 0.4, box["y"] + box["height"] * 0.6
+        page.mouse.click(x, y)
+        page.wait_for_selector("#mapMeasureOut:has-text('click the second point')")
+        page.mouse.click(x + 120, y - 120)
+        page.wait_for_selector("#mapSvg .map-measure-line")
+        said = page.text_content("#mapMeasureOut")
+        self.assertRegex(
+            said, r"^[\d.]+ (m|km), (04[0-9]|05[0-9])\u00b0 NE, from 38S MB \d{5} \d{5} to 38S MB"
+        )
+        self.assertEqual(page.text_content("#mapSvg .map-measure-label"), said.split(", from")[0])
+        self.assertTrue(page.locator("#mapCard").is_hidden(), "a click measures, it opens no card")
+        # Escape ends it, and the line goes.
+        page.focus("#mapBox")
+        page.keyboard.press("Escape")
+        self.assertEqual(page.get_attribute("#mapMeasureBtn", "aria-pressed"), "false")
+        page.wait_for_function("!document.querySelector('#mapSvg .map-measure-line')")
+        self.assertTrue(page.locator("#mapMeasureOut").is_hidden())
+
+    def test_play_walks_the_time_slider_and_drones_say_their_age(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        self.open_map(page)
+        self.synced(page)
+        before = page.evaluate("JSON.parse(JSON.stringify(sharedDrones))")
+        page.evaluate(
+            "saveDrones([{ name: 'GE 7', grid: '38S MB 40000 78000', at: Date.now() - 6 * 3600e3 - 60e3 }])"
+        )
+        page.wait_for_function(
+            "[...document.querySelectorAll('#mapSvg .map-label-drone')].some(t => t.textContent === 'GE 7 \u00b7 moved 6h ago')"
+        )
+        page.evaluate("list => saveDrones(list)", before)
+        # Play: the window's end walks forward; Pause holds it there.
+        self.assertIsNone(page.evaluate("mapState.end"))
+        page.click("#mapEndPlay")
+        self.assertEqual(page.get_attribute("#mapEndPlay", "aria-pressed"), "true")
+        self.assertEqual(page.text_content("#mapEndPlay"), "Pause")
+        page.wait_for_function("mapState.end !== null")
+        first = page.evaluate("mapState.end")
+        page.wait_for_function(f"mapState.end > {first}")
+        page.click("#mapEndPlay")
+        self.assertEqual(page.text_content("#mapEndPlay"), "Play")
+        held = page.evaluate("mapState.end")
+        page.wait_for_timeout(300)
+        self.assertEqual(page.evaluate("mapState.end"), held, "paused where it was")
+        # Now goes back to the present.
+        page.click("#mapEndNow")
+        self.assertIsNone(page.evaluate("mapState.end"))
+
     def test_the_overlay_map_heat_and_tracks(self):
         page = self.open_editor()
         self.import_overlays(page)
