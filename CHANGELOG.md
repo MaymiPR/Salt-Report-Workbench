@@ -13,6 +13,11 @@ All notable changes to this project are documented here. The format follows
 - **Play on the map's time slider** walks the window from the first report to
   now in about ten seconds, the map following; Pause holds it.
 - **Drones say how old their position is**: "GE 1 · moved 6h ago".
+- **The map can be saved and printed**, for briefs: Save as PNG gives the view
+  with a title block, north arrow, scale bar and key (the basemap too where
+  its service lets the page copy its images, else it says it was left out);
+  Print lays out the same on a landscape page, basemap included, and can save
+  a PDF.
 
 ### Changed
 

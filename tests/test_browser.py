@@ -1670,6 +1670,100 @@ class BrowserTests(unittest.TestCase):
             page.click("[data-home-go='map']")
         page.wait_for_selector("#mapSvg .map-overlays path")
 
+    def export_map(self, page):
+        """Save the map as a PNG; its file name, size, and what the page said."""
+        page.evaluate("document.getElementById('toastNotification').textContent = ''")
+        with page.expect_download() as d:
+            page.click("#mapExportBtn")
+            page.click("#mapSavePng")
+        path = self.tmp_path(d.value.suggested_filename)
+        d.value.save_as(path)
+        data = path.read_bytes()
+        self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+        width, height = int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+        page.wait_for_selector("#toastNotification:has-text('Saved ')")
+        return d.value.suggested_filename, width, height, page.text_content("#toastNotification")
+
+    def tmp_path(self, name):
+        folder = Path(tempfile.mkdtemp(prefix="salt-export-"))
+        self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+        return folder / name
+
+    def test_the_map_saves_as_a_png_with_its_basemap_when_allowed(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+
+        def tile(cors):
+            """A tile server, sending CORS headers or not."""
+
+            # Under Playwright a fulfilled image passes the browser's copy check
+            # either way, so the closed service fails outright: the export takes
+            # the same way as for a real one that sends no CORS headers.
+            def serve(route):
+                if not cors:
+                    route.abort()
+                    return
+                headers = {"Access-Control-Allow-Origin": "*"}
+                route.fulfill(
+                    status=200, content_type="image/png", body=self.PNG_1PX, headers=headers
+                )
+
+            return serve
+
+        self.context.route("https://open.test/**", tile(True))
+        self.context.route("https://closed.test/**", tile(False))
+        self.open_map(page)
+        self.synced(page)
+        before = page.evaluate("JSON.parse(JSON.stringify(sharedBasemaps))")
+        page.evaluate(
+            """saveBasemaps([
+                { name: 'Open tiles', kind: 'tiles', url: 'https://open.test/{z}/{x}/{y}.png' },
+                { name: 'Closed tiles', kind: 'tiles', url: 'https://closed.test/{z}/{x}/{y}.png' },
+            ])"""
+        )
+        try:
+            self.pick_basemap(page, "Open tiles")
+            page.wait_for_selector("#mapBase image")
+            w, h = page.evaluate("[mapBox.clientWidth, mapBox.clientHeight]")
+            name, width, height, said = self.export_map(page)
+            self.assertRegex(name, rf"^{self.ato}_Patrol_map_\d{{8}}_\d{{4}}[ZL]\.png$")
+            self.assertEqual(width, w * 2, "twice the map's width")
+            self.assertGreater(height, h * 2, "the map, a title block and the key")
+            self.assertNotIn("without the basemap", said)
+            # A service that doesn't let the page copy its images: left out, and said.
+            self.pick_basemap(page, "Closed tiles")
+            page.wait_for_function(
+                "[...document.querySelectorAll('#mapBase image')].some(i => i.dataset.url.includes('closed.test'))"
+                " && ![...document.querySelectorAll('#mapBase image')].some(i => i.dataset.url.includes('open.test'))"
+            )
+            _, _, _, said = self.export_map(page)
+            self.assertIn("without the basemap", said)
+        finally:
+            page.evaluate("list => saveBasemaps(list)", before)
+
+    def test_the_map_prints_with_its_title_marks_and_key(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        self.open_map(page)
+        page.click("#mapExportBtn")
+        self.assertEqual(page.get_attribute("#mapExportBtn", "aria-expanded"), "true")
+        page.click("#mapPrint")
+        # The page printed: a frame with the title, the map (graphics, north
+        # arrow and scale bar) and the key, before it goes.
+        got = page.wait_for_function(
+            r"""() => { const f = [...document.querySelectorAll('iframe')].find(f => f.contentDocument && f.contentDocument.querySelector('.map'));
+                if (!f) return null; const d = f.contentDocument;
+                return { h1: d.querySelector('h1').textContent, svgs: d.querySelectorAll('.map svg').length,
+                         north: d.querySelector('.map').innerHTML.includes('>N</text>'), keys: d.querySelectorAll('.key').length,
+                         scale: /\d+ (m|km)</.test(d.querySelector('.map').innerHTML) }; }"""
+        ).json_value()
+        self.assertEqual(got["h1"], f"Patrol {self.ato}")
+        self.assertEqual(got["svgs"], 3, "the basemap, the graphics, and the marks")
+        self.assertTrue(got["north"] and got["scale"])
+        self.assertGreaterEqual(got["keys"], 4)
+
     def test_report_dots_have_a_white_core_and_dragging_slides_the_picture(self):
         page = self.open_editor()
         self.import_overlays(page)

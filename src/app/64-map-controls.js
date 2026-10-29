@@ -60,6 +60,7 @@ const renderMapPanel = (box) => {
                     <button type="button" data-map-zoom="fit" title="Show all" aria-label="Show all">&#10530;</button>
                     <button type="button" data-map-zoom="full" id="mapFullBtn" title="Full screen" aria-label="Full screen">${FULL_ICON}</button>
                     <button type="button" id="mapBaseBtn" title="Basemap" aria-label="Basemap" aria-expanded="false"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2 1.8 5.2 8 8.4l6.2-3.2z"/><path d="m1.8 8 6.2 3.2L14.2 8"/><path d="m1.8 10.8 6.2 3.2 6.2-3.2"/></svg></button>
+                    <button type="button" id="mapExportBtn" title="Save or print the map" aria-label="Save or print the map" aria-expanded="false"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 11.5v2h11v-2"/></svg></button>
                     <button type="button" id="mapMeasureBtn" title="Measure: click two points on the map" aria-label="Measure" aria-pressed="false"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 11.5 11.5 2 14 4.5 4.5 14Z"/><path d="M5 9.5l1.2 1.2M7 7.5l1.2 1.2M9 5.5l1.2 1.2"/></svg></button>
                     <button type="button" id="mapDroneBtn" title="Drones" aria-label="Drones" aria-expanded="false"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M8 1.5 9.3 5.6 14.5 7.6v1.6L9.3 8.4 9 11.8l1.9 1.4v1.1L8 13.6l-2.9.7v-1.1L7 11.8l-.3-3.4-5.2.8V7.6l5.2-2z"/></svg></button>
                 </div>
@@ -69,6 +70,12 @@ const renderMapPanel = (box) => {
                     <select id="mapBaseSelect" class="map-base-select" aria-label="Basemap"></select>
                     <div id="mapBaseNone" class="map-base-none">No basemaps yet.</div>
                     <button type="button" id="mapBaseManage" class="text-btn editor-only">Add or change basemaps in Manage&hellip;</button>
+                </div>
+                <!-- Saving or printing what the map shows (app/65-map-export.js). -->
+                <div id="mapExportPop" class="map-base-pop map-export-pop" hidden>
+                    <div class="map-base-pop-head">Save or print the map</div>
+                    <button type="button" id="mapSavePng" class="text-btn">Save as PNG</button>
+                    <button type="button" id="mapPrint" class="text-btn">Print (or save as PDF)</button>
                 </div>
                 <!-- Drones: where each is, shown or not, its view, and (editors) moving them. -->
                 <div id="mapDronePop" class="map-base-pop map-drone-pop" hidden></div>
@@ -169,6 +176,9 @@ if (mapBody) {
         const hrs = e.target.closest('[data-map-hours]');
         if (hrs) { mapState.hours = +hrs.dataset.mapHours; renderMapView(); return; }
         if (e.target.closest('#mapMeasureBtn')) { setMapMeasuring(!mapState.measuring); return; }
+        if (e.target.closest('#mapExportBtn')) { toggleExportPop(); return; }
+        if (e.target.closest('#mapSavePng')) { toggleExportPop(false); saveMapPng(); return; }
+        if (e.target.closest('#mapPrint')) { toggleExportPop(false); printMap(); return; }
         const zoom = e.target.closest('[data-map-zoom]');
         if (zoom && zoom.dataset.mapZoom === 'full') { toggleMapFullscreen(); return; }
         if (zoom && mapState.view) {
@@ -300,6 +310,7 @@ const showMeasure = () => {
 };
 const toggleBasePop = togglePop('mapBasePop', 'mapBaseBtn');
 const toggleDronePop = togglePop('mapDronePop', 'mapDroneBtn');
+const toggleExportPop = togglePop('mapExportPop', 'mapExportBtn');
 // Escape closes an open menu, back to its button, and goes no further (the
 // page's own Escape would cancel an edit in the form). Only from the map, or
 // from nowhere in particular.
@@ -312,7 +323,7 @@ document.addEventListener('keydown', e => {
         setMapMeasuring(false);
         return;
     }
-    const open = [['mapBasePop', 'mapBaseBtn', toggleBasePop], ['mapDronePop', 'mapDroneBtn', toggleDronePop]]
+    const open = [['mapBasePop', 'mapBaseBtn', toggleBasePop], ['mapDronePop', 'mapDroneBtn', toggleDronePop], ['mapExportPop', 'mapExportBtn', toggleExportPop]]
         .find(([popId]) => { const pop = document.getElementById(popId); return pop && !pop.hidden; });
     const pane = document.getElementById('mapPane'), at = document.activeElement;
     if (!open || (at && at !== document.body && !(pane && pane.contains(at)))) return;
@@ -325,6 +336,7 @@ document.addEventListener('click', e => {
     const path = e.composedPath();
     if (!path.some(n => n.id === 'mapBasePop' || n.id === 'mapBaseBtn')) toggleBasePop(false);
     if (!path.some(n => n.id === 'mapDronePop' || n.id === 'mapDroneBtn')) toggleDronePop(false);
+    if (!path.some(n => n.id === 'mapExportPop' || n.id === 'mapExportBtn')) toggleExportPop(false);
 });
 
 // The map itself (made afresh with the view): wheel zooms around the
