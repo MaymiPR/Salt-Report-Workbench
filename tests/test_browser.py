@@ -2474,6 +2474,10 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_function("document.activeElement.id === 'mapAxisName'")
         self.assertEqual(page.input_value("#mapAxisName"), "1")
         page.fill("#mapAxisName", "gold")
+        # A sync drawing the map again while the name is typed leaves it be.
+        page.evaluate("renderMeasureTools()")
+        self.assertEqual(page.input_value("#mapAxisName"), "gold")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "mapAxisName")
         page.click("#mapAxisSave")
         page.wait_for_selector("#toastNotification:has-text('AXIS GOLD exists already')")
         self.assertEqual(page.evaluate("sharedOverlays.filter(o => o.type === 'AXIS').length"), 1)
