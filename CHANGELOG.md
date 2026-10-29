@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.31.0] - 2026-10-29
+
 ### Added
 
 - **Your own tags for graphics**: in Manage > Map, make a tag (a name and a
@@ -1293,7 +1295,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.30.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.31.0...HEAD
+[2.31.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.30.0...v2.31.0
 [2.30.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.29.0...v2.30.0
 [2.29.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.28.0...v2.29.0
 [2.28.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.27.0...v2.28.0
