@@ -2566,7 +2566,17 @@ class HttpApiTests(unittest.TestCase):
         keys = [s.key for s in srv.SHARED_SECTIONS]
         self.assertEqual(
             keys,
-            ["config", "profiles", "format", "overlays", "basemaps", "drones", "narrative", "tags", "fmv"],
+            [
+                "config",
+                "profiles",
+                "format",
+                "overlays",
+                "basemaps",
+                "drones",
+                "narrative",
+                "tags",
+                "fmv",
+            ],
         )
         self.assertEqual(
             shared, json.dumps({k: sync[k] for k in keys}, indent=1, ensure_ascii=False) + "\n"
