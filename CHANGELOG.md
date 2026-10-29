@@ -57,6 +57,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Manage > Map has two tabs**, Graphics and Basemaps, one at a time. It
+  opens on Graphics; the map's basemap button goes straight to Basemaps.
 - **The Narrative settings' Rules tab** starts with your own rules, with
   **+ Add a rule** as a button at the right of their heading; the built-in
   rules follow.

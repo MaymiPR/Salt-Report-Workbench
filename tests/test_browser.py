@@ -2794,6 +2794,7 @@ class BrowserTests(unittest.TestCase):
         if not page.locator("#exportPanel").is_visible():
             page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='overlays']")
+        page.click("[data-map-sub='basemaps']")
         page.wait_for_selector("#mapBasemapForm")
 
     def back_to_map(self, page):
@@ -2966,6 +2967,12 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(
             page.locator(".ws-tab[data-tab='overlays']").get_attribute("aria-selected") == "true"
         )
+        # Its own tab of Manage > Map, beside the graphics, which are out of sight.
+        self.assertEqual(page.get_attribute("[data-map-sub='basemaps']", "aria-pressed"), "true")
+        self.assertTrue(page.locator("[data-map-sub-panel='graphics']").is_hidden())
+        page.click("[data-map-sub='graphics']")
+        self.assertTrue(page.locator("#mapBasemapForm").is_hidden())
+        page.click("[data-map-sub='basemaps']")
         # Remove is on each row and asks first, in the name's place, so nothing moves.
         page.click("[data-base-open='0']")
         page.wait_for_selector(".map-base-detail .map-layer-list")

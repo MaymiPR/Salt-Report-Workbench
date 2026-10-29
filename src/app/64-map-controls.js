@@ -211,7 +211,7 @@ if (mapBody) {
             return;
         }
         if (e.target.closest('#mapBaseBtn')) { toggleBasePop(); return; }
-        if (e.target.closest('#mapBaseManage')) { toggleBasePop(false); openManageView(); switchManageTab('overlays'); return; }
+        if (e.target.closest('#mapBaseManage')) { toggleBasePop(false); openManageView(); switchManageTab('overlays'); showMapSub('basemaps'); return; }
         if (e.target.closest('#mapDroneBtn')) { toggleDronePop(); return; }
         // + opens the add form (and its name box); More, a drone's look, range and Remove.
         if (e.target.closest('#mapDroneAddBtn')) {

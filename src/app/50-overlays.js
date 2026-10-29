@@ -351,7 +351,18 @@ const reviewOverlay = (row) => {
     return { type: row.type, name, ...label, geometry };
 };
 
+// Manage > Map shows its graphics or its basemaps: the graphics when
+// opened, and for an import; the basemaps from the map's basemap button.
+const showMapSub = (sub) => {
+    const pick = sub === 'basemaps' ? 'basemaps' : 'graphics';
+    document.querySelectorAll('[data-map-sub]').forEach(b => setOn(b, b.dataset.mapSub === pick, 'aria-pressed'));
+    document.querySelectorAll('[data-map-sub-panel]').forEach(p => { p.hidden = p.dataset.mapSubPanel !== pick; });
+};
+document.addEventListener('click', e => { const b = e.target.closest('[data-map-sub]'); if (b) showMapSub(b.dataset.mapSub); });
+showMapSub('graphics');
+
 const startOverlayImport = async (files) => {
+    showMapSub('graphics');
     const rows = [], names = [], failed = [];
     // A shapefile picked as its parts (.shp with its .dbf, .prj ...) is one source.
     const sources = [], parts = new Map();

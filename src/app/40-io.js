@@ -273,7 +273,7 @@ const switchManageTab = (tabName) => {
     if (tabName === 'export')          renderExportPreview();
     else if (tabName === 'workspaces') { renderWorkspacesList(); renderActivity(); }
     else if (tabName === 'builder')    renderBuilder();
-    else if (tabName === 'overlays')   { renderOverlays(); renderBasemapManager(); }
+    else if (tabName === 'overlays')   { showMapSub('graphics'); renderOverlays(); renderBasemapManager(); }
 };
 
 // ─── Report Builder ──────────────────────────────────────────────────────
