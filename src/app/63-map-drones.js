@@ -41,7 +41,7 @@ const droneTip = (d) => {
 // not the camera's footprint, which we don't know), with the sightline down
 // its middle, a box round the target, and the distance and direction. With a
 // range, a faint ring shows it, and a target past it turns the view red.
-const droneLayer = (tracks, px) => {
+const droneLayer = (tracks, px, labels) => {
     const list = shownDrones();
     if (!list.length) return { view: '', marks: '' };
     const last = t => t.points[t.points.length - 1];
@@ -61,7 +61,7 @@ const droneLayer = (tracks, px) => {
         if (mapState.droneView && d.range && mapState.view) {
             const r = d.range * 1000 / (mapState.view.mpp * Math.cos(p.lat * Math.PI / 180));
             cones.push(`<circle class="map-drone-range" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${DRONE_COLOR}" fill-opacity="0.025" stroke="${DRONE_COLOR}" stroke-opacity="0.6" stroke-width="1.3" stroke-dasharray="3 4"/>`);
-            if (r > 36) marks.push(`<text x="${x.toFixed(1)}" y="${(y - r - 5).toFixed(1)}" text-anchor="middle" class="map-label map-label-drone">${droneDistance(d.range * 1000)}</text>`);
+            if (r > 36) marks.push(mapLabel(labels, [x, y - r - 5], droneDistance(d.range * 1000), { cls: ' map-label-drone' }));
         }
         const q = mapState.droneView ? lookPoint(d) || newestOf(d) : null;
         if (q) {
@@ -99,8 +99,11 @@ const droneLayer = (tracks, px) => {
                     + `<rect x="${f(tx - 9)}" y="${f(ty - 9)}" width="18" height="18" rx="2" fill="none" stroke="${color}" stroke-width="2.4"/>`);
                 // On top, with the drones, so no graphic hides it.
                 // Past its range: how far, on a second line, so the label stays short.
-                const said = out > 0 ? `${droneDistance(meters)} ${dir}<tspan x="${f(lx)}" dy="13">${droneDistance(out)} out of range</tspan>` : `${droneDistance(meters)} ${dir}`;
-                marks.push(`<text x="${f(lx)}" y="${f(ly)}" text-anchor="${anchor}" class="map-label map-label-drone${out > 0 ? ' map-label-out' : ''}">${said}</text>`);
+                const far = `${droneDistance(meters)} ${dir}`, past = `${droneDistance(out)} out of range`;
+                marks.push(mapLabel(labels, [lx, ly], far.length >= past.length || out <= 0 ? far : past, {
+                    cls: ` map-label-drone${out > 0 ? ' map-label-out' : ''}`, anchor,
+                    inner: out > 0 ? `${far}<tspan x="${f(lx)}" dy="${LABEL_LINE}">${past}</tspan>` : null, lines: out > 0 ? 2 : 1,
+                }));
             }
         }
         const k = mapState.items.push({ kind: 'drone', d }) - 1;
@@ -108,7 +111,7 @@ const droneLayer = (tracks, px) => {
             + `<g transform="rotate(${angle.toFixed(0)})"><path d="M0,-10 L2.2,-3 L10,0.5 L10,2.6 L2.2,1.4 L1.6,6.5 L4.4,8.6 L4.4,10 L0,8.8 L-4.4,10 L-4.4,8.6 L-1.6,6.5 L-2.2,1.4 L-10,2.6 L-10,0.5 L-2.2,-3 Z" fill="${DRONE_COLOR}" stroke="#000" stroke-width="1.3" stroke-linejoin="round"/></g>`
             + `<circle r="14" fill="transparent" class="map-hit"/>`
             // How old the position is, so a drone left where it was hours ago shows it.
-            + `<text x="14" y="-10" class="map-label map-label-drone">${svgEsc(d.name)}${d.at ? ` · moved ${timeAgo(d.at)}` : ''}</text></g>`);
+            + mapLabel(labels, [14, -10], `${d.name}${d.at ? ` · moved ${timeAgo(d.at)}` : ''}`, { cls: ' map-label-drone', anchor: 'start', shift: [x, y] }) + '</g>');
     });
     // The view goes under the graphics and reports (their names stay readable);
     // the drones themselves go on top.

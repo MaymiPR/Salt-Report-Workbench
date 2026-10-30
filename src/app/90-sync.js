@@ -331,6 +331,8 @@ function switchWorkspaceLocal(ato) {
     renderLog(el.log.search.value.toLowerCase());
     renderWorkspacesList();
     renderActivity();
+    // The map too, now: nothing comes from the server to draw it again.
+    renderMapView();
 }
 
 // Returns the push promise; callers `await` when they need server confirmation

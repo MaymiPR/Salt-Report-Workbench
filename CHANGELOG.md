@@ -31,6 +31,14 @@ All notable changes to this project are documented here. The format follows
 - **Tabs slide in**: a short slide and fade from the tab's side in Manage,
   the Map tab's Graphics and Basemaps, the Summary Reports' kinds and the
   Narrative settings' tabs; none with reduced motion.
+- **Go to a grid**: a target button among the map's buttons opens a small
+  box. Type or paste an MGRS grid (MGRS Lock's zone and square go with its
+  digits), and Enter or Go puts a yellow X on the map there, with **Zoom to
+  it**; a grid that can't be read is said in the box. Closing the box takes
+  the X away. Per browser, not kept.
+- **Remove an axis of advance from the map**: clicking an axis opens its
+  card, with its name and length; editors have **Remove**, which asks in
+  place, then removes it for everyone, with Undo. Viewers see its name.
 
 ### Changed
 
@@ -55,12 +63,35 @@ All notable changes to this project are documented here. The format follows
   BDA has taken from any report; the ArcGIS points and tracks always carry
   `size_logged`. A hedge before the count (`poss 3x APCs`) is now read as
   three in the BDA checklist too, as the Statistics read it.
+- **Names on the map don't overlap**: the names of graphics, tracks, drones,
+  the grid gone to and the measure tools are placed in order (the measures,
+  then what is picked, then axes and phase lines, then places with reports,
+  then the rest) and one that would fall on another is left off. A
+  graphic's name shows only when the graphic is big enough on screen to
+  hold it, so hundreds of NAIs zoomed out show their shapes, not a wall of
+  text.
+- **2,000 graphics**: the shared overlays hold up to 2,000 graphics (500
+  before). Graphics wholly off screen are left out of a drawing, so the map
+  stays quick with them all.
+- **Show all** has an icon of its own, four arrows out to the corners, drawn
+  like the buttons round it.
+- **The map's controls are as solid as the Settings menu**: the layer
+  buttons, the window, Latest Grids / All Reports, the buttons down the
+  side, the key, the cards and the boxes have its background, and a control
+  switched on is drawn opaque, so it reads the same over any basemap.
 
 ### Removed
 
 - The ArcGIS **.json (Esri JSON)** and **.geojson** exports for points and
   tracks, and the code behind them: points export as a Shapefile or CSV,
   tracks as a Shapefile.
+
+### Fixed
+
+- **The map follows a workspace switch at once**: an editor setting another
+  workspace, or a viewer picking one in their sidebar, saw the map keep the
+  last workspace's reports until something else drew it again (for a
+  viewer, until the next change on the server).
 
 
 ## [2.32.1] - 2026-10-29

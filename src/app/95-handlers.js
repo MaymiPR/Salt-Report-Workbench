@@ -518,6 +518,8 @@ async function applyAtoConfig() {
     writeStored('salt_offline_config', JSON.stringify(localConfig));
     setAtoState(true); renderLog();
     renderWorkspacesList();
+    // The map too, now, rather than when the next pull comes (if one does).
+    renderMapView();
     // The switch moves only this editor. The server is told so viewers are
     // shown this workspace, and the others see who is where.
     saveToast(await apiPost('/api/save_config', { config: newConfig }), isLocalFile ? 'Configuration saved.' : 'Configuration synced.');

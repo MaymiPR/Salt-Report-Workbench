@@ -16,7 +16,8 @@ const storedText = (key) => { try { return localStorage.getItem(key); } catch (e
 // core: the white center of a report dot, so a dot shows on the red of a busy heat map.
 // none: an Unknown graphic, with no tag (app/50-overlays.js): gray, its dot in the list.
 // AXIS: an axis of advance, the enemy's dark red, wider than a track and on a white edge.
-const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', AXIS: '#b0001e', track: '#ff3b30', edge: '#000000', core: '#ffffff', none: '#8e8e93' };
+// goto: the X on a grid gone to, yellow on a black edge, unlike anything else drawn.
+const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', AXIS: '#b0001e', track: '#ff3b30', edge: '#000000', core: '#ffffff', none: '#8e8e93', goto: '#ffd60a' };
 // The layers on, in any mix (per browser); the heat map alone to start with.
 const MAP_LAYERS = [['heat', 'Heat map'], ['tracks', 'Tracks'], ['reports', 'Reports']];
 // Everything the map keeps between drawings, in one place: what this browser
@@ -38,6 +39,11 @@ const mapState = {
     end: null,             // the window's end (ms), set by the time slider; null for now
     selected: '',          // the report picked on the map or in its table, by id
     place: '',             // the NAI / OBJ / PL picked on the map ('NAI 1'), or ''
+    axis: '',              // the axis of advance clicked, its card open ('AXIS GOLD'), or ''
+    // Go to a grid (app/64-map-controls.js): the grid typed, marked with an X
+    // while its box is open: { lon, lat, mgrs }, or null. This browser's, not kept.
+    goto: null,
+    labelBoxes: [],        // the names the last drawing placed: [x0, y0, x1, y1] each, on screen
     lastDraw: null,        // what the last drawing showed: { view, tracks, reps }
     flashUntil: 0,         // the picked report's ring pulses until then (ms)
     fitMpp: Infinity,      // meters per pixel with the whole area in view
@@ -136,18 +142,45 @@ const mapReports = () => {
     return mapWindowReports().filter(r => SaltCore.activityMatches(r.activity, mapState.activity) && matchesSearch(r, q));
 };
 
-// The area the map covers: the overlays drawn (not Unknown ones) and the
-// reports' grids, padded so that, zoomed all the way out, they clear the
-// controls along the top and the key and slider along the foot (more room
-// above and below than at the sides). The basemap is asked for this area
-// only. Null when there is nothing to show.
+// A graphic's box in Web Mercator, [x0, y0, x1, y1], worked out once for each
+// (a sync brings new objects, and the old ones' boxes go with them): for the
+// area the map covers, and to leave the graphics wholly off screen out of a
+// drawing, which keeps the map quick with thousands of them.
+const overlayBoxes = new WeakMap();
+const overlayBox = (o) => {
+    let b = overlayBoxes.get(o);
+    if (b) return b;
+    b = [Infinity, Infinity, -Infinity, -Infinity];
+    const walk = v => {
+        if (typeof v[0] !== 'number') { v.forEach(walk); return; }
+        const [x, y] = SaltCore.lonLatToMerc(v[0], v[1]);
+        if (x < b[0]) b[0] = x;
+        if (y < b[1]) b[1] = y;
+        if (x > b[2]) b[2] = x;
+        if (y > b[3]) b[3] = y;
+    };
+    if (o.geometry && Array.isArray(o.geometry.coordinates)) walk(o.geometry.coordinates);
+    overlayBoxes.set(o, b);
+    return b;
+};
+
+// The area the map covers: the overlays drawn (not Unknown ones), the drones,
+// the grid gone to and the reports' grids, padded so that, zoomed all the way
+// out, they clear the controls along the top and the key and slider along the
+// foot (more room above and below than at the sides). The basemap is asked
+// for this area only. Null when there is nothing to show.
 const mapExtent = (tracks) => {
     const pts = [];
-    const walk = v => (typeof v[0] === 'number' ? pts.push(SaltCore.lonLatToMerc(v[0], v[1])) : v.forEach(walk));
-    currentOverlays().forEach(o => o.geometry && !tagOf(o.type).none && walk(o.geometry.coordinates));
+    currentOverlays().forEach(o => {
+        if (!o.geometry || tagOf(o.type).none) return;
+        const b = overlayBox(o);
+        if (b[0] <= b[2]) pts.push([b[0], b[1]], [b[2], b[3]]);
+    });
     tracks.forEach(t => t.points.forEach(p => pts.push(SaltCore.lonLatToMerc(p.lon, p.lat))));
-    // A drone with room round it, so Zoom can put it in the middle.
-    shownDrones().forEach(({ p: d }) => { const [x, y] = SaltCore.lonLatToMerc(d.lon, d.lat); pts.push([x - 3000, y - 3000], [x + 3000, y + 3000]); });
+    // A drone, or the grid gone to, with room round it, so Zoom can put it in the middle.
+    const room = ({ lon, lat }) => { const [x, y] = SaltCore.lonLatToMerc(lon, lat); pts.push([x - 3000, y - 3000], [x + 3000, y + 3000]); };
+    shownDrones().forEach(({ p }) => room(p));
+    if (mapState.goto) room(mapState.goto);
     if (!pts.length) return null;
     let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
     pts.forEach(([x, y]) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); });
