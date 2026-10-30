@@ -2799,10 +2799,12 @@ class BrowserTests(unittest.TestCase):
         )
         self.assertEqual(units, ["km/h", "m/min"], "metric units only")
         page.fill("#mapMeasureSpeed", "4")
-        # Under the options (speed and unit), which float over the map's right side.
-        low = box["y"] + box["height"] * 0.8
-        page.mouse.click(x, low)
-        page.mouse.click(x + 150, low)
+        # From the keyboard, clear of whatever floats over the map.
+        page.focus("#mapBox")
+        page.keyboard.press("Space")
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("Space")
         page.wait_for_selector("#mapMeasureOut:has-text('takes')")
         said = page.text_content("#mapMeasureOut")
         want = page.evaluate(
@@ -2864,10 +2866,13 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(units, ["mph", "knots"])
         page.fill("#mapMeasureSpeed", "120")
         page.select_option("#mapMeasureUnit", "kn")
-        x = box["x"] + 260  # clear of the sidebar and the tools' options
-        low = box["y"] + box["height"] * 0.8
-        page.mouse.click(x, low)
-        page.mouse.click(x + 150, low)
+        # From the keyboard, clear of whatever floats over the map: Space puts a
+        # point at its middle, an arrow moves the map.
+        page.focus("#mapBox")
+        page.keyboard.press("Space")
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("Space")
         page.wait_for_selector("#mapMeasureOut:has-text('at 120 knots takes')")
         self.assertRegex(page.text_content("#mapMeasureOut"), r"^Time-distance: [\d.]+ nm at ")
         page.fill("#mapMeasureSpeed", "25")
