@@ -9,6 +9,9 @@ get set up and what a change needs before it merges.
   install, and the page must work from a single file with no network. If a
   change needs a third-party package or a CDN, open an issue to discuss it
   first. Dev tools such as ruff and pre-commit are fine.
+  (They need Python 3.11 or newer: pre-commit 4.7 dropped 3.10. Python
+  3.10 itself reached end of life on 2026-10-01; the 3.10 floor stays for
+  operators with a stock install until their machines have a newer Python.)
 - **Don't break offline use.** Every feature should still work in local mode
   (opening `dist/index.html` directly) or degrade clearly.
 - **Never commit report data.** `Auto Backups/` is git-ignored for a reason.
@@ -37,7 +40,7 @@ The development tools are pinned to exact versions and their hashes, in
 runs the same ruff and Playwright, and a changed package fails the install.
 To change one, edit its `requirements-*.in` and regenerate with
 `pip-compile --generate-hashes --strip-extras --allow-unsafe requirements-dev.in`
-(from `pip install pip-tools`, on Python 3.13); Dependabot proposes updates
+(from `pip install pip-tools`, on Python 3.15); Dependabot proposes updates
 monthly. The pre-commit hooks are pinned to commits, and CI's Node to
 `.node-version`.
 

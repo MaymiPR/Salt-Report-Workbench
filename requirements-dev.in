@@ -1,4 +1,4 @@
 # Development tools: the linter and the git hooks. The app itself needs none.
 # Pinned with hashes in requirements-dev.txt: pip-compile --generate-hashes requirements-dev.in
-ruff==0.17.2
+ruff==0.17.3
 pre-commit==4.7.0
