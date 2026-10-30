@@ -4215,6 +4215,346 @@ class BrowserTests(unittest.TestCase):
             "() => parseFloat(document.getElementById('mapCard').style.left) >= 210"
         )
 
+    # -- names that don't overlap, many graphics, go to a grid, an axis's card -- #
+    LABELS_ON_MAP = """() => {
+        const svg = document.getElementById('mapSvg').getBoundingClientRect();
+        return {
+            placed: mapState.labelBoxes,
+            drawn: [...document.querySelectorAll('#mapSvg text')].map(t => {
+                const r = t.getBoundingClientRect();
+                return { text: t.textContent, box: [r.left - svg.left, r.top - svg.top, r.right - svg.left, r.bottom - svg.top] };
+            }),
+        };
+    }"""
+
+    def assert_no_names_overlap(self, page):
+        """Every name on the map, as placed and as drawn, clear of every
+        other; drawn no wider than the box it was placed by. Read in one go,
+        so a redraw can't fall between. The drawn boxes are the font's whole
+        height, taller than the letters, so they may touch by a few pixels."""
+        got = page.evaluate(self.LABELS_ON_MAP)
+        placed, drawn = got["placed"], got["drawn"]
+        self.assertEqual(len(placed), len(drawn), "each name drawn was placed")
+
+        def overlap(a, b):
+            return min(a[2], b[2]) - max(a[0], b[0]), min(a[3], b[3]) - max(a[1], b[1])
+
+        for i, a in enumerate(placed):
+            for b in placed[i + 1 :]:
+                dx, dy = overlap(a, b)
+                self.assertFalse(dx > 0 and dy > 0, f"placed names overlap: {a} {b}")
+        for i, a in enumerate(drawn):
+            for b in drawn[i + 1 :]:
+                dx, dy = overlap(a["box"], b["box"])
+                self.assertFalse(
+                    dx > 1 and dy > 3, f"{a['text']!r} is drawn over {b['text']!r}: {a} {b}"
+                )
+        for d in drawn:
+            x0, y0, x1, y1 = d["box"]
+            self.assertTrue(
+                any(
+                    p[0] - 1 <= x0 and x1 <= p[2] + 1 and p[1] <= (y0 + y1) / 2 <= p[3]
+                    for p in placed
+                ),
+                f"{d['text']!r} is drawn outside the box it was placed by: {d['box']}",
+            )
+        return [d["text"] for d in drawn]
+
+    @staticmethod
+    def square(lon, lat, size):
+        return {
+            "type": "Polygon",
+            "coordinates": [
+                [
+                    [lon, lat],
+                    [lon + size, lat],
+                    [lon + size, lat + size],
+                    [lon, lat + size],
+                    [lon, lat],
+                ]
+            ],
+        }
+
+    def test_names_on_the_map_never_overlap(self):
+        self.tidy_tags_and_overlays()
+        # Sixteen NAIs, each with an OBJ a little bigger, a little to its
+        # east, so each pair's names fall on each other; a tiny NAI apart;
+        # and an axis across them.
+        ovs = []
+        for k in range(16):
+            lon, lat = 44.40 + (k % 4) * 0.006, 33.27 + (k // 4) * 0.006
+            ovs.append(
+                {"type": "NAI", "name": str(k + 1), "geometry": self.square(lon, lat, 0.0055)}
+            )
+            ovs.append(
+                {
+                    "type": "OBJ",
+                    "name": str(k + 1),
+                    "geometry": self.square(lon + 0.001, lat, 0.0057),
+                }
+            )
+        ovs.append({"type": "NAI", "name": "TINY", "geometry": self.square(44.432, 33.282, 0.0004)})
+        axis = {
+            "type": "LineString",
+            "coordinates": [[44.40, 33.27], [44.42, 33.285], [44.424, 33.294]],
+        }
+        ovs.append({"type": "AXIS", "name": "GOLD", "geometry": axis})
+        self.post_to_server("/api/save_overlays", {"overlays": ovs, "tagged": True})
+        page = self.open_editor()
+        page.wait_for_function("sharedOverlays.length === 34")
+        # Two reports in NAI 1's west edge, which no OBJ covers.
+        grid = page.evaluate("SaltCore.latLonToMgrs(33.2727, 44.4003).replace(/ /g, '')")
+        self.log(page, "2x BMP", location=grid)
+        self.log(page, "3x BMP", location=grid)
+        self.open_map(page)
+        names = self.assert_no_names_overlap(page)
+        # Of each pair, the one with reports is named; else the bigger.
+        self.assertIn("NAI 1", names)
+        self.assertNotIn("OBJ 1", names)
+        self.assertIn("OBJ 2", names)
+        self.assertNotIn("NAI 2", names)
+        self.assertIn("AXIS GOLD", names)
+        # Too small on screen for its name, until zoomed in on.
+        self.assertNotIn("NAI TINY", names)
+        page.evaluate("""() => {
+            const [x, y] = SaltCore.lonLatToMerc(44.4322, 33.2822);
+            mapState.view = { cx: x, cy: y, mpp: 0.5 };
+            drawMap();
+        }""")
+        self.assertIn("NAI TINY", self.assert_no_names_overlap(page))
+        # The measures' names come first, and keep clear of each other: a
+        # path of short legs from the keyboard, back at the whole area.
+        page.evaluate("() => { mapState.view.mpp = Infinity; drawMap(); }")
+        self.start_measure(page, "path")
+        page.focus("#mapBox")
+        for key in ["ArrowRight", "ArrowUp", "ArrowRight", "ArrowDown", "ArrowRight"]:
+            page.keyboard.press("Space")
+            page.keyboard.press(key)
+        page.keyboard.press("Space")
+        page.keyboard.press("Enter")
+        self.next_frames(page)
+        names = self.assert_no_names_overlap(page)
+        total = page.evaluate("measureTotal(mapState.measure)")
+        self.assertIn(total, names)
+        self.assertGreater(len([n for n in names if "°" in n]), 0, "a leg named")
+
+    def test_two_thousand_graphics_are_taken_and_drawn_quickly(self):
+        self.tidy_tags_and_overlays()
+        many = [
+            {
+                "type": "NAI",
+                "name": str(i + 1),
+                "geometry": self.square(44.30 + (i % 50) * 0.004, 33.20 + (i // 50) * 0.004, 0.003),
+            }
+            for i in range(2000)
+        ]
+        self.post_to_server("/api/save_overlays", {"overlays": many, "tagged": True})
+        page = self.open_editor()
+        page.wait_for_function("sharedOverlays.length === 2000", timeout=15000)
+        self.open_map(page)
+        # Drawn whole, zoomed out and in, in well under a frame's worth of
+        # work per graphic (a generous bound: this is about nothing slow
+        # creeping in, not a benchmark).
+        ms = page.evaluate("""() => {
+            const time = () => { const t = performance.now(); for (let i = 0; i < 5; i++) drawMap(); return (performance.now() - t) / 5; };
+            mapState.view.mpp = Infinity;
+            const out = time();
+            mapState.view.mpp = mapState.fitMpp / 8;
+            return [out, time()];
+        }""")
+        self.assertLess(max(ms), 400, ms)
+        self.assertEqual(
+            page.locator("#mapSvg .map-overlays path").count() < 2000, True, "off screen, not drawn"
+        )
+        self.assert_no_names_overlap(page)
+        # The page imports past the old 500 too: 600 from a file, through the review.
+        self.post_to_server("/api/save_overlays", {"overlays": [], "tagged": True})
+        page.wait_for_function("sharedOverlays.length === 0")
+        path = self.overlay_geojson(
+            *[
+                (
+                    f"NAI {i + 1}",
+                    self.square(44.30 + (i % 30) * 0.004, 33.20 + (i // 30) * 0.004, 0.003),
+                )
+                for i in range(600)
+            ]
+        )
+        page.click("[data-home-go='list']")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.set_input_files("#overlaysFileInput", str(path))
+        page.wait_for_selector("#overlaysReviewAddBtn")
+        page.click("#overlaysReviewAddBtn")
+        page.wait_for_selector(
+            "#toastNotification:has-text('Imported 600 overlays')", timeout=15000
+        )
+        self.wait_for_server(page, "s => s.overlays.length === 600")
+
+    def test_go_to_a_grid_marks_it_until_its_box_closes(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        page.click("#mapGotoBtn")
+        page.wait_for_selector("#mapGotoPop:not([hidden])")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "mapGotoInput")
+        self.assertEqual(page.get_attribute("#mapGotoBtn", "aria-expanded"), "true")
+        # A bad grid says so, and marks nothing.
+        page.fill("#mapGotoInput", "nowhere 12")
+        page.press("#mapGotoInput", "Enter")
+        page.wait_for_selector("#mapGotoSaid.bad:has-text(\"isn't a grid\")")
+        self.assertEqual(page.locator("#mapSvg .map-goto").count(), 0)
+        self.assertTrue(page.locator("#mapGotoZoom").is_hidden())
+        # A good one: an X there, its grid beside it; Zoom to it zooms in on it.
+        page.fill("#mapGotoInput", "38SMB4500082000")
+        page.click("#mapGotoGo")
+        page.wait_for_selector("#mapSvg .map-goto")
+        self.assertEqual(page.text_content("#mapGotoSaid"), "X marks 38S MB 45000 82000.")
+        self.assertEqual(page.text_content("#mapSvg .map-goto text"), "38S MB 45000 82000")
+        fit = page.evaluate("mapState.fitMpp")
+        page.click("#mapGotoZoom")
+        self.next_frames(page)
+        at = page.evaluate("""() => {
+            const g = SaltCore.findGrids('38SMB4500082000')[0], [x, y] = SaltCore.lonLatToMerc(g.lon, g.lat);
+            return [Math.hypot(mapState.view.cx - x, mapState.view.cy - y), mapState.view.mpp];
+        }""")
+        self.assertLess(at[0], 1)
+        self.assertLess(at[1], fit)
+        # Closed by its ×: the X goes.
+        page.click("#mapGotoClose")
+        page.wait_for_selector("#mapGotoPop", state="hidden")
+        page.wait_for_selector("#mapSvg .map-goto", state="detached")
+        self.assertIsNone(page.evaluate("mapState.goto"))
+        self.assertEqual(page.evaluate("document.activeElement.id"), "mapGotoBtn")
+        # With MGRS Lock on, digits alone take its zone and square.
+        page.click("#dataMgmtBtn")
+        page.click("#toggleMgrsLockBtn")
+        page.fill("#mgrsPrefix", "38smb")
+        page.click("#size")
+        page.click("#mapGotoBtn")
+        page.fill("#mapGotoInput", "45000 82000")
+        page.press("#mapGotoInput", "Enter")
+        page.wait_for_selector("#mapSvg .map-goto")
+        self.assertEqual(page.evaluate("mapState.goto.mgrs"), "38S MB 45000 82000")
+        # Escape closes it, the X with it, back to its button.
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#mapGotoPop", state="hidden")
+        page.wait_for_selector("#mapSvg .map-goto", state="detached")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "mapGotoBtn")
+        # So does its button pressed again; a click elsewhere on the map doesn't.
+        page.click("#mapGotoBtn")
+        page.press("#mapGotoInput", "Enter")
+        page.wait_for_selector("#mapSvg .map-goto")
+        page.click("#mapLegend .map-key-tag >> nth=0")
+        page.click("#mapLegend .map-key-tag >> nth=0")
+        self.assertTrue(page.locator("#mapGotoPop").is_visible())
+        page.click("#mapGotoBtn")
+        page.wait_for_selector("#mapSvg .map-goto", state="detached")
+        self.assertEqual(page.get_attribute("#mapGotoBtn", "aria-expanded"), "false")
+        # Nothing of it is kept.
+        self.assertEqual(
+            page.evaluate("Object.keys(localStorage).filter(k => /goto/i.test(k))"), []
+        )
+
+    def click_on_axis(self, page):
+        """Put the map's middle on AXIS GOLD's middle (as near as the edge of
+        the area lets it), and click on the axis there, once the map has
+        slid into place."""
+        self.settle(page)
+        x, y = page.evaluate("""() => {
+            const [x, y] = SaltCore.lonLatToMerc(44.43, 33.30);
+            mapState.view = { cx: x, cy: y, mpp: 8 };
+            drawMap();
+            const v = mapState.view, r = document.getElementById('mapBox').getBoundingClientRect();
+            return [r.left + r.width / 2 + (x - v.cx) / v.mpp, r.top + r.height / 2 + (v.cy - y) / v.mpp];
+        }""")
+        page.mouse.click(x, y)
+        page.wait_for_selector("#mapCard:not([hidden])")
+
+    def test_an_axis_of_advance_clicked_on_the_map_can_be_removed(self):
+        self.tidy_tags_and_overlays()
+        axis = {
+            "type": "AXIS",
+            "name": "GOLD",
+            "geometry": {"type": "LineString", "coordinates": [[44.40, 33.30], [44.46, 33.30]]},
+        }
+        nai = {"type": "NAI", "name": "1", "geometry": self.square(44.40, 33.26, 0.02)}
+        self.post_to_server("/api/save_overlays", {"overlays": [nai, axis], "tagged": True})
+        page = self.open_editor()
+        page.wait_for_function("sharedOverlays.length === 2")
+        self.open_map(page)
+        self.click_on_axis(page)
+        card = page.text_content("#mapCard")
+        self.assertIn("AXIS GOLD", card)
+        self.assertIn("Axis of advance", card)
+        page.wait_for_selector("#mapSvg .map-axis.picked")
+        # Remove asks in place first, then removes it for everyone, with Undo.
+        page.click("[data-card-act='remove-axis']")
+        page.wait_for_selector("[data-card-act='remove-axis']:has-text('Remove for everyone?')")
+        self.assertEqual(page.evaluate("sharedOverlays.length"), 2)
+        page.click("[data-card-act='remove-axis']")
+        page.wait_for_selector("#toastNotification:has-text('AXIS GOLD removed.')")
+        page.wait_for_selector("#mapCard", state="hidden")
+        self.wait_for_server(page, "s => !s.overlays.some(o => o.type === 'AXIS')")
+        self.assertEqual(page.locator("#mapSvg .map-axis").count(), 0)
+        page.click("#toastNotification .toast-undo")
+        self.wait_for_server(
+            page, "s => s.overlays.some(o => o.type === 'AXIS' && o.name === 'GOLD')"
+        )
+        page.click("[data-map-zoom='fit']")
+        page.wait_for_selector("#mapSvg .map-axis")
+        # A viewer sees its name, and nothing to remove it with.
+        viewer = self.open_viewer()
+        viewer.wait_for_function("sharedOverlays.length === 2")
+        self.open_map(viewer)
+        self.click_on_axis(viewer)
+        self.assertIn("AXIS GOLD", viewer.text_content("#mapCard"))
+        self.assertEqual(viewer.locator("#mapCard [data-card-act='remove-axis']").count(), 0)
+        # Escape closes it.
+        viewer.keyboard.press("Escape")
+        viewer.wait_for_selector("#mapCard", state="hidden")
+
+    def map_sizes(self, page):
+        return sorted(page.evaluate("mapState.lastDraw.reps.map(r => r.size)"))
+
+    def test_the_map_follows_a_workspace_switch_at_once(self):
+        page = self.open_editor(ato="MAPWSA")
+        self.import_overlays(page)
+        self.log(page, "1x BTR", location="38SMB4500082000")
+        page.click("#setAtoBtn")
+        page.fill("#atoDesignator", "MAPWSB")
+        page.click("#setAtoBtn")
+        page.wait_for_function("activeAto === 'MAPWSB'")
+        self.log(page, "2x BMP", location="38SMB4600082000")
+        self.log(page, "3x T-72", location="38SMB4700082000")
+        self.wait_for_server(
+            page,
+            "s => (s.workspaces.MAPWSA || []).length === 1 && (s.workspaces.MAPWSB || []).length === 2",
+        )
+        self.open_map(page)
+        self.synced(page)
+        self.assertEqual(self.map_sizes(page), ["2x BMP", "3x T-72"])
+        # The switch reaches no server, so no pull draws the map again: it
+        # is drawn by the switch itself.
+        page.route("**/api/save_config", lambda route: route.abort())
+        page.click("#setAtoBtn")
+        page.fill("#atoDesignator", "MAPWSA")
+        page.click("#setAtoBtn")
+        page.wait_for_function("activeAto === 'MAPWSA'")
+        page.wait_for_function("mapState.lastDraw.reps.length === 1", timeout=2000)
+        self.assertEqual(self.map_sizes(page), ["1x BTR"])
+        page.unroute("**/api/save_config")
+        # A viewer switching in their sidebar: the map follows, at once.
+        viewer = self.open_viewer()
+        viewer.wait_for_selector("#workspacesSidebarList [data-switch-ato='MAPWSB']")
+        self.open_map(viewer)
+        for ato, sizes in [("MAPWSB", ["2x BMP", "3x T-72"]), ("MAPWSA", ["1x BTR"])]:
+            viewer.click(f"#workspacesSidebarList [data-switch-ato='{ato}']")
+            viewer.wait_for_function(f"viewerShowingAto === '{ato}'")
+            viewer.wait_for_function(
+                f"mapState.lastDraw.reps.length === {len(sizes)}", timeout=2000
+            )
+            self.assertEqual(self.map_sizes(viewer), sizes)
+
     def test_the_format_stays_when_switching_workspaces(self):
         page = self.open_editor(ato="FORMATA")
         page.click("#exportViewToggleBtn")

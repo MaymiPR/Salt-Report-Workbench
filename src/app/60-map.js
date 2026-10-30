@@ -165,10 +165,10 @@ const overlayBox = (o) => {
 };
 
 // The area the map covers: the overlays drawn (not Unknown ones), the drones,
-// the grid gone to and the reports' grids, padded so that, zoomed all the way out, they clear the
-// controls along the top and the key and slider along the foot (more room
-// above and below than at the sides). The basemap is asked for this area
-// only. Null when there is nothing to show.
+// the grid gone to and the reports' grids, padded so that, zoomed all the way
+// out, they clear the controls along the top and the key and slider along the
+// foot (more room above and below than at the sides). The basemap is asked
+// for this area only. Null when there is nothing to show.
 const mapExtent = (tracks) => {
     const pts = [];
     currentOverlays().forEach(o => {
