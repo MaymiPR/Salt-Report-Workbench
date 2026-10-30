@@ -6,16 +6,17 @@
 // Words that say how many, not what: "total of", "approx", "about".
 const SIZE_FILLER = /\b(?:total(?:\s+of)?|approx(?:imately)?|about|around|est(?:imated)?|at\s+least|up\s+to)\b\.?|~/gi;
 // One element's count and its type as written: "2x T-72", "4 BMP-2", "vics
-// 10x", "vics x10", "trucks (3)", "truck". `counted` says a number was given.
+// 10x", "vics x10", "trucks (3)", "truck". `counted` says a number was given,
+// `lead` that it came first (else last: "vics 10x", "trucks (3)").
 // A number run into a name ("2S19") is part of the name.
 const sizeCount = (part) => {
     const text = part.replace(SIZE_FILLER, ' ').replace(/\s+/g, ' ').trim();
-    let count = 1, type = text, counted = false, m;
-    if ((m = /^(\d+)\s*(?:x\s*|\s+)(\S.*)$/i.exec(text))) { count = Number(m[1]); type = m[2]; counted = true; }
+    let count = 1, type = text, counted = false, lead = false, m;
+    if ((m = /^(\d+)\s*(?:x\s*|\s+)(\S.*)$/i.exec(text))) { count = Number(m[1]); type = m[2]; counted = true; lead = true; }
     else if ((m = /^(.+?)\s+(?:(\d+)\s*x|x\s*(\d+))$/i.exec(text) || /^(.+?)\s*\((\d+)\)$/.exec(text))) {
         count = Number(m[2] || m[3]); type = m[1]; counted = true;
     }
-    return { count, text: type.replace(/^of\s+/i, '').trim(), counted };
+    return { count, text: type.replace(/^of\s+/i, '').trim(), counted, lead };
 };
 // One element as the Statistics count it: its type upper-cased and singular.
 // "2x possible tanks", "poss 3x APCs", "1x probable heli", "2x likely a heli":
@@ -105,6 +106,7 @@ const HEADINGS_8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 // Everything the Statistics panel draws, for the live reports given (already
 // cut to the time window). Each report counts once per place, square, tag, or
 // type it names; history is not counted. Lists are sorted largest first.
+// Equipment is counted from what is left after BDA (sizeAfterBda).
 //   squareDigits  1 = 10 km squares, 2 = 1 km squares
 //   team          the team's equipment (teamEquipment), optional, so the
 //                 types it adds fold their plurals as the narrative does
@@ -129,7 +131,7 @@ const statsData = (reps, overlays, { local, squareDigits = 1, team = null } = {}
         const act = classifyActivity(r.activity);
         (act.tags.length ? act.tags : ['Untagged']).forEach(t => add(tags, t));
         if (act.headingDeg !== null) headings[Math.round(act.headingDeg / 45) % 8]++;
-        sizeElements(r.size, team).forEach(e => add(equipment, e.type, e.count));
+        sizeElements(effectiveSize(r, team), team).forEach(e => add(equipment, e.type, e.count));
         const d = new Date(r.time);
         if (!isNaN(d.getTime())) {
             const f = dateFields(d, local);
@@ -172,23 +174,28 @@ const statsCsv = (sections) => sections.map(({ title, items }) =>
 // The report table as rows for a spreadsheet: one row per report as it is
 // now, with what the app reads from it (places, activity tags, heading, BDA).
 // A time is { date: Excel serial } so Excel sorts and filters it as a date;
-// in Local mode it is the browser's local time.
+// in Local mode it is the browser's local time. The Size is what is left
+// after BDA (sizeAfterBda); when BDA has taken from any report, a "Size (as
+// logged)" column after "BDA assessed" holds each one as it was logged.
 const excelSerial = (ms, local) => {
     const off = local ? new Date(ms).getTimezoneOffset() * 60000 : 0;
     return (ms - off) / 86400000 + 25569;
 };
-const workbookReportRows = (reps, overlays, { local, idOf, customLabels = [] }) => {
+const workbookReportRows = (reps, overlays, { local, idOf, customLabels = [], team = null }) => {
+    const live = (reps || []).filter(r => !r.deleted).sort((a, b) => reportNum(a) - reportNum(b));
+    const sizes = new Map(live.map(r => [r, sizeAfterBda(r, team)]));
+    const logged = [...sizes.values()].some(s => s.note);
     const header = ['Identifier', 'Status', 'By', 'Size', 'Activity', 'Location', `Time (${local ? 'Local' : 'Z'})`, 'Analysis',
-        'NAI / OBJ / PL', 'Activity tags', 'Heading', 'BDA assessed', 'Updates', ...customLabels];
-    const rows = (reps || []).filter(r => !r.deleted).sort((a, b) => reportNum(a) - reportNum(b)).map(r => {
+        'NAI / OBJ / PL', 'Activity tags', 'Heading', 'BDA assessed', ...(logged ? ['Size (as logged)'] : []), 'Updates', ...customLabels];
+    const rows = live.map(r => {
         const a = analyzeLocation(r.location, overlays);
         const act = classifyActivity(r.activity);
         const ms = new Date(r.time).getTime();
         const b = bdaSummary(r);
-        return [idOf(r), r.updated ? 'Updated' : 'Original', (r.user && r.user.initials) || '', r.size || '', r.activity || '',
+        return [idOf(r), r.updated ? 'Updated' : 'Original', (r.user && r.user.initials) || '', sizes.get(r).size, r.activity || '',
             r.location || '', isNaN(ms) ? '' : { date: excelSerial(ms, local) }, r.yourAnalysis || '',
             [...a.nai.keys, ...a.obj.keys, ...a.pls].join(', '), act.tags.join(', '), act.heading || '',
-            b.done ? `${b.done} of ${b.total}` : '', (r.history || []).length,
+            b.done ? `${b.done} of ${b.total}` : '', ...(logged ? [r.size || ''] : []), (r.history || []).length,
             ...customLabels.map(c => (r.custom || {})[c] || '')];
     });
     return { header, rows };
@@ -355,7 +362,7 @@ const statsXlsx = ({ title = 'Statistics', context = '', kpis = [], charts = [],
     const lastCol = colName(Math.max(heads.length, 1) - 1);
     const hasTable = heads.length > 0 && repRows.length > 0;
     const tableRef = `A1:${lastCol}${repRows.length + 1}`;
-    const widths = heads.map(h => ({ Identifier: 18, Status: 10, By: 6, Size: 22, Activity: 28, Location: 30, Analysis: 36, 'NAI / OBJ / PL': 18, 'Activity tags': 20, Heading: 9, 'BDA assessed': 13, Updates: 9 }[h] || (/^Time/.test(h) ? 17 : 16)));
+    const widths = heads.map(h => ({ Identifier: 18, Status: 10, By: 6, Size: 22, Activity: 28, Location: 30, Analysis: 36, 'NAI / OBJ / PL': 18, 'Activity tags': 20, Heading: 9, 'BDA assessed': 13, 'Size (as logged)': 22, Updates: 9 }[h] || (/^Time/.test(h) ? 17 : 16)));
     const reportsSheet = sheetHead('<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/>')
         + (widths.length ? colsXml(widths) : '')
         + `<sheetData>${[rowXml(1, heads.map((h, c) => [c, h, XS.head]), 20), ...repRows.map((row, i) => rowXml(i + 2, row.map((v, c) => [c, v])))].join('')}</sheetData>`
@@ -425,17 +432,19 @@ const dtg = (ms, local) => {
 const dayTime = (ms, local) => { const d = timeOf(ms); if (!d) return NO_TIME; const f = dateFields(d, local); return `${f.day}${f.h}${f.mi}${zoneMark(local)}`; };
 const countList = (items) => items.map(i => `${i.label} ${i.value}`).join(', ');
 
-// What the summaries need about each report, worked out once.
-const reportFacts = (r, overlays) => {
+// What the summaries need about each report, worked out once. `size` is its
+// Size after BDA (sizeAfterBda; `shown` to print), what they count and quote.
+const reportFacts = (r, overlays, team = null) => {
     const a = analyzeLocation(r.location, overlays);
     const act = classifyActivity(r.activity);
+    const size = sizeAfterBda(r, team);
     return {
-        r, a, act, ms: new Date(r.time).getTime(),
+        r, a, act, ms: new Date(r.time).getTime(), size: size.size, shown: size.shown,
         places: [...a.nai.keys, ...a.obj.keys],
         pls: a.pls,
     };
 };
-const oneLine = (f) => `${f.r.size || '-'}; ${f.r.activity || '-'}; ${f.r.location || '-'}`;
+const oneLine = (f) => `${f.shown || '-'}; ${f.r.activity || '-'}; ${f.r.location || '-'}`;
 const reportLine = (f, local) => `${dayTime(f.ms, local)}  ${pad(f.r.displayId || f.r.id || '', 9)} ${oneLine(f)}`;
 const pad = (s, n) => String(s).padEnd(n);
 
@@ -495,7 +504,7 @@ const summaryDetail = (kind, reps, overlays, opts) => {
     const { local, from = null, to = null, now = new Date(), ato = '', title = '', by = '', place = '', squareDigits = 2, narrative = null, width = 100 } = opts;
     if (!Object.prototype.hasOwnProperty.call(SUMMARY_KINDS, kind)) kind = 'rollup';
     const team = opts.team !== undefined ? opts.team : narrative ? narrativeSettings(narrative).team : null;
-    const facts = (reps || []).filter(r => !r.deleted).map(r => reportFacts(r, overlays))
+    const facts = (reps || []).filter(r => !r.deleted).map(r => reportFacts(r, overlays, team))
         .filter(f => !isNaN(f.ms)).sort((x, y) => x.ms - y.ms);
     const within = (lo, hi) => facts.filter(f => (lo === null || f.ms >= lo) && (hi === null || f.ms <= hi));
     const cur = within(from, to);

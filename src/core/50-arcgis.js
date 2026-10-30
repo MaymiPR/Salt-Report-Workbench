@@ -6,8 +6,9 @@
 // One row per grid of each live report: a report naming three grids becomes
 // three points. Reports with no readable grid are counted, not exported.
 // Field names avoid SQL reserved words (TIME, CHECK), which some geodatabases
-// refuse or rename.
-const arcgisRows = (reps, overlays, { local, customLabels = [], idOf }) => {
+// refuse or rename. `size` is what is left after BDA (sizeAfterBda; `team`:
+// the team's equipment), `size_logged` the Size as it was logged.
+const arcgisRows = (reps, overlays, { local, customLabels = [], idOf, team = null }) => {
     const rows = []; let skipped = 0;
     const field = l => 'c_' + String(l).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
     for (const r of reps) {
@@ -21,7 +22,7 @@ const arcgisRows = (reps, overlays, { local, customLabels = [], idOf }) => {
                 report_id: idOf(r), ato: r.ato || '', title: r.title || '',
                 time_utc: r.time ? new Date(r.time).toISOString().replace(/\.\d{3}Z$/, 'Z') : '',
                 time_disp: r.time ? toTimeString(r.time, local) : '',
-                size: r.size || '', activity: r.activity || '',
+                size: effectiveSize(r, team), size_logged: r.size || '', activity: r.activity || '',
                 act_tags: act.tags.join('; '), heading: act.heading || '', heading_deg: act.headingDeg,
                 location: r.location || '', mgrs: p.mgrs, grid_n: `${i + 1}/${a.points.length}`,
                 precision_m: p.precision,
@@ -157,7 +158,7 @@ const zipStore = (files, now = new Date()) => {
 const WGS84_PRJ = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
 // Field names a shapefile can hold (10 characters at most), for the ArcGIS
 // rows' longer names; the rest are cut to 10 and kept apart with a number.
-const SHP_FIELD_NAMES = { heading_deg: 'head_deg', precision_m: 'prec_m', bearing_deg: 'bearing' };
+const SHP_FIELD_NAMES = { heading_deg: 'head_deg', precision_m: 'prec_m', bearing_deg: 'bearing', size_logged: 'size_log' };
 const shpFieldNames = (cols) => {
     const used = new Set();
     return cols.map(c => {

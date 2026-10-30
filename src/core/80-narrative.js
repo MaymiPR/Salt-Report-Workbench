@@ -66,13 +66,13 @@ const movementDeg = (f) => {
 };
 
 // What the narrative needs about a report, beyond the summaries' facts: its
-// equipment, the roles in it, its size by kind, and the areas it counts in
+// equipment (from its Size after BDA, the facts' `size`), the roles in it, its size by kind, and the areas it counts in
 // (its NAIs and OBJs, else its 10 km square, else none). With a way of
 // march (`march`: { axes, toward }), the way of march where it is (`way`,
 // wayOfMarchAt at its first grid) and, when it moves, how (`sense`: along,
 // back or across, wayRelation); without one, both null.
 const narrativeFacts = (f, team, march = null) => {
-    const els = sizeElements(f.r.size, team).map(e => ({ ...e, kit: lookupEquipment(e.type, team) }));
+    const els = sizeElements(f.size, team).map(e => ({ ...e, kit: lookupEquipment(e.type, team) }));
     const groups = {};
     els.forEach(e => { const k = e.kit && ECHELON_KIND[e.kit.role]; if (k) groups[k] = (groups[k] || 0) + e.count; });
     const sq = f.a.points.length ? gridSquare(f.a.points[0].mgrs, 1) : null;
@@ -170,7 +170,7 @@ const CAPABILITIES = {
     smoke: capability(['TDA-2K', 'TDA-3'], /\bsmoke\b/i),
     atPosition: capability([], /\b(at (ambush|positions?)|atgm (team|positions?)|antitank positions?|ambush\w*)\b/i),
 };
-const textOf = (f) => `${f.r.size || ''} ${f.r.activity || ''}`;
+const textOf = (f) => `${f.size} ${f.r.activity || ''}`;
 const can = (f, cap) => f.els.some(e => e.kit && CAPABILITIES[cap].names.has(e.kit.name)) || CAPABILITIES[cap].words.test(textOf(f));
 // Firing words that aren't contact are NOT_CONTACT, with the activity tags.
 const FIRING_WORDS = ACTIVITY_TAGS.find(([t]) => t === 'Firing')[1];
@@ -1058,7 +1058,7 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
     // The largest single sighting of each kind, and the unit size it suggests.
     const largest = Object.keys(ECHELONS).map(kind => {
         const top = facts.filter(f => f.groups[kind]).sort((x, y) => y.groups[kind] - x.groups[kind] || y.ms - x.ms)[0];
-        return top && `${ECHELON_LABEL[kind]} approximately ${echelonOf(kind, top.groups[kind])} size (${top.r.size}; ${top.id} ${dayTime(top.ms, local)}${top.places.length ? `, ${top.places.join(', ')}` : ''})`;
+        return top && `${ECHELON_LABEL[kind]} approximately ${echelonOf(kind, top.groups[kind])} size (${top.shown}; ${top.id} ${dayTime(top.ms, local)}${top.places.length ? `, ${top.places.join(', ')}` : ''})`;
     }).filter(Boolean);
     if (largest.length) say(`Largest single sightings: ${largest.join('; ')}.`);
     // Where they headed, and any firing.
@@ -1075,7 +1075,7 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
     }
     const shots = facts.filter(f => f.act.tags.includes('Firing'));
     if (shots.length) {
-        say(`Firing: ${plural(shots.length, 'report')}: ${shots.slice(0, 5).map(f => `${f.id} ${dayTime(f.ms, local)} ${f.r.size || '-'}, ${f.r.activity || '-'}`).join('; ')}`
+        say(`Firing: ${plural(shots.length, 'report')}: ${shots.slice(0, 5).map(f => `${f.id} ${dayTime(f.ms, local)} ${f.shown || '-'}, ${f.r.activity || '-'}`).join('; ')}`
             + `${shots.length > 5 ? `; and ${shots.length - 5} more` : ''}.`);
     }
     // Each busy place in a sentence: when, what kinds, what they were doing.

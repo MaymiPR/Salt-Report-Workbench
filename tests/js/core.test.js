@@ -295,6 +295,115 @@ test('BDA reads counts and plurals as the Statistics do', () => {
     assert.deepEqual(core.bdaPending(w, team), []);
 });
 
+// --- The Size after BDA ---
+
+const dest = (target, effect = 'Destroyed') => ({ target, effect });
+const after = (size, bda, team = null) => core.sizeAfterBda({ size, location: '', bda }, team);
+
+test('destroyed vehicles come off the Size; the Size as logged is kept', () => {
+    const r = { size: '20x tanks', location: '', bda: [dest('3x tanks')] };
+    assert.deepEqual(core.sizeAfterBda(r), { size: '17x tanks', logged: '20x tanks', taken: [{ count: 3, type: 'tanks' }], note: 'BDA: 3x tanks destroyed', shown: '17x tanks' });
+    assert.equal(core.effectiveSize(r), '17x tanks');
+    assert.equal(r.size, '20x tanks', 'the report is not changed');
+    // Taking the assessment away brings the count back.
+    r.bda = [];
+    assert.equal(core.effectiveSize(r), '20x tanks');
+    assert.equal(core.sizeAfterBda(r).note, '');
+    assert.equal(core.effectiveSize({ size: '20x tanks' }), '20x tanks', 'no BDA at all');
+});
+
+test('each type comes off its own element, and the rest of the text stays as written', () => {
+    assert.equal(after('20x tanks, 2x BMP-2', [dest('3x tanks')]).size, '17x tanks, 2x BMP-2');
+    assert.equal(after('20x tanks; 4 BMP-2 + T-72 x4', [dest('1x BMP-2'), dest('2x T-72s')]).size, '20x tanks; 3 BMP-2 + T-72 x2');
+    assert.equal(after('trucks (3), vics 10x', [dest('1x truck'), dest('4x vics')]).size, 'trucks (2), vics 6x');
+    assert.equal(after('approx 20 T-72', [dest('5x T-72')]).size, 'approx 15 T-72');
+    const two = after('20x tanks, 2x BMP-2', [dest('3x tanks'), dest('1x BMP-2'), dest('2x tanks')]);
+    assert.equal(two.size, '15x tanks, 1x BMP-2');
+    assert.equal(two.note, 'BDA: 5x tanks, 1x BMP-2 destroyed', 'one entry per type, in the order of the Size');
+    // Any case, plural or not, as partial BDA pairs them.
+    assert.equal(after('2x BUSES, 3x lorries', [dest('1x bus'), dest('1x LORRY')]).size, '1x BUSES, 2x lorries');
+    const team = core.teamEquipment([{ type: 'widget', role: 'logistics' }]);
+    assert.equal(after('3X WIDGETS', [dest('1x widget')], team).size, '2X WIDGETS', 'a team type folds with the team given');
+});
+
+test('only Destroyed takes from the Size; partial BDA takes only its count', () => {
+    for (const effect of ['Damaged', 'Mobility Kill', 'Suppressed', 'No Effect', 'Unknown', '']) {
+        assert.equal(after('20x tanks', [dest('3x tanks', effect)]).size, '20x tanks', effect);
+    }
+    const mixed = after('20x tanks', [dest('2x tanks', 'Damaged'), dest('3x tanks'), dest('1x tanks', 'Mobility Kill')]);
+    assert.equal(mixed.size, '17x tanks');
+    assert.equal(mixed.note, 'BDA: 3x tanks destroyed');
+    // As the BDA panel logs part of an element: "3x T-72" of "40x T-72", then one more.
+    assert.equal(after('40x T-72, 3x trucks', [dest('3x T-72'), dest('1x T-72')]).size, '36x T-72, 3x trucks');
+});
+
+test('an element destroyed to none is dropped, and never goes below none', () => {
+    assert.equal(after('20x tanks, 2x BMP-2', [dest('2x BMP-2')]).size, '20x tanks');
+    assert.equal(after('2x BMP-2, 20x tanks', [dest('2x BMP-2')]).size, '20x tanks', 'its separator goes with it');
+    assert.equal(after('1x T-72, truck; 2x BMP-2', [dest('truck')]).size, '1x T-72; 2x BMP-2');
+    const all = after('20x tanks', [dest('25x tanks')]);
+    assert.deepEqual([all.size, all.shown, all.note], ['', 'None left', 'BDA: 20x tanks destroyed'], 'what came off, no more');
+    // Too many of one type spill to the next element of that type, never into another type.
+    assert.equal(after('2x T-72, 2x BMP-2, 3x T-72', [dest('3x T-72')]).size, '2x BMP-2, 2x T-72');
+});
+
+test('types the Size does not name, and text it cannot count, are left as they are', () => {
+    const none = after('20x tanks', [dest('3x BMP-2')]);
+    assert.deepEqual([none.size, none.note, none.shown], ['20x tanks', '', '20x tanks']);
+    assert.equal(after('a lot of vehicles', [dest('3x tanks')]).size, 'a lot of vehicles');
+    assert.equal(after('', [dest('3x tanks')]).size, '');
+    assert.equal(after('Total of vics 10x: 5x tanks and 5x APC', [dest('2x tanks')]).size, 'Total of vics 10x: 5x tanks and 5x APC', 'one element to BDA, as the panel reads it');
+    assert.equal(after('20x tanks', [dest('0x tanks'), dest('')]).size, '20x tanks', 'none destroyed, or nothing named');
+    assert.equal(after('20x tanks', [null, { effect: 'Destroyed' }]).size, '20x tanks');
+    assert.equal(core.sizeAfterBda({ size: 0, bda: [] }).size, '0', 'zero is a Size, not nothing');
+    assert.equal(core.sizeAfterBda(null).size, '');
+});
+
+test('how sure the observer was stays in the Size, before the count or after it', () => {
+    assert.equal(after('2x possible tanks', [dest('1x possible tanks')]).size, '1x possible tanks');
+    assert.equal(after('possible 20x tanks', [dest('3x possible tanks')]).size, 'possible 17x tanks');
+    assert.equal(after('poss 3x APCs, 2x T-72', [dest('1x poss APCs')]).size, 'poss 2x APCs, 2x T-72');
+    assert.deepEqual(core.bdaCount('poss 3x APCs'), { count: 3, type: 'poss APCs', counted: true }, 'a hedge before the count, as the Statistics read it');
+    assert.equal(core.bdaCount('poss 3x BTR-82A').count, core.sizeElements('poss 3x BTR-82A')[0].count);
+    // The panel offers the element under its hedge, so it is assessed under it.
+    assert.deepEqual(core.bdaPending({ size: 'poss 3x APCs', location: '', bda: [dest('1x poss APCs')] }).map(e => e.target), ['2x poss APCs']);
+});
+
+test('the copied text, the Statistics and the summaries read the Size after BDA', () => {
+    const r = report({ size: '20x T-72, 2x BMP-2', bda: [dest('3x T-72'), dest('1x BMP-2', 'Damaged')] });
+    const text = core.reportText(r, SALT, 'dash').split('\n');
+    assert.equal(text[1], 'S: 17x T-72, 2x BMP-2 (BDA: 3x T-72 destroyed)');
+    assert.ok(text.includes('BDA 1: Destroyed - 3x T-72'));
+    assert.equal(core.reportText(report({ size: '1x T-72', bda: [dest('1x T-72')] }), SALT, 'dash').split('\n')[1], 'S: None left (BDA: 1x T-72 destroyed)');
+    assert.equal(core.reportText(report(), SALT, 'dash').split('\n')[1], 'S: 2x T-72', 'no BDA: as it was');
+    const eq = core.statsData([r], [], {}).equipment;
+    assert.deepEqual(eq, [{ label: 'T-72', value: 17 }, { label: 'BMP-2', value: 2 }]);
+    // The workbook: Size after BDA, and as logged when BDA took from any report.
+    const wb = core.workbookReportRows([r], [], { local: false, idOf: x => x.displayId });
+    const col = (name) => wb.rows[0][wb.header.indexOf(name)];
+    assert.deepEqual([col('Size'), col('Size (as logged)')], ['17x T-72, 2x BMP-2', '20x T-72, 2x BMP-2']);
+    assert.ok(!core.workbookReportRows([report()], [], { local: false, idOf: x => x.displayId }).header.includes('Size (as logged)'));
+    // ArcGIS points and tracks: the field after BDA, and the one as logged.
+    const placed = report({ ...r, location: '38SMB4500082000' });
+    const pt = core.arcgisRows([placed], [], { local: false, idOf: x => x.id }).rows[0];
+    assert.deepEqual([pt.size, pt.size_logged], ['17x T-72, 2x BMP-2', '20x T-72, 2x BMP-2']);
+    const moved = { ...placed, history: [{ location: '38SMB4000082000', time: '2026-10-24T03:00:00Z', lastModified: 1 }] };
+    const tr = core.arcgisTrackRows([moved], { local: false, idOf: x => x.id })[0];
+    assert.deepEqual([tr.size, tr.size_logged], ['17x T-72, 2x BMP-2', '20x T-72, 2x BMP-2']);
+    // The summaries quote it.
+    const line = core.summaryReport('place', [{ ...placed, location: '38SMB4500082000, NAI 1' }], [], { local: false, place: 'NAI 1', now: NOW }).split('\n');
+    assert.ok(line.some(l => l.includes('ALPHA001  17x T-72, 2x BMP-2; Moving NE;')), line.join('\n'));
+    // The backup keeps the Size as logged.
+    assert.equal(core.parseBackup(core.backupText('ALPHA', [r], 'Patrol', {}, {}, NOW)).data.workspaces.ALPHA[0].size, '20x T-72, 2x BMP-2');
+});
+
+test('the MTI export counts what is left of the current version', () => {
+    const r = report({ size: '6x tracked', bda: [dest('2x tracked')], history: [{ size: '5x tracked', lastModified: 1, time: '2026-10-24T01:00:00Z' }] });
+    const mti = core.mtiCsvs([r], { local: false, idOf: x => x.fullId });
+    const rows = core.parseCsv(mti.tracked).filter(row => row.length > 1).slice(1);
+    assert.deepEqual(rows.map(row => row[2]), ['4x tracked', '5x tracked'], 'a saved version as it was logged');
+});
+
 test('the BDA roll-up totals a workspace\'s elements and outcomes', () => {
     const reps = [
         { size: '4x T-72, 2x BMP-2', location: '', bda: [{ target: '4x T-72', effect: 'Destroyed' }] },  // 4 of 6 assessed
@@ -361,8 +470,10 @@ test('the CSV export lists each report, its history, then its BDA', () => {
     });
     const csv = core.reportsCsv([r], { local: false, customLabels: ['W'], idOf: x => x.fullId });
     const rows = core.parseCsv(csv).filter(row => row.length > 1);
-    assert.deepEqual(rows[0], ['Identifier', 'UpdateStatus', 'Size', 'Activity', 'MGRS', 'Time (Z)', 'Analysis', 'W']);
+    // Both T-72 destroyed: none left in Size, the Size as logged last.
+    assert.deepEqual(rows[0], ['Identifier', 'UpdateStatus', 'Size', 'Activity', 'MGRS', 'Time (Z)', 'Analysis', 'W', 'Size (as logged)']);
     assert.deepEqual(rows.slice(1).map(row => row[1]), ['Current Update', 'Update #2 (Old)', 'Update #1 (Old)', 'BDA #1']);
+    assert.deepEqual(rows.slice(1).map(row => [row[2], row[8]]), [['', '2x T-72'], ['v2', 'v2'], ['v1', 'v1'], ['2x T-72', '']]);
     assert.equal(rows[1][7], 'Rain');
     assert.equal(rows[4][6], 'he said "done"');
     assert.ok(csv.endsWith('\r\n'));
@@ -374,8 +485,9 @@ test('the CSV export says each report\'s observer last, when there is one', () =
         bda: [{ target: 'T-72', effect: 'Destroyed', time: '2026-10-24T05:00:00Z' }] });
     const opts = { local: false, customLabels: ['W'], idOf: x => x.fullId };
     const rows = core.parseCsv(core.reportsCsv([seen, report({ id: 'r2' })], opts)).filter(row => row.length > 1);
-    assert.deepEqual(rows[0], ['Identifier', 'UpdateStatus', 'Size', 'Activity', 'MGRS', 'Time (Z)', 'Analysis', 'W', 'Observer']);
+    assert.deepEqual(rows[0], ['Identifier', 'UpdateStatus', 'Size', 'Activity', 'MGRS', 'Time (Z)', 'Analysis', 'W', 'Observer', 'Size (as logged)']);
     assert.deepEqual(rows.slice(1).map(row => row[8]), ['GE 1', 'GE 2', '', '']);
+    assert.deepEqual(rows.slice(1).map(row => [row[2], row[9]]), [['1x T-72', '2x T-72'], ['v1', 'v1'], ['T-72', ''], ['2x T-72', '2x T-72']]);
     assert.equal(rows[1][7], 'Rain', 'the custom columns stay where they were');
     // None names one: no column, unless the caller asks for it (FMV mode on).
     const none = core.parseCsv(core.reportsCsv([report()], opts));
@@ -907,7 +1019,8 @@ test('the rollup counts the period against the one before it', () => {
     const text = summary('rollup');
     assert.ok(text.includes('   3 reports (previous 12 hrs: 1). 3 with a grid; 3 in an NAI or OBJ.'), text.join('\n'));
     assert.ok(text.some(l => /^ {3}NAI 1 {9}2 {3}\(prev 0\) {3}Moving 1 \(heading N 1\), Stationary 1$/.test(l)), 'by place, with activity');
-    assert.ok(text.includes('   260310Z  ALPHA003  1x BMP-2; engaging friendly OP; 38SMB5300088000'), 'firing is notable');
+    // Its one BMP-2 is assessed destroyed: none of it is left.
+    assert.ok(text.includes('   260310Z  ALPHA003  None left; engaging friendly OP; 38SMB5300088000'), 'firing is notable');
     assert.ok(text.includes('   1 of 4 items assessed: Destroyed 1.'));
     assert.ok(text.includes('   ALPHA002: NAI 1 typed; grid is in NAI 2'));
 });
@@ -933,7 +1046,7 @@ test('the shift brief is the short handover', () => {
     const text = summary('brief');
     assert.equal(text[1], 'SHIFT:    251800Z OCT 26 TO 260600Z OCT 26 (12 HRS)');
     assert.ok(text.includes('REPORTS:      3 (previous shift 1)'));
-    assert.ok(text.includes('LAST REPORT:  260310Z  ALPHA003  1x BMP-2; engaging friendly OP; 38SMB5300088000'));
+    assert.ok(text.includes('LAST REPORT:  260310Z  ALPHA003  None left; engaging friendly OP; 38SMB5300088000'));
     assert.ok(text.includes('OPEN ITEMS:   1 check to look at; 3 BDA items unassessed'));
 });
 

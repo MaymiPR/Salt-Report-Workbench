@@ -53,14 +53,17 @@ const formatFullId = (r, sep) => {
 // Copy text in the shape of `format` (an ordered list of lines). The
 // identifier line is the header when first, or a `U:` line when placed lower
 // (SALT-U). Optional lines (analysis, custom fields, BDA) are skipped when empty.
-const reportText = (report, format, sep) => {
+// The Size is what is left after BDA (sizeAfterBda), with what came off:
+// "S: 17x tanks (BDA: 3x tanks destroyed)". `team` is the team's equipment.
+const reportText = (report, format, sep, team = null) => {
     if (!report) return '';
+    const size = sizeAfterBda(report, team);
     const idText = report.updated ? `${formatFullId(report, sep)} (Updated)` : formatFullId(report, sep);
     const lines  = [];
     format.lines.forEach((line, i) => {
         switch (line.type) {
             case 'id':       lines.push(i === 0 ? idText : `U: ${idText}`); break;
-            case 'size':     lines.push(`S: ${report.size}`); break;
+            case 'size':     lines.push(`S: ${size.shown}${size.note ? ` (${size.note})` : ''}`); break;
             case 'activity': lines.push(`A: ${report.activity}`); break;
             case 'location': lines.push(`L: ${report.location}`); break;
             case 'time':     lines.push(`T: ${toTimeString(report.time, false)}`); break;
@@ -162,9 +165,14 @@ const bdaElements = (report) => {
 // An element or an assessment as a count and a type, read as the Statistics
 // read a Size (sizePart): "40x T-72" -> 40 of T-72, "4 BMP-2" -> 4, "T-72 x4"
 // -> 4, "truck" -> 1, "0x T-72" -> none. A number run into a name ("2S19") is
-// part of the name. The type is as written, for display.
+// part of the name. How sure the observer was may come before the count, as
+// the Statistics read it too: "poss 3x APCs" -> 3 of "poss APCs". The type is
+// as written, for display.
 const bdaCount = (text) => {
-    const c = sizeCount(String(text || '').trim());
+    const s = String(text || '').trim(), h = HEDGE.exec(s);
+    const after = h ? sizeCount(s.slice(h[0].length)) : null;
+    if (after && after.counted) return { count: after.count, type: `${h[0].trim()} ${after.text}`, counted: true };
+    const c = sizeCount(s);
     return { count: c.count, type: c.text, counted: c.counted };
 };
 // Types match whatever the case or spacing, and a plural as the Statistics
@@ -189,6 +197,70 @@ const bdaPending = (report, team = null) => {
         return { ...e, type: c.type, counted: c.counted, total: c.count, remaining, target: off ? `${remaining}x ${c.type}` : e.target };
     }).filter(e => e.remaining > 0);
 };
+
+// The Size as it now stands: each element less what has been assessed
+// Destroyed of its type (paired as bdaPending pairs them, taken from the
+// elements in order; Damaged and the other effects still count). The stored
+// Size is never changed, so undoing or deleting an assessment brings the
+// count back.
+//   size    the remaining Size, written as it was ("20x tanks, 2x BMP-2"
+//           with 3 destroyed -> "17x tanks, 2x BMP-2"; "T-72 x4" -> "T-72 x1";
+//           "2x possible tanks" -> "1x possible tanks"); an element brought
+//           to none is dropped, with its separator; never below none
+//   logged  the Size as logged
+//   taken   what came off, by element type: [{ count, type }]
+//   note    "BDA: 3x tanks destroyed", or '' when nothing came off
+//   shown   `size` for people to read: 'None left' when everything was
+//           destroyed
+// Assessments of types the Size doesn't name, and destroyed past an
+// element's count, take nothing; text it can't count stays as it is.
+const sizeAfterBda = (report, team = null) => {
+    const logged = report && report.size != null ? String(report.size) : '';
+    const left = {};
+    ((report && report.bda) || []).forEach(b => {
+        if (!b || b.effect !== 'Destroyed') return;
+        const c = bdaCount(b.target), k = bdaTypeKey(c.type, team);
+        if (k && c.count > 0) left[k] = (left[k] || 0) + c.count;
+    });
+    const same = { size: logged, logged, taken: [], note: '', shown: logged };
+    if (!Object.keys(left).length) return same;
+    // The elements as bdaElements splits them: at least two characters, the first 20.
+    const parts = logged.split(/([,;+])/), kept = [], taken = new Map();
+    let n = 0;
+    for (let i = 0; i < parts.length; i += 2) {
+        const raw = parts[i], t = raw.trim();
+        let text = raw;
+        if (t.length >= 2 && n++ < 20) {
+            const c = bdaCount(t), k = bdaTypeKey(c.type, team);
+            const off = k ? Math.min(c.count, left[k] || 0) : 0;
+            if (off) {
+                left[k] -= off;
+                const was = taken.get(k);
+                taken.set(k, { count: (was ? was.count : 0) + off, type: was ? was.type : c.type });
+                text = off === c.count ? null : raw.replace(t, () => withCount(t, c.count - off));
+            }
+        }
+        if (text !== null) kept.push({ sep: i ? parts[i - 1] : '', text });
+    }
+    if (!taken.size) return same;
+    const size = kept.map((p, j) => (j ? p.sep + p.text : p.text)).join('').trim();
+    const list = [...taken.values()];
+    return { size, logged, taken: list, note: `BDA: ${list.map(e => `${e.count}x ${e.type}`).join(', ')} destroyed`, shown: size || 'None left' };
+};
+// An element written with another count, the rest as it was: the number
+// first ("20x tanks", "possible 20x tanks", "approx 20 tanks") or last
+// ("T-72 x4", "vics 10x", "trucks (3)").
+const withCount = (text, count) => {
+    const h = HEDGE.exec(text), after = h && sizeCount(text.slice(h[0].length)).counted;
+    const head = after ? h[0] : '', rest = after ? text.slice(h[0].length) : text;
+    const c = sizeCount(rest);
+    if (!c.counted) return text;
+    return head + (c.lead ? rest.replace(/(^|[^A-Za-z0-9-])\d+/, (m, p) => `${p}${count}`)
+        : rest.replace(/\d+(?=\D*$)/, () => String(count)));
+};
+// The remaining Size alone (sizeAfterBda): what the Statistics, the summaries
+// and the exports count.
+const effectiveSize = (report, team = null) => sizeAfterBda(report, team).size;
 
 // Roll-up used by the pill: how many are assessed (counting each vehicle or
 // item, so 3 of "40x T-72" is 3 of 40) and the worst outcome recorded so far.
@@ -409,24 +481,30 @@ const anyObserver = (reps) => (reps || []).some(r => r && (r.observer || (r.hist
 // seven stay index-stable for existing consumers; FMV mode's Observer (the
 // drone it was seen from) comes last, when `observer` (by default: when any
 // report names one).
+// A report's Size is what is left after BDA (sizeAfterBda); when BDA has
+// taken from any, a last "Size (as logged)" column holds each one as it was
+// logged (`team`: the team's equipment). Saved versions are as they were logged.
 // `latestOnly`: one row per report (its current version), so a platform that
 // plots every row puts each report on the map once.
-const reportsCsv = (reps, { local, customLabels, idOf, latestOnly = false, observer = anyObserver(reps) }) => {
+const reportsCsv = (reps, { local, customLabels, idOf, latestOnly = false, observer = anyObserver(reps), team = null }) => {
     const t = d => toTimeString(d, local);
     const cus = (o) => customLabels.map(c => csvField((o || {})[c] || ''));
     const obs = (v) => (observer ? [csvField(v || '')] : []);
-    let csv = csvHeader(local, observer ? [...customLabels, 'Observer'] : customLabels);
+    const sizes = new Map(reps.map(r => [r, sizeAfterBda(r, team)]));
+    const logged = [...sizes.values()].some(s => s.note);
+    const was = (v) => (logged ? [csvField(v || '')] : []);
+    let csv = csvHeader(local, [...customLabels, ...(observer ? ['Observer'] : []), ...(logged ? ['Size (as logged)'] : [])]);
     for (const r of reps) {
         const id = idOf(r);
-        csv += [csvField(id),csvField(r.updated?'Current Update':'Original'),csvField(r.size),csvField(r.activity),csvField(r.location),csvField(t(r.time)),csvField(r.yourAnalysis),...cus(r.custom),...obs(r.observer)].join(',')+'\r\n';
+        csv += [csvField(id),csvField(r.updated?'Current Update':'Original'),csvField(sizes.get(r).size),csvField(r.activity),csvField(r.location),csvField(t(r.time)),csvField(r.yourAnalysis),...cus(r.custom),...obs(r.observer),...was(r.size)].join(',')+'\r\n';
         if (latestOnly) continue;
         historyRows(r).forEach(([label, hh]) => {
-            csv += [csvField(id),csvField(label),csvField(hh.size),csvField(hh.activity),csvField(hh.location),csvField(t(hh.time)),csvField(hh.yourAnalysis),...cus(hh.custom),...obs(hh.observer)].join(',')+'\r\n';
+            csv += [csvField(id),csvField(label),csvField(hh.size),csvField(hh.activity),csvField(hh.location),csvField(t(hh.time)),csvField(hh.yourAnalysis),...cus(hh.custom),...obs(hh.observer),...was(hh.size)].join(',')+'\r\n';
         });
         // BDA assessments ride the existing columns: target in Size,
         // effect in Activity, coords in MGRS, note in Analysis.
         (r.bda||[]).forEach((b,i) => {
-            csv += [csvField(id),csvField(`BDA #${i+1}`),csvField(b.target),csvField(b.effect),csvField(b.coords),csvField(t(b.time)),csvField(b.note),...customLabels.map(()=>csvField('')),...obs('')].join(',')+'\r\n';
+            csv += [csvField(id),csvField(`BDA #${i+1}`),csvField(b.target),csvField(b.effect),csvField(b.coords),csvField(t(b.time)),csvField(b.note),...customLabels.map(()=>csvField('')),...obs(''),...was('')].join(',')+'\r\n';
         });
     }
     return csv;
@@ -434,8 +512,9 @@ const reportsCsv = (reps, { local, customLabels, idOf, latestOnly = false, obser
 
 // MTI export: the tracked and wheeled vehicle counts found in each Size
 // (current version and history), as two CSVs. Counts are written the way
-// operators write them: "4 tracked", "4x tracked", or "4 x tracked".
-const mtiCsvs = (reps, { local, idOf }) => {
+// operators write them: "4 tracked", "4x tracked", or "4 x tracked". The
+// current version's Size is what is left after BDA (sizeAfterBda).
+const mtiCsvs = (reps, { local, idOf, team = null }) => {
     const t = d => toTimeString(d, local);
     const out = { tracked: csvHeader(local), wheeled: csvHeader(local), trackedRows: 0, wheeledRows: 0 };
     const row = (id, upd, size, activity, location, time, analysis) => {
@@ -447,7 +526,7 @@ const mtiCsvs = (reps, { local, idOf }) => {
     };
     for (const r of reps) {
         const id = idOf(r);
-        row(id, r.updated?'Current Update':'Original', r.size, r.activity, r.location, r.time, r.yourAnalysis);
+        row(id, r.updated?'Current Update':'Original', effectiveSize(r, team), r.activity, r.location, r.time, r.yourAnalysis);
         historyRows(r).forEach(([label, hh]) => row(id, label, hh.size, hh.activity, hh.location, hh.time, hh.yourAnalysis));
     }
     return out;
