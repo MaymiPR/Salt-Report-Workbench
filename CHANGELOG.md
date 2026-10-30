@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [2.32.1] - 2026-10-29
 
+### Removed
+
+- The standard march rates the time-distance tool no longer offers, from
+  the core.
+
 ### Fixed
 
 - **Drones follow Settings > Units**: a drone's range, its ring, and the
@@ -17,11 +22,6 @@ All notable changes to this project are documented here. The format follows
   while a question was open (a sync came in), closing it with Escape left
   the keyboard on the hidden question instead of the button that asked.
   It now goes back to that button, found again.
-
-### Removed
-
-- The standard march rates the time-distance tool no longer offers, from
-  the core.
 
 ## [2.32.0] - 2026-10-29
 
