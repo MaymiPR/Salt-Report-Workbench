@@ -234,11 +234,6 @@ const arcgisTrackRows = (reps, { local, idOf, team = null }) => reportTracks(rep
     };
 });
 const attrsOf = (row) => { const { path, ...rest } = row; return rest; };
-const arcgisTracksGeoJson = (rows) => JSON.stringify({
-    type: 'FeatureCollection',
-    features: rows.map(row => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: row.path }, properties: attrsOf(row) })),
-});
-const arcgisTracksEsriJson = (rows) => esriJson(rows.map(attrsOf), 'esriGeometryPolyline', (row, i) => ({ paths: [rows[i].path] }));
 
 // Web Mercator (the tile services' projection), meters, and back.
 const MERC_R = 6378137;

@@ -5,56 +5,64 @@
 
 // One row per grid of each live report: a report naming three grids becomes
 // three points. Reports with no readable grid are counted, not exported.
+// With `all`, every saved version of a report, oldest first (as
+// reportPositions orders them), each at its own grids and with its own
+// words, numbered in `version` ("2/3", of every version) with `latest` yes
+// or no; a report is counted as left out only when none of them has a grid.
 // Field names avoid SQL reserved words (TIME, CHECK), which some geodatabases
 // refuse or rename. `size` is what is left after BDA (sizeAfterBda; `team`:
-// the team's equipment), `size_logged` the Size as it was logged.
-const arcgisRows = (reps, overlays, { local, customLabels = [], idOf, team = null }) => {
+// the team's equipment) for the report as it is now, an earlier version's
+// own Size for that version; `size_logged` the Size as it was logged.
+const arcgisRows = (reps, overlays, { local, customLabels = [], idOf, team = null, all = false }) => {
     const rows = []; let skipped = 0;
     const field = l => 'c_' + String(l).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
     for (const r of reps) {
         if (r.deleted) continue;
-        const a = analyzeLocation(r.location, overlays);
-        if (!a.points.length) { skipped++; continue; }
-        const act = classifyActivity(r.activity);
+        const versions = all
+            ? [...(r.history || [])].sort((a, b) => (new Date(a.time) - new Date(b.time)) || (a.lastModified - b.lastModified)).concat(r)
+            : [r];
+        const placed = versions.map((v, n) => ({ v, n, a: analyzeLocation(v.location, overlays) })).filter(x => x.a.points.length);
+        if (!placed.length) { skipped++; continue; }
         const bda = (r.bda || []).map(b => `${b.effect || 'Unknown'} - ${b.target || ''}`).join('; ');
-        a.points.forEach((p, i) => {
-            const row = {
-                report_id: idOf(r), ato: r.ato || '', title: r.title || '',
-                time_utc: r.time ? new Date(r.time).toISOString().replace(/\.\d{3}Z$/, 'Z') : '',
-                time_disp: r.time ? toTimeString(r.time, local) : '',
-                size: effectiveSize(r, team), size_logged: r.size || '', activity: r.activity || '',
-                act_tags: act.tags.join('; '), heading: act.heading || '', heading_deg: act.headingDeg,
-                location: r.location || '', mgrs: p.mgrs, grid_n: `${i + 1}/${a.points.length}`,
-                precision_m: p.precision,
-                nai: a.nai.keys.join('; '), nai_from: a.nai.from, obj: a.obj.keys.join('; '), obj_from: a.obj.from,
-                pl: a.pl.join('; '), pl_near: a.nearestPl ? a.nearestPl.key : '',
-                pl_dist_m: a.nearestPl ? Math.round(a.nearestPl.meters) : null,
-                loc_check: a.checks.join('; '), analysis: r.yourAnalysis || '',
-                reporter: (r.user && r.user.initials) || '', bda, updated: r.updated ? 'yes' : 'no',
-            };
-            customLabels.forEach(l => { row[field(l)] = (r.custom || {})[l] || ''; });
-            row.lat = Math.round(p.lat * 1e7) / 1e7;
-            row.lon = Math.round(p.lon * 1e7) / 1e7;
-            rows.push(row);
+        placed.forEach(({ v, n, a }) => {
+            const act = classifyActivity(v.activity);
+            a.points.forEach((p, i) => {
+                const row = {
+                    report_id: idOf(r), ato: r.ato || '', title: r.title || '',
+                    ...(all ? { version: `${n + 1}/${versions.length}`, latest: v === r ? 'yes' : 'no' } : {}),
+                    time_utc: v.time ? new Date(v.time).toISOString().replace(/\.\d{3}Z$/, 'Z') : '',
+                    time_disp: v.time ? toTimeString(v.time, local) : '',
+                    size: v === r ? effectiveSize(r, team) : v.size || '', size_logged: v.size || '', activity: v.activity || '',
+                    act_tags: act.tags.join('; '), heading: act.heading || '', heading_deg: act.headingDeg,
+                    location: v.location || '', mgrs: p.mgrs, grid_n: `${i + 1}/${a.points.length}`,
+                    precision_m: p.precision,
+                    nai: a.nai.keys.join('; '), nai_from: a.nai.from, obj: a.obj.keys.join('; '), obj_from: a.obj.from,
+                    pl: a.pl.join('; '), pl_near: a.nearestPl ? a.nearestPl.key : '',
+                    pl_dist_m: a.nearestPl ? Math.round(a.nearestPl.meters) : null,
+                    loc_check: a.checks.join('; '), analysis: v.yourAnalysis || '',
+                    reporter: (v.user && v.user.initials) || '', bda, updated: r.updated ? 'yes' : 'no',
+                };
+                customLabels.forEach(l => { row[field(l)] = (v.custom || {})[l] || ''; });
+                row.lat = Math.round(p.lat * 1e7) / 1e7;
+                row.lon = Math.round(p.lon * 1e7) / 1e7;
+                rows.push(row);
+            });
         });
     }
     return { rows, skipped };
 };
 
-// ArcGIS Pro guesses GeoJSON field types and gives text fields 255
-// characters, so a longer Analysis or Location fails the whole import. Text
-// is cut to fit here; the Esri JSON and CSV exports keep all of it.
-const GEOJSON_TEXT_MAX = 254;
-const arcgisGeoJson = (rows) => JSON.stringify({
-    type: 'FeatureCollection',
-    features: rows.map(row => {
-        const properties = {};
-        Object.entries(row).forEach(([k, v]) => {
-            properties[k] = typeof v === 'string' && v.length > GEOJSON_TEXT_MAX ? v.slice(0, GEOJSON_TEXT_MAX - 1) + '…' : v;
-        });
-        return { type: 'Feature', geometry: { type: 'Point', coordinates: [row.lon, row.lat] }, properties };
-    }),
-});
+// MTI: the ArcGIS rows (points or tracks) that count tracked vehicles, and
+// those that count wheeled ones, read from each row's Size as the MTI CSV
+// reads it (mtiCount). In each, the Size is that count ("4 tracked") and
+// `vehicles` its number; a row counting both is in both.
+const arcgisMti = (rows) => {
+    const of = (kind) => rows.flatMap(row => {
+        const m = mtiCount(row.size, kind);
+        return m ? [Object.fromEntries(Object.entries(row).flatMap(([k, v]) => (k === 'size' ? [['size', m.text], ['vehicles', m.n]] : [[k, v]])))] : [];
+    });
+    return { tracked: of('tracked'), wheeled: of('wheeled') };
+};
 
 // The numeric fields of the ArcGIS exports (points and tracks), each with
 // its one type: the same layer exported twice has the same fields, whatever
@@ -62,7 +70,7 @@ const arcgisGeoJson = (rows) => JSON.stringify({
 // number). Every other field is text.
 const ARCGIS_NUMBERS = {
     heading_deg: 'double', precision_m: 'integer', pl_dist_m: 'integer', lat: 'double', lon: 'double',
-    positions: 'integer', length_m: 'integer', bearing_deg: 'integer',
+    positions: 'integer', length_m: 'integer', bearing_deg: 'integer', vehicles: 'integer',
 };
 // A field's kind: 'integer', 'double' or 'text', from ARCGIS_NUMBERS; a
 // field it doesn't name is a number when every value given is one.
@@ -72,36 +80,6 @@ const fieldKind = (name, rows) => {
     if (!vals.length || !vals.every(v => typeof v === 'number' && isFinite(v))) return 'text';
     return vals.every(Number.isInteger) ? 'integer' : 'double';
 };
-
-// Esri JSON: the format JSON To Features was made for. Every field's type
-// and length is written out, so ArcGIS Pro has nothing to guess. `rows` are
-// the attributes; `geometryOf(row, i)` gives each feature's shape.
-const esriJson = (rows, geometryType, geometryOf) => {
-    const cols = rows.length ? Object.keys(rows[0]) : [];
-    const fields = cols.map(name => {
-        const kind = fieldKind(name, rows);
-        if (kind !== 'text') return { name, type: kind === 'integer' ? 'esriFieldTypeInteger' : 'esriFieldTypeDouble', alias: name };
-        const vals = rows.map(r => r[name]).filter(v => v !== null && v !== undefined && v !== '');
-        const length = Math.max(1, ...vals.map(v => String(v).length));
-        return { name, type: 'esriFieldTypeString', alias: name, length };
-    });
-    const numeric = new Set(fields.filter(f => f.type !== 'esriFieldTypeString').map(f => f.name));
-    return JSON.stringify({
-        displayFieldName: 'report_id',
-        geometryType,
-        spatialReference: { wkid: 4326, latestWkid: 4326 },
-        fields: [{ name: 'OBJECTID', type: 'esriFieldTypeOID', alias: 'OBJECTID' }, ...fields],
-        features: rows.map((row, i) => {
-            const attributes = { OBJECTID: i + 1 };
-            cols.forEach(c => {
-                const v = row[c];
-                attributes[c] = numeric.has(c) ? (typeof v === 'number' ? v : null) : (v === null || v === undefined ? '' : String(v));
-            });
-            return { attributes, geometry: { ...geometryOf(row, i), spatialReference: { wkid: 4326 } } };
-        }),
-    });
-};
-const arcgisEsriJson = (rows) => esriJson(rows, 'esriGeometryPoint', row => ({ x: row.lon, y: row.lat }));
 
 const arcgisCsv = (rows) => {
     if (!rows.length) return '';

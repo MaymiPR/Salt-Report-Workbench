@@ -838,19 +838,11 @@ test('the ArcGIS export has one point per grid, and leaves out reports without o
     ]);
     assert.deepEqual([rows[0].act_tags, rows[0].heading, rows[0].heading_deg, rows[0].c_unit_id, rows[0].time_utc],
         ['Moving', 'N', 0, '1-1', '2026-10-24T04:12:00Z']);
-    const fc = JSON.parse(core.arcgisGeoJson(rows));
+    const p = core.shapefileParts(rows, rows.map(r => [r.lon, r.lat]), 'point');
+    const ab = u => u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength);
+    const fc = core.parseShapefile(ab(p.shp), ab(p.dbf), new TextDecoder().decode(p.prj), 'UTF-8');
     assert.deepEqual(fc.features[0].geometry.coordinates, [rows[0].lon, rows[0].lat]);
-    const esri = JSON.parse(core.arcgisEsriJson(rows));
-    assert.equal(esri.geometryType, 'esriGeometryPoint');
-    assert.deepEqual(esri.spatialReference.wkid, 4326);
-    const field = n => esri.fields.find(f => f.name === n);
-    assert.deepEqual(esri.fields[0], { name: 'OBJECTID', type: 'esriFieldTypeOID', alias: 'OBJECTID' });
-    assert.deepEqual([field('report_id').type, field('report_id').length], ['esriFieldTypeString', 1]);
-    // heading_deg is always a double (NNE is 22.5), whatever the rows hold.
-    assert.deepEqual([field('precision_m').type, field('heading_deg').type, field('lat').type],
-        ['esriFieldTypeInteger', 'esriFieldTypeDouble', 'esriFieldTypeDouble']);
-    assert.deepEqual(esri.features[1].attributes.OBJECTID, 2);
-    assert.deepEqual(esri.features[0].geometry, { x: rows[0].lon, y: rows[0].lat, spatialReference: { wkid: 4326 } });
+    assert.deepEqual(fc.features.map(f => f.properties.grid_n), ['1/2', '2/2']);
     const csv = core.arcgisCsv(rows).split('\r\n');
     assert.ok(csv[0].startsWith('report_id,ato,title,time_utc,'));
     assert.ok(csv[0].endsWith(',c_unit_id,lat,lon'));
@@ -858,34 +850,59 @@ test('the ArcGIS export has one point per grid, and leaves out reports without o
     assert.equal(core.arcgisCsv([]), '');
 });
 
-test('the ArcGIS exports keep long text where they can, and every field one type', () => {
+test('the ArcGIS CSV keeps long text, and the shapefile cuts it to fit', () => {
     const long = 'x'.repeat(600);
     const reps = [
         report({ id: 'a', location: '38SMB4500082000', activity: 'parked', yourAnalysis: long }),
         report({ id: 'b', location: '38SMB4500082000', activity: 'moving NE' }),
     ];
     const { rows } = core.arcgisRows(reps, OVERLAYS, { local: false, idOf: r => r.id });
-    const props = JSON.parse(core.arcgisGeoJson(rows)).features.map(f => f.properties);
-    assert.equal(props[0].analysis.length, 254, "GeoJSON text fits ArcGIS's 255");
-    assert.ok(props[0].analysis.endsWith('…'));
+    assert.ok(core.arcgisCsv(rows).includes(`"${long}"`), 'every character in the CSV');
+    const p = core.shapefileParts(rows, rows.map(r => [r.lon, r.lat]), 'point');
+    const dbf = core.readDbf(p.dbf.buffer, 'UTF-8');
+    assert.equal(dbf[0].analysis.length, 254, "a shapefile's text field holds 254");
     assert.equal(rows[0].analysis, long, 'the rows themselves are untouched');
-    const esri = JSON.parse(core.arcgisEsriJson(rows));
-    assert.equal(esri.fields.find(f => f.name === 'analysis').length, 600);
-    assert.equal(esri.features[0].attributes.analysis, long);
-    // heading_deg: null on one, 45 on the other: a number field (always a
-    // double, as NNE is 22.5), null kept.
-    assert.equal(esri.fields.find(f => f.name === 'heading_deg').type, 'esriFieldTypeDouble');
-    assert.deepEqual(esri.features.map(f => f.attributes.heading_deg), [null, 45]);
+    // heading_deg: null on one, 45 on the other: a number field, null left empty.
+    assert.deepEqual(dbf.map(r => r.head_deg), ['', 45]);
+});
+
+test('the ArcGIS points can hold every version, and split for MTI', () => {
+    const r = report({ id: 'v', location: '38SMB4500082000', size: '4x tracked, 2 wheeled', activity: 'moving N', time: '2026-10-24T06:00:00Z',
+        user: { initials: 'CD' }, updated: true, history: [
+            { size: '3 tracked', activity: 'halted', location: '38SMB4500078000', time: '2026-10-24T04:00:00Z', lastModified: 1, user: { initials: 'AB' } },
+            { size: '3 tracked', activity: 'moving', location: 'vic the bridge', time: '2026-10-24T05:00:00Z', lastModified: 2, user: { initials: 'AB' } },
+        ] });
+    const opts = { local: false, idOf: x => x.id };
+    const latest = core.arcgisRows([r], [], opts).rows;
+    assert.deepEqual(latest.map(x => x.mgrs), ['38S MB 45000 82000'], 'the latest grid only');
+    assert.ok(!('version' in latest[0]), 'no version fields without it');
+    const { rows, skipped } = core.arcgisRows([r, report({ id: 'none', location: 'vic the bridge' })], [], { ...opts, all: true });
+    assert.equal(skipped, 1);
+    assert.deepEqual(rows.map(x => [x.version, x.latest, x.mgrs, x.size, x.activity, x.reporter, x.time_utc]), [
+        ['1/3', 'no', '38S MB 45000 78000', '3 tracked', 'halted', 'AB', '2026-10-24T04:00:00Z'],
+        ['3/3', 'yes', '38S MB 45000 82000', '4x tracked, 2 wheeled', 'moving N', 'CD', '2026-10-24T06:00:00Z'],
+    ], 'each version with a grid, oldest first, with its own words');
+    assert.deepEqual(Object.keys(rows[0]).slice(0, 5), ['report_id', 'ato', 'title', 'version', 'latest']);
+    // MTI: the tracked and the wheeled, the Size as the count, its number beside it.
+    const { tracked, wheeled } = core.arcgisMti(rows);
+    assert.deepEqual(tracked.map(x => [x.version, x.size, x.vehicles]), [['1/3', '3 tracked', 3], ['3/3', '4x tracked', 4]]);
+    assert.deepEqual(wheeled.map(x => [x.version, x.size, x.vehicles]), [['3/3', '2 wheeled', 2]]);
+    assert.deepEqual(Object.keys(tracked[0]).slice(7, 10), ['size', 'vehicles', 'size_logged'], 'next to the Size');
+    assert.deepEqual(core.arcgisMti(core.arcgisRows([report()], [], opts).rows), { tracked: [], wheeled: [] });
+    // Tracks too, by the report's Size.
+    const t = core.arcgisMti(core.arcgisTrackRows([{ ...moving(), size: '6 x wheeled' }], opts));
+    assert.deepEqual([t.tracked.length, t.wheeled.map(x => [x.size, x.vehicles, x.path.length])], [0, [['6 x wheeled', 6, 3]]]);
+    // The MTI CSV reads a Size the same way.
+    const csv = core.mtiCsvs([r], { local: false, idOf: x => x.id });
+    assert.deepEqual([csv.trackedRows, csv.wheeledRows], [3, 1]);
+    assert.ok(csv.tracked.includes('"4x tracked"'));
 });
 
 test('the ArcGIS exports have the same fields however the rows fill them', () => {
     // No heading and no phase lines in one export, every one in the other.
     const quiet = core.arcgisRows([report({ id: 'a', location: '38SMB4500082000', activity: 'parked' })], [], { local: false, idOf: r => r.id }).rows;
     const busy = core.arcgisRows([report({ id: 'b', location: '38SMB4500082000', activity: 'moving NNE' })], OVERLAYS, { local: false, idOf: r => r.id }).rows;
-    const schema = rows => JSON.parse(core.arcgisEsriJson(rows)).fields.filter(f => f.type !== 'esriFieldTypeString').map(f => `${f.name} ${f.type}`);
-    assert.deepEqual(schema(quiet), schema(busy));
-    assert.deepEqual(schema(quiet).filter(f => /^(heading_deg|pl_dist_m) /.test(f)), ['heading_deg esriFieldTypeDouble', 'pl_dist_m esriFieldTypeInteger']);
-    // The shapefile too: numeric (N) fields, the same in both.
+    // The shapefile's numeric (N) fields, the same in both.
     const dbfFields = rows => {
         const dbf = core.shapefileParts(rows, rows.map(r => [r.lon, r.lat]), 'point').dbf;
         const out = [];
@@ -1201,15 +1218,13 @@ test('the ArcGIS tracks export is one line per report that moved', () => {
     const r = rows[0];
     assert.deepEqual([r.report_id, r.positions, r.direction, r.start_utc, r.end_utc, r.start_mgrs, r.end_mgrs],
         ['t', 3, 'N', '2026-10-24T04:00:00Z', '2026-10-24T06:00:00Z', '38S MB 45000 78000', '38S MB 45000 82000']);
-    const gj = JSON.parse(core.arcgisTracksGeoJson(rows)).features[0];
-    assert.equal(gj.geometry.type, 'LineString');
-    assert.equal(gj.geometry.coordinates.length, 3);
-    assert.equal(gj.properties.path, undefined, 'the path is the geometry, not a field');
-    const esri = JSON.parse(core.arcgisTracksEsriJson(rows));
-    assert.equal(esri.geometryType, 'esriGeometryPolyline');
-    assert.deepEqual(esri.features[0].geometry.paths[0], r.path);
-    assert.ok(esri.fields.some(f => f.name === 'bearing_deg' && f.type === 'esriFieldTypeInteger'));
-    assert.ok(!esri.fields.some(f => f.name === 'path'));
+    assert.equal(r.path.length, 3);
+    const p = core.shapefileParts(rows.map(({ path, ...rest }) => rest), rows.map(x => x.path), 'line');
+    const ab = u => u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength);
+    const line = core.parseShapefile(ab(p.shp), ab(p.dbf), null, 'UTF-8').features[0];
+    assert.deepEqual(line.geometry, { type: 'LineString', coordinates: r.path });
+    assert.equal(line.properties.path, undefined, 'the path is the geometry, not a field');
+    assert.equal(line.properties.bearing, Math.round(r.bearing_deg));
 });
 
 test('the CSV can hold just the latest version of each report', () => {
@@ -1334,6 +1349,33 @@ test('a locked grid prefix goes in front of grids typed as digits', () => {
         assert.equal(core.normalizeLocation(core.applyMgrsPrefix(core.stripMgrsPrefix(loc, '11S NV'), '11S NV')), core.normalizeLocation(loc), loc));
 });
 
+test('MGRS Lock says which parts look meant as a grid but are not one', () => {
+    const why = (text, prefix = '11S NV') => core.mgrsLockChecks(text, prefix).map(c => `${c.text} ${c.why}`);
+    // Grids it takes, and what is not meant as one, pass.
+    ['39697 06762', '3969706762', '397 067', '1234', '11S NV 40007 05191', '11SNV4000705191', 'Hill 205', '205', '39 0',
+        'NAI 2', 'vic the bridge', 'PL BLUE', 'PC-12344', 'Route 7 junction', ''].forEach(t => assert.deepEqual(why(t), [], t));
+    assert.deepEqual(why('39697 0676'), ['39697 0676 has two numbers of different lengths']);
+    assert.deepEqual(why('396970676'), ['396970676 has an odd number of digits']);
+    assert.deepEqual(why('39697067621'), ['39697067621 has more than 10 digits']);
+    assert.deepEqual(why('396970 676210'), ['396970 676210 has more than 10 digits']);
+    assert.deepEqual(why('396 970 676'), ['396 970 676 is split into more than two numbers']);
+    // Typed in full: the zone, band, square and digits are each checked.
+    assert.deepEqual(why('61S NV 39697 06762'), ['61S NV 39697 06762 has no zone 61 (zones are 1 to 60)']);
+    assert.deepEqual(why('11I NV 39697 06762'), ['11I NV 39697 06762 has no latitude band I']);
+    assert.deepEqual(why('11S AV 39697 06762'), ['11S AV 39697 06762 has no square AV in zone 11']);
+    assert.deepEqual(why('11S NW 39697 06762'), ['11S NW 39697 06762 has no square NW in zone 11']);
+    assert.deepEqual(why('11X NV 39697 06762'), ['11X NV 39697 06762 has square NV outside band 11X']);
+    assert.deepEqual(why('11s nv 3969 06762'), ['11s nv 3969 06762 has two numbers of different lengths']);
+    // Each part on its own; the locked square checked under digits alone.
+    assert.deepEqual(why('39697 06762, NAI 2, 3969 0676'), [], 'equal halves of four are a grid');
+    assert.deepEqual(why('NAI 2, 39697 0676, Hill 205'), ['39697 0676 has two numbers of different lengths']);
+    assert.deepEqual(why('39697 06762', '11S AV'), ['39697 06762 would be in 11S AV, which has no square AV in zone 11']);
+    assert.deepEqual(why('39697 0676', ''), ['39697 0676 has two numbers of different lengths'], 'with no square locked yet too');
+    // What it passes, Log reads as a grid.
+    ['39697 06762', '397 067', '11S NV 40007 05191'].forEach(t =>
+        assert.equal(core.findGrids(core.applyMgrsPrefix(t, '11S NV')).length, 1, t));
+});
+
 // The files in a zip of stored entries, by name.
 const unzipStored = (zip) => {
     const v = new DataView(zip.buffer, zip.byteOffset, zip.byteLength), out = {};
@@ -1402,7 +1444,39 @@ test('the Statistics workbook: its parts, the tables its charts are drawn from, 
     assert.match(table, /name="Identifier 2"/, 'repeated names made unique');
     const thrice = unzipStored(core.statsXlsx({ reports: { header: ['Identifier', 'Identifier', 'identifier'], rows: [['a', 'b', 'c']] } }, NOW));
     assert.match(thrice['xl/tables/table1.xml'], /name="Identifier"\/><tableColumn id="2" name="Identifier 2"\/><tableColumn id="3" name="identifier 3"/);
-    assert.match(files['xl/worksheets/sheet2.xml'], /<c r="B2" s="4"><v>46319.25<\/v><\/c>/);
+    assert.match(files['xl/worksheets/sheet2.xml'], /<c r="B2" s="8"><v>46319.25<\/v><\/c>/, 'a date, outlined');
+    // Every cell of each table is outlined, its header too, and an empty one
+    // is still written for its outline; the title and notes are not.
+    const styles = files['xl/styles.xml'];
+    const xfs = [...styles.match(/<cellXfs[^>]*>(.*?)<\/cellXfs>/)[1].matchAll(/<xf [^>]*?borderId="(\d+)"/g)].map(m => +m[1]);
+    const borders = [...styles.match(/<borders[^>]*>(.*?)<\/borders>/)[1].matchAll(/<border>(.*?)<\/border>/g)].map(m => m[1]);
+    const outlined = (s) => ['left', 'right', 'top', 'bottom'].every(side => new RegExp(`<${side} style="thin">`).test(borders[xfs[s]]));
+    const cellsOf = (sheet) => [...sheet.matchAll(/<c r="([A-Z]+)(\d+)" s="(\d+)"/g)].map(([, col, row, s]) => ({ ref: col + row, row: +row, s: +s }));
+    const reportCells = cellsOf(files['xl/worksheets/sheet2.xml']);
+    assert.equal(reportCells.length, 9, 'three columns by a header and two rows');
+    reportCells.forEach(c => assert.ok(outlined(c.s), `Reports ${c.ref}`));
+    assert.match(files['xl/worksheets/sheet2.xml'], /<c r="B3" s="7"\/>/, 'an empty cell, outlined');
+    const statCells = cellsOf(files['xl/worksheets/sheet1.xml']);
+    const shared = [...files['xl/sharedStrings.xml'].matchAll(/<t xml:space="preserve">(.*?)<\/t>/g)].map(m => m[1]);
+    const textAt = (ref) => { const m = new RegExp(`<c r="${ref}" s="\\d+" t="s"><v>(\\d+)</v>`).exec(files['xl/worksheets/sheet1.xml']); return m ? shared[+m[1]] : null; };
+    const at = (ref) => statCells.find(c => c.ref === ref);
+    assert.ok(!outlined(at('A1').s) && !outlined(at('A2').s), 'the title and context');
+    assert.ok(!outlined(statCells.find(c => textAt(c.ref) === 'Headline numbers').s), 'a section heading');
+    const kpi = statCells.find(c => c.ref.startsWith('A') && textAt(c.ref) === 'Reports');
+    assert.ok(outlined(kpi.s) && outlined(at(`B${kpi.row}`).s), 'a headline number and its label');
+    const naiHead = statCells.find(c => textAt(c.ref) === 'Item');
+    for (let r = naiHead.row; r <= naiHead.row + 12; r++) ['A', 'B'].forEach(col => assert.ok(outlined(at(`${col}${r}`).s), `chart table ${col}${r}`));
+    assert.ok(!at(`A${naiHead.row + 13}`) || !outlined(at(`A${naiHead.row + 13}`).s), 'nothing past the table');
+    assert.ok(!outlined(statCells.find(c => /top 10/.test(textAt(c.ref) || '')).s), 'a note');
+    // Every part is well-formed: each tag closed, in order.
+    Object.entries(files).filter(([n]) => /\.(xml|rels)$/.test(n)).forEach(([n, xml]) => {
+        const open = [];
+        for (const [, close, name, self] of xml.replace(/<\?xml[^>]*\?>/, '').matchAll(/<(\/?)([A-Za-z_][\w:.-]*)(?:\s[^<>]*?)?(\/?)>/g)) {
+            if (close) assert.equal(open.pop(), name, `${n}: </${name}>`);
+            else if (!self) open.push(name);
+        }
+        assert.deepEqual(open, [], `${n}: all closed`);
+    });
     assert.match(files['xl/worksheets/sheet2.xml'], /state="frozen"/);
     assert.match(files['xl/sharedStrings.xml'], /<t xml:space="preserve">ALPHA · all reports<\/t>/);
     // No reports and no charts: still a workbook, without a table or drawing.
@@ -2202,6 +2276,40 @@ test('general words: vic, tracked, wheeled, support, fueler, engineer, and their
     const t = said([{ id: 'v1', displayId: 'ALPHA001', ato: 'ALPHA', title: 'P', size: 'Total of vics 10x: 5x tanks and 5x apc',
         activity: 'moving N', location: '38SMB4500082000', time: '2026-10-26T01:00:00.000Z', history: [], bda: [] }]);
     assert.ok(t.includes('Equipment reported: armor (5x tanks); mechanized infantry (5x APC).'), t);
+});
+
+test('force words and helicopter letters: logistics, maneuver, AH, UH, CH, OH; and ZBL, mine layer, GBL-132', () => {
+    const kit = t => { const k = core.lookupEquipment(t); return k && `${k.role} ${k.origin} ${k.name}`; };
+    const cases = {
+        'LOGISTICS VIC': 'logistics  logistics', LOGISTICS: 'logistics  logistics',
+        'MANEUVER ELEMENT': 'mech  maneuver', 'MANOEUVRE ELEMENT': 'mech  maneuver',
+        AH: 'air  attack helicopter', 'AH-64': 'air  attack helicopter', AH64D: 'air  attack helicopter', 'AH-1Z': 'air  attack helicopter',
+        'UH-60L': 'air  utility helicopter', 'UH-1': 'air  utility helicopter', 'CH-47F': 'air  cargo helicopter', CH47: 'air  cargo helicopter',
+        'OH-58': 'air  observation helicopter',
+        ZBL: 'mech CN ZBL', 'ZBL-09': 'mech CN ZBL-08', 'MINE LAYER': 'engineer  engineer', MINELAYER: 'engineer  engineer',
+        'GBL-132': 'engineer CN GBL-132', 'GBL-130': 'engineer CN GBL-130',
+        // The PLA's own designations that start the same are still theirs.
+        'CH-4': 'air CN CH-4', 'CH-901': 'fires CN CH-901', 'AH-4': 'fires CN AH-4',
+    };
+    Object.entries(cases).forEach(([t, want]) => assert.equal(kit(t), want, t));
+    // Not a helicopter: the letters inside a word, or a grid's 100 km square.
+    ['CHAIR', 'MACH', 'OHM', 'AHEAD', 'TOUCH', '11S CH 12345 67890', 'CH 12345 67890', 'CH 1234 5678', '38S AH', '38SAH 123 456']
+        .forEach(t => assert.equal(kit(t), null, t));
+    const els = (s) => core.sizeElements(s).map(e => `${e.count} ${e.type}`);
+    assert.deepEqual(els('3x logistics vics, 2x maneuver elements, 2x AHs, 1x UH-60s, 4x ZBLs, 2x mine layers'),
+        ['3 LOGISTICS VIC', '2 MANEUVER ELEMENT', '2 AH', '1 UH-60', '4 ZBL', '2 MINE LAYER'], 'plurals made singular');
+    // In the narrative: an AH is attack aviation, a mine layer and a GBL-132 lay mines,
+    // a maneuver element is a maneuver force.
+    const air = said(at1([['2x AH', 'firing rockets'], ['2x AH-64', 'firing at positions']]));
+    assert.ok(air.includes('are supporting ground forces with attack aviation'), air);
+    assert.ok(air.includes('aviation (2x AH, 2x AH-64)'), air);
+    assert.ok(said(at1([['1x mine layer', 'stationary']])).includes('are laying minefields in NAI 1'));
+    assert.ok(said(at1([['1x GBL-132', 'stationary']])).includes('are laying minefields in NAI 1'));
+    const lift = said(at1([['2x UH-60', 'landed'], ['1x CH-47', 'landed']]));
+    assert.ok(lift.includes('air assault'), lift);
+    const t = said(at1([['3x logistics vics', 'moving N'], ['2x maneuver elements', 'moving N']]));
+    assert.ok(t.includes('logistics and support (3x logistics vics)'), t);
+    assert.ok(t.includes('mechanized infantry (2x maneuver elements)'), t);
 });
 
 test('plain words read as plurals in the narrative: tracked vehicles, buses', () => {

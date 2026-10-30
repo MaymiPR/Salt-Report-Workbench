@@ -123,6 +123,54 @@ const stripMgrsPrefix = (text, prefix) => {
     }).join(',');
 };
 
+// With MGRS Lock on: the parts of a Location (between commas) that look meant
+// as a grid but aren't one, each { text, why }, why finishing "39697 0676 ..."
+// ("has an odd number of digits"), so the page can say so before they are
+// logged as typed. A part is meant as a grid when it is only digits, four or
+// more in all ("39697 0676"; "205" is a number), or starts with a zone, band
+// and square and goes on in digits ("11S NV 1234 567"). Place names, and
+// numbers with words ("Hill 205"), never are. Digits alone are checked with
+// the locked zone and square (`prefix`) in front, as Log will put them.
+const lockDigitsWhy = (groups) => {
+    const n = groups.join('').length;
+    if (groups.length > 2) return 'is split into more than two numbers';
+    if (n > 10) return 'has more than 10 digits';
+    if (groups.length === 2 && groups[0].length !== groups[1].length) return 'has two numbers of different lengths';
+    if (n % 2) return 'has an odd number of digits';
+    return '';
+};
+// What is wrong with a grid zone, band and 100 km square, or ''; with
+// `digits` (whole), whether that point is in the band.
+const lockSquareWhy = (zone, band, col, row, digits = '') => {
+    band = band.toUpperCase(); col = col.toUpperCase(); row = row.toUpperCase();
+    if (zone < 1 || zone > 60) return `has no zone ${zone} (zones are 1 to 60)`;
+    if (!MGRS_BANDS.includes(band)) return `has no latitude band ${band}`;
+    const set = zone % 6 || 6;
+    if (!MGRS_COLS[(set - 1) % 3].includes(col) || !MGRS_ROWS.includes(row)) return `has no square ${col}${row} in zone ${zone}`;
+    if (digits && !gridToLatLon(zone, band, col, row, digits)) return `has square ${col}${row} outside band ${zone}${band}`;
+    return '';
+};
+const mgrsLockChecks = (text, prefix) => {
+    const p = mgrsPrefix(prefix);
+    return String(text || '').split(',').map(s => s.trim()).filter(Boolean).map(t => {
+        let why = '';
+        if (/^\d+(?:\s+\d+)*$/.test(t)) {
+            const groups = t.split(/\s+/);
+            if (groups.join('').length < 4) return null;
+            why = lockDigitsWhy(groups);
+            const [, z, b, c, r] = p ? /^(\d+)([A-Z]) ([A-Z])([A-Z])$/.exec(p) : [];
+            const square = !why && p ? lockSquareWhy(+z, b, c, r, groups.join('')) : '';
+            if (square) why = `would be in ${p}, which ${square}`;
+        } else {
+            const m = /^(\d{1,2})\s*([A-Z])\s*([A-Z])\s*([A-Z])\s*(\d[\d\s]*)$/i.exec(t);
+            if (!m) return null;
+            const groups = m[5].trim().split(/\s+/);
+            why = lockSquareWhy(+m[1], m[2], m[3], m[4]) || lockDigitsWhy(groups) || lockSquareWhy(+m[1], m[2], m[3], m[4], groups.join(''));
+        }
+        return why ? { text: t, why } : null;
+    }).filter(Boolean);
+};
+
 const normalizeLocation = (loc) => {
     const s = String(loc || '').trim();
     if (!s || s.includes(',')) return s;
@@ -510,19 +558,25 @@ const reportsCsv = (reps, { local, customLabels, idOf, latestOnly = false, obser
     return csv;
 };
 
+// An MTI count in a Size, written the way operators write them: "4 tracked",
+// "4x tracked", or "4 x tracked" (`kind` 'tracked' or 'wheeled'), as
+// { text: "4x tracked", n: 4 }; or null.
+const mtiCount = (size, kind) => {
+    const m = new RegExp(`(\\d+)\\s*x?\\s*${kind}`).exec(String(size || '').toLowerCase());
+    return m ? { text: m[0].trim(), n: Number(m[1]) } : null;
+};
+
 // MTI export: the tracked and wheeled vehicle counts found in each Size
-// (current version and history), as two CSVs. Counts are written the way
-// operators write them: "4 tracked", "4x tracked", or "4 x tracked". The
-// current version's Size is what is left after BDA (sizeAfterBda).
+// (current version and history), as two CSVs. The current version's Size
+// is what is left after BDA (sizeAfterBda).
 const mtiCsvs = (reps, { local, idOf, team = null }) => {
     const t = d => toTimeString(d, local);
     const out = { tracked: csvHeader(local), wheeled: csvHeader(local), trackedRows: 0, wheeledRows: 0 };
     const row = (id, upd, size, activity, location, time, analysis) => {
-        const sl = (size||'').toLowerCase();
-        const tm = sl.match(/(\d+\s*x?\s*tracked)/);
-        if (tm) { out.tracked += [csvField(id),csvField(upd),csvField(tm[1].trim()),csvField(activity),csvField(location),csvField(t(time)),csvField(analysis)].join(',')+'\r\n'; out.trackedRows++; }
-        const wm = sl.match(/(\d+\s*x?\s*wheeled)/);
-        if (wm) { out.wheeled += [csvField(id),csvField(upd),csvField(wm[1].trim()),csvField(activity),csvField(location),csvField(t(time)),csvField(analysis)].join(',')+'\r\n'; out.wheeledRows++; }
+        const tm = mtiCount(size, 'tracked');
+        if (tm) { out.tracked += [csvField(id),csvField(upd),csvField(tm.text),csvField(activity),csvField(location),csvField(t(time)),csvField(analysis)].join(',')+'\r\n'; out.trackedRows++; }
+        const wm = mtiCount(size, 'wheeled');
+        if (wm) { out.wheeled += [csvField(id),csvField(upd),csvField(wm.text),csvField(activity),csvField(location),csvField(t(time)),csvField(analysis)].join(',')+'\r\n'; out.wheeledRows++; }
     };
     for (const r of reps) {
         const id = idOf(r);

@@ -9,7 +9,7 @@ const WITHDRAW = /\b(withdraw(s|n|ing|al)?|retreat(s|ed|ing)?|pull(s|ed|ing)? ba
 // as reported (15x T-72, 6x PAX), a plain word in lower case and plural
 // (31x trucks).
 const TYPE_ACRONYMS = new Set(['PAX', 'IFV', 'APC', 'MBT', 'BMP', 'BTR', 'BRDM', 'SAM', 'ADA', 'AAA', 'MANPADS', 'UAV', 'UAS',
-    'ATGM', 'MLRS', 'MRL', 'SPG', 'AVLB', 'POL', 'CP', 'HQ', 'C2', 'EW', 'ATV', 'UTV', 'SUV', 'ATZ']);
+    'ATGM', 'MLRS', 'MRL', 'SPG', 'AVLB', 'POL', 'CP', 'HQ', 'C2', 'EW', 'ATV', 'UTV', 'SUV', 'ATZ', 'AH', 'UH', 'CH', 'OH']);
 const NO_PLURAL = new Set(['personnel', 'people', 'men', 'infantry', 'ammo', 'fuel', 'water', 'cargo', 'artillery', 'arty', 'recon', 'supply']);
 const PLURALS = { man: 'men', person: 'people' };
 // A bare "tracked" or "wheeled" reads as the vehicle it describes.
@@ -118,8 +118,8 @@ const ruleWords = (words) => new RegExp(`\\b(${String(words).split(',').map(w =>
 // What some equipment can do, by catalogue name, and the words in a report
 // that say the same ("bridging", "jamming").
 const capability = (names, words) => ({ names: new Set(names), words });
-const ATTACK_HELOS = ['Mi-24', 'Mi-35', 'Mi-28', 'Ka-50', 'Ka-52', 'Z-10', 'Z-19', 'Z-21'];
-const LIFT_HELOS = ['Mi-8', 'Mi-17', 'Mi-26', 'Ka-29', 'Z-8', 'Z-18', 'Z-20', 'S-70C2'];
+const ATTACK_HELOS = ['Mi-24', 'Mi-35', 'Mi-28', 'Ka-50', 'Ka-52', 'Z-10', 'Z-19', 'Z-21', 'attack helicopter'];
+const LIFT_HELOS = ['Mi-8', 'Mi-17', 'Mi-26', 'Ka-29', 'Z-8', 'Z-18', 'Z-20', 'S-70C2', 'utility helicopter', 'cargo helicopter'];
 const CAPABILITIES = {
     uav: capability(['Orlan-10', 'Zala', 'Eleron-3', 'Forpost', 'Granat', 'Takhion', 'Supercam', 'Merlin-VR', 'ASN-206', 'ASN-207', 'ASN-209',
         'BZK-005', 'BZK-006', 'BZK-007', 'BZK-008', 'BZK-009', 'WZ-7', 'TB-001', 'CH-3'],
@@ -140,7 +140,7 @@ const CAPABILITIES = {
     // a FARP or carry an air assault. Attack aviation is either, and armed UAVs.
     attackHelo: capability(ATTACK_HELOS, /\b(gunships?|attack helicopters?)\b/i),
     liftHelo: capability(LIFT_HELOS, /\b(transport helicopters?|lift helicopters?)\b/i),
-    helo: capability([...ATTACK_HELOS, ...LIFT_HELOS, 'Mi-2', 'Ka-226', 'Ka-27', 'Ansat', 'Z-9', 'Z-11', 'H120', 'SA342'],
+    helo: capability([...ATTACK_HELOS, ...LIFT_HELOS, 'Mi-2', 'Ka-226', 'Ka-27', 'Ansat', 'Z-9', 'Z-11', 'H120', 'SA342', 'observation helicopter'],
         /\b(helicopters?|helos?|gunships?)\b/i),
     attackAir: capability([...ATTACK_HELOS, 'Su-24', 'Su-25', 'Su-34', 'Yak-130', 'JH-7',
         'CH-4', 'CH-5', 'KDV002', 'Wing Loong', 'GJ-11', 'Orion', 'Forpost-R', 'Okhotnik', 'Altius'],
@@ -154,8 +154,8 @@ const CAPABILITIES = {
     breaching: capability(['UR-77', 'UR-67', 'UR-07', 'BMR-3', 'KMT-7', 'KMT-8', 'IMR-2', 'IMR-3', 'Uran-6', 'Prokhod-1', 'GCZ-110', 'GCZ-112',
         'GPZ-111', 'GSL-110', 'GSL-111', 'GSL-130', 'GSL-131', 'GSL-132', 'GSL-133', 'GSL-134', 'GSL-211', 'GSL-411', 'GSL-430', 'GBP-126', 'GPJ221'],
     /\b(breach\w*|mine[- ]?clear\w*|clearing (mines|obstacles|a lane)|demining|miclic|line charges?)\b/i),
-    minelaying: capability(['GMZ-3', 'PMZ-4', 'UMZ', 'Zemledeliye', 'GBL-120', 'GBL-130'],
-        /\b(minelay\w*|laying mines|scatter(able|ed) mines?|remote(ly)?[- ](laid |delivered )?min(es?|ing)|cluster mines?|pfm-1|ptm-\d|pom-\d)\b/i),
+    minelaying: capability(['GMZ-3', 'PMZ-4', 'UMZ', 'Zemledeliye', 'GBL-120', 'GBL-130', 'GBL-132'],
+        /\b(mine[- ]?lay\w*|laying mines|scatter(able|ed) mines?|remote(ly)?[- ](laid |delivered )?min(es?|ing)|cluster mines?|pfm-1|ptm-\d|pom-\d)\b/i),
     cbrn: capability(['RKhM-4', 'RKhM-6', 'RPM-2', 'BRDM-2RKh', 'TMS-65', 'ARS-14', 'UTM-80M', 'TDA-2K', 'TDA-3', 'MRK-46', 'Type 14', 'CBRN'],
         /\b(rkhbz|chemical (defen[cs]e|troops|recon\w*)|decontaminat\w*|decon|cbrn|nbc|smoke (generators?|screens?|pots?))\b/i),
     sead: capability(['ASN-301', 'Kh-31', 'Kh-58'], /\b(anti-?radiation|sead|(radars?|sams?|air defen[cs]e) (struck|hit|destroyed))\b/i),

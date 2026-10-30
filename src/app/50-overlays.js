@@ -358,7 +358,13 @@ const showMapSub = (sub) => {
     document.querySelectorAll('[data-map-sub]').forEach(b => setOn(b, b.dataset.mapSub === pick, 'aria-pressed'));
     document.querySelectorAll('[data-map-sub-panel]').forEach(p => { p.hidden = p.dataset.mapSubPanel !== pick; });
 };
-document.addEventListener('click', e => { const b = e.target.closest('[data-map-sub]'); if (b) showMapSub(b.dataset.mapSub); });
+// Picked: the other part slides in from its side.
+document.addEventListener('click', e => {
+    const b = e.target.closest('[data-map-sub]');
+    if (!b || b.getAttribute('aria-pressed') === 'true') return;
+    showMapSub(b.dataset.mapSub);
+    animateTabIn(document.querySelector(`[data-map-sub-panel="${b.dataset.mapSub}"]`), b.dataset.mapSub === 'basemaps' ? 1 : -1);
+});
 showMapSub('graphics');
 
 const startOverlayImport = async (files) => {
@@ -892,8 +898,10 @@ if (overlaysBody && overlaysFileInput) {
 // --- ArcGIS export ---
 
 // One point per grid, with what the Location box and Activity say, as a
-// zipped shapefile (ArcGIS Pro: drag in the .shp), Esri JSON or GeoJSON
-// (JSON To Features) or CSV (XY Table To Point). Pro won't drag in .json.
+// zipped shapefile (ArcGIS Pro: drag in the .shp) or CSV (XY Table To Point);
+// or one line per report that moved (`kind` tracks-shp). The options: MTI
+// Export, a file of the tracked and one of the wheeled (SaltCore.arcgisMti),
+// and for points Every version, each saved version at its grids.
 const exportForArcgis = (kind) => {
     const reps = getExportFilteredReports();
     if (!reps.length) { showToast('No reports to export.', true); return; }
@@ -905,27 +913,43 @@ const exportForArcgis = (kind) => {
     // Inside the zip: a name ArcGIS takes as a layer name as it is.
     const layerName = (s) => (/^[A-Za-z]/.test(s) ? s : `L_${s}`).replace(/[^A-Za-z0-9_]/g, '_');
     const zipType = 'application/zip';
+    const mti = el.manage.mtiToggle.checked;
+    // The files: one, or with MTI Export the tracked and the wheeled (each
+    // only when it has rows), the second a moment after the first, as the
+    // MTI CSV's are. Null when MTI finds neither.
+    const save = (name, rows, write) => {
+        const parts = mti ? Object.entries(SaltCore.arcgisMti(rows)).filter(([, r]) => r.length) : [['', rows]];
+        if (!parts.length) { showToast('No tracked/wheeled reports found.', true); return null; }
+        parts.forEach(([k, r], i) => {
+            const go = () => write(k ? `${name}_${k}` : name, r);
+            if (i) setTimeout(go, 400); else go();
+        });
+        return parts;
+    };
+    // "2 tracked and 1 wheeled"
+    const mtiSaid = (parts) => parts.map(([k, r]) => `${r.length} ${k}`).join(' and ');
     if (kind.startsWith('tracks')) {
         // One line per report that moved, first grid to latest.
         const tracks = SaltCore.arcgisTrackRows(reps, { local: timeDisplayMode === 'local', idOf: formatFullId, team: narrTeam() });
         if (!tracks.length) { showToast('No report has moved: each needs updates at two or more grids.', true); return; }
-        if (kind === 'tracks-shp') triggerDownload(`${base}_tracks.zip`, SaltCore.arcgisTracksShapefileZip(tracks, layerName(`${base}_tracks`)), zipType);
-        else if (kind === 'tracks-esri') triggerDownload(`${base}_tracks.json`, SaltCore.arcgisTracksEsriJson(tracks), 'application/json');
-        else triggerDownload(`${base}_tracks.geojson`, SaltCore.arcgisTracksGeoJson(tracks), 'application/geo+json');
-        showToast(`Exported ${plural(tracks.length, 'track')}.`);
+        const parts = save(`${base}_tracks`, tracks, (name, r) => triggerDownload(`${name}.zip`, SaltCore.arcgisTracksShapefileZip(r, layerName(name)), zipType));
+        if (!parts) return;
+        showToast(mti ? `Exported MTI tracks, ${mtiSaid(parts)}.` : `Exported ${plural(tracks.length, 'track')}.`);
         clearExportFilter();
         return;
     }
+    const all = document.getElementById('exportEveryVersionToggle').checked;
     const { rows, skipped } = SaltCore.arcgisRows(reps, currentOverlays(), {
-        local: timeDisplayMode === 'local', customLabels, idOf: formatFullId, team: narrTeam(),
+        local: timeDisplayMode === 'local', customLabels, idOf: formatFullId, team: narrTeam(), all,
     });
     if (!rows.length) { showToast(`None of the ${plural(skipped, 'report')} has a readable MGRS grid.`, true); return; }
-    if (kind === 'shp') triggerDownload(`${base}.zip`, SaltCore.arcgisShapefileZip(rows, layerName(base)), zipType);
-    else if (kind === 'csv') triggerDownload(`${base}.csv`, SaltCore.arcgisCsv(rows), 'text/csv;charset=utf-8;');
-    else if (kind === 'esri') triggerDownload(`${base}.json`, SaltCore.arcgisEsriJson(rows), 'application/json');
-    else triggerDownload(`${base}.geojson`, SaltCore.arcgisGeoJson(rows), 'application/geo+json');
+    const name = all ? `${base}_versions` : base;
+    const parts = save(name, rows, kind === 'shp'
+        ? (n, r) => triggerDownload(`${n}.zip`, SaltCore.arcgisShapefileZip(r, layerName(n)), zipType)
+        : (n, r) => triggerDownload(`${n}.csv`, SaltCore.arcgisCsv(r), 'text/csv;charset=utf-8;'));
+    if (!parts) return;
     const reportsOut = reps.length - skipped;
-    showToast(`Exported ${plural(rows.length, 'point')} from ${plural(reportsOut, 'report')}`
-        + (skipped ? `; ${skipped} without a readable grid left out.` : '.'), false, { ms: 6000 });
+    showToast(`Exported ${mti ? `MTI points, ${mtiSaid(parts)},` : plural(rows.length, 'point')} from ${plural(reportsOut, 'report')}`
+        + (all ? ', every version' : '') + (skipped ? `; ${skipped} without a readable grid left out.` : '.'), false, { ms: 6000 });
     clearExportFilter();
 };

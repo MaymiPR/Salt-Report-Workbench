@@ -173,6 +173,32 @@ const animateIn = (node) => {
     if (!node) return;
     node.classList.remove('view-in'); void node.offsetWidth; node.classList.add('view-in');
 };
+// A tab's panel coming in as its tab is picked: a short slide and fade from
+// the side its tab is on (`dir` 1 for a tab to the right of the last one,
+// -1 to the left). Opacity and transform only, so nothing is laid out again;
+// a switch before it ends starts it over. None with reduced motion.
+const TAB_IN_MS = 200, TAB_IN_PX = 12;
+const tabAnims = new WeakMap();
+const animateTabIn = (node, dir = 1) => {
+    if (!node || !node.animate || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+    if (tabAnims.has(node)) tabAnims.get(node).cancel();
+    // Coming in from the right, it would stick out of a box around it that
+    // scrolls, and give that a sideways scroll bar for a moment: those boxes
+    // don't scroll sideways (.tab-sliding) until it is in.
+    const boxes = [];
+    for (let p = node.parentElement; p; p = p.parentElement) {
+        if (p.classList.contains('tab-sliding') || ['auto', 'scroll'].includes(getComputedStyle(p).overflowX)) boxes.push(p);
+    }
+    boxes.forEach(b => b.classList.add('tab-sliding'));
+    const anim = node.animate([{ opacity: 0, transform: `translateX(${dir < 0 ? -TAB_IN_PX : TAB_IN_PX}px)` }, { opacity: 1, transform: 'none' }],
+        { duration: TAB_IN_MS, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' });
+    tabAnims.set(node, anim);
+    // Started over, the newer one puts them back.
+    const done = () => { if (tabAnims.get(node) === anim) boxes.forEach(b => b.classList.remove('tab-sliding')); };
+    anim.finished.then(done, done);
+};
+// Which way a tab lies from the last one, among `tabs` (their names in order).
+const tabDir = (tabs, from, to) => (tabs.indexOf(to) < tabs.indexOf(from) ? -1 : 1);
 
 // --- 2. State ---
 // Parse a JSON value from localStorage. A missing or corrupt entry yields the

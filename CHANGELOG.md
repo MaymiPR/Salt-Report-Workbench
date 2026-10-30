@@ -6,8 +6,37 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **MGRS Lock checks a grid as you type it**: a part of Location that looks
+  meant as a grid but isn't one (an odd number of digits, more than 10, two
+  numbers of different lengths, or, typed in full, a zone, band or square that
+  doesn't exist) gets an orange *Not a grid* chip under Location saying why,
+  and Log and Update ask: *Fix it*, or *Log as typed*. Place names and numbers
+  with words (`Hill 205`) never do.
+- **MTI Export for ArcGIS points and tracks**: two files, `_tracked` and
+  `_wheeled`, read from Size as the CSV's MTI Export reads it, with Size as
+  the count and its number in a new `vehicles` field.
+- **Every version for ArcGIS points**: a point for each saved version of a
+  report at that version's grids, with its own words, numbered in `version`
+  and marked `latest`.
+- **The narrative and catalogue know more words**: *logistics* (logistics)
+  and *maneuver* (armor and mechanized forces) as forces ("3x logistics
+  vics", "2x maneuver elements"); AH, UH, CH and OH as attack, utility, cargo
+  and observation helicopters (`AH-64`, `CH47`), not inside a word or as a
+  grid's 100 km square; a bare *ZBL*; *mine layer* in two words; and the
+  GBL-132 mine layer.
+- **Tabs slide in**: a short slide and fade from the tab's side in Manage,
+  the Map tab's Graphics and Basemaps, the Summary Reports' kinds and the
+  Narrative settings' tabs; none with reduced motion.
+
 ### Changed
 
+- **The Excel workbook outlines its tables**: every cell of each table (the
+  headline numbers, each chart's table, the reports), header included, has a
+  thin border.
+- **MTI Export** shows with the formats that have it: Reports for Excel,
+  ArcGIS points and ArcGIS tracks.
 - **Destroyed BDA comes off the Size**: a report of `20x tanks` with 3
   assessed Destroyed reads `17x tanks`, with *BDA: 3x tanks destroyed* small
   under it in the Report Log and the map's card. Only Destroyed counts;
@@ -24,6 +53,13 @@ All notable changes to this project are documented here. The format follows
   BDA has taken from any report; the ArcGIS points and tracks always carry
   `size_logged`. A hedge before the count (`poss 3x APCs`) is now read as
   three in the BDA checklist too, as the Statistics read it.
+
+### Removed
+
+- The ArcGIS **.json (Esri JSON)** and **.geojson** exports for points and
+  tracks, and the code behind them: points export as a Shapefile or CSV,
+  tracks as a Shapefile.
+
 
 ## [2.32.1] - 2026-10-29
 

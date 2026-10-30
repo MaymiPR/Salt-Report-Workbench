@@ -303,7 +303,8 @@ the same reports always give the same words, and nothing leaves the page.
 Each report's Size (after destroyed BDA, `sizeAfterBda`) is split into elements and looked up in
 `EQUIPMENT_CATALOGUE` (`lookupEquipment`: a name with a digit matches the
 start of a type, T-72 matching T-72B3 but not T-720; a word matches a whole
-word; the longest name wins), which gives each element a role (armor,
+word, and the helicopter letters AH, UH, CH and OH only alone or with a model
+number, never as a grid's 100 km square; the longest name wins), which gives each element a role (armor,
 artillery, air defense, engineers and so on) and an origin (Russian, Chinese,
 or any army). `ECHELONS` turns a count into an approximate unit size.
 `narrativeJudgments` runs the fixed rules (`NARRATIVE_RULES`) over those facts

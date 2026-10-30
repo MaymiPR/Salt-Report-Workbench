@@ -14,6 +14,8 @@ Without Playwright the whole module is skipped, so the plain
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import shutil
 import socket
@@ -782,6 +784,80 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_function(f"sharedDrones.some(d => d.name === '{name}')")
         page.evaluate("list => saveDrones(list)", before)  # the other tests' drones as they were
 
+    def tab_slide(self, page, selector):
+        """The tab animation running on ``selector``: [duration, the side it
+        comes from (1 right, -1 left)], or None. Held at its start, where it is
+        furthest out, it gives nothing on the page a sideways scroll."""
+        got = page.evaluate(
+            """sel => {
+                const a = document.querySelector(sel).getAnimations()[0];
+                if (!a) return null;
+                a.pause();
+                a.currentTime = 0;
+                const wide = [...document.querySelectorAll('*')].filter(n => n.scrollWidth > n.clientWidth + 1
+                    && ['auto', 'scroll'].includes(getComputedStyle(n).overflowX)).map(n => n.id || n.className);
+                a.play();
+                const from = new DOMMatrix(a.effect.getKeyframes()[0].transform).m41;
+                return [a.effect.getTiming().duration, Math.sign(from), wide];
+            }""",
+            selector,
+        )
+        if got is None:
+            return None
+        self.assertEqual(got[2], [], f"{selector}: a sideways scroll")
+        return got[:2]
+
+    def test_tabs_slide_in_from_their_side(self):
+        page = self.open_editor()
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        self.settle(page)
+        panel = "#exportPanel .ws-tab-panel[data-tab-panel='{}']"
+        # Manage: a tab to the right comes in from the right, back from the left.
+        page.click(".ws-tab[data-tab='builder']")
+        self.assertEqual(self.tab_slide(page, panel.format("builder")), [200, 1])
+        self.assertEqual(
+            page.evaluate("document.activeElement.dataset.tab"), "builder", "focus stays"
+        )
+        page.click(".ws-tab[data-tab='workspaces']")
+        self.assertEqual(self.tab_slide(page, panel.format("workspaces")), [200, -1])
+        # The same tab again, or the panel reopened on it: no slide.
+        self.settle(page)
+        page.click(".ws-tab[data-tab='workspaces']")
+        self.assertIsNone(self.tab_slide(page, panel.format("workspaces")))
+        # The Map tab's Graphics and Basemaps.
+        page.click(".ws-tab[data-tab='overlays']")
+        self.settle(page)
+        page.click("[data-map-sub='basemaps']")
+        self.assertEqual(self.tab_slide(page, "[data-map-sub-panel='basemaps']"), [200, 1])
+        page.click("[data-map-sub='graphics']")
+        self.assertEqual(self.tab_slide(page, "[data-map-sub-panel='graphics']"), [200, -1])
+        # Summary Reports' kinds, and the Narrative's settings tabs.
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='rollup']")
+        self.settle(page)
+        page.click("[data-summary-kind='narrative']")
+        self.assertEqual(self.tab_slide(page, "#summaryBody"), [200, 1])
+        self.settle(page)
+        page.click("[data-narr-tab='rules']")
+        self.assertEqual(self.tab_slide(page, "#narrSettings .narr-body"), [200, 1])
+        self.settle(page)
+        page.click("[data-narr-tab='units']")
+        self.assertEqual(self.tab_slide(page, "#narrSettings .narr-body"), [200, -1])
+        self.settle(page)
+        self.assertEqual(page.locator(".tab-sliding").count(), 0, "the boxes scroll as before")
+        # Reduced motion: none at all.
+        page.emulate_media(reduced_motion="reduce")
+        page.click("[data-narr-tab='equipment']")
+        self.assertIsNone(self.tab_slide(page, "#narrSettings .narr-body"))
+        page.click("[data-summary-kind='brief']")
+        self.assertIsNone(self.tab_slide(page, "#summaryBody"))
+        page.click("#exportViewToggleBtn")
+        self.settle(page)
+        page.click(".ws-tab[data-tab='identity']")
+        self.assertIsNone(self.tab_slide(page, panel.format("identity")))
+        self.assertTrue(page.locator(panel.format("identity")).is_visible())
+
     def test_the_export_menu_is_a_popup_with_groups_a_check_and_keys(self):
         page = self.open_editor()
         page.click("#exportViewToggleBtn")
@@ -792,6 +868,13 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.get_attribute("#ioFormatBtn", "aria-expanded"), "true")
         heads = page.locator("#ioFormatMenu .io-menu-head").all_text_contents()
         self.assertEqual(heads, ["Reports", "ArcGIS points", "ArcGIS tracks"])
+        # No Esri JSON or GeoJSON: points as a shapefile or CSV, tracks as a shapefile.
+        self.assertEqual(
+            page.locator("#ioFormatMenu [data-io-pick]").evaluate_all(
+                "l => l.map(i => i.dataset.ioPick)"
+            ),
+            ["backup", "csv", "arcgis-shp", "arcgis-csv", "tracks-shp"],
+        )
         self.assertEqual(
             page.locator("#ioFormatMenu [aria-selected='true']").text_content(), "Backup (.txt)"
         )
@@ -801,11 +884,11 @@ class BrowserTests(unittest.TestCase):
             "the picked one has the keyboard",
         )
         # A click picks: the button, the select and its description follow.
-        page.click("#ioOpt-tracks-geojson")
+        page.click("#ioOpt-tracks-shp")
         self.assertTrue(page.locator("#ioFormatMenu").is_hidden())
-        self.assertEqual(page.text_content("#ioFormatLabel"), "ArcGIS tracks (.geojson)")
-        self.assertEqual(page.input_value("#ioFormatSelect"), "tracks-geojson")
-        self.assertIn("GeoJSON lines", page.text_content("#ioFormatDesc"))
+        self.assertEqual(page.text_content("#ioFormatLabel"), "ArcGIS tracks (Shapefile .zip)")
+        self.assertEqual(page.input_value("#ioFormatSelect"), "tracks-shp")
+        self.assertIn("end arrow", page.text_content("#ioFormatDesc"))
         self.assertEqual(page.evaluate("document.activeElement.id"), "ioFormatBtn")
         # The keys: arrows open it and move, Enter picks, a letter jumps, Escape closes.
         page.keyboard.press("ArrowDown")
@@ -1377,33 +1460,20 @@ class BrowserTests(unittest.TestCase):
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='export']")  # the panel reopens on the last tab used
         with page.expect_download() as dl:
-            self.run_io(page, "arcgis-geojson")
-        self.assertTrue(dl.value.suggested_filename.endswith("_arcgis.geojson"))
-        data = json.loads(Path(dl.value.path()).read_text(encoding="utf-8"))
-        props = [f["properties"] for f in data["features"]]
+            self.run_io(page, "arcgis-csv")
+        self.assertTrue(dl.value.suggested_filename.endswith("_arcgis.csv"))
+        props = list(csv.DictReader(io.StringIO(Path(dl.value.path()).read_text(encoding="utf-8"))))
         # Two grids, two points; the report without a grid is left out.
         self.assertEqual([p["mgrs"] for p in props], ["38S MB 45000 82000", "38S MB 55000 82000"])
         self.assertEqual([p["nai"] for p in props], ["NAI 1; NAI 2"] * 2)
         self.assertEqual(props[0]["nai_from"], "typed", "logging named them")
-        self.assertEqual((props[0]["heading"], props[0]["heading_deg"]), ("N", 0))
+        self.assertEqual((props[0]["heading"], props[0]["heading_deg"]), ("N", "0"))
         self.assertEqual(props[0]["pl_near"], "PL BLUE")
-        lon, lat = data["features"][0]["geometry"]["coordinates"]
-        self.assertAlmostEqual(lat, 33.2759, places=3)
-        self.assertAlmostEqual(lon, 44.4096, places=3)
+        self.assertAlmostEqual(float(props[0]["lat"]), 33.2759, places=3)
+        self.assertAlmostEqual(float(props[0]["lon"]), 44.4096, places=3)
         self.assertIn(
             "1 without a readable grid", page.locator("#toastNotification").text_content()
         )
-        # Esri JSON: the same points, every field's type written out.
-        with page.expect_download() as dl:
-            self.run_io(page, "arcgis-esri")
-        self.assertTrue(dl.value.suggested_filename.endswith("_arcgis.json"))
-        esri = json.loads(Path(dl.value.path()).read_text(encoding="utf-8"))
-        self.assertEqual(esri["geometryType"], "esriGeometryPoint")
-        self.assertEqual(
-            [f["attributes"]["mgrs"] for f in esri["features"]],
-            ["38S MB 45000 82000", "38S MB 55000 82000"],
-        )
-        self.assertAlmostEqual(esri["features"][0]["geometry"]["y"], 33.2759, places=3)
         # Shapefile: a zip of its parts, which ArcGIS Pro drags in once unzipped.
         with page.expect_download() as dl:
             self.run_io(page, "arcgis-shp")
@@ -1420,6 +1490,86 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(struct.unpack("<i", shp[32:36])[0], 1, "points")
         self.assertEqual(struct.unpack("<I", dbf[4:8])[0], 2, "two points")
         self.assertIn(b"38S MB 45000 82000", dbf)
+
+    def test_arcgis_exports_split_for_mti_and_keep_every_version(self):
+        page = self.open_editor()
+        self.log(page, "4x tracked", activity="moving N", location="38SMB4500078000")
+        self.log(page, "2 wheeled", activity="parked", location="38SMB5500082000")
+        # An update moves the first: two versions, at two grids.
+        row = page.locator("#reportLogBody tr[data-id]").filter(has_text="4x tracked")
+        row.locator(".id-edit-btn").click()
+        self.assertIn("Updating", page.text_content("#formTitle"))
+        page.fill("#location", "38SMB4500082000")
+        page.fill("#size", "5x tracked")
+        page.click("#updateButton")
+        page.wait_for_selector("#reportLogBody .col-size:has-text('5x tracked')")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        # The options show beside the formats they change.
+        options = "#exportPanel .export-option-row:visible .export-option-text"
+        for fmt, want in [
+            ("csv", ["Latest version only", "MTI Export"]),
+            ("arcgis-shp", ["Every version", "MTI Export"]),
+            ("arcgis-csv", ["Every version", "MTI Export"]),
+            ("tracks-shp", ["MTI Export"]),
+            ("backup", ["Export All ATOs"]),
+        ]:
+            page.select_option("#ioFormatSelect", fmt)
+            self.assertEqual(page.locator(options).all_text_contents(), want, fmt)
+
+        def export(n):
+            """Press Export; the ``n`` files it saves, by name."""
+            got = []
+
+            def saved(download):
+                got.append(download)
+
+            page.on("download", saved)
+            page.click("#ioRunBtn")
+            self.wait_until(lambda: len(got) >= n, f"{n} downloads", page=page)
+            page.wait_for_timeout(600)  # and no more, after the second's moment
+            page.remove_listener("download", saved)
+            self.assertEqual(len(got), n)
+            return {d.suggested_filename: Path(d.path()) for d in got}
+
+        def rows(path):
+            return list(csv.DictReader(io.StringIO(path.read_text(encoding="utf-8"))))
+
+        # Every version: a point for each saved version, at its own grid.
+        page.select_option("#ioFormatSelect", "arcgis-csv")
+        page.check("#exportEveryVersionToggle")
+        [(name, path)] = export(1).items()
+        self.assertTrue(name.endswith("_arcgis_versions.csv"), name)
+        self.assertEqual(
+            sorted((r["size"], r["mgrs"], r["version"], r["latest"]) for r in rows(path)),
+            [
+                ("2 wheeled", "38S MB 55000 82000", "1/1", "yes"),
+                ("4x tracked", "38S MB 45000 78000", "1/2", "no"),
+                ("5x tracked", "38S MB 45000 82000", "2/2", "yes"),
+            ],
+        )
+        # MTI Export: the tracked and the wheeled, each its own file.
+        page.uncheck("#exportEveryVersionToggle")
+        page.check("#exportMtiToggle")
+        files = export(2)
+        tracked = next(rows(p) for n, p in files.items() if n.endswith("_arcgis_tracked.csv"))
+        wheeled = next(rows(p) for n, p in files.items() if n.endswith("_arcgis_wheeled.csv"))
+        self.assertEqual([(r["size"], r["vehicles"]) for r in tracked], [("5x tracked", "5")])
+        self.assertEqual([(r["size"], r["vehicles"]) for r in wheeled], [("2 wheeled", "2")])
+        self.assertIn("1 tracked and 1 wheeled", page.text_content("#toastNotification"))
+        # The shapefile the same way; the tracks, only the tracked one, which moved.
+        page.select_option("#ioFormatSelect", "arcgis-shp")
+        names = sorted(export(2))
+        self.assertTrue(names[0].endswith("_arcgis_tracked.zip"), names)
+        self.assertTrue(names[1].endswith("_arcgis_wheeled.zip"), names)
+        page.select_option("#ioFormatSelect", "tracks-shp")
+        [(name, path)] = export(1).items()
+        self.assertTrue(name.endswith("_arcgis_tracks_tracked.zip"), name)
+        with zipfile.ZipFile(path) as z:
+            dbf = z.read(next(n for n in z.namelist() if n.endswith(".dbf")))
+        self.assertEqual(struct.unpack("<I", dbf[4:8])[0], 1, "one track")
+        self.assertIn(b"5x tracked", dbf)
+        self.assertIn("1 tracked", page.text_content("#toastNotification"))
 
     def test_overlays_are_shared_and_unload_by_group(self):
         page = self.open_editor()
@@ -2053,8 +2203,10 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual((shown("#exportAllAtosToggle"), shown("#exportMtiToggle")), (True, False))
         page.select_option("#ioFormatSelect", "csv")
         self.assertEqual((shown("#exportAllAtosToggle"), shown("#exportMtiToggle")), (False, True))
-        page.select_option("#ioFormatSelect", "arcgis-esri")
-        self.assertFalse(shown("#exportMtiToggle"))
+        page.select_option("#ioFormatSelect", "tracks-shp")
+        self.assertEqual(
+            (shown("#exportEveryVersionToggle"), shown("#exportMtiToggle")), (False, True)
+        )
         self.assertTrue(shown("#exportFromDate"))
         # Clear sits in the card's header, always there, and empties the range.
         self.assertEqual(page.locator(".io-time .io-card-head #exportClearFilterBtn").count(), 1)
@@ -2075,7 +2227,7 @@ class BrowserTests(unittest.TestCase):
         page.reload()
         page.wait_for_function("() => isManageViewActive")  # the view on screen is restored too
         page.click(".ws-tab[data-tab='export']")
-        self.assertEqual(page.input_value("#ioFormatSelect"), "arcgis-esri")
+        self.assertEqual(page.input_value("#ioFormatSelect"), "tracks-shp")
         viewer = self.open_viewer()
         viewer.click("#exportViewToggleBtn")
         self.assertFalse(viewer.locator("#ioDrop").is_visible())
@@ -4411,6 +4563,54 @@ class BrowserTests(unittest.TestCase):
         self.assertFalse(page.locator("#mgrsPrefix").is_visible())
         self.assertEqual(page.evaluate("lockedLocation('45000 82000')"), "45000 82000")
 
+    def test_mgrs_lock_says_when_a_grid_isnt_one_and_asks_before_logging_it(self):
+        page = self.open_editor()
+        page.click("#dataMgmtBtn")
+        page.click("#toggleMgrsLockBtn")
+        page.wait_for_function("() => document.activeElement.id === 'mgrsPrefix'")
+        page.fill("#mgrsPrefix", "38smb")
+        chip = "#locationHints [data-loc-lock]"
+        # While typing: an orange chip under Location for what looks meant as a grid.
+        page.fill("#location", "45000 8200")
+        page.wait_for_selector(f"{chip}:visible")
+        self.assertEqual(
+            page.text_content(chip), "Not a grid: 45000 8200 has two numbers of different lengths"
+        )
+        self.assertIn("warn", page.get_attribute(chip, "class"))
+        page.fill("#location", "38I MB 45000 82000")
+        self.assertEqual(
+            page.text_content(chip), "Not a grid: 38I MB 45000 82000 has no latitude band I"
+        )
+        # Place names and numbers with words never are; a grid it takes isn't either.
+        for text in ("Hill 205", "vic the bridge, 205", "45000 82000"):
+            page.fill("#location", text)
+            self.assertEqual(page.locator(chip).count(), 0, text)
+        # Log asks: Fix it goes back to the box, logging nothing.
+        page.fill("#size", "1x BRDM")
+        page.fill("#activity", "observing")
+        page.fill("#location", "4500 820")
+        page.click("#logButton")
+        page.wait_for_selector("#choiceToast.show")
+        self.assertEqual(page.text_content("#choiceMessage"), "Not a grid: 4500 820")
+        self.assertIn("has two numbers of different lengths", page.text_content("#choiceDetail"))
+        page.click("#choiceButtons button:text-is('Fix it')")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "location")
+        self.assertEqual(self.sizes(page), [])
+        # Log as typed: logged as it is, without the zone and square.
+        page.click("#logButton")
+        page.click("#choiceButtons button:text-is('Log as typed')")
+        page.wait_for_selector("#reportLogBody .col-size:has-text('1x BRDM')")
+        self.assertTrue(
+            page.evaluate("localReports.find(r => r.size === '1x BRDM').location").startswith(
+                "4500 820"
+            )
+        )
+        # With the lock off, nothing is said.
+        page.click("#dataMgmtBtn")
+        page.click("#toggleMgrsLockBtn")
+        page.fill("#location", "45000 8200")
+        self.assertEqual(page.locator(chip).count(), 0)
+
     def test_tracks_export_and_latest_only_csv(self):
         page = self.open_editor()
         self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
@@ -4421,12 +4621,15 @@ class BrowserTests(unittest.TestCase):
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='export']")
         with page.expect_download() as dl:
-            self.run_io(page, "tracks-esri")
-        self.assertTrue(dl.value.suggested_filename.endswith("_arcgis_tracks.json"))
-        esri = json.loads(Path(dl.value.path()).read_text(encoding="utf-8"))
-        self.assertEqual(esri["geometryType"], "esriGeometryPolyline")
-        self.assertEqual(len(esri["features"][0]["geometry"]["paths"][0]), 2)
-        self.assertEqual(esri["features"][0]["attributes"]["direction"], "N")
+            self.run_io(page, "tracks-shp")
+        self.assertTrue(dl.value.suggested_filename.endswith("_arcgis_tracks.zip"))
+        with zipfile.ZipFile(dl.value.path()) as z:
+            shp = z.read(next(n for n in z.namelist() if n.endswith(".shp")))
+            dbf = z.read(next(n for n in z.namelist() if n.endswith(".dbf")))
+        self.assertEqual(struct.unpack("<i", shp[32:36])[0], 3, "lines")
+        self.assertEqual(struct.unpack("<i", shp[148:152])[0], 2, "the track's two points")
+        self.assertEqual(struct.unpack("<I", dbf[4:8])[0], 1, "one track")
+        self.assertIn(b"38S MB 45000 84000", dbf)
         page.select_option("#ioFormatSelect", "csv")
         page.check("#exportLatestOnlyToggle")
         with page.expect_download() as dl:
@@ -4505,6 +4708,20 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("Reports per NAI", parts["xl/charts/chart1.xml"])
         self.assertIn('ref="A1:', parts["xl/tables/table1.xml"])
         self.assertIn("2x T-72", parts["xl/sharedStrings.xml"])
+        # Each table's cells are outlined: the report table's header and rows.
+        styles = ET.fromstring(parts["xl/styles.xml"])
+        ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+        borders = styles.findall("m:borders/m:border", ns)
+        xfs = styles.findall("m:cellXfs/m:xf", ns)
+        sheet = ET.fromstring(parts["xl/worksheets/sheet2.xml"])
+        cells = sheet.findall("m:sheetData/m:row/m:c", ns)
+        self.assertTrue(cells)
+        for c in cells:
+            border = borders[int(xfs[int(c.get("s"))].get("borderId"))]
+            sides = [
+                border.find(f"m:{s}", ns).get("style") for s in ("left", "right", "top", "bottom")
+            ]
+            self.assertEqual(sides, ["thin"] * 4, c.get("r"))
         # Live: a report logged from the form shows up without reopening.
         page.click("#statsViewToggleBtn")
         self.log(page, "1x truck", activity="parked", location="38SMB4500082100")
