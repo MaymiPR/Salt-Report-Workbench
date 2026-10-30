@@ -9,6 +9,9 @@ get set up and what a change needs before it merges.
   install, and the page must work from a single file with no network. If a
   change needs a third-party package or a CDN, open an issue to discuss it
   first. Dev tools such as ruff and pre-commit are fine.
+  (They need Python 3.11 or newer: pre-commit 4.7 dropped 3.10. Python
+  3.10 itself reached end of life on 2026-10-01; the 3.10 floor stays for
+  operators with a stock install until their machines have a newer Python.)
 - **Don't break offline use.** Every feature should still work in local mode
   (opening `dist/index.html` directly) or degrade clearly.
 - **Never commit report data.** `Auto Backups/` is git-ignored for a reason.
