@@ -92,14 +92,21 @@ const mgrsPrefix = (text) => {
     if (!m || +m[1] < 1 || +m[1] > 60) return null;
     return `${+m[1]}${m[2]} ${m[3]}${m[4]}`.toUpperCase();
 };
+// A part of a Location that names a grid after a word: "vic 39697 06762",
+// "vicinity of", "IVO", "near", "nr", "grid", "approx", "at". MGRS Lock reads
+// the grid after it as it reads a part that is only a grid.
+const LEAD_WORD = /^((?:vic(?:inity)?\.?|ivo|near|nr\.?|grid|approx\.?|at)(?:\s+of)?)\s+(\S.*)$/i;
 // The Location with the locked prefix put in front of each grid typed as its
-// digits alone ("39697 06762" or "3969706762", any even count); full grids,
-// place names and odd numbers ("Hill 205", "205") are left as they are.
+// digits alone ("39697 06762" or "3969706762", any even count), or after a
+// lead word ("vic 39697 06762"); full grids, place names and odd numbers
+// ("Hill 205", "205") are left as they are.
 const applyMgrsPrefix = (text, prefix) => {
     const p = mgrsPrefix(prefix), s = String(text || '');
     if (!p) return s;
     return s.split(',').map(seg => {
         const t = seg.trim(), lead = seg.slice(0, seg.length - seg.trimStart().length);
+        const word = LEAD_WORD.exec(t);
+        if (word) { const rest = applyMgrsPrefix(word[2], p); return rest === word[2] ? seg : `${lead}${word[1]} ${rest}`; }
         let m = /^(\d{1,5})\s+(\d{1,5})$/.exec(t);
         if (m && m[1].length === m[2].length) return `${lead}${p} ${m[1]} ${m[2]}`;
         if (/^\d{2,10}$/.test(t) && t.length % 2 === 0) return `${lead}${p} ${t.slice(0, t.length / 2)} ${t.slice(t.length / 2)}`;
@@ -116,6 +123,8 @@ const stripMgrsPrefix = (text, prefix) => {
     if (!p) return s;
     return s.split(',').map(seg => {
         const t = seg.trim(), lead = seg.slice(0, seg.length - seg.trimStart().length);
+        const word = LEAD_WORD.exec(t);
+        if (word) { const rest = stripMgrsPrefix(word[2], p); return rest === word[2] ? seg : `${lead}${word[1]} ${rest}`; }
         const m = /^(\d{1,2})\s*([C-HJ-NP-X])\s*([A-HJ-NP-Z])\s*([A-HJ-NP-V])\s*(\d{1,10})(?:\s+(\d{1,5}))?$/i.exec(t);
         if (!m || mgrsPrefix(`${m[1]}${m[2]} ${m[3]}${m[4]}`) !== p) return seg;
         if (m[6] !== undefined) return m[5].length === m[6].length ? `${lead}${m[5]} ${m[6]}` : seg;
@@ -152,7 +161,9 @@ const lockSquareWhy = (zone, band, col, row, digits = '') => {
 };
 const mgrsLockChecks = (text, prefix) => {
     const p = mgrsPrefix(prefix);
-    return String(text || '').split(',').map(s => s.trim()).filter(Boolean).map(t => {
+    return String(text || '').split(',').map(s => s.trim()).filter(Boolean).map(part => {
+        // After a lead word ("vic 39697 0676"), the grid is checked; the part is said whole.
+        const word = LEAD_WORD.exec(part), t = word ? word[2].trim() : part;
         let why = '';
         if (/^\d+(?:\s+\d+)*$/.test(t)) {
             const groups = t.split(/\s+/);
@@ -167,7 +178,7 @@ const mgrsLockChecks = (text, prefix) => {
             const groups = m[5].trim().split(/\s+/);
             why = lockSquareWhy(+m[1], m[2], m[3], m[4]) || lockDigitsWhy(groups) || lockSquareWhy(+m[1], m[2], m[3], m[4], groups.join(''));
         }
-        return why ? { text: t, why } : null;
+        return why ? { text: part, why } : null;
     }).filter(Boolean);
 };
 

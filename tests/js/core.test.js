@@ -1374,6 +1374,25 @@ test('MGRS Lock says which parts look meant as a grid but are not one', () => {
     // What it passes, Log reads as a grid.
     ['39697 06762', '397 067', '11S NV 40007 05191'].forEach(t =>
         assert.equal(core.findGrids(core.applyMgrsPrefix(t, '11S NV')).length, 1, t));
+    // After a lead word, the grid is read the same: given the zone and square, checked,
+    // and taken back to digits for an update; the words stay as typed.
+    [['vic 39697 06762', 'vic 11S NV 39697 06762', 'vic 39697 06762'],
+        ['vicinity of 3969706762', 'vicinity of 11S NV 39697 06762', 'vicinity of 39697 06762'],
+        ['IVO 397 067', 'IVO 11S NV 397 067', 'IVO 397 067'],
+        ['nr. 1234 5678, NAI 2', 'nr. 11S NV 1234 5678, NAI 2', 'nr. 1234 5678, NAI 2'],
+        ['Vic 39697 06762', 'Vic 11S NV 39697 06762', 'Vic 39697 06762'],
+        ['grid 11S NV 40007 05191', 'grid 11S NV 40007 05191', 'grid 40007 05191']].forEach(([typed, logged, digits]) => {
+        assert.equal(core.applyMgrsPrefix(typed, '11S NV'), logged, typed);
+        assert.equal(core.findGrids(logged).length, 1, logged);
+        assert.equal(core.stripMgrsPrefix(logged, '11S NV'), digits, logged);
+    });
+    assert.deepEqual(why('vic 39697 0676'), ['vic 39697 0676 has two numbers of different lengths']);
+    assert.deepEqual(why('near 39697067621, NAI 2'), ['near 39697067621 has more than 10 digits']);
+    assert.deepEqual(why('grid 61S NV 39697 06762'), ['grid 61S NV 39697 06762 has no zone 61 (zones are 1 to 60)']);
+    ['vic 397', 'vic Hill 205', 'at the bridge', 'near PL BLUE', 'vicinity of the wadi'].forEach(t => {
+        assert.deepEqual(why(t), [], t);
+        assert.equal(core.applyMgrsPrefix(t, '11S NV'), t, t);
+    });
 });
 
 // The files in a zip of stored entries, by name.

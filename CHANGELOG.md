@@ -12,8 +12,10 @@ All notable changes to this project are documented here. The format follows
   meant as a grid but isn't one (an odd number of digits, more than 10, two
   numbers of different lengths, or, typed in full, a zone, band or square that
   doesn't exist) gets an orange *Not a grid* chip under Location saying why,
-  and Log and Update ask: *Fix it*, or *Log as typed*. Place names and numbers
-  with words (`Hill 205`) never do.
+  and Log and Update ask: *Fix it*, or *Log as typed*. A grid after a lead
+  word (`vic 39697 06762`; also *vicinity of*, *IVO*, *near*, *nr*, *grid*,
+  *approx*, *at*) is checked too, and given the locked zone and square like
+  digits alone. Place names and numbers with words (`Hill 205`) never are.
 - **MTI Export for ArcGIS points and tracks**: two files, `_tracked` and
   `_wheeled`, read from Size as the CSV's MTI Export reads it, with Size as
   the count and its number in a new `vehicles` field.
