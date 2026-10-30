@@ -142,9 +142,10 @@ const mapLabels = (w, h) => {
 // A name on the map, offered to `labels`: its <text> at [x, y] (in the group
 // it is drawn in, which `shift` moves to the map's own pixels), in the font
 // of its class (`size`, `weight`), anchored at its start, middle or end.
-// `inner` is markup to draw instead of the text (a second line, say).
+// `inner` is markup to draw instead of the text (a second line, say). A name
+// can't hold the tokens' own character.
 const mapLabel = (labels, [x, y], text, { cls = '', anchor = 'middle', size = 11, weight = 600, prio = 'other', rank = 0, shift = [0, 0], inner = null, lines = 1 } = {}) => {
-    const markup = `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${anchor}" class="map-label${cls}">${inner === null ? svgEsc(text) : inner}</text>`;
+    const markup = `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${anchor}" class="map-label${cls}">${(inner === null ? svgEsc(text) : inner).replace(/\u0001/g, '')}</text>`;
     return labels.add(markup, labelBox(x + shift[0], y + shift[1], text, size, weight, anchor, lines), prio, rank);
 };
 // How many of the map's reports are at each place, by its name ('NAI 1').

@@ -36,7 +36,7 @@ Three constraints drive almost every decision:
 │       ├── 61-map-draw.js    Drawing it: overlays, heat map, tracks, report dots, legend
 │       ├── 62-map-basemaps.js  Basemaps: drawing them, finding, adding, checking services
 │       ├── 63-map-drones.js  Drones: where, their view and range, their menu, saving; FMV mode
-│       ├── 64-map-controls.js  Full screen, the panel above, menus, grab a grid, pointer
+│       ├── 64-map-controls.js  Full screen, the panel above, menus, grab a grid, go to one, pointer
 │       ├── 70-stats.js       Statistics panel: charts, hover, tables, PNG / SVG / Excel export
 │       ├── 80-summary.js     Summary Reports panel: written reports, copy, .txt, print, edit
 │       ├── 81-narrative.js   The narrative's settings: enemy name, way of march, units, equipment, rules
@@ -219,7 +219,7 @@ workspace dicts are pooled (`fold_overlays` in the server, `foldOverlays` in
 the browser's `DecompressionStream`), loose shapefile parts, and GeoJSON (Web
 Mercator converted, other projections refused) into that shape before saving,
 so the server only validates: types, name lengths, coordinate ranges, at most
-500 features and 200,000 points. Shapefiles are read by `parseShapefile` in
+2,000 features and 200,000 points. Shapefiles are read by `parseShapefile` in
 `core/40-map.js` (.shp geometry, .dbf attributes, .prj to longitude/latitude for
 geographic, Web Mercator and UTM).
 
@@ -232,8 +232,21 @@ typos; `tests/js/mgrs-vectors.json` holds reference points from the NGA's
 GeoTrans to check it against.
 
 The map (`app/60-map.js`) draws in screen pixels from Web Mercator, redrawn
-on every pan and zoom. Nothing on it is synced; each browser keeps its own
-choices (`salt_map_layers`, `salt_map_grids`, `salt_map_base`,
+on every pan and zoom. Each graphic's Web Mercator box is worked out once
+(`overlayBox`, kept in a `WeakMap` by the graphic, so a sync's new objects
+bring new boxes) and a graphic wholly off screen is left out of a drawing.
+Names don't overlap: every layer offers its names to one `mapLabels` per
+drawing, each with a priority (`LABEL_PRIORITY`: the measures, what is
+picked, lines, places with reports, places without, the rest) and a box
+from its text's width in the names' font; the names are placed in that
+order into a grid of 64-pixel cells, and one whose box meets a placed one
+is left off. A layer writes a token where its name goes, so the drawing
+keeps its order, and the tokens become the names (or nothing) at the end.
+A graphic's name is offered only when the graphic's box on screen is as
+wide (and, for an area, as tall) as the name. The boxes placed are kept
+(`mapState.labelBoxes`) for the tests to check.
+
+Nothing on the map is synced; each browser keeps its own choices (`salt_map_layers`, `salt_map_grids`, `salt_map_base`,
 `salt_map_side`, `salt_map_only_in_view`, `salt_map_tags_off` (the tags
 switched off in the key), the kept range rings
 `salt_range_rings`, and Settings > Units, `salt_units`). The measure tools
@@ -268,9 +281,11 @@ the slide ends. The Map view (`app/85-mapview.js`) is built around that map.
 After each drawing the map tells it (`mapDrawnHook`) what it showed: the
 view box, the reports and their tracks. Once the view settles, the view
 counts what is on the map and fills the table from that. A click that didn't
-drag (`mapClickHook`) is a report (its card), an NAI or OBJ it falls in, or a
-phase line within ten pixels (the table narrows to it). The picked report
-and place are plain variables the next drawing reads; nothing about them is
+drag (`mapClickHook`) is a report (its card), an axis of advance within ten
+pixels (its card, with Remove for editors), an NAI or OBJ it falls in, or a
+phase line within ten pixels (the table narrows to it). The picked report,
+axis and place, and the grid gone to (*Go to a grid*, an X while its box is
+open), are plain variables the next drawing reads; nothing about them is
 stored or synced.
 
 The one place a report's text is changed for it: on Log and Update,

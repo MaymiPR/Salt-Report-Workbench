@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // The map's own controls (app/60-map.js): full screen, the panel above the
-// map, its menus, grabbing a grid, and the pointer and keyboard on the map.
+// map, its menus, grabbing a grid, going to one, and the pointer and keyboard
+// on the map.
 // One of the ordered scripts that make up the page (see src/app/); they
 // share one top-level scope, so names declared earlier are visible here.
 // --- The map's own controls ---
