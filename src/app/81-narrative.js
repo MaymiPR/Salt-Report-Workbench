@@ -341,7 +341,13 @@ const saveNarrForm = () => {
     const go = (open) => { narrOpen = open; rerender(); };
     box.addEventListener('click', e => {
         const tab = e.target.closest('[data-narr-tab]');
-        if (tab) { narrTab = tab.dataset.narrTab; go(null); return; }
+        if (tab) {
+            const tabs = [...box.querySelectorAll('[data-narr-tab]')].map(b => b.dataset.narrTab), was = narrTab;
+            narrTab = tab.dataset.narrTab;
+            go(null);
+            if (was !== narrTab) animateTabIn(box.querySelector('.narr-body'), tabDir(tabs, was, narrTab));
+            return;
+        }
         // A saved one opens by its id, so the list can change under it.
         const edit = e.target.closest('[data-narr-edit]');
         if (edit) {

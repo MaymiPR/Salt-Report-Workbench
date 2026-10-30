@@ -59,6 +59,9 @@
     --map-halo: rgba(0, 0, 0, 0.8);
     --map-drone-label: #ffcc80;
     --map-out-label: #ff8a80;
+    /* The map's floating controls switched on: the blue of a pressed chip laid
+       on the panel's own color, so it reads the same over any basemap. */
+    --map-on-bg: linear-gradient(var(--blue-hover), var(--blue-hover)), var(--panel-bg);
     --heat-ramp: linear-gradient(90deg, rgba(10, 132, 255, 0.35), rgba(48, 209, 88, 0.65) 35%, rgba(255, 214, 10, 0.8) 65%, rgba(255, 59, 48, 0.92));
     /* The identity colors that aren't system colors. */
     --swatch-sky: #5ac8fa;
@@ -471,6 +474,9 @@ body.local-mode .startup-access-divider { display: none; }
 /* A view coming in: a quick fade and rise, nothing that jumps. */
 .view-in { animation: view-in 0.28s cubic-bezier(0.32, 0.72, 0, 1); }
 @keyframes view-in { from { opacity: 0; transform: translateY(8px); } }
+/* A tab's panel sliding in (animateTabIn): the boxes around it that scroll
+   don't scroll sideways until it is in. */
+.tab-sliding { overflow-x: hidden !important; }
 /* Reduced motion, everywhere: every animation and transition all but
    instant, with no delays, so what waits on one still happens, at once. */
 @media (prefers-reduced-motion: reduce) {
@@ -576,8 +582,9 @@ body.local-mode .startup-access-divider { display: none; }
     width: 1%;
     white-space: nowrap;
 }
-/* FMV mode: the drone a report was seen from, small under its time. */
-.observer-tag { display: block; margin-top: 2px; font-size: 0.78em; color: var(--text-secondary); }
+/* FMV mode: the drone a report was seen from, small under its time; and
+   what BDA took off a Size, small under the Size it leaves (log, map card). */
+.observer-tag, .size-bda-note { display: block; margin-top: 2px; font-size: 0.78em; color: var(--text-secondary); }
 .observer-field[hidden] { display: none; }
 
 /* Wrappable columns: max-width on th+td; min-width on td only (keeps headers
@@ -1353,7 +1360,7 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 10px; }
 .map-tools .filter-presets { margin: 0; }
 /* The basemap panel, beside the map's buttons. */
-.map-base-pop { position: absolute; top: 10px; right: 50px; z-index: 4; display: flex; flex-direction: column; gap: 8px; min-width: 200px; box-sizing: border-box; padding: 10px 12px; border-radius: 12px; background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px var(--shadow); cursor: default; }
+.map-base-pop { position: absolute; top: 10px; right: 50px; z-index: 4; display: flex; flex-direction: column; gap: 8px; min-width: 200px; box-sizing: border-box; padding: 10px 12px; border-radius: 12px; background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px var(--shadow); cursor: default; }
 .map-base-pop[hidden], .map-base-pop [hidden], #mapBaseBtn[hidden] { display: none; }
 .map-base-pop-head { font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); }
 .map-base-select { width: 100%; margin: 0; padding: 7px 34px 7px 12px; font-size: 0.85em; border-radius: 10px; }
@@ -1404,6 +1411,18 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-base-add button { padding: 7px 14px; font-size: 0.84em; }
 .map-base-hint { font-size: 0.75em; color: var(--text-secondary); }
 #mapBaseBtn.active { color: var(--system-blue); }
+/* A button in the map's column that is on (the ruler) or has its box open. */
+.map-zoom button.active, .map-zoom button[aria-expanded="true"] { background: var(--map-on-bg); border-color: var(--blue-outline); color: var(--system-blue); }
+/* Go to a grid: its box beside its button, the fourth in the column. */
+.map-goto-pop { top: 112px; width: 270px; gap: 6px; }
+.map-goto-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.map-goto-pop .map-goto-row { margin: 0; flex-wrap: nowrap; }
+.map-goto-pop .map-goto-row input { flex: 1 1 auto; min-width: 0; padding: 7px 10px; font-size: 0.84em; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+.map-goto-pop .map-goto-row button { padding: 7px 14px; font-size: 0.84em; }
+.map-goto-said { font-size: 0.8em; color: var(--text-secondary); }
+.map-goto-said:empty { display: none; }
+.map-goto-said.bad { color: var(--system-red); }
+.map-card-remove { color: var(--system-red); }
 .map-base-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
 .map-base-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto auto; align-items: center; gap: 10px; padding: 4px 2px; border-bottom: 1px solid var(--divider); font-size: 0.85em; }
 .map-base-check { margin: 4px 6px 6px; padding: 7px 10px; border-radius: 8px; font-size: 0.82em; line-height: 1.4; background: var(--orange-soft); color: var(--text-primary); border: 1px solid var(--orange-strong); }
@@ -1478,9 +1497,9 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .map-measure-tools.open { opacity: 1; visibility: visible; transform: none; transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.18s ease, visibility 0s linear 0s; }
 .map-zoom .map-measure-tools button { width: auto; padding: 0 10px; font-size: 0.8em; font-weight: 600; color: var(--text-secondary); }
 .map-zoom .map-measure-tools button:hover { color: var(--text-primary); }
-.map-zoom .map-measure-tools button[aria-pressed="true"] { background: var(--blue-hover); border-color: var(--blue-outline); color: var(--system-blue); }
+.map-zoom .map-measure-tools button[aria-pressed="true"] { background: var(--map-on-bg); border-color: var(--blue-outline); color: var(--system-blue); }
 .map-measure-panel { position: absolute; right: calc(100% + 6px); top: 70px; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; width: max-content; max-width: 320px; box-sizing: border-box; padding: 8px 10px; border-radius: 12px;
-    background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px var(--shadow); font-size: 0.8em; color: var(--text-primary); cursor: default; }
+    background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px var(--shadow); font-size: 0.8em; color: var(--text-primary); cursor: default; }
 .map-measure-panel[hidden] { display: none; }
 .map-measure-panel select { width: auto; max-width: 100%; margin: 0; padding: 6px 30px 6px 10px; font-size: 1em; }
 .map-measure-speed { display: inline-flex; align-items: center; gap: 6px; }
@@ -1512,14 +1531,14 @@ body.read-only .for-editors { display: none; }
 .map-hit { pointer-events: stroke; }
 circle.map-hit { pointer-events: all; }
 .map-zoom { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 4px; }
-.map-zoom button { width: 30px; height: 30px; margin: 0; padding: 0; border-radius: 8px; background: var(--glass-bg); backdrop-filter: blur(12px); border: 1px solid var(--glass-border); color: var(--text-primary); font-size: 1.05em; line-height: 1; }
-.map-note { position: absolute; left: 10px; top: 10px; max-width: 60%; padding: 6px 10px; border-radius: 8px; background: var(--glass-bg); backdrop-filter: blur(12px); font-size: 0.8em; color: var(--text-secondary); }
+.map-zoom button { width: 30px; height: 30px; margin: 0; padding: 0; border-radius: 8px; background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); color: var(--text-primary); font-size: 1.05em; line-height: 1; }
+.map-note { position: absolute; left: 10px; top: 10px; max-width: 60%; padding: 6px 10px; border-radius: 8px; background: var(--glass-bg); backdrop-filter: blur(20px); font-size: 0.8em; color: var(--text-secondary); }
 .map-note[hidden], .map-tip[hidden] { display: none; }
 /* Shown for a moment when the wheel scrolls past the map instead of zooming. */
 .map-hint { position: absolute; left: 50%; top: 50%; z-index: 3; transform: translate(-50%, -50%); padding: 10px 16px; border-radius: 12px; background: var(--map-scrim); color: var(--on-color); font-size: 0.9em; font-weight: 600; pointer-events: none; animation: map-hint-in 0.15s ease-out; }
 .map-hint[hidden] { display: none; }
 @keyframes map-hint-in { from { opacity: 0; } }
-.map-tip { position: absolute; z-index: 2; max-width: 280px; padding: 8px 10px; border-radius: 10px; background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); font-size: 0.8em; line-height: 1.45; pointer-events: none; }
+.map-tip { position: absolute; z-index: 2; max-width: 280px; padding: 8px 10px; border-radius: 10px; background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); font-size: 0.8em; line-height: 1.45; pointer-events: none; }
 .map-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 0.8em; color: var(--text-secondary); }
 .map-key { display: inline-flex; align-items: center; gap: 6px; }
 /* A tag in the key is its graphics' switch: off, it is dimmed and struck through. */
@@ -1644,9 +1663,9 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 /* The controls float on the map, at its top left. */
 .map-box .map-tools { position: absolute; top: 10px; left: 10px; right: 54px; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; pointer-events: none; }
 .map-box .map-tools > * { pointer-events: auto; }
-.map-box .map-tools .io-modes { background: var(--glass-bg); backdrop-filter: blur(14px); border: 1px solid var(--glass-border); }
-.map-box .map-tools .filter-presets { margin: 0; padding: 4px 8px; border-radius: 10px; background: var(--glass-bg); backdrop-filter: blur(14px); border: 1px solid var(--glass-border); }
-.map-box .map-tools .map-layer-btn { backdrop-filter: blur(14px); }
+.map-box .map-tools .io-modes { background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); }
+.map-box .map-tools .filter-presets { margin: 0; padding: 4px 8px; border-radius: 10px; background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); }
+.map-box .map-tools .map-layer-btn { backdrop-filter: blur(20px); }
 /* The basemap notice: a line of its own under the controls, so it moves down
    when they wrap to two rows instead of sitting behind them. */
 .map-tools-break { flex-basis: 100%; height: 0; margin-top: -6px; }
@@ -1657,7 +1676,7 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .map-layer-btn:hover { color: var(--text-primary); }
 .map-layer-btn:active { transform: none; }
 .map-layer-check { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid currentColor; box-sizing: border-box; flex: 0 0 auto; }
-.map-layer-btn[aria-pressed="true"] { background: var(--blue-hover); border-color: var(--blue-outline); color: var(--system-blue); }
+.map-layer-btn[aria-pressed="true"] { background: var(--map-on-bg); border-color: var(--blue-outline); color: var(--system-blue); }
 .map-layer-btn[aria-pressed="true"] .map-layer-check { border: none; background: var(--system-blue) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M3.5 7.2l2.3 2.3 4.7-4.9' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 14px no-repeat; }
 .map-grids .io-mode:disabled { opacity: 0.4; cursor: default; }
 .map-label-time { font-weight: 500; font-size: 10px; fill: var(--system-yellow); }
@@ -1679,12 +1698,12 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 /* The controls keep one width (so they never wrap differently) and slide. */
 .map-main .map-box .map-tools { left: 210px; transform: translateX(calc(var(--tools-left) - 210px)); transition: transform var(--slide); }
 .map-main.side-hidden .map-side { transform: translateX(calc(-100% - 14px)); opacity: 0; visibility: hidden; transition: transform var(--slide), opacity 0.3s ease, visibility 0s linear 0.42s; }
-.map-side-btn { position: absolute; top: 10px; left: 10px; z-index: 4; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px; margin: 0; padding: 0; border: 1px solid var(--glass-border); border-radius: 9px; background: var(--glass-bg); backdrop-filter: blur(14px); color: var(--text-secondary); cursor: pointer; }
+.map-side-btn { position: absolute; top: 10px; left: 10px; z-index: 4; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px; margin: 0; padding: 0; border: 1px solid var(--glass-border); border-radius: 9px; background: var(--glass-bg); backdrop-filter: blur(20px); color: var(--text-secondary); cursor: pointer; }
 .map-side-btn:hover { color: var(--text-primary); }
 .map-side-btn:active { transform: none; }
 .map-side-btn[aria-pressed="true"] { color: var(--system-blue); }
 /* Its box reaches up round the sidebar button (which stays put); the contents keep their place. */
-.map-side { position: absolute; left: 4px; top: 4px; bottom: 50px; z-index: 3; width: 196px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; box-sizing: border-box; padding: 56px 10px 12px 16px; border-radius: 15px; background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px var(--shadow); transform: translateX(0); opacity: 1; visibility: visible; transition: transform var(--slide), opacity 0.3s ease, visibility 0s linear 0s; will-change: transform; }
+.map-side { position: absolute; left: 4px; top: 4px; bottom: 50px; z-index: 3; width: 196px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; box-sizing: border-box; padding: 56px 10px 12px 16px; border-radius: 15px; background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px var(--shadow); transform: translateX(0); opacity: 1; visibility: inherit; transition: transform var(--slide), opacity 0.3s ease, visibility 0s linear 0s; will-change: transform; }
 /* Two halves, as tall as each other; each scrolls its own list when it's long. */
 .map-side-block { flex: 1 1 0; min-width: 0; min-height: 0; box-sizing: border-box; display: flex; flex-direction: column; }
 .map-side-block .map-chips { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
@@ -1719,7 +1738,7 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 @keyframes map-row-flash { 0%, 40% { background: var(--blue-strong); } }
 .map-table-empty td { padding: 18px; color: var(--text-secondary); text-align: center; }
 /* The card of a report clicked on the map. */
-.map-card { position: absolute; z-index: 3; width: 260px; max-height: calc(100% - 16px); overflow: auto; box-sizing: border-box; padding: 10px 12px; border-radius: 12px; background: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px var(--shadow); font-size: 0.82em; cursor: default; user-select: text; }
+.map-card { position: absolute; z-index: 3; width: 260px; max-height: calc(100% - 16px); overflow: auto; box-sizing: border-box; padding: 10px 12px; border-radius: 12px; background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px var(--shadow); font-size: 0.82em; cursor: default; user-select: text; }
 .map-card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; color: var(--text-primary); }
 .map-card-close { flex: 0 0 auto; width: 22px; height: 22px; margin: 0; padding: 0; border: none; border-radius: 50%; background: var(--input-bg); color: var(--text-secondary); font-size: 1em; line-height: 1; }
 .map-card-row { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 6px; padding: 3px 0; }
@@ -1728,7 +1747,7 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .map-card-actions { display: flex; gap: 16px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--divider); }
 /* The key and, under it, the time slider: inside the map, at its foot. */
 .map-bottom { position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 2; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; pointer-events: none; }
-.map-bottom > * { pointer-events: auto; box-sizing: border-box; padding: 6px 12px; border-radius: 10px; background: var(--glass-bg); backdrop-filter: blur(14px); border: 1px solid var(--glass-border); cursor: default; }
+.map-bottom > * { pointer-events: auto; box-sizing: border-box; padding: 6px 12px; border-radius: 10px; background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); cursor: default; }
 /* As wide as it can be beside the sidebar, open or not, so it never wraps differently as the sidebar moves. */
 .map-bottom .map-legend { margin: 0; max-width: calc(100cqw - 220px); }
 .map-main .map-box { container-type: inline-size; }
@@ -1749,6 +1768,8 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 /* Statistics and Summary: the From / To pickers laid out as in Workspaces. */
 .range-grid { max-width: 620px; margin-bottom: 16px; }
 .filter-preset-btn.active { background-color: var(--blue-hover); color: var(--system-blue); }
+/* On the map, over any basemap: as solid as the controls round it. */
+.map-box .map-tools .filter-preset-btn.active { background: var(--map-on-bg); border-color: var(--blue-outline); }
 .stats-body { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
 .stats-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 16px; }
 .stats-tile { background: var(--input-bg); border-radius: 12px; padding: 10px 14px; }

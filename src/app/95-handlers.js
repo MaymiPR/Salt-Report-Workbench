@@ -19,6 +19,15 @@ const askEditConflict = async (theirs) => {
     return pick;
 };
 
+// MGRS Lock on, and parts of the Location that look meant as grids aren't
+// ones. Resolves 'typed' (log it as it is), or 'fix' / null to go back to it.
+const askNotGrids = (list) => {
+    const one = list.length === 1;
+    return askChoice(one ? `Not a grid: ${list[0].text}` : `${list.length} parts of the Location aren't grids`,
+        `${list.map(c => `${c.text} ${c.why}`).join('; ')}. Logged as typed, ${one ? 'it' : 'they'} won't be read as ${one ? 'a grid' : 'grids'} on the map or in the statistics.`,
+        [{ label: 'Fix it', value: 'fix', primary: true }, { label: 'Log as typed', value: 'typed' }]);
+};
+
 // The form's values put back over a report loaded for editing.
 const refillForm = (data) => {
     el.form.size.value     = data.size;
@@ -58,6 +67,9 @@ async function handleFormSubmit(mode) {
     // a report being updated whose Location wasn't touched keeps it as written.
     const was = el.form.reportId.value && localReports.find(r => r.id === el.form.reportId.value);
     const untouched = was && mgrsLock && el.form.location.value === SaltCore.stripMgrsPrefix(was.location, mgrsLockPrefix);
+    // A part that looks meant as a grid but isn't one: fix it, or log it as typed.
+    const notGrids = untouched ? [] : lockProblems();
+    if (notGrids.length && await askNotGrids(notGrids) !== 'typed') { el.form.location.focus(); return; }
     const locked = untouched ? was.location : lockedLocation(el.form.location.value);
     if (locked !== el.form.location.value) el.form.location.value = locked;
     // Toasts from here on (settling the Location, a refused upload) say more
@@ -506,6 +518,8 @@ async function applyAtoConfig() {
     writeStored('salt_offline_config', JSON.stringify(localConfig));
     setAtoState(true); renderLog();
     renderWorkspacesList();
+    // The map too, now, rather than when the next pull comes (if one does).
+    renderMapView();
     // The switch moves only this editor. The server is told so viewers are
     // shown this workspace, and the others see who is where.
     saveToast(await apiPost('/api/save_config', { config: newConfig }), isLocalFile ? 'Configuration saved.' : 'Configuration synced.');
@@ -901,7 +915,7 @@ document.getElementById('exportPanelCsvBtn').addEventListener('click', () => {
         const idOf  = formatFullId;
         const base  = exportFilename(activeAto||'ATO', localConfig.title||'SALT');
         if (el.manage.mtiToggle.checked) {
-            const mti = SaltCore.mtiCsvs(reps, { local, idOf });
+            const mti = SaltCore.mtiCsvs(reps, { local, idOf, team: narrTeam() });
             if (mti.trackedRows) triggerDownload(`${base}_tracked.csv`, mti.tracked, 'text/csv;charset=utf-8;');
             if (mti.wheeledRows) setTimeout(() => triggerDownload(`${base}_wheeled.csv`, mti.wheeled, 'text/csv;charset=utf-8;'), 400);
             if (!mti.trackedRows && !mti.wheeledRows) showToast('No tracked/wheeled reports found.', true);
@@ -914,19 +928,13 @@ document.getElementById('exportPanelCsvBtn').addEventListener('click', () => {
                 ...reps.flatMap(r => Object.keys(r.custom || {})),
             ])];
             const latestOnly = document.getElementById('exportLatestOnlyToggle').checked;
-            triggerDownload(`${base}${latestOnly ? '_latest' : ''}.csv`, SaltCore.reportsCsv(reps, { local, customLabels, idOf, latestOnly, ...(fmvOn() ? { observer: true } : {}) }), 'text/csv;charset=utf-8;');
+            triggerDownload(`${base}${latestOnly ? '_latest' : ''}.csv`, SaltCore.reportsCsv(reps, { local, customLabels, idOf, latestOnly, team: narrTeam(), ...(fmvOn() ? { observer: true } : {}) }), 'text/csv;charset=utf-8;');
             showToast(latestOnly ? 'CSV exported: one row per report.' : 'CSV exported!');
             clearExportFilter();
         }
     } catch(e) { showToast('Export error: '+e.message,true); }
 });
 
-document.getElementById('exportArcgisEsriBtn').addEventListener('click', () => {
-    try { exportForArcgis('esri'); } catch(e) { showToast('Export error: ' + e.message, true); }
-});
-document.getElementById('exportArcgisGeojsonBtn').addEventListener('click', () => {
-    try { exportForArcgis('geojson'); } catch(e) { showToast('Export error: ' + e.message, true); }
-});
 document.getElementById('exportArcgisCsvBtn').addEventListener('click', () => {
     try { exportForArcgis('csv'); } catch(e) { showToast('Export error: ' + e.message, true); }
 });

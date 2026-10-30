@@ -349,6 +349,24 @@ class ValidatorTests(unittest.TestCase):
         with mock.patch.object(srv, "MAX_OVERLAYS", 1):
             self.assertRejects(v, {"ato": "A", "overlays": [NAI1, PL_BLUE]}, "too many overlays")
 
+    def test_two_thousand_graphics_are_taken(self):
+        # A team loads hundreds of NAIs: up to 2,000 graphics, the 2,001st refused.
+        def nai(i):
+            lon, lat = 44 + (i % 50) * 0.01, 33 + (i // 50) * 0.01
+            ring = [[lon, lat], [lon + 0.005, lat], [lon + 0.005, lat + 0.005], [lon, lat]]
+            return {
+                "type": "NAI",
+                "name": str(i),
+                "geometry": {"type": "Polygon", "coordinates": [ring]},
+            }
+
+        self.assertEqual(srv.MAX_OVERLAYS, 2000)
+        many = [nai(i) for i in range(2000)]
+        self.assertIsNone(srv._v_save_overlays({"overlays": many, "tagged": True}))
+        self.assertRejects(
+            srv._v_save_overlays, {"overlays": [*many, nai(2000)]}, "too many overlays (max 2000)"
+        )
+
     def test_checks_that_were_in_the_routes_are_in_the_validators(self):
         # A blank name, or nothing to do: once refused by the route itself.
         self.assertRejects(srv._v_save_reports, {"ato": "  ", "reports": []}, "ato")

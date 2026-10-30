@@ -272,7 +272,12 @@ const summaryFileName = () =>
             return;
         }
         const kind = e.target.closest('[data-summary-kind]');
-        if (kind) { finishEditing(); summaryKind = kind.dataset.summaryKind; writeStored('salt_summary_kind', JSON.stringify(summaryKind)); renderSummary(); return; }
+        if (kind) {
+            const kinds = [...document.querySelectorAll('[data-summary-kind]')].map(b => b.dataset.summaryKind), was = summaryKind;
+            finishEditing(); summaryKind = kind.dataset.summaryKind; writeStored('salt_summary_kind', JSON.stringify(summaryKind)); renderSummary();
+            if (was !== summaryKind) animateTabIn(document.getElementById('summaryBody'), tabDir(kinds, was, summaryKind));
+            return;
+        }
         const preset = e.target.closest('[data-summary-hours]');
         if (preset) { fillWindow(s, +preset.dataset.summaryHours); renderSummary(); return; }
         if (e.target.closest('#summaryCopyBtn')) {

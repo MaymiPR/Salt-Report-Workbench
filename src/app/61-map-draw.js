@@ -21,6 +21,7 @@ const drawMap = () => {
         m.note.textContent = 'Import overlays, or log reports with grids, to see the map.';
         m.note.hidden = false;
         m.legend.innerHTML = '';
+        mapState.labelBoxes = [];
         mapState.lastDraw = { view: null, tracks, reps };
         mapState.drawnHook();
         return;
@@ -35,20 +36,23 @@ const drawMap = () => {
 
     const out = [];
     mapState.items = [];
+    const labels = mapLabels(w, h);
     // Worked out once a drawing, for the layer and its count in the key.
     const heat = mapState.layers.heat ? SaltCore.heatPoints(reps, mapState.allGrids) : [];
     const positions = mapState.layers.reports ? SaltCore.reportPositions(reps, mapState.allGrids) : [];
     if (mapState.layers.heat) out.push(heatLayer(heat, px, w, h));
-    const drones = droneLayer(tracks, px);
+    const drones = droneLayer(tracks, px, labels);
     out.push(drones.view);
-    out.push(overlayLayer(px, w, h));
-    if (mapState.layers.tracks) out.push(trackLayer(tracks, px));
+    out.push(overlayLayer(px, w, h, view, labels, placeCounts(reps)));
+    if (mapState.layers.tracks) out.push(trackLayer(tracks, px, labels));
     if (mapState.layers.reports) out.push(reportLayer(positions, tracks, px));
     out.push(selectionLayer(tracks, px));
     out.push(drones.marks);
-    out.push(measureLayer(px));
+    out.push(gotoLayer(px, labels));
+    out.push(measureLayer(px, labels));
     m.svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-    m.svg.innerHTML = out.join('');
+    m.svg.innerHTML = labels.fill(out.join(''));
+    mapState.labelBoxes = labels.placed;
     m.note.hidden = !mapState.baseFailed;
     if (mapState.baseFailed) m.note.textContent = `The basemap service didn't answer. It may not be reachable from this computer.${isReadOnly ? '' : ' Check, in Manage > Map, says why.'}`;
     m.legend.innerHTML = mapLegend(heat, positions, tracks);
@@ -56,6 +60,100 @@ const drawMap = () => {
     mapState.drawnHook();
 };
 const redrawMap = () => { cancelAnimationFrame(mapState.frame); mapState.frame = requestAnimationFrame(drawMap); };
+
+// --- Names that don't overlap ---
+
+// Every name on the map (a graphic's, a track's, a drone's, a measure's) is
+// offered with a priority and the box its text takes, worked out from its
+// length and font. Once every layer is drawn they are placed in priority
+// order, and a name whose box would overlap one already placed is left off.
+// Each layer keeps its place in the drawing: a name goes in as a token, and
+// the token becomes the name, or nothing, at the end. Placed names are kept
+// in a grid of cells, so each looks only at its neighbours, however many.
+// Lowest first: the measures and the item picked, then the axes and phase
+// lines, then the graphics with reports, then those without, then the rest.
+const LABEL_PRIORITY = { measure: 0, picked: 1, line: 2, busy: 3, area: 4, other: 5 };
+// The stylesheet's font for the names (.map-label), to measure them by.
+const MAP_LABEL_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+const labelMeasure = (() => { try { return document.createElement('canvas').getContext('2d'); } catch (e) { return null; } })();
+const labelWidths = new Map();
+// How wide a name is drawn, in pixels: measured in the names' font once and
+// kept; without a canvas, reckoned from its length and size.
+const labelWidth = (text, size, weight) => {
+    const key = `${weight}|${size}|${text}`;
+    let w = labelWidths.get(key);
+    if (w !== undefined) return w;
+    if (labelWidths.size > 20000) labelWidths.clear();
+    if (labelMeasure) { labelMeasure.font = `${weight} ${size}px ${MAP_LABEL_FONT}`; w = labelMeasure.measureText(text).width; }
+    if (!(w > 0)) w = text.length * size * 0.62;
+    labelWidths.set(key, w);
+    return w;
+};
+// The box a name takes on screen, its halo included: [x0, y0, x1, y1] from
+// where it is anchored (`y` its baseline), `lines` lines of it 13 px apart.
+const LABEL_LINE = 13;
+const labelBox = (x, y, text, size, weight, anchor, lines = 1) => {
+    const tw = labelWidth(text, size, weight), pad = 2;
+    const x0 = anchor === 'middle' ? x - tw / 2 : anchor === 'end' ? x - tw : x;
+    return [x0 - pad, y - size * 0.8 - pad, x0 + tw + pad, y + size * 0.22 + pad + (lines - 1) * LABEL_LINE];
+};
+// The names of one drawing, `w` by `h`: offered, then placed (`fill`).
+const LABEL_CELL = 64;
+const mapLabels = (w, h) => {
+    const all = [];
+    const self = {
+        placed: [],
+        // A name: its markup and box, its priority (LABEL_PRIORITY), and its
+        // rank within that (lower first). Its token goes where it is drawn.
+        add: (markup, box, prio, rank = 0) => {
+            all.push({ markup, box, prio: LABEL_PRIORITY[prio], rank, i: all.length });
+            return `\u0001${all.length - 1}\u0001`;
+        },
+        fill: (svg) => {
+            const keep = new Uint8Array(all.length), cells = new Map();
+            const order = [...all].sort((a, b) => a.prio - b.prio || a.rank - b.rank || a.i - b.i);
+            for (const l of order) {
+                const [x0, y0, x1, y1] = l.box;
+                if (x1 < 0 || y1 < 0 || x0 > w || y0 > h) continue;   // wholly off screen
+                const c0 = Math.floor(x0 / LABEL_CELL), c1 = Math.floor(x1 / LABEL_CELL);
+                const r0 = Math.floor(y0 / LABEL_CELL), r1 = Math.floor(y1 / LABEL_CELL);
+                let free = true;
+                for (let c = c0; c <= c1 && free; c++) {
+                    for (let r = r0; r <= r1 && free; r++) {
+                        const near = cells.get(c * 100003 + r);
+                        if (near) free = !near.some(b => b[0] < x1 && x0 < b[2] && b[1] < y1 && y0 < b[3]);
+                    }
+                }
+                if (!free) continue;
+                keep[l.i] = 1;
+                self.placed.push(l.box);
+                for (let c = c0; c <= c1; c++) {
+                    for (let r = r0; r <= r1; r++) {
+                        const k = c * 100003 + r;
+                        if (cells.has(k)) cells.get(k).push(l.box); else cells.set(k, [l.box]);
+                    }
+                }
+            }
+            return svg.replace(/\u0001(\d+)\u0001/g, (_, k) => (keep[k] ? all[k].markup : ''));
+        },
+    };
+    return self;
+};
+// A name on the map, offered to `labels`: its <text> at [x, y] (in the group
+// it is drawn in, which `shift` moves to the map's own pixels), in the font
+// of its class (`size`, `weight`), anchored at its start, middle or end.
+// `inner` is markup to draw instead of the text (a second line, say). A name
+// can't hold the tokens' own character.
+const mapLabel = (labels, [x, y], text, { cls = '', anchor = 'middle', size = 11, weight = 600, prio = 'other', rank = 0, shift = [0, 0], inner = null, lines = 1 } = {}) => {
+    const markup = `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${anchor}" class="map-label${cls}">${(inner === null ? svgEsc(text) : inner).replace(/\u0001/g, '')}</text>`;
+    return labels.add(markup, labelBox(x + shift[0], y + shift[1], text, size, weight, anchor, lines), prio, rank);
+};
+// How many of the map's reports are at each place, by its name ('NAI 1').
+const placeCounts = (reps) => {
+    const n = new Map();
+    reps.forEach(r => placesOfReport(r).forEach(k => n.set(k, (n.get(k) || 0) + 1)));
+    return n;
+};
 
 const pathOf = (coords, px, close) => coords.map((c, i) => { const [x, y] = px(c[0], c[1]); return `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`; }).join('') + (close ? 'Z' : '');
 
@@ -115,30 +213,43 @@ const axisHead = (pts, color) => {
 // white edge; an axis of advance in its color on a white edge, wider, with an
 // arrowhead at its end; a line of the team's tags in its color on a black
 // edge; a point a dot (NAI, OBJ, PL) or a diamond (the team's). Unknown
-// graphics, with no tag, aren't drawn until they have one.
-const overlayLayer = (px, w, h) => {
-    const fill = [], lines = [], labels = [];
-    const label = (at, text) => at && labels.push(`<text x="${at[0].toFixed(1)}" y="${at[1].toFixed(1)}" class="map-label" text-anchor="middle">${svgEsc(text)}</text>`);
+// graphics, with no tag, aren't drawn until they have one, nor is a graphic
+// wholly off screen. A name shows only where its graphic is big enough on
+// screen to hold it (an area as wide and tall as the name, a line as long),
+// unless it is picked; then the names take turns (mapLabels): the picked
+// one's first, then the lines', then those of the graphics with reports
+// (the most first), then the rest (the biggest first).
+const overlayLayer = (px, w, h, view, labels, counts) => {
+    const fill = [], lines = [], names = [];
+    const mpp = mapState.view.mpp, margin = 60 * mpp;
+    const label = (at, text, prio, rank) => { if (at) names.push(mapLabel(labels, at, text, { prio, rank })); };
     currentOverlays().forEach(o => {
         const tag = tagOf(o.type);
         if (tag.none || mapState.tagsOff.has(tag.key)) return;
+        const b = overlayBox(o);
+        if (b[2] < view[0] - margin || b[0] > view[2] + margin || b[3] < view[1] - margin || b[1] > view[3] + margin) return;
         const g = tag.shape === 'area' ? SaltCore.asArea(o.geometry) : o.geometry;
         const color = SaltCore.safeColor(tag.color);
         const key = graphicName(o);
-        const picked = key === mapState.place;
+        const picked = key === mapState.place || (tag.axis && key === mapState.axis);
+        // Its size on screen, against its name's.
+        const bw = (b[2] - b[0]) / mpp, bh = (b[3] - b[1]) / mpp, nw = labelWidth(key, 11, 600) + 4;
+        const n = counts.get(key) || 0;
+        const prio = picked ? 'picked' : n ? 'busy' : 'area', rank = n ? -n : -bw * bh;
         if (/Polygon/.test(g.type)) {
             const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
             const d = polys.map(rings => rings.map(r => pathOf(r, px, true)).join('')).join('');
             fill.push(`<path d="${d}" fill="${color}" fill-opacity="${picked ? 0.3 : 0.14}" stroke="${color}" stroke-width="${picked ? 4 : 2}" fill-rule="evenodd"/>`);
-            label(areaLabelAt(polys[0][0].map(c => px(c[0], c[1])), w, h), key);
+            if (picked || (bw >= nw && bh >= 13)) label(areaLabelAt(polys[0][0].map(c => px(c[0], c[1])), w, h), key, prio, rank);
         } else if (/LineString/.test(g.type)) {
             const parts = g.type === 'LineString' ? [g.coordinates] : g.coordinates;
             const d = parts.map(l => pathOf(l, px, false)).join('');
+            const named = picked || Math.hypot(bw, bh) >= nw;
             if (tag.axis) {
                 const heads = parts.map(l => l.map(c => px(c[0], c[1]))).filter(l => l.length >= 2).map(l => axisHead(l, color));
-                lines.push(`<g class="map-axis"><path d="${d}" fill="none" stroke="#ffffff" stroke-width="8" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`
-                    + `<path d="${d}" fill="none" stroke="${color}" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"/>${heads.join('')}</g>`);
-                label(lineLabelAt(parts.map(l => l.map(c => px(c[0], c[1]))), w, h), key);
+                lines.push(`<g class="map-axis${picked ? ' picked' : ''}"><path d="${d}" fill="none" stroke="#ffffff" stroke-width="${picked ? 11 : 8}" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`
+                    + `<path d="${d}" fill="none" stroke="${color}" stroke-width="${picked ? 6 : 4.5}" stroke-linejoin="round" stroke-linecap="round"/>${heads.join('')}</g>`);
+                if (named) label(lineLabelAt(parts.map(l => l.map(c => px(c[0], c[1]))), w, h), key, picked ? 'picked' : 'line');
                 return;
             }
             // A phase line: black, on a white edge, so it shows on dark imagery
@@ -147,16 +258,16 @@ const overlayLayer = (px, w, h) => {
             const top = picked && tag.builtIn ? MAP_COLORS.track : color;
             lines.push(`<path d="${d}" fill="none" stroke="${edge}" stroke-width="${picked && !tag.builtIn ? 8 : 6}" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`
                 + `<path d="${d}" fill="none" stroke="${top}" stroke-width="${picked ? 4 : 3}" stroke-linejoin="round" stroke-linecap="round"/>`);
-            label(lineLabelAt(parts.map(l => l.map(c => px(c[0], c[1]))), w, h), key);
+            if (named) label(lineLabelAt(parts.map(l => l.map(c => px(c[0], c[1]))), w, h), key, picked ? 'picked' : 'line');
         } else if (g.type === 'Point') {
             const [x, y] = px(...g.coordinates);
             const [cx, cy] = [x.toFixed(1), y.toFixed(1)];
             fill.push(tag.builtIn ? `<circle cx="${cx}" cy="${cy}" r="4" fill="${color}" stroke="#fff" stroke-width="1.5"/>`
                 : `<path d="M${cx},${(y - 6).toFixed(1)}L${(x + 6).toFixed(1)},${cy}L${cx},${(y + 6).toFixed(1)}L${(x - 6).toFixed(1)},${cy}Z" fill="${color}" stroke="${MAP_COLORS.edge}" stroke-width="1.5" stroke-linejoin="round"/>`);
-            label([x, y - 10], key);
+            label([x, y - 10], key, prio, n ? -n : 0);
         }
     });
-    return `<g class="map-overlays">${fill.join('')}${lines.join('')}</g><g class="map-labels">${labels.join('')}</g>`;
+    return `<g class="map-overlays">${fill.join('')}${lines.join('')}</g><g class="map-labels">${names.join('')}</g>`;
 };
 
 // Each report once, at its latest grid: a density surface drawn on a canvas,
@@ -229,7 +340,7 @@ const heatLayer = (points, px, w, h) => {
 // Each report's path, first position to latest, with an arrow at the end;
 // a report that never moved is a dot (with a short arrow when its Activity
 // gives a heading), unless the Reports layer already shows it.
-const trackLayer = (tracks, px) => {
+const trackLayer = (tracks, px, labels) => {
     const color = MAP_COLORS.track, out = [];
     const arrow = (x, y, deg, size) => {
         const a = deg * Math.PI / 180, s = size;
@@ -263,13 +374,16 @@ const trackLayer = (tracks, px) => {
                 + `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="4.5" fill="${color}" stroke="${MAP_COLORS.edge}" stroke-width="1.5"/>`
                 + `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="10" fill="transparent" class="map-hit"/></g>`);
         }
-        if (labeled && t.moved) out.push(`<text x="${(ex + 9).toFixed(1)}" y="${(ey + 4).toFixed(1)}" class="map-label map-label-track">${svgEsc(t.report.displayId || '')}</text>`);
-        // The picked track: when it was at each position.
-        if (t.moved && t.report.id === mapState.selected) {
+        const picked = t.report.id === mapState.selected;
+        const small = { size: 10, weight: 500, prio: picked ? 'picked' : 'other' };
+        if (labeled && t.moved) out.push(mapLabel(labels, [ex + 9, ey + 4], t.report.displayId || '', { ...small, cls: ' map-label-track', anchor: 'start' }));
+        // The picked track: when it was at each position, the latest first
+        // should they crowd.
+        if (t.moved && picked) {
             const local = timeDisplayMode === 'local';
             pts.forEach((p, k) => {
                 const d = new Date(t.points[k].time);
-                if (!isNaN(d.getTime())) out.push(`<text x="${(p[0] - 7).toFixed(1)}" y="${(p[1] - 8).toFixed(1)}" class="map-label map-label-time" text-anchor="end">${svgEsc(SaltCore.clockValue(d, local).replace(':', '') + zoneMark(local))}</text>`);
+                if (!isNaN(d.getTime())) out.push(mapLabel(labels, [p[0] - 7, p[1] - 8], SaltCore.clockValue(d, local).replace(':', '') + zoneMark(local), { ...small, cls: ' map-label-time', anchor: 'end', rank: -k }));
             });
         }
     });
@@ -299,22 +413,25 @@ const measureText = ([a, b]) => `${SaltCore.formatDistance(SaltCore.metersBetwee
 // shape clicked, its ends, and its distances beside it; while a point is
 // still to be placed, a fainter line to the pointer. Always one group, so
 // the pointer's line can be redrawn alone (refreshMeasure).
+// Their names come before every other on the map, and don't overlap each
+// other either: the total (or the area, or the distance) first, then each leg
+// in order, then the kept rings'.
 const MEASURE_LEG_LABELS = 12;
-const measureLayer = (px) => {
+const measureLayer = (px, labels) => {
     mapState.measurePx = px;
     const xy = (p) => px(p.lon, p.lat);
     const d = (pts, close) => pts.map((p, i) => { const [x, y] = xy(p); return `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`; }).join('') + (close ? 'Z' : '');
     const stroke = (dd, extra = '') => `<path d="${dd}" class="map-measure-halo" fill="none"/><path d="${dd}" class="map-measure-line${extra}" fill="none"/>`;
-    const label = ([x, y], text, cls = '') => `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" class="map-label map-measure-label${cls}">${svgEsc(text)}</text>`;
+    const label = (at, text, cls = '', rank = 0) => mapLabel(labels, at, text, { cls: ` map-measure-label${cls}`, weight: 700, size: cls === ' map-measure-total' ? 12 : 11, prio: 'measure', rank });
     const mid = (a, b) => { const [x1, y1] = xy(a), [x2, y2] = xy(b); return [(x1 + x2) / 2, (y1 + y2) / 2 - 8]; };
-    const ring = (c, r, cls) => {
+    const ring = (c, r, cls, rank = 0) => {
         const round = SaltCore.ringPoints(c, r);
         const [x, y] = xy(round[0]);
         return `<path d="${d(round, true)}" class="map-measure-halo" fill="none"/><path d="${d(round, true)}" class="map-measure-line ${cls}" fill="none"/>`
             + `<circle cx="${xy(c)[0].toFixed(1)}" cy="${xy(c)[1].toFixed(1)}" r="3" class="map-measure-end"/>`
-            + label([x, y - 6], SaltCore.formatDistance(r, unitSystem), ` ${cls}-label`);
+            + label([x, y - 6], SaltCore.formatDistance(r, unitSystem), ` ${cls}-label`, rank);
     };
-    const out = mapState.rings.map(g => ring(g, g.r, 'map-ring-kept'));
+    const out = mapState.rings.map((g, i) => ring(g, g.r, 'map-ring-kept', 100 + i));
     const pts = mapState.measuring ? mapState.measure : [];
     const tool = mapState.measureTool, hover = mapState.measureHover;
     const ends = pts.map(p => { const [x, y] = xy(p); return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" class="map-measure-end"/>`; }).join('');
@@ -333,7 +450,7 @@ const measureLayer = (px) => {
             const c = pts.map(xy).reduce((s, [x, y]) => [s[0] + x / pts.length, s[1] + y / pts.length], [0, 0]);
             out.push(label(c, SaltCore.formatArea(SaltCore.areaMeters(pts), unitSystem)));
         } else if (tool !== 'area' && pts.length > 1) {
-            if (pts.length - 1 <= MEASURE_LEG_LABELS) pts.slice(1).forEach((p, i) => out.push(label(mid(pts[i], p), measureText([pts[i], p]), ' map-measure-leg')));
+            if (pts.length - 1 <= MEASURE_LEG_LABELS) pts.slice(1).forEach((p, i) => out.push(label(mid(pts[i], p), measureText([pts[i], p]), ' map-measure-leg', 1 + i)));
             const [x, y] = xy(pts[pts.length - 1]);
             out.push(label([x, y + 18], measureTotal(pts), ' map-measure-total'));
         }
@@ -347,12 +464,26 @@ const measureTotal = (pts) => {
     const kmh = measureKmh();
     return `${SaltCore.formatDistance(m, unitSystem, measureKind())}${kmh > 0 ? `, ${SaltCore.formatDuration(m / 1000 / kmh)}` : ''}`;
 };
-// The pointer's line alone, without drawing the rest of the map again.
+// The pointer's line alone, without drawing the rest of the map again (its
+// names placed among themselves; the others are placed at the next drawing).
 const refreshMeasure = () => {
-    const g = document.querySelector('#mapSvg .map-measure');
-    if (!g || !mapState.measurePx || mapState.dragging) { redrawMap(); return; }
-    g.insertAdjacentHTML('afterend', measureLayer(mapState.measurePx));
+    const g = document.querySelector('#mapSvg .map-measure'), box = document.getElementById('mapBox');
+    if (!g || !box || !mapState.measurePx || mapState.dragging) { redrawMap(); return; }
+    const labels = mapLabels(box.clientWidth, box.clientHeight);
+    g.insertAdjacentHTML('afterend', labels.fill(measureLayer(mapState.measurePx, labels)));
     g.remove();
+};
+
+// The grid gone to (Go to a grid, app/64-map-controls.js): an X on a dark
+// edge, with its grid beside it, named before anything but the measures.
+const gotoLayer = (px, labels) => {
+    const g = mapState.goto;
+    if (!g) return '';
+    const [x, y] = px(g.lon, g.lat), s = 8, f = v => v.toFixed(1);
+    const d = `M${f(x - s)},${f(y - s)}L${f(x + s)},${f(y + s)}M${f(x + s)},${f(y - s)}L${f(x - s)},${f(y + s)}`;
+    return `<g class="map-goto" pointer-events="none"><path d="${d}" fill="none" stroke="${MAP_COLORS.edge}" stroke-width="6.5" stroke-linecap="round"/>`
+        + `<path d="${d}" fill="none" stroke="${MAP_COLORS.goto}" stroke-width="3.2" stroke-linecap="round"/>`
+        + `${mapLabel(labels, [x + 13, y - 9], g.mgrs, { anchor: 'start', prio: 'picked', rank: -1 })}</g>`;
 };
 
 // A ring round the picked report, in every mode.

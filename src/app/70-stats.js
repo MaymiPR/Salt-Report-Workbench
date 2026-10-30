@@ -360,7 +360,7 @@ const exportStatsXlsx = () => {
     const bytes = SaltCore.statsXlsx({
         title: 'Statistics', context: statsCharts.length ? statsCharts[0].context : '',
         kpis: statsKpis, charts,
-        reports: SaltCore.workbookReportRows(reps, currentOverlays(), { local, idOf: formatFullId, customLabels }),
+        reports: SaltCore.workbookReportRows(reps, currentOverlays(), { local, idOf: formatFullId, customLabels, team: narrTeam() }),
     });
     triggerDownload(`${statsFileBase()}.xlsx`, bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     showToast(`Exported ${charts.length} charts and ${plural(reps.length, 'report')} to Excel.`);

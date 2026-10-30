@@ -14,6 +14,8 @@ Without Playwright the whole module is skipped, so the plain
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import shutil
 import socket
@@ -393,6 +395,56 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector(".bda-entry")
         self.wait_for_server(page, assessed)
 
+    def test_destroyed_bda_comes_off_the_size_shown_and_copied(self):
+        self.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=self.editor)
+        page = self.open_editor()
+        self.log(page, "20x tanks, 2x BMP-2")
+        page.click("#dataMgmtBtn")
+        page.click("#toggleBdaBtn")
+        page.click("#reportLogBody tr[data-id] .bda-btn")
+        # 3 of the 20 destroyed, one BMP-2 damaged: only the destroyed come off.
+        page.fill(".bda-check-row[data-row='0'] .bda-ck-qty", "3")
+        page.click(".bda-check-row[data-row='0'] .bda-eff-btn[data-bda-eff='Destroyed']")
+        page.fill(".bda-check-row[data-row='1'] .bda-ck-qty", "1")
+        page.click(".bda-check-row[data-row='1'] .bda-eff-btn[data-bda-eff='Damaged']")
+        page.click(".bda-commit-btn")
+        size = "#reportLogBody tr[data-id] .col-size"
+        page.wait_for_selector(f"{size} .cell-clamp:text-is('17x tanks, 2x BMP-2')")
+        note = f"{size} .size-bda-note"
+        self.assertEqual(page.text_content(note), "BDA: 3x tanks destroyed")
+        self.assertEqual(page.get_attribute(note, "title"), "Logged as 20x tanks, 2x BMP-2")
+        # Stored as logged.
+        self.wait_for_server(
+            page,
+            f"s => s.workspaces['{self.ato}'][0].bda.length === 2"
+            f" && s.workspaces['{self.ato}'][0].size === '20x tanks, 2x BMP-2'",
+        )
+        page.wait_for_function("() => pushesInFlight === 0 && !pullDeferred")
+        page.evaluate("() => syncWithServer()")
+        self.next_frames(page)
+        # The copied text reads what is left, and says what came off.
+        page.click("#reportLogBody tr[data-id] .copy-btn")
+        page.wait_for_selector("#toastNotification:has-text('Copied')")
+        copied = page.evaluate("navigator.clipboard.readText()").replace("\r\n", "\n").split("\n")
+        self.assertIn("S: 17x tanks, 2x BMP-2 (BDA: 3x tanks destroyed)", copied)
+        self.assertIn("BDA 1: Destroyed - 3x tanks @ 18S UJ 12 34", copied)
+        # Deleting the assessment brings the count back; Undo takes it off again.
+        destroyed = ".bda-entry:has(.bda-effect:text-is('Destroyed')) .bda-del"
+        page.click(destroyed)
+        page.click(destroyed)
+        page.wait_for_selector("#toastNotification:has-text('BDA assessment deleted')")
+        page.wait_for_selector(f"{size} .cell-clamp:text-is('20x tanks, 2x BMP-2')")
+        self.assertEqual(page.locator(note).count(), 0)
+        page.click("#toastNotification .toast-undo")
+        page.wait_for_selector(f"{size} .cell-clamp:text-is('17x tanks, 2x BMP-2')")
+        self.wait_for_server(page, f"s => s.workspaces['{self.ato}'][0].bda.length === 2")
+        # With BDA hidden, the Size still reads what is left; editing shows it as logged.
+        page.click("#dataMgmtBtn")
+        page.click("#toggleBdaBtn")
+        self.assertEqual(page.text_content(f"{size} .cell-clamp"), "17x tanks, 2x BMP-2")
+        page.click("#reportLogBody tr[data-id] .id-edit-btn")
+        self.assertEqual(page.input_value("#size"), "20x tanks, 2x BMP-2")
+
     def test_the_activity_list_shows_another_editors_change(self):
         page = self.open_editor()
         page.click("#exportViewToggleBtn")
@@ -664,7 +716,9 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.input_value(".bda-check-row[data-row='0'] .bda-ck-qty"), "1")
         self.assertIn("1x BMP-2", page.locator(".bda-list").text_content())
         page.click("#bdaRollup [data-bda-filter='Destroyed']")
-        self.assertEqual(self.sizes(page), ["4x T-72, 2x BMP-2"])
+        # Its four T-72 destroyed: the Size reads what is left of it.
+        clamps = page.locator("#reportLogBody tr[data-id] .col-size .cell-clamp")
+        self.assertEqual(clamps.all_text_contents(), ["2x BMP-2"])
         page.click("#bdaRollup [data-bda-filter='Destroyed']")
         self.assertEqual(len(self.sizes(page)), 2)
 
@@ -730,6 +784,80 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_function(f"sharedDrones.some(d => d.name === '{name}')")
         page.evaluate("list => saveDrones(list)", before)  # the other tests' drones as they were
 
+    def tab_slide(self, page, selector):
+        """The tab animation running on ``selector``: [duration, the side it
+        comes from (1 right, -1 left)], or None. Held at its start, where it is
+        furthest out, it gives nothing on the page a sideways scroll."""
+        got = page.evaluate(
+            """sel => {
+                const a = document.querySelector(sel).getAnimations()[0];
+                if (!a) return null;
+                a.pause();
+                a.currentTime = 0;
+                const wide = [...document.querySelectorAll('*')].filter(n => n.scrollWidth > n.clientWidth + 1
+                    && ['auto', 'scroll'].includes(getComputedStyle(n).overflowX)).map(n => n.id || n.className);
+                a.play();
+                const from = new DOMMatrix(a.effect.getKeyframes()[0].transform).m41;
+                return [a.effect.getTiming().duration, Math.sign(from), wide];
+            }""",
+            selector,
+        )
+        if got is None:
+            return None
+        self.assertEqual(got[2], [], f"{selector}: a sideways scroll")
+        return got[:2]
+
+    def test_tabs_slide_in_from_their_side(self):
+        page = self.open_editor()
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        self.settle(page)
+        panel = "#exportPanel .ws-tab-panel[data-tab-panel='{}']"
+        # Manage: a tab to the right comes in from the right, back from the left.
+        page.click(".ws-tab[data-tab='builder']")
+        self.assertEqual(self.tab_slide(page, panel.format("builder")), [200, 1])
+        self.assertEqual(
+            page.evaluate("document.activeElement.dataset.tab"), "builder", "focus stays"
+        )
+        page.click(".ws-tab[data-tab='workspaces']")
+        self.assertEqual(self.tab_slide(page, panel.format("workspaces")), [200, -1])
+        # The same tab again, or the panel reopened on it: no slide.
+        self.settle(page)
+        page.click(".ws-tab[data-tab='workspaces']")
+        self.assertIsNone(self.tab_slide(page, panel.format("workspaces")))
+        # The Map tab's Graphics and Basemaps.
+        page.click(".ws-tab[data-tab='overlays']")
+        self.settle(page)
+        page.click("[data-map-sub='basemaps']")
+        self.assertEqual(self.tab_slide(page, "[data-map-sub-panel='basemaps']"), [200, 1])
+        page.click("[data-map-sub='graphics']")
+        self.assertEqual(self.tab_slide(page, "[data-map-sub-panel='graphics']"), [200, -1])
+        # Summary Reports' kinds, and the Narrative's settings tabs.
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='rollup']")
+        self.settle(page)
+        page.click("[data-summary-kind='narrative']")
+        self.assertEqual(self.tab_slide(page, "#summaryBody"), [200, 1])
+        self.settle(page)
+        page.click("[data-narr-tab='rules']")
+        self.assertEqual(self.tab_slide(page, "#narrSettings .narr-body"), [200, 1])
+        self.settle(page)
+        page.click("[data-narr-tab='units']")
+        self.assertEqual(self.tab_slide(page, "#narrSettings .narr-body"), [200, -1])
+        self.settle(page)
+        self.assertEqual(page.locator(".tab-sliding").count(), 0, "the boxes scroll as before")
+        # Reduced motion: none at all.
+        page.emulate_media(reduced_motion="reduce")
+        page.click("[data-narr-tab='equipment']")
+        self.assertIsNone(self.tab_slide(page, "#narrSettings .narr-body"))
+        page.click("[data-summary-kind='brief']")
+        self.assertIsNone(self.tab_slide(page, "#summaryBody"))
+        page.click("#exportViewToggleBtn")
+        self.settle(page)
+        page.click(".ws-tab[data-tab='identity']")
+        self.assertIsNone(self.tab_slide(page, panel.format("identity")))
+        self.assertTrue(page.locator(panel.format("identity")).is_visible())
+
     def test_the_export_menu_is_a_popup_with_groups_a_check_and_keys(self):
         page = self.open_editor()
         page.click("#exportViewToggleBtn")
@@ -740,6 +868,13 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.get_attribute("#ioFormatBtn", "aria-expanded"), "true")
         heads = page.locator("#ioFormatMenu .io-menu-head").all_text_contents()
         self.assertEqual(heads, ["Reports", "ArcGIS points", "ArcGIS tracks"])
+        # No Esri JSON or GeoJSON: points as a shapefile or CSV, tracks as a shapefile.
+        self.assertEqual(
+            page.locator("#ioFormatMenu [data-io-pick]").evaluate_all(
+                "l => l.map(i => i.dataset.ioPick)"
+            ),
+            ["backup", "csv", "arcgis-shp", "arcgis-csv", "tracks-shp"],
+        )
         self.assertEqual(
             page.locator("#ioFormatMenu [aria-selected='true']").text_content(), "Backup (.txt)"
         )
@@ -749,11 +884,11 @@ class BrowserTests(unittest.TestCase):
             "the picked one has the keyboard",
         )
         # A click picks: the button, the select and its description follow.
-        page.click("#ioOpt-tracks-geojson")
+        page.click("#ioOpt-tracks-shp")
         self.assertTrue(page.locator("#ioFormatMenu").is_hidden())
-        self.assertEqual(page.text_content("#ioFormatLabel"), "ArcGIS tracks (.geojson)")
-        self.assertEqual(page.input_value("#ioFormatSelect"), "tracks-geojson")
-        self.assertIn("GeoJSON lines", page.text_content("#ioFormatDesc"))
+        self.assertEqual(page.text_content("#ioFormatLabel"), "ArcGIS tracks (Shapefile .zip)")
+        self.assertEqual(page.input_value("#ioFormatSelect"), "tracks-shp")
+        self.assertIn("end arrow", page.text_content("#ioFormatDesc"))
         self.assertEqual(page.evaluate("document.activeElement.id"), "ioFormatBtn")
         # The keys: arrows open it and move, Enter picks, a letter jumps, Escape closes.
         page.keyboard.press("ArrowDown")
@@ -1325,33 +1460,20 @@ class BrowserTests(unittest.TestCase):
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='export']")  # the panel reopens on the last tab used
         with page.expect_download() as dl:
-            self.run_io(page, "arcgis-geojson")
-        self.assertTrue(dl.value.suggested_filename.endswith("_arcgis.geojson"))
-        data = json.loads(Path(dl.value.path()).read_text(encoding="utf-8"))
-        props = [f["properties"] for f in data["features"]]
+            self.run_io(page, "arcgis-csv")
+        self.assertTrue(dl.value.suggested_filename.endswith("_arcgis.csv"))
+        props = list(csv.DictReader(io.StringIO(Path(dl.value.path()).read_text(encoding="utf-8"))))
         # Two grids, two points; the report without a grid is left out.
         self.assertEqual([p["mgrs"] for p in props], ["38S MB 45000 82000", "38S MB 55000 82000"])
         self.assertEqual([p["nai"] for p in props], ["NAI 1; NAI 2"] * 2)
         self.assertEqual(props[0]["nai_from"], "typed", "logging named them")
-        self.assertEqual((props[0]["heading"], props[0]["heading_deg"]), ("N", 0))
+        self.assertEqual((props[0]["heading"], props[0]["heading_deg"]), ("N", "0"))
         self.assertEqual(props[0]["pl_near"], "PL BLUE")
-        lon, lat = data["features"][0]["geometry"]["coordinates"]
-        self.assertAlmostEqual(lat, 33.2759, places=3)
-        self.assertAlmostEqual(lon, 44.4096, places=3)
+        self.assertAlmostEqual(float(props[0]["lat"]), 33.2759, places=3)
+        self.assertAlmostEqual(float(props[0]["lon"]), 44.4096, places=3)
         self.assertIn(
             "1 without a readable grid", page.locator("#toastNotification").text_content()
         )
-        # Esri JSON: the same points, every field's type written out.
-        with page.expect_download() as dl:
-            self.run_io(page, "arcgis-esri")
-        self.assertTrue(dl.value.suggested_filename.endswith("_arcgis.json"))
-        esri = json.loads(Path(dl.value.path()).read_text(encoding="utf-8"))
-        self.assertEqual(esri["geometryType"], "esriGeometryPoint")
-        self.assertEqual(
-            [f["attributes"]["mgrs"] for f in esri["features"]],
-            ["38S MB 45000 82000", "38S MB 55000 82000"],
-        )
-        self.assertAlmostEqual(esri["features"][0]["geometry"]["y"], 33.2759, places=3)
         # Shapefile: a zip of its parts, which ArcGIS Pro drags in once unzipped.
         with page.expect_download() as dl:
             self.run_io(page, "arcgis-shp")
@@ -1368,6 +1490,86 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(struct.unpack("<i", shp[32:36])[0], 1, "points")
         self.assertEqual(struct.unpack("<I", dbf[4:8])[0], 2, "two points")
         self.assertIn(b"38S MB 45000 82000", dbf)
+
+    def test_arcgis_exports_split_for_mti_and_keep_every_version(self):
+        page = self.open_editor()
+        self.log(page, "4x tracked", activity="moving N", location="38SMB4500078000")
+        self.log(page, "2 wheeled", activity="parked", location="38SMB5500082000")
+        # An update moves the first: two versions, at two grids.
+        row = page.locator("#reportLogBody tr[data-id]").filter(has_text="4x tracked")
+        row.locator(".id-edit-btn").click()
+        self.assertIn("Updating", page.text_content("#formTitle"))
+        page.fill("#location", "38SMB4500082000")
+        page.fill("#size", "5x tracked")
+        page.click("#updateButton")
+        page.wait_for_selector("#reportLogBody .col-size:has-text('5x tracked')")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        # The options show beside the formats they change.
+        options = "#exportPanel .export-option-row:visible .export-option-text"
+        for fmt, want in [
+            ("csv", ["Latest version only", "MTI Export"]),
+            ("arcgis-shp", ["Every version", "MTI Export"]),
+            ("arcgis-csv", ["Every version", "MTI Export"]),
+            ("tracks-shp", ["MTI Export"]),
+            ("backup", ["Export All ATOs"]),
+        ]:
+            page.select_option("#ioFormatSelect", fmt)
+            self.assertEqual(page.locator(options).all_text_contents(), want, fmt)
+
+        def export(n):
+            """Press Export; the ``n`` files it saves, by name."""
+            got = []
+
+            def saved(download):
+                got.append(download)
+
+            page.on("download", saved)
+            page.click("#ioRunBtn")
+            self.wait_until(lambda: len(got) >= n, f"{n} downloads", page=page)
+            page.wait_for_timeout(600)  # and no more, after the second's moment
+            page.remove_listener("download", saved)
+            self.assertEqual(len(got), n)
+            return {d.suggested_filename: Path(d.path()) for d in got}
+
+        def rows(path):
+            return list(csv.DictReader(io.StringIO(path.read_text(encoding="utf-8"))))
+
+        # Every version: a point for each saved version, at its own grid.
+        page.select_option("#ioFormatSelect", "arcgis-csv")
+        page.check("#exportEveryVersionToggle")
+        [(name, path)] = export(1).items()
+        self.assertTrue(name.endswith("_arcgis_versions.csv"), name)
+        self.assertEqual(
+            sorted((r["size"], r["mgrs"], r["version"], r["latest"]) for r in rows(path)),
+            [
+                ("2 wheeled", "38S MB 55000 82000", "1/1", "yes"),
+                ("4x tracked", "38S MB 45000 78000", "1/2", "no"),
+                ("5x tracked", "38S MB 45000 82000", "2/2", "yes"),
+            ],
+        )
+        # MTI Export: the tracked and the wheeled, each its own file.
+        page.uncheck("#exportEveryVersionToggle")
+        page.check("#exportMtiToggle")
+        files = export(2)
+        tracked = next(rows(p) for n, p in files.items() if n.endswith("_arcgis_tracked.csv"))
+        wheeled = next(rows(p) for n, p in files.items() if n.endswith("_arcgis_wheeled.csv"))
+        self.assertEqual([(r["size"], r["vehicles"]) for r in tracked], [("5x tracked", "5")])
+        self.assertEqual([(r["size"], r["vehicles"]) for r in wheeled], [("2 wheeled", "2")])
+        self.assertIn("1 tracked and 1 wheeled", page.text_content("#toastNotification"))
+        # The shapefile the same way; the tracks, only the tracked one, which moved.
+        page.select_option("#ioFormatSelect", "arcgis-shp")
+        names = sorted(export(2))
+        self.assertTrue(names[0].endswith("_arcgis_tracked.zip"), names)
+        self.assertTrue(names[1].endswith("_arcgis_wheeled.zip"), names)
+        page.select_option("#ioFormatSelect", "tracks-shp")
+        [(name, path)] = export(1).items()
+        self.assertTrue(name.endswith("_arcgis_tracks_tracked.zip"), name)
+        with zipfile.ZipFile(path) as z:
+            dbf = z.read(next(n for n in z.namelist() if n.endswith(".dbf")))
+        self.assertEqual(struct.unpack("<I", dbf[4:8])[0], 1, "one track")
+        self.assertIn(b"5x tracked", dbf)
+        self.assertIn("1 tracked", page.text_content("#toastNotification"))
 
     def test_overlays_are_shared_and_unload_by_group(self):
         page = self.open_editor()
@@ -2001,8 +2203,10 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual((shown("#exportAllAtosToggle"), shown("#exportMtiToggle")), (True, False))
         page.select_option("#ioFormatSelect", "csv")
         self.assertEqual((shown("#exportAllAtosToggle"), shown("#exportMtiToggle")), (False, True))
-        page.select_option("#ioFormatSelect", "arcgis-esri")
-        self.assertFalse(shown("#exportMtiToggle"))
+        page.select_option("#ioFormatSelect", "tracks-shp")
+        self.assertEqual(
+            (shown("#exportEveryVersionToggle"), shown("#exportMtiToggle")), (False, True)
+        )
         self.assertTrue(shown("#exportFromDate"))
         # Clear sits in the card's header, always there, and empties the range.
         self.assertEqual(page.locator(".io-time .io-card-head #exportClearFilterBtn").count(), 1)
@@ -2023,7 +2227,7 @@ class BrowserTests(unittest.TestCase):
         page.reload()
         page.wait_for_function("() => isManageViewActive")  # the view on screen is restored too
         page.click(".ws-tab[data-tab='export']")
-        self.assertEqual(page.input_value("#ioFormatSelect"), "arcgis-esri")
+        self.assertEqual(page.input_value("#ioFormatSelect"), "tracks-shp")
         viewer = self.open_viewer()
         viewer.click("#exportViewToggleBtn")
         self.assertFalse(viewer.locator("#ioDrop").is_visible())
@@ -2502,7 +2706,9 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#mapMeasureOut:has-text('Path: click points')")
         page.mouse.click(x, y)
         page.mouse.click(x + 100, y)
-        page.mouse.click(x + 100, y - 80)
+        # (Far enough down that the second leg's name clears the total's,
+        # which comes first.)
+        page.mouse.click(x + 100, y + 70)
         page.wait_for_selector("#mapMeasureOut:has-text('in 2 legs')")
         said = page.text_content("#mapMeasureOut")
         self.assertRegex(said, r"^Path: [\d.]+ (m|km) in 2 legs \([\d.]+ (m|km) 09\d° E; ")
@@ -2593,10 +2799,12 @@ class BrowserTests(unittest.TestCase):
         )
         self.assertEqual(units, ["km/h", "m/min"], "metric units only")
         page.fill("#mapMeasureSpeed", "4")
-        # Under the options (speed and unit), which float over the map's right side.
-        low = box["y"] + box["height"] * 0.8
-        page.mouse.click(x, low)
-        page.mouse.click(x + 150, low)
+        # From the keyboard, clear of whatever floats over the map.
+        page.focus("#mapBox")
+        page.keyboard.press("Space")
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("Space")
         page.wait_for_selector("#mapMeasureOut:has-text('takes')")
         said = page.text_content("#mapMeasureOut")
         want = page.evaluate(
@@ -2658,10 +2866,13 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(units, ["mph", "knots"])
         page.fill("#mapMeasureSpeed", "120")
         page.select_option("#mapMeasureUnit", "kn")
-        x = box["x"] + 260  # clear of the sidebar and the tools' options
-        low = box["y"] + box["height"] * 0.8
-        page.mouse.click(x, low)
-        page.mouse.click(x + 150, low)
+        # From the keyboard, clear of whatever floats over the map: Space puts a
+        # point at its middle, an arrow moves the map.
+        page.focus("#mapBox")
+        page.keyboard.press("Space")
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("Space")
         page.wait_for_selector("#mapMeasureOut:has-text('at 120 knots takes')")
         self.assertRegex(page.text_content("#mapMeasureOut"), r"^Time-distance: [\d.]+ nm at ")
         page.fill("#mapMeasureSpeed", "25")
@@ -2756,6 +2967,27 @@ class BrowserTests(unittest.TestCase):
         # Now goes back to the present.
         page.click("#mapEndNow")
         self.assertIsNone(page.evaluate("mapState.end"))
+
+    def test_the_map_reads_the_size_after_destroyed_bda(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "4x BMP", activity="moving N", location="38SMB4500082000")
+        page.evaluate(
+            """() => { const r = localReports.find(x => x.size === '4x BMP');
+                r.bda = [{ target: '1x BMP', effect: 'Destroyed', time: new Date().toISOString(), lastModified: nextStamp(r) }];
+                r.lastModified = nextStamp(r); saveLocalAndSync(reportsByAto); }"""
+        )
+        page.wait_for_selector("#reportLogBody .col-size .cell-clamp:text-is('3x BMP')")
+        self.open_map(page)
+        page.click("[data-map-layer='reports']")
+        page.wait_for_selector("#mapTableBody tr[data-map-row]:has-text('3x BMP')")
+        page.click("#mapTableBody tr[data-map-row]:has-text('3x BMP')")
+        page.wait_for_selector("#mapCard:not([hidden])")
+        self.assertIn("3x BMPBDA: 1x BMP destroyed", page.text_content("#mapCard"))
+        page.click("[data-card-act='close']")
+        page.hover("#mapSvg .map-report .map-hit >> nth=0")
+        page.wait_for_selector("#mapTip:not([hidden])")
+        self.assertIn("3x BMP (BDA: 1x BMP destroyed) · moving N", page.text_content("#mapTip"))
 
     def test_the_overlay_map_heat_and_tracks(self):
         page = self.open_editor()
@@ -4215,6 +4447,356 @@ class BrowserTests(unittest.TestCase):
             "() => parseFloat(document.getElementById('mapCard').style.left) >= 210"
         )
 
+    # -- names that don't overlap, many graphics, go to a grid, an axis's card -- #
+    LABELS_ON_MAP = """() => {
+        const svg = document.getElementById('mapSvg').getBoundingClientRect();
+        return {
+            placed: mapState.labelBoxes,
+            drawn: [...document.querySelectorAll('#mapSvg text')].map(t => {
+                const r = t.getBoundingClientRect();
+                return { text: t.textContent, box: [r.left - svg.left, r.top - svg.top, r.right - svg.left, r.bottom - svg.top] };
+            }),
+        };
+    }"""
+
+    def assert_no_names_overlap(self, page):
+        """Every name on the map, as placed and as drawn, clear of every
+        other; drawn no wider than the box it was placed by. Read in one go,
+        so a redraw can't fall between. The drawn boxes are the font's whole
+        height, taller than the letters, so they may touch by a few pixels."""
+        got = page.evaluate(self.LABELS_ON_MAP)
+        placed, drawn = got["placed"], got["drawn"]
+        self.assertEqual(len(placed), len(drawn), "each name drawn was placed")
+
+        def overlap(a, b):
+            return min(a[2], b[2]) - max(a[0], b[0]), min(a[3], b[3]) - max(a[1], b[1])
+
+        for i, a in enumerate(placed):
+            for b in placed[i + 1 :]:
+                dx, dy = overlap(a, b)
+                self.assertFalse(dx > 0 and dy > 0, f"placed names overlap: {a} {b}")
+        for i, a in enumerate(drawn):
+            for b in drawn[i + 1 :]:
+                dx, dy = overlap(a["box"], b["box"])
+                self.assertFalse(
+                    dx > 1 and dy > 3, f"{a['text']!r} is drawn over {b['text']!r}: {a} {b}"
+                )
+        for d in drawn:
+            x0, y0, x1, y1 = d["box"]
+            self.assertTrue(
+                any(
+                    p[0] - 1 <= x0 and x1 <= p[2] + 1 and p[1] <= (y0 + y1) / 2 <= p[3]
+                    for p in placed
+                ),
+                f"{d['text']!r} is drawn outside the box it was placed by: {d['box']}",
+            )
+        return [d["text"] for d in drawn]
+
+    @staticmethod
+    def square(lon, lat, size):
+        return {
+            "type": "Polygon",
+            "coordinates": [
+                [
+                    [lon, lat],
+                    [lon + size, lat],
+                    [lon + size, lat + size],
+                    [lon, lat + size],
+                    [lon, lat],
+                ]
+            ],
+        }
+
+    def test_the_maps_sidebar_hides_with_the_map(self):
+        # It kept itself visible when the map pane under the Report Log hid, so
+        # its top could show below the log.
+        page = self.open_editor()
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        side = "getComputedStyle(document.getElementById('mapSide')).visibility"
+        page.wait_for_function(f"{side} === 'hidden'")
+        page.click("[data-home-go='map']")
+        page.wait_for_function(f"{side} === 'visible'")
+
+    def test_names_on_the_map_never_overlap(self):
+        self.tidy_tags_and_overlays()
+        # Sixteen NAIs, each with an OBJ a little bigger, a little to its
+        # east, so each pair's names fall on each other; a tiny NAI apart;
+        # and an axis across them.
+        ovs = []
+        for k in range(16):
+            lon, lat = 44.40 + (k % 4) * 0.006, 33.27 + (k // 4) * 0.006
+            ovs.append(
+                {"type": "NAI", "name": str(k + 1), "geometry": self.square(lon, lat, 0.0055)}
+            )
+            ovs.append(
+                {
+                    "type": "OBJ",
+                    "name": str(k + 1),
+                    "geometry": self.square(lon + 0.001, lat, 0.0057),
+                }
+            )
+        ovs.append({"type": "NAI", "name": "TINY", "geometry": self.square(44.432, 33.282, 0.0004)})
+        axis = {
+            "type": "LineString",
+            "coordinates": [[44.40, 33.27], [44.42, 33.285], [44.424, 33.294]],
+        }
+        ovs.append({"type": "AXIS", "name": "GOLD", "geometry": axis})
+        self.post_to_server("/api/save_overlays", {"overlays": ovs, "tagged": True})
+        page = self.open_editor()
+        page.wait_for_function("sharedOverlays.length === 34")
+        # Two reports in NAI 1's west edge, which no OBJ covers.
+        grid = page.evaluate("SaltCore.latLonToMgrs(33.2727, 44.4003).replace(/ /g, '')")
+        self.log(page, "2x BMP", location=grid)
+        self.log(page, "3x BMP", location=grid)
+        self.open_map(page)
+        names = self.assert_no_names_overlap(page)
+        # Of each pair, the one with reports is named; else the bigger.
+        self.assertIn("NAI 1", names)
+        self.assertNotIn("OBJ 1", names)
+        self.assertIn("OBJ 2", names)
+        self.assertNotIn("NAI 2", names)
+        self.assertIn("AXIS GOLD", names)
+        # Too small on screen for its name, until zoomed in on.
+        self.assertNotIn("NAI TINY", names)
+        page.evaluate("""() => {
+            const [x, y] = SaltCore.lonLatToMerc(44.4322, 33.2822);
+            mapState.view = { cx: x, cy: y, mpp: 0.5 };
+            drawMap();
+        }""")
+        self.assertIn("NAI TINY", self.assert_no_names_overlap(page))
+        # The measures' names come first, and keep clear of each other: a
+        # path of short legs from the keyboard, back at the whole area.
+        page.evaluate("() => { mapState.view.mpp = Infinity; drawMap(); }")
+        self.start_measure(page, "path")
+        page.focus("#mapBox")
+        for key in ["ArrowRight", "ArrowUp", "ArrowRight", "ArrowDown", "ArrowRight"]:
+            page.keyboard.press("Space")
+            page.keyboard.press(key)
+        page.keyboard.press("Space")
+        page.keyboard.press("Enter")
+        self.next_frames(page)
+        names = self.assert_no_names_overlap(page)
+        total = page.evaluate("measureTotal(mapState.measure)")
+        self.assertIn(total, names)
+        self.assertGreater(len([n for n in names if "°" in n]), 0, "a leg named")
+
+    def test_two_thousand_graphics_are_taken_and_drawn_quickly(self):
+        self.tidy_tags_and_overlays()
+        many = [
+            {
+                "type": "NAI",
+                "name": str(i + 1),
+                "geometry": self.square(44.30 + (i % 50) * 0.004, 33.20 + (i // 50) * 0.004, 0.003),
+            }
+            for i in range(2000)
+        ]
+        self.post_to_server("/api/save_overlays", {"overlays": many, "tagged": True})
+        page = self.open_editor()
+        page.wait_for_function("sharedOverlays.length === 2000", timeout=15000)
+        self.open_map(page)
+        # Drawn whole, zoomed out and in, in well under a frame's worth of
+        # work per graphic (a generous bound: this is about nothing slow
+        # creeping in, not a benchmark).
+        ms = page.evaluate("""() => {
+            const time = () => { const t = performance.now(); for (let i = 0; i < 5; i++) drawMap(); return (performance.now() - t) / 5; };
+            mapState.view.mpp = Infinity;
+            const out = time();
+            mapState.view.mpp = mapState.fitMpp / 8;
+            return [out, time()];
+        }""")
+        self.assertLess(max(ms), 400, ms)
+        self.assertEqual(
+            page.locator("#mapSvg .map-overlays path").count() < 2000, True, "off screen, not drawn"
+        )
+        self.assert_no_names_overlap(page)
+        # The page imports past the old 500 too: 600 from a file, through the review.
+        self.post_to_server("/api/save_overlays", {"overlays": [], "tagged": True})
+        page.wait_for_function("sharedOverlays.length === 0")
+        path = self.overlay_geojson(
+            *[
+                (
+                    f"NAI {i + 1}",
+                    self.square(44.30 + (i % 30) * 0.004, 33.20 + (i // 30) * 0.004, 0.003),
+                )
+                for i in range(600)
+            ]
+        )
+        page.click("[data-home-go='list']")
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='overlays']")
+        page.set_input_files("#overlaysFileInput", str(path))
+        page.wait_for_selector("#overlaysReviewAddBtn")
+        page.click("#overlaysReviewAddBtn")
+        page.wait_for_selector(
+            "#toastNotification:has-text('Imported 600 overlays')", timeout=15000
+        )
+        self.wait_for_server(page, "s => s.overlays.length === 600")
+
+    def test_go_to_a_grid_marks_it_until_its_box_closes(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        page.click("#mapGotoBtn")
+        page.wait_for_selector("#mapGotoPop:not([hidden])")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "mapGotoInput")
+        self.assertEqual(page.get_attribute("#mapGotoBtn", "aria-expanded"), "true")
+        # A bad grid says so, and marks nothing.
+        page.fill("#mapGotoInput", "nowhere 12")
+        page.press("#mapGotoInput", "Enter")
+        page.wait_for_selector("#mapGotoSaid.bad:has-text(\"isn't a grid\")")
+        self.assertEqual(page.locator("#mapSvg .map-goto").count(), 0)
+        self.assertTrue(page.locator("#mapGotoZoom").is_hidden())
+        # A good one: an X there, its grid beside it; Zoom to it zooms in on it.
+        page.fill("#mapGotoInput", "38SMB4500082000")
+        page.click("#mapGotoGo")
+        page.wait_for_selector("#mapSvg .map-goto")
+        self.assertEqual(page.text_content("#mapGotoSaid"), "X marks 38S MB 45000 82000.")
+        self.assertEqual(page.text_content("#mapSvg .map-goto text"), "38S MB 45000 82000")
+        fit = page.evaluate("mapState.fitMpp")
+        page.click("#mapGotoZoom")
+        self.next_frames(page)
+        at = page.evaluate("""() => {
+            const g = SaltCore.findGrids('38SMB4500082000')[0], [x, y] = SaltCore.lonLatToMerc(g.lon, g.lat);
+            return [Math.hypot(mapState.view.cx - x, mapState.view.cy - y), mapState.view.mpp];
+        }""")
+        self.assertLess(at[0], 1)
+        self.assertLess(at[1], fit)
+        # Closed by its ×: the X goes.
+        page.click("#mapGotoClose")
+        page.wait_for_selector("#mapGotoPop", state="hidden")
+        page.wait_for_selector("#mapSvg .map-goto", state="detached")
+        self.assertIsNone(page.evaluate("mapState.goto"))
+        self.assertEqual(page.evaluate("document.activeElement.id"), "mapGotoBtn")
+        # With MGRS Lock on, digits alone take its zone and square.
+        page.click("#dataMgmtBtn")
+        page.click("#toggleMgrsLockBtn")
+        page.fill("#mgrsPrefix", "38smb")
+        page.click("#size")
+        page.click("#mapGotoBtn")
+        page.fill("#mapGotoInput", "45000 82000")
+        page.press("#mapGotoInput", "Enter")
+        page.wait_for_selector("#mapSvg .map-goto")
+        self.assertEqual(page.evaluate("mapState.goto.mgrs"), "38S MB 45000 82000")
+        # Escape closes it, the X with it, back to its button.
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#mapGotoPop", state="hidden")
+        page.wait_for_selector("#mapSvg .map-goto", state="detached")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "mapGotoBtn")
+        # So does its button pressed again; a click elsewhere on the map doesn't.
+        page.click("#mapGotoBtn")
+        page.press("#mapGotoInput", "Enter")
+        page.wait_for_selector("#mapSvg .map-goto")
+        page.click("#mapLegend .map-key-tag >> nth=0")
+        page.click("#mapLegend .map-key-tag >> nth=0")
+        self.assertTrue(page.locator("#mapGotoPop").is_visible())
+        page.click("#mapGotoBtn")
+        page.wait_for_selector("#mapSvg .map-goto", state="detached")
+        self.assertEqual(page.get_attribute("#mapGotoBtn", "aria-expanded"), "false")
+        # Nothing of it is kept.
+        self.assertEqual(
+            page.evaluate("Object.keys(localStorage).filter(k => /goto/i.test(k))"), []
+        )
+
+    def click_on_axis(self, page):
+        """Put the map's middle on AXIS GOLD's middle (as near as the edge of
+        the area lets it), and click on the axis there, once the map has
+        slid into place."""
+        self.settle(page)
+        x, y = page.evaluate("""() => {
+            const [x, y] = SaltCore.lonLatToMerc(44.43, 33.30);
+            mapState.view = { cx: x, cy: y, mpp: 8 };
+            drawMap();
+            const v = mapState.view, r = document.getElementById('mapBox').getBoundingClientRect();
+            return [r.left + r.width / 2 + (x - v.cx) / v.mpp, r.top + r.height / 2 + (v.cy - y) / v.mpp];
+        }""")
+        page.mouse.click(x, y)
+        page.wait_for_selector("#mapCard:not([hidden])")
+
+    def test_an_axis_of_advance_clicked_on_the_map_can_be_removed(self):
+        self.tidy_tags_and_overlays()
+        axis = {
+            "type": "AXIS",
+            "name": "GOLD",
+            "geometry": {"type": "LineString", "coordinates": [[44.40, 33.30], [44.46, 33.30]]},
+        }
+        nai = {"type": "NAI", "name": "1", "geometry": self.square(44.40, 33.26, 0.02)}
+        self.post_to_server("/api/save_overlays", {"overlays": [nai, axis], "tagged": True})
+        page = self.open_editor()
+        page.wait_for_function("sharedOverlays.length === 2")
+        self.open_map(page)
+        self.click_on_axis(page)
+        card = page.text_content("#mapCard")
+        self.assertIn("AXIS GOLD", card)
+        self.assertIn("Axis of advance", card)
+        page.wait_for_selector("#mapSvg .map-axis.picked")
+        # Remove asks in place first, then removes it for everyone, with Undo.
+        page.click("[data-card-act='remove-axis']")
+        page.wait_for_selector("[data-card-act='remove-axis']:has-text('Remove for everyone?')")
+        self.assertEqual(page.evaluate("sharedOverlays.length"), 2)
+        page.click("[data-card-act='remove-axis']")
+        page.wait_for_selector("#toastNotification:has-text('AXIS GOLD removed.')")
+        page.wait_for_selector("#mapCard", state="hidden")
+        self.wait_for_server(page, "s => !s.overlays.some(o => o.type === 'AXIS')")
+        self.assertEqual(page.locator("#mapSvg .map-axis").count(), 0)
+        page.click("#toastNotification .toast-undo")
+        self.wait_for_server(
+            page, "s => s.overlays.some(o => o.type === 'AXIS' && o.name === 'GOLD')"
+        )
+        page.click("[data-map-zoom='fit']")
+        page.wait_for_selector("#mapSvg .map-axis")
+        # A viewer sees its name, and nothing to remove it with.
+        viewer = self.open_viewer()
+        viewer.wait_for_function("sharedOverlays.length === 2")
+        self.open_map(viewer)
+        self.click_on_axis(viewer)
+        self.assertIn("AXIS GOLD", viewer.text_content("#mapCard"))
+        self.assertEqual(viewer.locator("#mapCard [data-card-act='remove-axis']").count(), 0)
+        # Escape closes it.
+        viewer.keyboard.press("Escape")
+        viewer.wait_for_selector("#mapCard", state="hidden")
+
+    def map_sizes(self, page):
+        return sorted(page.evaluate("mapState.lastDraw.reps.map(r => r.size)"))
+
+    def test_the_map_follows_a_workspace_switch_at_once(self):
+        page = self.open_editor(ato="MAPWSA")
+        self.import_overlays(page)
+        self.log(page, "1x BTR", location="38SMB4500082000")
+        page.click("#setAtoBtn")
+        page.fill("#atoDesignator", "MAPWSB")
+        page.click("#setAtoBtn")
+        page.wait_for_function("activeAto === 'MAPWSB'")
+        self.log(page, "2x BMP", location="38SMB4600082000")
+        self.log(page, "3x T-72", location="38SMB4700082000")
+        self.wait_for_server(
+            page,
+            "s => (s.workspaces.MAPWSA || []).length === 1 && (s.workspaces.MAPWSB || []).length === 2",
+        )
+        self.open_map(page)
+        self.synced(page)
+        self.assertEqual(self.map_sizes(page), ["2x BMP", "3x T-72"])
+        # The switch reaches no server, so no pull draws the map again: it
+        # is drawn by the switch itself.
+        page.route("**/api/save_config", lambda route: route.abort())
+        page.click("#setAtoBtn")
+        page.fill("#atoDesignator", "MAPWSA")
+        page.click("#setAtoBtn")
+        page.wait_for_function("activeAto === 'MAPWSA'")
+        page.wait_for_function("mapState.lastDraw.reps.length === 1", timeout=2000)
+        self.assertEqual(self.map_sizes(page), ["1x BTR"])
+        page.unroute("**/api/save_config")
+        # A viewer switching in their sidebar: the map follows, at once.
+        viewer = self.open_viewer()
+        viewer.wait_for_selector("#workspacesSidebarList [data-switch-ato='MAPWSB']")
+        self.open_map(viewer)
+        for ato, sizes in [("MAPWSB", ["2x BMP", "3x T-72"]), ("MAPWSA", ["1x BTR"])]:
+            viewer.click(f"#workspacesSidebarList [data-switch-ato='{ato}']")
+            viewer.wait_for_function(f"viewerShowingAto === '{ato}'")
+            viewer.wait_for_function(
+                f"mapState.lastDraw.reps.length === {len(sizes)}", timeout=2000
+            )
+            self.assertEqual(self.map_sizes(viewer), sizes)
+
     def test_the_format_stays_when_switching_workspaces(self):
         page = self.open_editor(ato="FORMATA")
         page.click("#exportViewToggleBtn")
@@ -4338,6 +4920,54 @@ class BrowserTests(unittest.TestCase):
         self.assertFalse(page.locator("#mgrsPrefix").is_visible())
         self.assertEqual(page.evaluate("lockedLocation('45000 82000')"), "45000 82000")
 
+    def test_mgrs_lock_says_when_a_grid_isnt_one_and_asks_before_logging_it(self):
+        page = self.open_editor()
+        page.click("#dataMgmtBtn")
+        page.click("#toggleMgrsLockBtn")
+        page.wait_for_function("() => document.activeElement.id === 'mgrsPrefix'")
+        page.fill("#mgrsPrefix", "38smb")
+        chip = "#locationHints [data-loc-lock]"
+        # While typing: an orange chip under Location for what looks meant as a grid.
+        page.fill("#location", "45000 8200")
+        page.wait_for_selector(f"{chip}:visible")
+        self.assertEqual(
+            page.text_content(chip), "Not a grid: 45000 8200 has two numbers of different lengths"
+        )
+        self.assertIn("warn", page.get_attribute(chip, "class"))
+        page.fill("#location", "38I MB 45000 82000")
+        self.assertEqual(
+            page.text_content(chip), "Not a grid: 38I MB 45000 82000 has no latitude band I"
+        )
+        # Place names and numbers with words never are; a grid it takes isn't either.
+        for text in ("Hill 205", "vic the bridge, 205", "45000 82000"):
+            page.fill("#location", text)
+            self.assertEqual(page.locator(chip).count(), 0, text)
+        # Log asks: Fix it goes back to the box, logging nothing.
+        page.fill("#size", "1x BRDM")
+        page.fill("#activity", "observing")
+        page.fill("#location", "4500 820")
+        page.click("#logButton")
+        page.wait_for_selector("#choiceToast.show")
+        self.assertEqual(page.text_content("#choiceMessage"), "Not a grid: 4500 820")
+        self.assertIn("has two numbers of different lengths", page.text_content("#choiceDetail"))
+        page.click("#choiceButtons button:text-is('Fix it')")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "location")
+        self.assertEqual(self.sizes(page), [])
+        # Log as typed: logged as it is, without the zone and square.
+        page.click("#logButton")
+        page.click("#choiceButtons button:text-is('Log as typed')")
+        page.wait_for_selector("#reportLogBody .col-size:has-text('1x BRDM')")
+        self.assertTrue(
+            page.evaluate("localReports.find(r => r.size === '1x BRDM').location").startswith(
+                "4500 820"
+            )
+        )
+        # With the lock off, nothing is said.
+        page.click("#dataMgmtBtn")
+        page.click("#toggleMgrsLockBtn")
+        page.fill("#location", "45000 8200")
+        self.assertEqual(page.locator(chip).count(), 0)
+
     def test_tracks_export_and_latest_only_csv(self):
         page = self.open_editor()
         self.log(page, "2x BMP", activity="moving N", location="38SMB4500082000")
@@ -4348,12 +4978,15 @@ class BrowserTests(unittest.TestCase):
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='export']")
         with page.expect_download() as dl:
-            self.run_io(page, "tracks-esri")
-        self.assertTrue(dl.value.suggested_filename.endswith("_arcgis_tracks.json"))
-        esri = json.loads(Path(dl.value.path()).read_text(encoding="utf-8"))
-        self.assertEqual(esri["geometryType"], "esriGeometryPolyline")
-        self.assertEqual(len(esri["features"][0]["geometry"]["paths"][0]), 2)
-        self.assertEqual(esri["features"][0]["attributes"]["direction"], "N")
+            self.run_io(page, "tracks-shp")
+        self.assertTrue(dl.value.suggested_filename.endswith("_arcgis_tracks.zip"))
+        with zipfile.ZipFile(dl.value.path()) as z:
+            shp = z.read(next(n for n in z.namelist() if n.endswith(".shp")))
+            dbf = z.read(next(n for n in z.namelist() if n.endswith(".dbf")))
+        self.assertEqual(struct.unpack("<i", shp[32:36])[0], 3, "lines")
+        self.assertEqual(struct.unpack("<i", shp[148:152])[0], 2, "the track's two points")
+        self.assertEqual(struct.unpack("<I", dbf[4:8])[0], 1, "one track")
+        self.assertIn(b"38S MB 45000 84000", dbf)
         page.select_option("#ioFormatSelect", "csv")
         page.check("#exportLatestOnlyToggle")
         with page.expect_download() as dl:
@@ -4432,6 +5065,20 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("Reports per NAI", parts["xl/charts/chart1.xml"])
         self.assertIn('ref="A1:', parts["xl/tables/table1.xml"])
         self.assertIn("2x T-72", parts["xl/sharedStrings.xml"])
+        # Each table's cells are outlined: the report table's header and rows.
+        styles = ET.fromstring(parts["xl/styles.xml"])
+        ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+        borders = styles.findall("m:borders/m:border", ns)
+        xfs = styles.findall("m:cellXfs/m:xf", ns)
+        sheet = ET.fromstring(parts["xl/worksheets/sheet2.xml"])
+        cells = sheet.findall("m:sheetData/m:row/m:c", ns)
+        self.assertTrue(cells)
+        for c in cells:
+            border = borders[int(xfs[int(c.get("s"))].get("borderId"))]
+            sides = [
+                border.find(f"m:{s}", ns).get("style") for s in ("left", "right", "top", "bottom")
+            ]
+            self.assertEqual(sides, ["thin"] * 4, c.get("r"))
         # Live: a report logged from the form shows up without reopening.
         page.click("#statsViewToggleBtn")
         self.log(page, "1x truck", activity="parked", location="38SMB4500082100")

@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // The map's own controls (app/60-map.js): full screen, the panel above the
-// map, its menus, grabbing a grid, and the pointer and keyboard on the map.
+// map, its menus, grabbing a grid, going to one, and the pointer and keyboard
+// on the map.
 // One of the ordered scripts that make up the page (see src/app/); they
 // share one top-level scope, so names declared earlier are visible here.
 // --- The map's own controls ---
 
 const FULL_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg>';
 const EXIT_FULL_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4"/></svg>';
+// Show all: four arrows out to the corners (full screen's are the corners alone).
+const FIT_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 6.2 2.5 2.5M2.5 5.6V2.5h3.1M9.8 6.2l3.7-3.7M10.4 2.5h3.1v3.1M9.8 9.8l3.7 3.7M13.5 10.4v3.1h-3.1M6.2 9.8l-3.7 3.7M5.6 13.5H2.5v-3.1"/></svg>';
+// Go to a grid: a target.
+const GOTO_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="4.6"/><path d="M8 1.2v3.2M8 11.6v3.2M1.2 8h3.2M11.6 8h3.2"/></svg>';
 // Full screen: the map with its controls and key fill the screen; Esc leaves.
 const toggleMapFullscreen = () => {
     const pane = document.getElementById('mapPane');
@@ -57,7 +62,8 @@ const renderMapPanel = (box) => {
                 <div class="map-zoom">
                     <button type="button" data-map-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>
                     <button type="button" data-map-zoom="out" title="Zoom out" aria-label="Zoom out">&minus;</button>
-                    <button type="button" data-map-zoom="fit" title="Show all" aria-label="Show all">&#10530;</button>
+                    <button type="button" data-map-zoom="fit" title="Show all" aria-label="Show all">${FIT_ICON}</button>
+                    <button type="button" id="mapGotoBtn" title="Go to a grid" aria-label="Go to a grid" aria-expanded="false" aria-controls="mapGotoPop">${GOTO_ICON}</button>
                     <button type="button" data-map-zoom="full" id="mapFullBtn" title="Full screen" aria-label="Full screen">${FULL_ICON}</button>
                     <button type="button" id="mapBaseBtn" title="Basemap" aria-label="Basemap" aria-expanded="false"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2 1.8 5.2 8 8.4l6.2-3.2z"/><path d="m1.8 8 6.2 3.2L14.2 8"/><path d="m1.8 10.8 6.2 3.2 6.2-3.2"/></svg></button>
                     <button type="button" id="mapExportBtn" title="Save or print the map" aria-label="Save or print the map" aria-expanded="false"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 11.5v2h11v-2"/></svg></button>
@@ -86,6 +92,17 @@ const renderMapPanel = (box) => {
                 </div>
                 <!-- Drones: where each is, shown or not, its view, and (editors) moving them. -->
                 <div id="mapDronePop" class="map-base-pop map-drone-pop" hidden></div>
+                <!-- Go to a grid: an X on it while this is open. Beside its button. -->
+                <div id="mapGotoPop" class="map-base-pop map-goto-pop" role="group" aria-label="Go to a grid" hidden>
+                    <div class="map-goto-head"><span class="map-base-pop-head">Go to a grid</span>
+                        <button type="button" id="mapGotoClose" class="map-card-close" title="Close (Esc)" aria-label="Close">&times;</button></div>
+                    <div class="map-form-row map-goto-row">
+                        <input type="text" id="mapGotoInput" placeholder="MGRS grid" maxlength="40" spellcheck="false" autocomplete="off" aria-label="MGRS grid" aria-describedby="mapGotoSaid">
+                        <button type="button" id="mapGotoGo" class="set-btn">Go</button>
+                    </div>
+                    <div id="mapGotoSaid" class="map-goto-said" role="status"></div>
+                    <button type="button" id="mapGotoZoom" class="text-btn" hidden>Zoom to it</button>
+                </div>
                 <div id="mapGridReadout" class="map-grid-readout" hidden></div>
                 <div id="mapTip" class="map-tip" hidden></div>
                 <div id="mapHint" class="map-hint" hidden>${/Mac/i.test(navigator.platform) ? '&#8984;' : 'Ctrl'} + scroll to zoom the map</div>
@@ -155,10 +172,57 @@ const showGridReadout = (e, shift) => {
 }));
 window.addEventListener('blur', () => showGridReadout(null, false));
 
+// --- Go to a grid ---
+
+// The target button opens a box beside it: a grid typed or pasted (digits
+// alone take MGRS Lock's zone and square), then Enter or Go puts an X on the
+// map there, bringing it into view, and Zoom to it zooms in on it. One that
+// can't be read is said in the box. Closing the box (its ×, Escape, or the
+// button again) takes the X away. This browser's alone, and not kept.
+const toggleGotoPop = (open) => {
+    const pop = document.getElementById('mapGotoPop'), btn = document.getElementById('mapGotoBtn');
+    if (!pop) return;
+    const show = open === undefined ? pop.hidden : open;
+    pop.hidden = !show;
+    setOn(btn, show, 'aria-expanded');
+    if (show) { document.getElementById('mapGotoInput').focus(); return; }
+    document.getElementById('mapGotoSaid').textContent = '';
+    document.getElementById('mapGotoZoom').hidden = true;
+    if (mapState.goto) { mapState.goto = null; redrawMap(); }
+};
+const gotoGrid = () => {
+    const box = document.getElementById('mapGotoInput'), said = document.getElementById('mapGotoSaid');
+    const text = box.value.trim();
+    const g = text ? SaltCore.findGrids(lockedLocation(text))[0] : null;
+    said.classList.toggle('bad', !g);
+    document.getElementById('mapGotoZoom').hidden = !g;
+    if (!g) {
+        said.textContent = text ? `${text} isn't a grid. Type one such as 38S MB 45000 82000${mgrsLock ? ', or its digits alone' : ''}.` : 'Type a grid, such as 38S MB 45000 82000.';
+        if (mapState.goto) { mapState.goto = null; redrawMap(); }
+        box.focus();
+        return;
+    }
+    mapState.goto = { lon: g.lon, lat: g.lat, mgrs: g.mgrs };
+    said.textContent = `X marks ${g.mgrs}.`;
+    // Brought into view, at the zoom the map is at.
+    const v = mapState.view, [x, y] = SaltCore.lonLatToMerc(g.lon, g.lat), d = mapState.lastDraw && mapState.lastDraw.view;
+    if (v && !(d && x >= d[0] && x <= d[2] && y >= d[1] && y <= d[3])) { v.cx = x; v.cy = y; }
+    redrawMap();
+};
+const zoomToGoto = () => {
+    const g = mapState.goto;
+    if (!g) return;
+    const [x, y] = SaltCore.lonLatToMerc(g.lon, g.lat);
+    if (mapState.view) { mapState.view.cx = x; mapState.view.cy = y; mapState.view.mpp = Math.min(mapState.view.mpp, 4); }
+    redrawMap();
+};
+
 const trackTip = (t) => {
     const r = t.report, local = timeDisplayMode === 'local';
     const first = t.points[0], last = t.points[t.points.length - 1];
-    const lines = [`<strong>${escapeHtml(formatFullId(r))}</strong>`, escapeHtml([r.size, r.activity].filter(Boolean).join(' · '))];
+    // Its Size after BDA, with what came off (SaltCore.sizeAfterBda).
+    const s = SaltCore.sizeAfterBda(r, narrTeam());
+    const lines = [`<strong>${escapeHtml(formatFullId(r))}</strong>`, escapeHtml([s.note ? `${s.shown} (${s.note})` : s.size, r.activity].filter(Boolean).join(' · '))];
     if (t.moved) {
         lines.push(`${t.points.length} positions, ${escapeHtml(SaltCore.formatDistance(t.lengthM, unitSystem))} toward ${SaltCore.compass16(t.bearingDeg)}`);
         lines.push(`${escapeHtml(SaltCore.toTimeString(first.time, local))} to ${escapeHtml(SaltCore.toTimeString(last.time, local))}`);
@@ -198,6 +262,10 @@ if (mapBody) {
         }
         const hrs = e.target.closest('[data-map-hours]');
         if (hrs) { mapState.hours = +hrs.dataset.mapHours; renderMapView(); return; }
+        if (e.target.closest('#mapGotoBtn')) { toggleGotoPop(); return; }
+        if (e.target.closest('#mapGotoClose')) { toggleGotoPop(false); document.getElementById('mapGotoBtn').focus(); return; }
+        if (e.target.closest('#mapGotoGo')) { gotoGrid(); return; }
+        if (e.target.closest('#mapGotoZoom')) { zoomToGoto(); return; }
         if (e.target.closest('#mapMeasureBtn')) { setMapMeasuring(!mapState.measuring); return; }
         if (e.target.closest('#mapExportBtn')) { toggleExportPop(); return; }
         if (e.target.closest('#mapSavePng')) { toggleExportPop(false); saveMapPng(); return; }
@@ -304,6 +372,7 @@ if (mapBody) {
                 text ? `${d.name}'s range is ${droneDistance(km * 1000)}.` : `${d.name} has no range set.`);
         }
         if (e.key === 'Enter' && (e.target.id === 'mapDroneName' || e.target.id === 'mapDroneGridNew')) { e.preventDefault(); document.getElementById('mapDroneAdd').click(); }
+        if (e.key === 'Enter' && e.target.id === 'mapGotoInput') { e.preventDefault(); gotoGrid(); }
     });
     mapBody.addEventListener('change', e => {
         // On station or off: off, it stays in the list but leaves the map and the Observer list.
@@ -652,7 +721,7 @@ document.addEventListener('keydown', e => {
         setMapMeasuring(false);
         return;
     }
-    const open = [['mapBasePop', 'mapBaseBtn', toggleBasePop], ['mapDronePop', 'mapDroneBtn', toggleDronePop], ['mapExportPop', 'mapExportBtn', toggleExportPop]]
+    const open = [['mapBasePop', 'mapBaseBtn', toggleBasePop], ['mapDronePop', 'mapDroneBtn', toggleDronePop], ['mapExportPop', 'mapExportBtn', toggleExportPop], ['mapGotoPop', 'mapGotoBtn', toggleGotoPop]]
         .find(([popId]) => { const pop = document.getElementById(popId); return pop && !pop.hidden; });
     const pane = document.getElementById('mapPane'), at = document.activeElement;
     if (!open || (at && at !== document.body && !(pane && pane.contains(at)))) return;

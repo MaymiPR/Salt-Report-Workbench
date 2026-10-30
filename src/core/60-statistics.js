@@ -6,16 +6,17 @@
 // Words that say how many, not what: "total of", "approx", "about".
 const SIZE_FILLER = /\b(?:total(?:\s+of)?|approx(?:imately)?|about|around|est(?:imated)?|at\s+least|up\s+to)\b\.?|~/gi;
 // One element's count and its type as written: "2x T-72", "4 BMP-2", "vics
-// 10x", "vics x10", "trucks (3)", "truck". `counted` says a number was given.
+// 10x", "vics x10", "trucks (3)", "truck". `counted` says a number was given,
+// `lead` that it came first (else last: "vics 10x", "trucks (3)").
 // A number run into a name ("2S19") is part of the name.
 const sizeCount = (part) => {
     const text = part.replace(SIZE_FILLER, ' ').replace(/\s+/g, ' ').trim();
-    let count = 1, type = text, counted = false, m;
-    if ((m = /^(\d+)\s*(?:x\s*|\s+)(\S.*)$/i.exec(text))) { count = Number(m[1]); type = m[2]; counted = true; }
+    let count = 1, type = text, counted = false, lead = false, m;
+    if ((m = /^(\d+)\s*(?:x\s*|\s+)(\S.*)$/i.exec(text))) { count = Number(m[1]); type = m[2]; counted = true; lead = true; }
     else if ((m = /^(.+?)\s+(?:(\d+)\s*x|x\s*(\d+))$/i.exec(text) || /^(.+?)\s*\((\d+)\)$/.exec(text))) {
         count = Number(m[2] || m[3]); type = m[1]; counted = true;
     }
-    return { count, text: type.replace(/^of\s+/i, '').trim(), counted };
+    return { count, text: type.replace(/^of\s+/i, '').trim(), counted, lead };
 };
 // One element as the Statistics count it: its type upper-cased and singular.
 // "2x possible tanks", "poss 3x APCs", "1x probable heli", "2x likely a heli":
@@ -105,6 +106,7 @@ const HEADINGS_8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 // Everything the Statistics panel draws, for the live reports given (already
 // cut to the time window). Each report counts once per place, square, tag, or
 // type it names; history is not counted. Lists are sorted largest first.
+// Equipment is counted from what is left after BDA (sizeAfterBda).
 //   squareDigits  1 = 10 km squares, 2 = 1 km squares
 //   team          the team's equipment (teamEquipment), optional, so the
 //                 types it adds fold their plurals as the narrative does
@@ -129,7 +131,7 @@ const statsData = (reps, overlays, { local, squareDigits = 1, team = null } = {}
         const act = classifyActivity(r.activity);
         (act.tags.length ? act.tags : ['Untagged']).forEach(t => add(tags, t));
         if (act.headingDeg !== null) headings[Math.round(act.headingDeg / 45) % 8]++;
-        sizeElements(r.size, team).forEach(e => add(equipment, e.type, e.count));
+        sizeElements(effectiveSize(r, team), team).forEach(e => add(equipment, e.type, e.count));
         const d = new Date(r.time);
         if (!isNaN(d.getTime())) {
             const f = dateFields(d, local);
@@ -172,23 +174,28 @@ const statsCsv = (sections) => sections.map(({ title, items }) =>
 // The report table as rows for a spreadsheet: one row per report as it is
 // now, with what the app reads from it (places, activity tags, heading, BDA).
 // A time is { date: Excel serial } so Excel sorts and filters it as a date;
-// in Local mode it is the browser's local time.
+// in Local mode it is the browser's local time. The Size is what is left
+// after BDA (sizeAfterBda); when BDA has taken from any report, a "Size (as
+// logged)" column after "BDA assessed" holds each one as it was logged.
 const excelSerial = (ms, local) => {
     const off = local ? new Date(ms).getTimezoneOffset() * 60000 : 0;
     return (ms - off) / 86400000 + 25569;
 };
-const workbookReportRows = (reps, overlays, { local, idOf, customLabels = [] }) => {
+const workbookReportRows = (reps, overlays, { local, idOf, customLabels = [], team = null }) => {
+    const live = (reps || []).filter(r => !r.deleted).sort((a, b) => reportNum(a) - reportNum(b));
+    const sizes = new Map(live.map(r => [r, sizeAfterBda(r, team)]));
+    const logged = [...sizes.values()].some(s => s.note);
     const header = ['Identifier', 'Status', 'By', 'Size', 'Activity', 'Location', `Time (${local ? 'Local' : 'Z'})`, 'Analysis',
-        'NAI / OBJ / PL', 'Activity tags', 'Heading', 'BDA assessed', 'Updates', ...customLabels];
-    const rows = (reps || []).filter(r => !r.deleted).sort((a, b) => reportNum(a) - reportNum(b)).map(r => {
+        'NAI / OBJ / PL', 'Activity tags', 'Heading', 'BDA assessed', ...(logged ? ['Size (as logged)'] : []), 'Updates', ...customLabels];
+    const rows = live.map(r => {
         const a = analyzeLocation(r.location, overlays);
         const act = classifyActivity(r.activity);
         const ms = new Date(r.time).getTime();
         const b = bdaSummary(r);
-        return [idOf(r), r.updated ? 'Updated' : 'Original', (r.user && r.user.initials) || '', r.size || '', r.activity || '',
+        return [idOf(r), r.updated ? 'Updated' : 'Original', (r.user && r.user.initials) || '', sizes.get(r).size, r.activity || '',
             r.location || '', isNaN(ms) ? '' : { date: excelSerial(ms, local) }, r.yourAnalysis || '',
             [...a.nai.keys, ...a.obj.keys, ...a.pls].join(', '), act.tags.join(', '), act.heading || '',
-            b.done ? `${b.done} of ${b.total}` : '', (r.history || []).length,
+            b.done ? `${b.done} of ${b.total}` : '', ...(logged ? [r.size || ''] : []), (r.history || []).length,
             ...customLabels.map(c => (r.custom || {})[c] || '')];
     });
     return { header, rows };
@@ -199,11 +206,12 @@ const workbookReportRows = (reps, overlays, { local, idOf, customLabels = [] }) 
 // it (so it can be restyled and updates when a number is changed), and a
 // Reports sheet holding the report table as an Excel table with filters.
 // Written by hand, as the zip of XML parts an .xlsx is, so nothing needs a
-// library. Styled to match the app: system font, one blue, no borders.
+// library. Styled to match the app: system font, one blue, and thin grey
+// outlines on every cell of each table (header included), nowhere else.
 //   opts: { title, context, kpis: [{ label, value }],
 //           charts: [{ title, note, unit, kind: 'bar' | 'column', axis, items: [{ label, value }] }],
 //           reports: { header, rows } }
-const XLSX_BLUE = '007AFF', XLSX_INK = '1D1D1F', XLSX_INK2 = '6E6E73', XLSX_GRID = 'E5E5EA', XLSX_AXIS = 'D2D2D7';
+const XLSX_BLUE = '007AFF', XLSX_INK = '1D1D1F', XLSX_INK2 = '6E6E73', XLSX_GRID = 'E5E5EA', XLSX_AXIS = 'D2D2D7', XLSX_LINE = 'C7C7CC';
 const XLSX_FONT = 'Segoe UI';
 const XLSX_BAR_MAX = 10;  // a bar chart shows the top ten; its table has them all
 // Text as XML holds it: characters XML 1.0 can't (control characters, and a
@@ -220,8 +228,11 @@ const REL = (t) => `${NS_REL}/${t}`;
 const relsXml = (rels) => `${XML_HEAD}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`
     + rels.map(([id, type, target]) => `<Relationship Id="${id}" Type="${type}" Target="${target}"/>`).join('') + '</Relationships>';
 
-// Cell styles (the order of cellXfs below).
-const XS = { plain: 0, head: 1, title: 2, muted: 3, date: 4, section: 5, kpi: 6 };
+// Cell styles (the order of cellXfs below). The box styles, and head, are a
+// table's cells, outlined; the others have no border.
+const XS = { plain: 0, head: 1, title: 2, muted: 3, date: 4, section: 5, kpi: 6, box: 7, boxDate: 8, boxMuted: 9, boxKpi: 10 };
+const XS_BOXED = new Set([XS.head, XS.box, XS.boxDate, XS.boxMuted, XS.boxKpi]);
+const thinSide = (side) => `<${side} style="thin"><color rgb="FF${XLSX_LINE}"/></${side}>`;
 const XLSX_STYLES = `${XML_HEAD}<styleSheet xmlns="${NS_MAIN}">`
     + '<numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm"/></numFmts>'
     + '<fonts count="5">'
@@ -229,16 +240,21 @@ const XLSX_STYLES = `${XML_HEAD}<styleSheet xmlns="${NS_MAIN}">`
         .map(([b, sz, c]) => `<font>${b ? '<b/>' : ''}<sz val="${sz}"/><color rgb="FF${c}"/><name val="${XLSX_FONT}"/><family val="2"/></font>`).join('')
     + '</fonts>'
     + '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
-    + `<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FF${XLSX_AXIS}"/></bottom><diagonal/></border></borders>`
+    + `<borders count="3"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FF${XLSX_AXIS}"/></bottom><diagonal/></border>`
+    + `<border>${['left', 'right', 'top', 'bottom'].map(thinSide).join('')}<diagonal/></border></borders>`
     + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
-    + '<cellXfs count="7">'
+    + '<cellXfs count="11">'
     + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
-    + '<xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1"/>'
+    + '<xf numFmtId="0" fontId="1" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1"/>'
     + '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
     + '<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
     + '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="left"/></xf>'
     + '<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
     + '<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left"/></xf>'
+    + '<xf numFmtId="0" fontId="0" fillId="0" borderId="2" xfId="0" applyBorder="1"/>'
+    + '<xf numFmtId="164" fontId="0" fillId="0" borderId="2" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left"/></xf>'
+    + '<xf numFmtId="0" fontId="3" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1"/>'
+    + '<xf numFmtId="0" fontId="4" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left"/></xf>'
     + '</cellXfs>'
     + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
     + '<dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/></styleSheet>';
@@ -291,11 +307,13 @@ const chartXml = (chart, at) => {
 const statsXlsx = ({ title = 'Statistics', context = '', kpis = [], charts = [], reports = { header: [], rows: [] } }, now = new Date()) => {
     const strings = [], stringIdx = new Map();
     const sst = (s) => { s = String(s).slice(0, 32767); if (!stringIdx.has(s)) { stringIdx.set(s, strings.length); strings.push(s); } return stringIdx.get(s); };
-    // A cell: number, string, { date }, or empty; `s` is its style.
+    // A cell: number, string, { date }, or empty; `s` is its style. An empty
+    // cell in a table is still written, for its outline.
     const cell = (ref, v, s = XS.plain) => {
-        if (v === '' || v === null || v === undefined) return '';
+        const boxed = XS_BOXED.has(s);
+        if (v === '' || v === null || v === undefined) return boxed ? `<c r="${ref}" s="${s}"/>` : '';
         if (typeof v === 'number') return `<c r="${ref}" s="${s}"><v>${v}</v></c>`;
-        if (typeof v === 'object' && 'date' in v) return `<c r="${ref}" s="${XS.date}"><v>${v.date}</v></c>`;
+        if (typeof v === 'object' && 'date' in v) return `<c r="${ref}" s="${boxed ? XS.boxDate : XS.date}"><v>${v.date}</v></c>`;
         return `<c r="${ref}" s="${s}" t="s"><v>${sst(v)}</v></c>`;
     };
     const rowXml = (r, cells, ht) => `<row r="${r}"${ht ? ` ht="${ht}" customHeight="1"` : ''}>${cells.map(([c, v, s]) => cell(`${colName(c)}${r}`, v, s)).join('')}</row>`;
@@ -310,7 +328,7 @@ const statsXlsx = ({ title = 'Statistics', context = '', kpis = [], charts = [],
     let r = 4;
     if (kpis.length) {
         rows.push(rowXml(r++, [[0, 'Headline numbers', XS.section]], 20));
-        kpis.forEach(k => rows.push(rowXml(r++, [[0, k.label, XS.muted], [1, k.value, XS.kpi]], 20)));
+        kpis.forEach(k => rows.push(rowXml(r++, [[0, k.label, XS.boxMuted], [1, k.value, XS.boxKpi]], 20)));
         r++;
     }
     const anchors = [], chartParts = [];
@@ -323,7 +341,7 @@ const statsXlsx = ({ title = 'Statistics', context = '', kpis = [], charts = [],
         const headRow = r;
         rows.push(rowXml(r++, [[0, ch.axis || (ch.kind === 'bar' ? 'Item' : 'When'), XS.head], [1, ch.unit, XS.head]]));
         const first = r;
-        ch.items.forEach(it => rows.push(rowXml(r++, [[0, String(it.label)], [1, Number(it.value) || 0]])));
+        ch.items.forEach(it => rows.push(rowXml(r++, [[0, String(it.label), XS.box], [1, Number(it.value) || 0, XS.box]])));
         const shown = shortened ? XLSX_BAR_MAX : ch.items.length;
         const heightPx = ch.kind === 'bar' ? Math.max(200, 70 + 26 * shown) : 280;
         chartParts.push(chartXml(ch, { sheet: SHEET, catCol: 'A', valCol: 'B', headRow, first }));
@@ -355,10 +373,10 @@ const statsXlsx = ({ title = 'Statistics', context = '', kpis = [], charts = [],
     const lastCol = colName(Math.max(heads.length, 1) - 1);
     const hasTable = heads.length > 0 && repRows.length > 0;
     const tableRef = `A1:${lastCol}${repRows.length + 1}`;
-    const widths = heads.map(h => ({ Identifier: 18, Status: 10, By: 6, Size: 22, Activity: 28, Location: 30, Analysis: 36, 'NAI / OBJ / PL': 18, 'Activity tags': 20, Heading: 9, 'BDA assessed': 13, Updates: 9 }[h] || (/^Time/.test(h) ? 17 : 16)));
+    const widths = heads.map(h => ({ Identifier: 18, Status: 10, By: 6, Size: 22, Activity: 28, Location: 30, Analysis: 36, 'NAI / OBJ / PL': 18, 'Activity tags': 20, Heading: 9, 'BDA assessed': 13, 'Size (as logged)': 22, Updates: 9 }[h] || (/^Time/.test(h) ? 17 : 16)));
     const reportsSheet = sheetHead('<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/>')
         + (widths.length ? colsXml(widths) : '')
-        + `<sheetData>${[rowXml(1, heads.map((h, c) => [c, h, XS.head]), 20), ...repRows.map((row, i) => rowXml(i + 2, row.map((v, c) => [c, v])))].join('')}</sheetData>`
+        + `<sheetData>${[rowXml(1, heads.map((h, c) => [c, h, XS.head]), 20), ...repRows.map((row, i) => rowXml(i + 2, (heads.length ? heads : row).map((_, c) => [c, row[c], XS.box])))].join('')}</sheetData>`
         + '<pageMargins left="0.5" right="0.5" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>'
         + (hasTable ? '<tableParts count="1"><tablePart r:id="rId1"/></tableParts>' : '') + '</worksheet>';
     const table = `${XML_HEAD}<table xmlns="${NS_MAIN}" id="1" name="ReportTable" displayName="ReportTable" ref="${tableRef}" totalsRowShown="0">`
@@ -425,17 +443,19 @@ const dtg = (ms, local) => {
 const dayTime = (ms, local) => { const d = timeOf(ms); if (!d) return NO_TIME; const f = dateFields(d, local); return `${f.day}${f.h}${f.mi}${zoneMark(local)}`; };
 const countList = (items) => items.map(i => `${i.label} ${i.value}`).join(', ');
 
-// What the summaries need about each report, worked out once.
-const reportFacts = (r, overlays) => {
+// What the summaries need about each report, worked out once. `size` is its
+// Size after BDA (sizeAfterBda; `shown` to print), what they count and quote.
+const reportFacts = (r, overlays, team = null) => {
     const a = analyzeLocation(r.location, overlays);
     const act = classifyActivity(r.activity);
+    const size = sizeAfterBda(r, team);
     return {
-        r, a, act, ms: new Date(r.time).getTime(),
+        r, a, act, ms: new Date(r.time).getTime(), size: size.size, shown: size.shown,
         places: [...a.nai.keys, ...a.obj.keys],
         pls: a.pls,
     };
 };
-const oneLine = (f) => `${f.r.size || '-'}; ${f.r.activity || '-'}; ${f.r.location || '-'}`;
+const oneLine = (f) => `${f.shown || '-'}; ${f.r.activity || '-'}; ${f.r.location || '-'}`;
 const reportLine = (f, local) => `${dayTime(f.ms, local)}  ${pad(f.r.displayId || f.r.id || '', 9)} ${oneLine(f)}`;
 const pad = (s, n) => String(s).padEnd(n);
 
@@ -495,7 +515,7 @@ const summaryDetail = (kind, reps, overlays, opts) => {
     const { local, from = null, to = null, now = new Date(), ato = '', title = '', by = '', place = '', squareDigits = 2, narrative = null, width = 100 } = opts;
     if (!Object.prototype.hasOwnProperty.call(SUMMARY_KINDS, kind)) kind = 'rollup';
     const team = opts.team !== undefined ? opts.team : narrative ? narrativeSettings(narrative).team : null;
-    const facts = (reps || []).filter(r => !r.deleted).map(r => reportFacts(r, overlays))
+    const facts = (reps || []).filter(r => !r.deleted).map(r => reportFacts(r, overlays, team))
         .filter(f => !isNaN(f.ms)).sort((x, y) => x.ms - y.ms);
     const within = (lo, hi) => facts.filter(f => (lo === null || f.ms >= lo) && (hi === null || f.ms <= hi));
     const cur = within(from, to);

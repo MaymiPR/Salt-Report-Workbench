@@ -6,6 +6,96 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **MGRS Lock checks a grid as you type it**: a part of Location that looks
+  meant as a grid but isn't one (an odd number of digits, more than 10, two
+  numbers of different lengths, or, typed in full, a zone, band or square that
+  doesn't exist) gets an orange *Not a grid* chip under Location saying why,
+  and Log and Update ask: *Fix it*, or *Log as typed*. A grid after a lead
+  word (`vic 39697 06762`; also *vicinity of*, *IVO*, *near*, *nr*, *grid*,
+  *approx*, *at*) is checked too, and given the locked zone and square like
+  digits alone. Place names and numbers with words (`Hill 205`) never are.
+- **MTI Export for ArcGIS points and tracks**: two files, `_tracked` and
+  `_wheeled`, read from Size as the CSV's MTI Export reads it, with Size as
+  the count and its number in a new `vehicles` field.
+- **Every version for ArcGIS points**: a point for each saved version of a
+  report at that version's grids, with its own words, numbered in `version`
+  and marked `latest`.
+- **The narrative and catalogue know more words**: *logistics* (logistics)
+  and *maneuver* (armor and mechanized forces) as forces ("3x logistics
+  vics", "2x maneuver elements"); AH, UH, CH and OH as attack, utility, cargo
+  and observation helicopters (`AH-64`, `CH47`), not inside a word or as a
+  grid's 100 km square; a bare *ZBL*; *mine layer* in two words; and the
+  GBL-132 mine layer.
+- **Tabs slide in**: a short slide and fade from the tab's side in Manage,
+  the Map tab's Graphics and Basemaps, the Summary Reports' kinds and the
+  Narrative settings' tabs; none with reduced motion.
+- **Go to a grid**: a target button among the map's buttons opens a small
+  box. Type or paste an MGRS grid (MGRS Lock's zone and square go with its
+  digits), and Enter or Go puts a yellow X on the map there, with **Zoom to
+  it**; a grid that can't be read is said in the box. Closing the box takes
+  the X away. Per browser, not kept.
+- **Remove an axis of advance from the map**: clicking an axis opens its
+  card, with its name and length; editors have **Remove**, which asks in
+  place, then removes it for everyone, with Undo. Viewers see its name.
+
+### Changed
+
+- **The Excel workbook outlines its tables**: every cell of each table (the
+  headline numbers, each chart's table, the reports), header included, has a
+  thin border.
+- **MTI Export** shows with the formats that have it: Reports for Excel,
+  ArcGIS points and ArcGIS tracks.
+- **Destroyed BDA comes off the Size**: a report of `20x tanks` with 3
+  assessed Destroyed reads `17x tanks`, with *BDA: 3x tanks destroyed* small
+  under it in the Report Log and the map's card. Only Destroyed counts;
+  Damaged and the other effects leave the Size as it is. Each assessment
+  comes off the element of its type, as partial BDA pairs them; the rest of
+  the Size stays as written (counts, plurals, *possible*); an element
+  destroyed to none is dropped, and a Size with nothing left reads
+  *None left*. The stored Size is not changed: the form, backups and history
+  keep it as logged, and deleting, undoing or changing an assessment brings
+  the count back. Copied text says `S: 17x tanks (BDA: 3x tanks destroyed)`;
+  the map's tooltips and table, the Statistics counts, the summaries and
+  narrative, and the CSV, MTI, ArcGIS and Excel exports use what is left.
+  The CSV and the Excel *Reports* sheet add a *Size (as logged)* column when
+  BDA has taken from any report; the ArcGIS points and tracks always carry
+  `size_logged`. A hedge before the count (`poss 3x APCs`) is now read as
+  three in the BDA checklist too, as the Statistics read it.
+- **Names on the map don't overlap**: the names of graphics, tracks, drones,
+  the grid gone to and the measure tools are placed in order (the measures,
+  then what is picked, then axes and phase lines, then places with reports,
+  then the rest) and one that would fall on another is left off. A
+  graphic's name shows only when the graphic is big enough on screen to
+  hold it, so hundreds of NAIs zoomed out show their shapes, not a wall of
+  text.
+- **2,000 graphics**: the shared overlays hold up to 2,000 graphics (500
+  before). Graphics wholly off screen are left out of a drawing, so the map
+  stays quick with them all.
+- **Show all** has an icon of its own, four arrows out to the corners, drawn
+  like the buttons round it.
+- **The map's controls are as solid as the Settings menu**: the layer
+  buttons, the window, Latest Grids / All Reports, the buttons down the
+  side, the key, the cards and the boxes have its background, and a control
+  switched on is drawn opaque, so it reads the same over any basemap.
+
+### Removed
+
+- The ArcGIS **.json (Esri JSON)** and **.geojson** exports for points and
+  tracks, and the code behind them: points export as a Shapefile or CSV,
+  tracks as a Shapefile.
+
+### Fixed
+
+- **The map's sidebar hides with the map**: its top could show as an empty
+  box below the Report Log, under some layouts.
+- **The map follows a workspace switch at once**: an editor setting another
+  workspace, or a viewer picking one in their sidebar, saw the map keep the
+  last workspace's reports until something else drew it again (for a
+  viewer, until the next change on the server).
+
+
 ## [2.32.1] - 2026-10-29
 
 ### Removed

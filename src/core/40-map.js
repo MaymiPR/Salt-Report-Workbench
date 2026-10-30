@@ -216,13 +216,14 @@ const activityMatches = (text, tags) => {
 
 // ArcGIS tracks: one line per report that moved, from its first grid to its
 // latest in the order reported, for an arrow symbol at the line's end.
-const arcgisTrackRows = (reps, { local, idOf }) => reportTracks(reps).filter(t => t.moved).map(t => {
+// Its Size as the points' (arcgisRows): after BDA, and as logged.
+const arcgisTrackRows = (reps, { local, idOf, team = null }) => reportTracks(reps).filter(t => t.moved).map(t => {
     const r = t.report, first = t.points[0], last = t.points[t.points.length - 1];
     const act = classifyActivity(r.activity);
     const iso = d => (d ? new Date(d).toISOString().replace(/\.\d{3}Z$/, 'Z') : '');
     return {
         report_id: idOf(r), ato: r.ato || '', title: r.title || '',
-        size: r.size || '', activity: r.activity || '', act_tags: act.tags.join('; '),
+        size: effectiveSize(r, team), size_logged: r.size || '', activity: r.activity || '', act_tags: act.tags.join('; '),
         start_utc: iso(first.time), end_utc: iso(last.time),
         start_disp: first.time ? toTimeString(first.time, local) : '', end_disp: last.time ? toTimeString(last.time, local) : '',
         positions: t.points.length, length_m: Math.round(t.lengthM),
@@ -233,11 +234,6 @@ const arcgisTrackRows = (reps, { local, idOf }) => reportTracks(reps).filter(t =
     };
 });
 const attrsOf = (row) => { const { path, ...rest } = row; return rest; };
-const arcgisTracksGeoJson = (rows) => JSON.stringify({
-    type: 'FeatureCollection',
-    features: rows.map(row => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: row.path }, properties: attrsOf(row) })),
-});
-const arcgisTracksEsriJson = (rows) => esriJson(rows.map(attrsOf), 'esriGeometryPolyline', (row, i) => ({ paths: [rows[i].path] }));
 
 // Web Mercator (the tile services' projection), meters, and back.
 const MERC_R = 6378137;

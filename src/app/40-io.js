@@ -10,8 +10,8 @@
 // Title Separator toggle. Stored data is untouched.
 const formatFullId = (r) => SaltCore.formatFullId(r, atoTitleSep);
 
-// Copy text in the active workspace's format.
-const generateReportText = (report) => SaltCore.reportText(report, currentFormat(), atoTitleSep);
+// Copy text in the active workspace's format, its Size after BDA.
+const generateReportText = (report) => SaltCore.reportText(report, currentFormat(), atoTitleSep, narrTeam());
 
 // CSV filename: ATO_Title_YYYYMMDD_HHMM{Z|L}; the suffix matches the time mode.
 const exportFilename = (ato, title) => `${SaltCore.backupFilename(ato, title)}_${fileStamp(new Date(), timeDisplayMode === 'local')}`;
@@ -264,9 +264,13 @@ const switchManageTab = (tabName) => {
     if (!VALID_TABS.includes(tabName)) tabName = 'export';
     hideIdentityAccessCode();
     if (isReadOnly) tabName = 'export';
+    // The tab shown before, so a different one slides in from its side.
+    const tabs = [...el.workspaces.tabs].map(b => b.dataset.tab);
+    const was = tabs.find((t, i) => el.workspaces.tabs[i].getAttribute('aria-selected') === 'true');
     el.workspaces.tabs.forEach(btn => setOn(btn, btn.dataset.tab === tabName, 'aria-selected'));
     el.workspaces.tabPanels.forEach(panel => {
         panel.style.display = (panel.dataset.tabPanel === tabName) ? '' : 'none';
+        if (panel.dataset.tabPanel === tabName && was && was !== tabName && isManageViewActive) animateTabIn(panel, tabDir(tabs, was, tabName));
     });
     writeStored('salt_workspaces_tab', tabName);
     // Refresh derived state on switch so filter counts / list aren't stale.
@@ -405,27 +409,20 @@ initBuilderHandlers();
 
 // --- Export picker ---
 // Each entry presses one of the (hidden) action buttons, or runs an export
-// itself. `needs` names the option it shows. Imports are the drop area below.
+// itself. `needs` names the options it shows: those whose data-io-for lists
+// it. Imports are the drop area below.
 const IO_FORMATS = {
     export: [
         { id: 'backup', group: 'Reports', short: 'Backup (.txt)', label: 'Backup (.txt)', btn: 'exportPanelBackupBtn', needs: 'backup',
           desc: 'Every report with its updates, BDA, report format and the overlays. Opens in Notepad; Import it on any workbench.' },
         { id: 'csv', group: 'Reports', short: 'For Excel (.csv)', label: 'Reports for Excel (.csv)', btn: 'exportPanelCsvBtn', needs: 'csv',
           desc: 'One row per report, and one per saved update (or, with Latest version only, just the report), with the time filter below.' },
-        { id: 'arcgis-shp', group: 'ArcGIS points', short: 'Shapefile (.zip)', label: 'ArcGIS points (Shapefile .zip)', run: () => exportForArcgis('shp'),
-          desc: 'One point per grid of each report as it is now (its updates are not extra points), for heat maps. Unzip it, then drag the .shp into ArcGIS Pro or browse to it from a folder connection. ArcGIS Online takes the zip as it is. Text longer than 254 characters is cut.' },
-        { id: 'arcgis-esri', group: 'ArcGIS points', short: 'Esri JSON (.json)', label: 'ArcGIS points (.json, Esri JSON)', btn: 'exportArcgisEsriBtn',
-          desc: 'The same points with every character of text. ArcGIS Pro does not drag these in: run JSON To Features on the file.' },
-        { id: 'arcgis-geojson', group: 'ArcGIS points', short: 'GeoJSON (.geojson)', label: 'ArcGIS points (.geojson)', btn: 'exportArcgisGeojsonBtn',
-          desc: 'The same points as GeoJSON, for other GIS, or JSON To Features in ArcGIS Pro. Text longer than 254 characters is cut.' },
-        { id: 'arcgis-csv', group: 'ArcGIS points', short: 'Table (.csv)', label: 'ArcGIS points (.csv)', btn: 'exportArcgisCsvBtn',
-          desc: 'The same points as a table: XY Table To Point, with lon as X and lat as Y (WGS 1984).' },
-        { id: 'tracks-shp', group: 'ArcGIS tracks', short: 'Shapefile (.zip)', label: 'ArcGIS tracks (Shapefile .zip)', run: () => exportForArcgis('tracks-shp'),
+        { id: 'arcgis-shp', group: 'ArcGIS points', short: 'Shapefile (.zip)', label: 'ArcGIS points (Shapefile .zip)', run: () => exportForArcgis('shp'), needs: 'points',
+          desc: 'One point per grid of each report as it is now (or, with Every version, of each saved version), for heat maps. Unzip it, then drag the .shp into ArcGIS Pro or browse to it from a folder connection. ArcGIS Online takes the zip as it is. Text longer than 254 characters is cut.' },
+        { id: 'arcgis-csv', group: 'ArcGIS points', short: 'Table (.csv)', label: 'ArcGIS points (.csv)', btn: 'exportArcgisCsvBtn', needs: 'points',
+          desc: 'The same points as a table, with every character of text: XY Table To Point, with lon as X and lat as Y (WGS 1984).' },
+        { id: 'tracks-shp', group: 'ArcGIS tracks', short: 'Shapefile (.zip)', label: 'ArcGIS tracks (Shapefile .zip)', run: () => exportForArcgis('tracks-shp'), needs: 'tracks',
           desc: 'One line per report that moved, from its first grid through its updates to the latest, for an arrow at the end (Symbology: a line with an end arrow). Unzip it, then drag the .shp into ArcGIS Pro.' },
-        { id: 'tracks-esri', group: 'ArcGIS tracks', short: 'Esri JSON (.json)', label: 'ArcGIS tracks (.json, Esri JSON)', run: () => exportForArcgis('tracks-esri'),
-          desc: 'The same tracks as Esri JSON, for JSON To Features.' },
-        { id: 'tracks-geojson', group: 'ArcGIS tracks', short: 'GeoJSON (.geojson)', label: 'ArcGIS tracks (.geojson)', run: () => exportForArcgis('tracks-geojson'),
-          desc: 'The same tracks as GeoJSON lines, drawn first to latest.' },
     ],
 };
 const ioFormat = () => IO_FORMATS.export.find(f => f.id === el.ioPicker.select.value) || IO_FORMATS.export[0];
@@ -439,7 +436,7 @@ const renderIoPicker = () => {
     p.desc.textContent = f.desc;
     renderIoMenu(f);
     // Each option shows with the format it changes.
-    document.querySelectorAll('#exportPanel [data-io-for]').forEach(n => { n.hidden = n.dataset.ioFor !== f.needs; });
+    document.querySelectorAll('#exportPanel [data-io-for]').forEach(n => { n.hidden = !n.dataset.ioFor.split(' ').includes(f.needs); });
     document.querySelectorAll('#exportPanel .io-options').forEach(n => { n.hidden = !f.needs; });
 };
 // The pop-up button and its menu: the formats under their group's heading,
