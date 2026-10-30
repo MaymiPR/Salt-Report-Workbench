@@ -586,6 +586,8 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(
             page.evaluate("el.toast.confirm.contains(document.activeElement)"), "Tab stays inside"
         )
+        # A sync drawing the Report Log again meanwhile: focus still finds its way back.
+        page.evaluate("renderLog()")
         page.keyboard.press("Escape")
         page.wait_for_selector("#confirmationToast.show", state="hidden")
         self.assertEqual(page.evaluate("document.activeElement.className"), "restore-btn")
@@ -3738,12 +3740,36 @@ class BrowserTests(unittest.TestCase):
         # A range shorter than that: the ring, a red view, and how far out.
         page.fill("#mapDroneRange0", "10")
         page.press("#mapDroneRange0", "Enter")
-        page.wait_for_selector("#toastNotification:has-text(\"GE 1's range is 10 km\")")
+        page.wait_for_selector("#toastNotification:has-text(\"GE 1's range is 10.0 km\")")
         page.wait_for_selector("#mapSvg .map-drone-range")
         page.wait_for_selector("#mapSvg .map-drone-cone.out")
         labels = " ".join(page.locator("#mapSvg .map-label-drone").all_text_contents())
-        self.assertIn("2.0 km out of range", labels)
-        self.assertIn("10 km", labels)
+        self.assertRegex(labels, r"2\.0\d km out of range")
+        self.assertIn("10.0 km", labels)
+        # In imperial units: shown, and typed, in miles; kept in km for everyone.
+        page.click("#dataMgmtBtn")
+        page.click("#toggleUnitsBtn")
+        try:
+            page.wait_for_function(
+                r"() => [...document.querySelectorAll('#mapSvg .map-label-drone')].some(t => /^7\.\d\d mi N/.test(t.textContent))"
+            )
+            # (The Settings menu closed the drones' menu: open it, and the drone's More.)
+            page.click("#mapDroneBtn")
+            if page.get_attribute("[data-drone-more='0']", "aria-expanded") != "true":
+                page.click("[data-drone-more='0']")
+            self.assertEqual(page.input_value("#mapDroneRange0"), "6.2")
+            self.assertEqual(page.get_attribute("#mapDroneRange0", "placeholder"), "mi")
+            page.fill("#mapDroneRange0", "5")
+            page.press("#mapDroneRange0", "Enter")
+            page.wait_for_selector("#toastNotification:has-text(\"GE 1's range is 5.00 mi\")")
+            self.wait_for_server(page, "s => Math.abs(s.drones[0].range - 8.047) < 0.001")
+        finally:
+            page.click("#dataMgmtBtn")
+            page.click("#toggleUnitsBtn")
+            page.evaluate("localStorage.removeItem('salt_units')")
+        page.click("#mapDroneBtn")
+        if page.get_attribute("[data-drone-more='0']", "aria-expanded") != "true":
+            page.click("[data-drone-more='0']")
         # Back to its newest report (in range): no longer red; no range: no ring.
         page.fill("#mapDroneLook0", "")
         page.press("#mapDroneLook0", "Enter")
@@ -3771,7 +3797,7 @@ class BrowserTests(unittest.TestCase):
         self.open_map(viewer)
         viewer.click("#mapDroneBtn")
         self.assertIn("38S MB 40000 90000", viewer.text_content("#mapDronePop"))
-        self.assertIn("15 km", viewer.text_content("#mapDronePop"))
+        self.assertIn("15.0 km", viewer.text_content("#mapDronePop"))
         self.assertEqual(viewer.locator("#mapDroneLook0").count(), 0, "viewers can't change it")
         page.evaluate("saveDrones([])")
 
@@ -3874,8 +3900,8 @@ class BrowserTests(unittest.TestCase):
         self.open_map(page)
         page.wait_for_function("document.querySelectorAll('#mapSvg .map-drone-cone').length === 2")
         labels = page.locator("#mapSvg .map-label-drone").all_text_contents()
-        self.assertIn("4.0 km N", labels)
-        self.assertIn("2.0 km N", labels)
+        self.assertTrue(any(t.startswith("4.0") and t.endswith(" km N") for t in labels), labels)
+        self.assertTrue(any(t.startswith("2.0") and t.endswith(" km N") for t in labels), labels)
         # Off station: off the map and out of the Observer list, still in the menu.
         page.click("#mapDroneBtn")
         page.uncheck("[data-drone-station='1']")

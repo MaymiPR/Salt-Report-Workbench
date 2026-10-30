@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Drones follow Settings > Units**: a drone's range, its ring, and the
+  distance beside its view read in miles with Imperial, and its range is
+  typed in miles there; it is still kept in km for everyone.
+- **Focus after a question closes**: when the Report Log was drawn again
+  while a question was open (a sync came in), closing it with Escape left
+  the keyboard on the hidden question instead of the button that asked.
+  It now goes back to that button, found again.
+
+### Removed
+
+- The standard march rates the time-distance tool no longer offers, from
+  the core.
+
 ## [2.32.0] - 2026-10-29
 
 ### Added

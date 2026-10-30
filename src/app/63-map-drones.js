@@ -23,10 +23,16 @@ const droneGrid = (text) => { const g = SaltCore.findGrids(lockedLocation(String
 // one, its view follows its own newest report (one it was the observer of).
 const lookPoint = (d) => { const g = d.look ? SaltCore.findGrids(d.look)[0] : null; return g ? { lon: g.lon, lat: g.lat } : null; };
 const DRONE_OUT = '#ff453a';   // a view past the drone's range
+// A drone's range is kept in km for everyone; it's shown, and typed, in the
+// units of this browser (Settings > Units): km, or miles.
+const M_PER_MI = 1609.344;
+const rangeUnit = () => (unitSystem === 'imperial' ? 'mi' : 'km');
+const rangeTyped = (km) => (unitSystem === 'imperial' ? Math.round(km * 1000 / M_PER_MI * 10) / 10 : km);
+const droneDistance = (meters) => SaltCore.formatDistance(meters, unitSystem);
 const droneTip = (d) => {
     const local = timeDisplayMode === 'local';
     return `<strong>${escapeHtml(d.name)}</strong><br>${escapeHtml(d.grid)}<br>Put there ${escapeHtml(SaltCore.toTimeString(new Date(d.at).toISOString(), local))}`
-        + (d.look ? `<br>Looking at ${escapeHtml(d.look)}` : '') + (d.range ? `<br>Range ${d.range} km` : '');
+        + (d.look ? `<br>Looking at ${escapeHtml(d.look)}` : '') + (d.range ? `<br>Range ${droneDistance(d.range * 1000)}` : '');
 };
 
 // Each drone, pointing where it's looking: with its view on, a cone from the
@@ -55,7 +61,7 @@ const droneLayer = (tracks, px) => {
         if (mapState.droneView && d.range && mapState.view) {
             const r = d.range * 1000 / (mapState.view.mpp * Math.cos(p.lat * Math.PI / 180));
             cones.push(`<circle class="map-drone-range" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${DRONE_COLOR}" fill-opacity="0.025" stroke="${DRONE_COLOR}" stroke-opacity="0.6" stroke-width="1.3" stroke-dasharray="3 4"/>`);
-            if (r > 36) marks.push(`<text x="${x.toFixed(1)}" y="${(y - r - 5).toFixed(1)}" text-anchor="middle" class="map-label map-label-drone">${d.range} km</text>`);
+            if (r > 36) marks.push(`<text x="${x.toFixed(1)}" y="${(y - r - 5).toFixed(1)}" text-anchor="middle" class="map-label map-label-drone">${droneDistance(d.range * 1000)}</text>`);
         }
         const q = mapState.droneView ? lookPoint(d) || newestOf(d) : null;
         if (q) {
@@ -78,7 +84,6 @@ const droneLayer = (tracks, px) => {
                 const lx = (x + tx) / 2 + ox * gap, ly = (y + ty) / 2 + oy * gap + 4;
                 const anchor = ox < -0.3 ? 'end' : ox > 0.3 ? 'start' : 'middle';
                 const meters = SaltCore.metersBetween(p, q);
-                const km = (meters / 1000).toFixed(1);
                 const dir = SaltCore.compass16(SaltCore.bearingBetween(p, q));
                 const out = d.range ? meters - d.range * 1000 : 0;   // past its range, in meters
                 const color = out > 0 ? DRONE_OUT : DRONE_COLOR;
@@ -94,7 +99,7 @@ const droneLayer = (tracks, px) => {
                     + `<rect x="${f(tx - 9)}" y="${f(ty - 9)}" width="18" height="18" rx="2" fill="none" stroke="${color}" stroke-width="2.4"/>`);
                 // On top, with the drones, so no graphic hides it.
                 // Past its range: how far, on a second line, so the label stays short.
-                const said = out > 0 ? `${km} km ${dir}<tspan x="${f(lx)}" dy="13">${(out / 1000).toFixed(1)} km out of range</tspan>` : `${km} km ${dir}`;
+                const said = out > 0 ? `${droneDistance(meters)} ${dir}<tspan x="${f(lx)}" dy="13">${droneDistance(out)} out of range</tspan>` : `${droneDistance(meters)} ${dir}`;
                 marks.push(`<text x="${f(lx)}" y="${f(ly)}" text-anchor="${anchor}" class="map-label map-label-drone${out > 0 ? ' map-label-out' : ''}">${said}</text>`);
             }
         }
@@ -141,8 +146,8 @@ const renderDronePop = () => {
                 ${isReadOnly ? `<span class="map-drone-grid">${escapeHtml(d.look || 'its newest report')}</span>`
                     : `<input type="text" id="mapDroneLook${i}" class="map-drone-grid-in" data-drone-look="${i}" value="${escapeHtml(d.look || '')}" placeholder="Its newest report" maxlength="40" spellcheck="false" aria-label="Where ${name} is looking">`}
                 <span class="map-drone-sub-label">Range</span>
-                ${isReadOnly ? `<span class="map-drone-grid">${d.range ? `${d.range} km` : 'none'}</span>`
-                    : `<input type="text" id="mapDroneRange${i}" class="map-drone-range-in" data-drone-range="${i}" value="${d.range || ''}" placeholder="km" maxlength="6" inputmode="decimal" aria-label="${name}'s range in km">`}
+                ${isReadOnly ? `<span class="map-drone-grid">${d.range ? droneDistance(d.range * 1000) : 'none'}</span>`
+                    : `<input type="text" id="mapDroneRange${i}" class="map-drone-range-in" data-drone-range="${i}" value="${d.range ? rangeTyped(d.range) : ''}" placeholder="${rangeUnit()}" maxlength="6" inputmode="decimal" aria-label="${name}'s range in ${rangeUnit() === 'mi' ? 'miles' : 'km'}">`}
                 <button type="button" class="text-btn map-drone-remove editor-only" data-drone-remove="${i}" data-drone-name="${name}"${ask ? ' data-asking' : ''} aria-label="${ask ? `Remove ${name} for everyone?` : `Remove ${name}`}">${ask ? 'Remove for everyone?' : 'Remove'}</button>
             </div>
         </div>`;
