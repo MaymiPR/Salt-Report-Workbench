@@ -393,6 +393,56 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector(".bda-entry")
         self.wait_for_server(page, assessed)
 
+    def test_destroyed_bda_comes_off_the_size_shown_and_copied(self):
+        self.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=self.editor)
+        page = self.open_editor()
+        self.log(page, "20x tanks, 2x BMP-2")
+        page.click("#dataMgmtBtn")
+        page.click("#toggleBdaBtn")
+        page.click("#reportLogBody tr[data-id] .bda-btn")
+        # 3 of the 20 destroyed, one BMP-2 damaged: only the destroyed come off.
+        page.fill(".bda-check-row[data-row='0'] .bda-ck-qty", "3")
+        page.click(".bda-check-row[data-row='0'] .bda-eff-btn[data-bda-eff='Destroyed']")
+        page.fill(".bda-check-row[data-row='1'] .bda-ck-qty", "1")
+        page.click(".bda-check-row[data-row='1'] .bda-eff-btn[data-bda-eff='Damaged']")
+        page.click(".bda-commit-btn")
+        size = "#reportLogBody tr[data-id] .col-size"
+        page.wait_for_selector(f"{size} .cell-clamp:text-is('17x tanks, 2x BMP-2')")
+        note = f"{size} .size-bda-note"
+        self.assertEqual(page.text_content(note), "BDA: 3x tanks destroyed")
+        self.assertEqual(page.get_attribute(note, "title"), "Logged as 20x tanks, 2x BMP-2")
+        # Stored as logged.
+        self.wait_for_server(
+            page,
+            f"s => s.workspaces['{self.ato}'][0].bda.length === 2"
+            f" && s.workspaces['{self.ato}'][0].size === '20x tanks, 2x BMP-2'",
+        )
+        page.wait_for_function("() => pushesInFlight === 0 && !pullDeferred")
+        page.evaluate("() => syncWithServer()")
+        self.next_frames(page)
+        # The copied text reads what is left, and says what came off.
+        page.click("#reportLogBody tr[data-id] .copy-btn")
+        page.wait_for_selector("#toastNotification:has-text('Copied')")
+        copied = page.evaluate("navigator.clipboard.readText()").replace("\r\n", "\n").split("\n")
+        self.assertIn("S: 17x tanks, 2x BMP-2 (BDA: 3x tanks destroyed)", copied)
+        self.assertIn("BDA 1: Destroyed - 3x tanks @ 18S UJ 12 34", copied)
+        # Deleting the assessment brings the count back; Undo takes it off again.
+        destroyed = ".bda-entry:has(.bda-effect:text-is('Destroyed')) .bda-del"
+        page.click(destroyed)
+        page.click(destroyed)
+        page.wait_for_selector("#toastNotification:has-text('BDA assessment deleted')")
+        page.wait_for_selector(f"{size} .cell-clamp:text-is('20x tanks, 2x BMP-2')")
+        self.assertEqual(page.locator(note).count(), 0)
+        page.click("#toastNotification .toast-undo")
+        page.wait_for_selector(f"{size} .cell-clamp:text-is('17x tanks, 2x BMP-2')")
+        self.wait_for_server(page, f"s => s.workspaces['{self.ato}'][0].bda.length === 2")
+        # With BDA hidden, the Size still reads what is left; editing shows it as logged.
+        page.click("#dataMgmtBtn")
+        page.click("#toggleBdaBtn")
+        self.assertEqual(page.text_content(f"{size} .cell-clamp"), "17x tanks, 2x BMP-2")
+        page.click("#reportLogBody tr[data-id] .id-edit-btn")
+        self.assertEqual(page.input_value("#size"), "20x tanks, 2x BMP-2")
+
     def test_the_activity_list_shows_another_editors_change(self):
         page = self.open_editor()
         page.click("#exportViewToggleBtn")
@@ -664,7 +714,9 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.input_value(".bda-check-row[data-row='0'] .bda-ck-qty"), "1")
         self.assertIn("1x BMP-2", page.locator(".bda-list").text_content())
         page.click("#bdaRollup [data-bda-filter='Destroyed']")
-        self.assertEqual(self.sizes(page), ["4x T-72, 2x BMP-2"])
+        # Its four T-72 destroyed: the Size reads what is left of it.
+        clamps = page.locator("#reportLogBody tr[data-id] .col-size .cell-clamp")
+        self.assertEqual(clamps.all_text_contents(), ["2x BMP-2"])
         page.click("#bdaRollup [data-bda-filter='Destroyed']")
         self.assertEqual(len(self.sizes(page)), 2)
 
@@ -2756,6 +2808,27 @@ class BrowserTests(unittest.TestCase):
         # Now goes back to the present.
         page.click("#mapEndNow")
         self.assertIsNone(page.evaluate("mapState.end"))
+
+    def test_the_map_reads_the_size_after_destroyed_bda(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "4x BMP", activity="moving N", location="38SMB4500082000")
+        page.evaluate(
+            """() => { const r = localReports.find(x => x.size === '4x BMP');
+                r.bda = [{ target: '1x BMP', effect: 'Destroyed', time: new Date().toISOString(), lastModified: nextStamp(r) }];
+                r.lastModified = nextStamp(r); saveLocalAndSync(reportsByAto); }"""
+        )
+        page.wait_for_selector("#reportLogBody .col-size .cell-clamp:text-is('3x BMP')")
+        self.open_map(page)
+        page.click("[data-map-layer='reports']")
+        page.wait_for_selector("#mapTableBody tr[data-map-row]:has-text('3x BMP')")
+        page.click("#mapTableBody tr[data-map-row]:has-text('3x BMP')")
+        page.wait_for_selector("#mapCard:not([hidden])")
+        self.assertIn("3x BMPBDA: 1x BMP destroyed", page.text_content("#mapCard"))
+        page.click("[data-card-act='close']")
+        page.hover("#mapSvg .map-report .map-hit >> nth=0")
+        page.wait_for_selector("#mapTip:not([hidden])")
+        self.assertIn("3x BMP (BDA: 1x BMP destroyed) · moving N", page.text_content("#mapTip"))
 
     def test_the_overlay_map_heat_and_tracks(self):
         page = self.open_editor()
