@@ -88,6 +88,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **The map's sidebar hides with the map**: its top could show as an empty
+  box below the Report Log, under some layouts.
 - **The map follows a workspace switch at once**: an editor setting another
   workspace, or a viewer picking one in their sidebar, saw the map keep the
   last workspace's reports until something else drew it again (for a

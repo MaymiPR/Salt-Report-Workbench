@@ -4502,6 +4502,16 @@ class BrowserTests(unittest.TestCase):
             ],
         }
 
+    def test_the_maps_sidebar_hides_with_the_map(self):
+        # It kept itself visible when the map pane under the Report Log hid, so
+        # its top could show below the log.
+        page = self.open_editor()
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        side = "getComputedStyle(document.getElementById('mapSide')).visibility"
+        page.wait_for_function(f"{side} === 'hidden'")
+        page.click("[data-home-go='map']")
+        page.wait_for_function(f"{side} === 'visible'")
+
     def test_names_on_the_map_never_overlap(self):
         self.tidy_tags_and_overlays()
         # Sixteen NAIs, each with an OBJ a little bigger, a little to its
