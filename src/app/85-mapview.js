@@ -135,6 +135,7 @@ let mapCardFrom = null; // the table row it was opened from (by id), for Escape 
 const renderMapCard = () => {
     const card = document.getElementById('mapCard');
     if (!card) return;
+    if (mapState.axis) { renderAxisCard(card); return; }
     const r = mapState.selected && localReports.find(x => x.id === mapState.selected && !x.deleted);
     if (!r || !mapCardAt) { card.hidden = true; return; }
     const local = timeDisplayMode === 'local';
@@ -177,9 +178,52 @@ const positionMapCard = () => {
 
 const selectMapReport = (id, at) => {
     mapState.selected = id;
+    mapState.axis = '';
     mapCardAt = at || null;
     renderMapCard();
     redrawMap();
+};
+
+// --- An axis of advance's card ---
+
+// An axis clicked on the map: its card, with its name and length, and for
+// editors Remove, which asks in place first, then removes it for everyone
+// (as Manage does, with Undo). The axis is drawn wider while its card is open.
+const axisOnMap = (key) => currentOverlays().find(o => tagOf(o.type).axis && graphicName(o) === key) || null;
+const selectMapAxis = (key, at) => {
+    mapState.selected = '';
+    mapState.axis = key;
+    mapCardAt = at || null;
+    renderMapCard();
+    redrawMap();
+};
+const renderAxisCard = (card) => {
+    const o = axisOnMap(mapState.axis);
+    // Gone (a sync removed it, say): the card goes too.
+    if (!o || !mapCardAt) { mapState.axis = ''; card.hidden = true; return; }
+    const key = graphicName(o), ask = isAsking(`axis|${key}`);
+    const parts = o.geometry.type === 'MultiLineString' ? o.geometry.coordinates : [o.geometry.coordinates];
+    const meters = parts.reduce((s, l) => s + SaltCore.pathMeters(l.map(([lon, lat]) => ({ lon, lat }))), 0);
+    card.innerHTML = `
+        <div class="map-card-head"><strong>${escapeHtml(key)}</strong>
+            <button type="button" class="map-card-close" data-card-act="close" title="Close" aria-label="Close">&times;</button></div>
+        <div class="map-card-row"><span>Graphic</span><div>Axis of advance</div></div>
+        <div class="map-card-row"><span>Length</span><div>${escapeHtml(SaltCore.formatDistance(meters, unitSystem))}</div></div>
+        ${isReadOnly ? '' : `<div class="map-card-actions editor-only">
+            <button type="button" class="text-btn map-card-remove" data-card-act="remove-axis"${ask ? ' data-asking' : ''} aria-label="${ask ? `Remove ${escapeHtml(key)} for everyone?` : `Remove ${escapeHtml(key)}`}">${ask ? 'Remove for everyone?' : 'Remove'}</button>
+        </div>`}`;
+    card.hidden = false;
+    positionMapCard();
+};
+// The first press asks; the second removes it for everyone, the card with it.
+const removeMapAxis = () => {
+    const key = mapState.axis, o = axisOnMap(key);
+    if (!o || isReadOnly) { selectMapReport('', null); return; }
+    if (!askFirst(`axis|${key}`, renderMapCard)) return;
+    selectMapReport('', null);
+    const box = document.getElementById('mapBox');
+    if (box) box.focus({ preventScroll: true });
+    removeOverlays([o], `${key} removed.`);
 };
 
 // Put the map on a report and pulse its ring. Zoomed all the way out, it
@@ -193,21 +237,23 @@ const centerMapOn = (id) => {
     return true;
 };
 
-// A click on the map: a report opens its card; an NAI, OBJ, phase line or
-// graphic of the team's tags narrows the table to it (again to widen it);
-// anywhere else closes the card. Lines first, within ten pixels; then areas.
-// Graphics with no tag, or whose tag is switched off in the key, aren't
-// picked, nor is an axis of advance, which names no place.
+// A click on the map: a report opens its card; an axis of advance within ten
+// pixels, its card (it names no place); an NAI, OBJ, phase line or graphic of
+// the team's tags narrows the table to it (again to widen it); anywhere else
+// closes the card. Lines first, within ten pixels; then areas. Graphics with
+// no tag, or whose tag is switched off in the key, aren't picked.
 mapState.clickHook = ({ item, at, lonLat: [lon, lat], mpp }) => {
     if (item && item.t) { mapCardFrom = null; selectMapReport(item.t.report.id, at); return; }
     const near = mpp * Math.cos(lat * Math.PI / 180) * 10;   // ten pixels, on the ground
-    const shown = currentOverlays().map(o => [o, tagOf(o.type)]).filter(([o, t]) => !t.none && !t.axis && !mapState.tagsOff.has(t.key) && o.geometry)
-        .map(([o, t]) => [o, t.shape === 'area' ? SaltCore.asArea(o.geometry) : o.geometry]);
+    const drawn = currentOverlays().map(o => [o, tagOf(o.type)]).filter(([o, t]) => !t.none && !mapState.tagsOff.has(t.key) && o.geometry);
+    const axis = drawn.find(([o, t]) => t.axis && SaltCore.metersToGeometry(o.geometry, lon, lat) <= near);
+    if (axis) { mapCardFrom = null; selectMapAxis(graphicName(axis[0]), at); return; }
+    const shown = drawn.filter(([, t]) => !t.axis).map(([o, t]) => [o, t.shape === 'area' ? SaltCore.asArea(o.geometry) : o.geometry]);
     const lines = shown.filter(([, g]) => /LineString/.test(g.type) && SaltCore.metersToGeometry(g, lon, lat) <= near);
     const areas = shown.filter(([, g]) => /Polygon/.test(g.type) && SaltCore.geometryContains(g, lon, lat));
     const hit = (lines[0] || areas[0] || [])[0];
     if (hit) { const k = graphicName(hit); mapState.place = k === mapState.place ? '' : k; redrawMap(); return; }
-    if (mapState.selected) selectMapReport('', null);
+    if (mapState.selected || mapState.axis) selectMapReport('', null);
 };
 
 // --- The view ---
@@ -344,6 +390,7 @@ const hideHomeViews = () => {
         if (act) {
             const id = mapState.selected;
             if (act.dataset.cardAct === 'close') selectMapReport('', null);
+            else if (act.dataset.cardAct === 'remove-axis') removeMapAxis();
             else if (act.dataset.cardAct === 'edit') loadReportForEditing(id);
             else {
                 // The table may hide it (another place, or off this part of the map).
