@@ -471,6 +471,9 @@ body.local-mode .startup-access-divider { display: none; }
 /* A view coming in: a quick fade and rise, nothing that jumps. */
 .view-in { animation: view-in 0.28s cubic-bezier(0.32, 0.72, 0, 1); }
 @keyframes view-in { from { opacity: 0; transform: translateY(8px); } }
+/* A tab's panel sliding in (animateTabIn): the boxes around it that scroll
+   don't scroll sideways until it is in. */
+.tab-sliding { overflow-x: hidden !important; }
 /* Reduced motion, everywhere: every animation and transition all but
    instant, with no delays, so what waits on one still happens, at once. */
 @media (prefers-reduced-motion: reduce) {

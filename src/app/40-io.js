@@ -264,9 +264,13 @@ const switchManageTab = (tabName) => {
     if (!VALID_TABS.includes(tabName)) tabName = 'export';
     hideIdentityAccessCode();
     if (isReadOnly) tabName = 'export';
+    // The tab shown before, so a different one slides in from its side.
+    const tabs = [...el.workspaces.tabs].map(b => b.dataset.tab);
+    const was = tabs.find((t, i) => el.workspaces.tabs[i].getAttribute('aria-selected') === 'true');
     el.workspaces.tabs.forEach(btn => setOn(btn, btn.dataset.tab === tabName, 'aria-selected'));
     el.workspaces.tabPanels.forEach(panel => {
         panel.style.display = (panel.dataset.tabPanel === tabName) ? '' : 'none';
+        if (panel.dataset.tabPanel === tabName && was && was !== tabName && isManageViewActive) animateTabIn(panel, tabDir(tabs, was, tabName));
     });
     writeStored('salt_workspaces_tab', tabName);
     // Refresh derived state on switch so filter counts / list aren't stale.

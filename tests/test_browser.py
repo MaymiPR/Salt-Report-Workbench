@@ -732,6 +732,80 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_function(f"sharedDrones.some(d => d.name === '{name}')")
         page.evaluate("list => saveDrones(list)", before)  # the other tests' drones as they were
 
+    def tab_slide(self, page, selector):
+        """The tab animation running on ``selector``: [duration, the side it
+        comes from (1 right, -1 left)], or None. Held at its start, where it is
+        furthest out, it gives nothing on the page a sideways scroll."""
+        got = page.evaluate(
+            """sel => {
+                const a = document.querySelector(sel).getAnimations()[0];
+                if (!a) return null;
+                a.pause();
+                a.currentTime = 0;
+                const wide = [...document.querySelectorAll('*')].filter(n => n.scrollWidth > n.clientWidth + 1
+                    && ['auto', 'scroll'].includes(getComputedStyle(n).overflowX)).map(n => n.id || n.className);
+                a.play();
+                const from = new DOMMatrix(a.effect.getKeyframes()[0].transform).m41;
+                return [a.effect.getTiming().duration, Math.sign(from), wide];
+            }""",
+            selector,
+        )
+        if got is None:
+            return None
+        self.assertEqual(got[2], [], f"{selector}: a sideways scroll")
+        return got[:2]
+
+    def test_tabs_slide_in_from_their_side(self):
+        page = self.open_editor()
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='export']")
+        self.settle(page)
+        panel = "#exportPanel .ws-tab-panel[data-tab-panel='{}']"
+        # Manage: a tab to the right comes in from the right, back from the left.
+        page.click(".ws-tab[data-tab='builder']")
+        self.assertEqual(self.tab_slide(page, panel.format("builder")), [200, 1])
+        self.assertEqual(
+            page.evaluate("document.activeElement.dataset.tab"), "builder", "focus stays"
+        )
+        page.click(".ws-tab[data-tab='workspaces']")
+        self.assertEqual(self.tab_slide(page, panel.format("workspaces")), [200, -1])
+        # The same tab again, or the panel reopened on it: no slide.
+        self.settle(page)
+        page.click(".ws-tab[data-tab='workspaces']")
+        self.assertIsNone(self.tab_slide(page, panel.format("workspaces")))
+        # The Map tab's Graphics and Basemaps.
+        page.click(".ws-tab[data-tab='overlays']")
+        self.settle(page)
+        page.click("[data-map-sub='basemaps']")
+        self.assertEqual(self.tab_slide(page, "[data-map-sub-panel='basemaps']"), [200, 1])
+        page.click("[data-map-sub='graphics']")
+        self.assertEqual(self.tab_slide(page, "[data-map-sub-panel='graphics']"), [200, -1])
+        # Summary Reports' kinds, and the Narrative's settings tabs.
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='rollup']")
+        self.settle(page)
+        page.click("[data-summary-kind='narrative']")
+        self.assertEqual(self.tab_slide(page, "#summaryBody"), [200, 1])
+        self.settle(page)
+        page.click("[data-narr-tab='rules']")
+        self.assertEqual(self.tab_slide(page, "#narrSettings .narr-body"), [200, 1])
+        self.settle(page)
+        page.click("[data-narr-tab='units']")
+        self.assertEqual(self.tab_slide(page, "#narrSettings .narr-body"), [200, -1])
+        self.settle(page)
+        self.assertEqual(page.locator(".tab-sliding").count(), 0, "the boxes scroll as before")
+        # Reduced motion: none at all.
+        page.emulate_media(reduced_motion="reduce")
+        page.click("[data-narr-tab='equipment']")
+        self.assertIsNone(self.tab_slide(page, "#narrSettings .narr-body"))
+        page.click("[data-summary-kind='brief']")
+        self.assertIsNone(self.tab_slide(page, "#summaryBody"))
+        page.click("#exportViewToggleBtn")
+        self.settle(page)
+        page.click(".ws-tab[data-tab='identity']")
+        self.assertIsNone(self.tab_slide(page, panel.format("identity")))
+        self.assertTrue(page.locator(panel.format("identity")).is_visible())
+
     def test_the_export_menu_is_a_popup_with_groups_a_check_and_keys(self):
         page = self.open_editor()
         page.click("#exportViewToggleBtn")
@@ -4415,6 +4489,54 @@ class BrowserTests(unittest.TestCase):
         page.click("#toggleMgrsLockBtn")
         self.assertFalse(page.locator("#mgrsPrefix").is_visible())
         self.assertEqual(page.evaluate("lockedLocation('45000 82000')"), "45000 82000")
+
+    def test_mgrs_lock_says_when_a_grid_isnt_one_and_asks_before_logging_it(self):
+        page = self.open_editor()
+        page.click("#dataMgmtBtn")
+        page.click("#toggleMgrsLockBtn")
+        page.wait_for_function("() => document.activeElement.id === 'mgrsPrefix'")
+        page.fill("#mgrsPrefix", "38smb")
+        chip = "#locationHints [data-loc-lock]"
+        # While typing: an orange chip under Location for what looks meant as a grid.
+        page.fill("#location", "45000 8200")
+        page.wait_for_selector(f"{chip}:visible")
+        self.assertEqual(
+            page.text_content(chip), "Not a grid: 45000 8200 has two numbers of different lengths"
+        )
+        self.assertIn("warn", page.get_attribute(chip, "class"))
+        page.fill("#location", "38I MB 45000 82000")
+        self.assertEqual(
+            page.text_content(chip), "Not a grid: 38I MB 45000 82000 has no latitude band I"
+        )
+        # Place names and numbers with words never are; a grid it takes isn't either.
+        for text in ("Hill 205", "vic the bridge, 205", "45000 82000"):
+            page.fill("#location", text)
+            self.assertEqual(page.locator(chip).count(), 0, text)
+        # Log asks: Fix it goes back to the box, logging nothing.
+        page.fill("#size", "1x BRDM")
+        page.fill("#activity", "observing")
+        page.fill("#location", "4500 820")
+        page.click("#logButton")
+        page.wait_for_selector("#choiceToast.show")
+        self.assertEqual(page.text_content("#choiceMessage"), "Not a grid: 4500 820")
+        self.assertIn("has two numbers of different lengths", page.text_content("#choiceDetail"))
+        page.click("#choiceButtons button:text-is('Fix it')")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "location")
+        self.assertEqual(self.sizes(page), [])
+        # Log as typed: logged as it is, without the zone and square.
+        page.click("#logButton")
+        page.click("#choiceButtons button:text-is('Log as typed')")
+        page.wait_for_selector("#reportLogBody .col-size:has-text('1x BRDM')")
+        self.assertTrue(
+            page.evaluate("localReports.find(r => r.size === '1x BRDM').location").startswith(
+                "4500 820"
+            )
+        )
+        # With the lock off, nothing is said.
+        page.click("#dataMgmtBtn")
+        page.click("#toggleMgrsLockBtn")
+        page.fill("#location", "45000 8200")
+        self.assertEqual(page.locator(chip).count(), 0)
 
     def test_tracks_export_and_latest_only_csv(self):
         page = self.open_editor()

@@ -358,7 +358,13 @@ const showMapSub = (sub) => {
     document.querySelectorAll('[data-map-sub]').forEach(b => setOn(b, b.dataset.mapSub === pick, 'aria-pressed'));
     document.querySelectorAll('[data-map-sub-panel]').forEach(p => { p.hidden = p.dataset.mapSubPanel !== pick; });
 };
-document.addEventListener('click', e => { const b = e.target.closest('[data-map-sub]'); if (b) showMapSub(b.dataset.mapSub); });
+// Picked: the other part slides in from its side.
+document.addEventListener('click', e => {
+    const b = e.target.closest('[data-map-sub]');
+    if (!b || b.getAttribute('aria-pressed') === 'true') return;
+    showMapSub(b.dataset.mapSub);
+    animateTabIn(document.querySelector(`[data-map-sub-panel="${b.dataset.mapSub}"]`), b.dataset.mapSub === 'basemaps' ? 1 : -1);
+});
 showMapSub('graphics');
 
 const startOverlayImport = async (files) => {
