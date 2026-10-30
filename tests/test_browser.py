@@ -2502,7 +2502,9 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#mapMeasureOut:has-text('Path: click points')")
         page.mouse.click(x, y)
         page.mouse.click(x + 100, y)
-        page.mouse.click(x + 100, y - 80)
+        # (Far enough down that the second leg's name clears the total's,
+        # which comes first.)
+        page.mouse.click(x + 100, y + 70)
         page.wait_for_selector("#mapMeasureOut:has-text('in 2 legs')")
         said = page.text_content("#mapMeasureOut")
         self.assertRegex(said, r"^Path: [\d.]+ (m|km) in 2 legs \([\d.]+ (m|km) 09\d° E; ")
