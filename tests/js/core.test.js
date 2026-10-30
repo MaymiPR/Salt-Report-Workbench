@@ -2091,6 +2091,40 @@ test('general words: vic, tracked, wheeled, support, fueler, engineer, and their
     assert.ok(t.includes('Equipment reported: armor (5x tanks); mechanized infantry (5x APC).'), t);
 });
 
+test('force words and helicopter letters: logistics, maneuver, AH, UH, CH, OH; and ZBL, mine layer, GBL-132', () => {
+    const kit = t => { const k = core.lookupEquipment(t); return k && `${k.role} ${k.origin} ${k.name}`; };
+    const cases = {
+        'LOGISTICS VIC': 'logistics  logistics', LOGISTICS: 'logistics  logistics',
+        'MANEUVER ELEMENT': 'mech  maneuver', 'MANOEUVRE ELEMENT': 'mech  maneuver',
+        AH: 'air  attack helicopter', 'AH-64': 'air  attack helicopter', AH64D: 'air  attack helicopter', 'AH-1Z': 'air  attack helicopter',
+        'UH-60L': 'air  utility helicopter', 'UH-1': 'air  utility helicopter', 'CH-47F': 'air  cargo helicopter', CH47: 'air  cargo helicopter',
+        'OH-58': 'air  observation helicopter',
+        ZBL: 'mech CN ZBL', 'ZBL-09': 'mech CN ZBL-08', 'MINE LAYER': 'engineer  engineer', MINELAYER: 'engineer  engineer',
+        'GBL-132': 'engineer CN GBL-132', 'GBL-130': 'engineer CN GBL-130',
+        // The PLA's own designations that start the same are still theirs.
+        'CH-4': 'air CN CH-4', 'CH-901': 'fires CN CH-901', 'AH-4': 'fires CN AH-4',
+    };
+    Object.entries(cases).forEach(([t, want]) => assert.equal(kit(t), want, t));
+    // Not a helicopter: the letters inside a word, or a grid's 100 km square.
+    ['CHAIR', 'MACH', 'OHM', 'AHEAD', 'TOUCH', '11S CH 12345 67890', 'CH 12345 67890', 'CH 1234 5678', '38S AH', '38SAH 123 456']
+        .forEach(t => assert.equal(kit(t), null, t));
+    const els = (s) => core.sizeElements(s).map(e => `${e.count} ${e.type}`);
+    assert.deepEqual(els('3x logistics vics, 2x maneuver elements, 2x AHs, 1x UH-60s, 4x ZBLs, 2x mine layers'),
+        ['3 LOGISTICS VIC', '2 MANEUVER ELEMENT', '2 AH', '1 UH-60', '4 ZBL', '2 MINE LAYER'], 'plurals made singular');
+    // In the narrative: an AH is attack aviation, a mine layer and a GBL-132 lay mines,
+    // a maneuver element is a maneuver force.
+    const air = said(at1([['2x AH', 'firing rockets'], ['2x AH-64', 'firing at positions']]));
+    assert.ok(air.includes('are supporting ground forces with attack aviation'), air);
+    assert.ok(air.includes('aviation (2x AH, 2x AH-64)'), air);
+    assert.ok(said(at1([['1x mine layer', 'stationary']])).includes('are laying minefields in NAI 1'));
+    assert.ok(said(at1([['1x GBL-132', 'stationary']])).includes('are laying minefields in NAI 1'));
+    const lift = said(at1([['2x UH-60', 'landed'], ['1x CH-47', 'landed']]));
+    assert.ok(lift.includes('air assault'), lift);
+    const t = said(at1([['3x logistics vics', 'moving N'], ['2x maneuver elements', 'moving N']]));
+    assert.ok(t.includes('logistics and support (3x logistics vics)'), t);
+    assert.ok(t.includes('mechanized infantry (2x maneuver elements)'), t);
+});
+
 test('plain words read as plurals in the narrative: tracked vehicles, buses', () => {
     const t = said([{ id: 'w1', displayId: 'ALPHA001', ato: 'ALPHA', title: 'P', size: '4x tracked, 2x wheeled, 2X BUSES, 1x tracked vic',
         activity: 'moving N', location: '38SMB4500082000', time: '2026-10-26T01:00:00.000Z', history: [], bda: [] }]);

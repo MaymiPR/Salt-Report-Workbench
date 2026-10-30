@@ -141,7 +141,7 @@ const EQUIPMENT_CATALOGUE = [
         ['ZTD-05', 'VN16'], 'ST-3']),
     ...eqp('mech', 'CN', [['ZBD-04', 'Type 04', 'ZBD-04A', 'WZ-502'], ['ZBD-05', 'ZBD-2000', 'VN18'], 'ZBD-03',
         ['ZBD-86', 'Type 86', 'WZ-501', 'ZBD-86A'], ['ZSL-92', 'Type 92', 'WZ-551', 'ZSL-92A', 'ZSL-92B', 'VN2', 'CS/VN9'],
-        ['ZBL-08', 'Type 08', 'ZBL-09', 'VN-1', 'VN1C'], 'ZBL-19', 'ZSL-10', 'ZSD-05', ['ZSL-93', 'WZ-523'], 'ZFB-91',
+        ['ZBL-08', 'Type 08', 'ZBL-09', 'VN-1', 'VN1C'], 'ZBL', 'ZBL-19', 'ZSL-10', 'ZSD-05', ['ZSL-93', 'WZ-523'], 'ZFB-91',
         ['ZFB-05', 'ZFB-05C'], ['ZSD-89', 'YW534', 'ZSD-89A'], ['ZSD-63', 'YW531'], ['YW531H', 'Type 85 APC'],
         'VN11', 'VN12', 'VN22', 'VN23', 'CS/VN4', 'CS/AA5', 'VS27']),
     ...eqp('recon', 'CN', ['ASN-206', ['ASN-207', 'WZ-6'], ['ASN-209', 'Silver Eagle'], ['BZK-005'], ['BZK-006', 'KDV001'],
@@ -176,7 +176,7 @@ const EQUIPMENT_CATALOGUE = [
     ...eqp('engineer', 'CN', [['WZ-621', 'WZ621'], 'GQL-110', 'GQL-111', 'GQL-120', 'GQL-321', 'GQL-410', 'GZM-003', 'GQC-003',
         'GCZ-110', 'GCZ-112', ['GPZ-111', 'GPZ-111A'], ['GSL-110', 'GSL-110A', 'GSL-110B'], ['GSL-111', 'WZ762A'], 'GSL-130', 'GSL-131',
         ['GSL-132', 'GBP-127'], 'GSL-133', 'GSL-134', 'GSL-211', ['GSL-411', 'GSL-241'], ['GSL-430', 'GBP-128'], 'GBP-126',
-        ['GPJ221', 'GPJ-221'], ['ZRZ-100', 'ZRZ100'], 'GBL-120', 'GBL-130', 'GJW-320', 'GDG-130', 'Type 14']),
+        ['GPJ221', 'GPJ-221'], ['ZRZ-100', 'ZRZ100'], 'GBL-120', 'GBL-130', 'GBL-132', 'GJW-320', 'GDG-130', 'Type 14']),
     ...eqp('logistics', 'CN', [['Shacman', 'SX2150', 'SX2190', 'SX2110', 'SX2220', 'SX2300', 'SX2306', 'HMV3'], ['Sinotruk', 'HOWO'],
         ['EQ2100', 'EQ2102', 'EQ245'], ['EQ2081', 'EQ240'], 'EQ1108', ['FAW MV3', 'MV3'], ['Taian', 'TA5450', 'TA4410', 'TA4360', 'TA5380'],
         ['Wanshan', 'WS580', 'WS2300', 'WS2400', 'WS2500', 'WS2600'], 'HY472', ['CA-141', 'CA141'], ['CA-30', 'CA30'], ['CA-10', 'CA10'],
@@ -194,20 +194,25 @@ const EQUIPMENT_CATALOGUE = [
         'VP22', ['VN3', 'CS/VN3'], 'VN4']),
     // Plain words, any army
     ...eqp('armor', '', [['tank', 'TANK', 'MBT']]),
-    ...eqp('mech', '', [['IFV', 'IFV', 'APC', 'BMP', 'BMD', 'BTR', 'MRAP', 'ARMORED VEHICLE', 'ARMOURED VEHICLE']]),
+    ...eqp('mech', '', [['IFV', 'IFV', 'APC', 'BMP', 'BMD', 'BTR', 'MRAP', 'ARMORED VEHICLE', 'ARMOURED VEHICLE'],
+        // A force by its job, not its kit ("2x maneuver elements"): armor
+        // and mechanized forces, as the narrative's maneuver rules read them.
+        ['maneuver', 'MANEUVER', 'MANOEUVRE']]),
     ...eqp('recon', '', [['recon', 'RECON', 'SCOUT', 'BRDM', 'UAV', 'UAS', 'DRONE', 'QUADCOPTER', 'UGV', 'MAVIC', 'DJI', 'MATRICE', 'AUTEL']]),
     ...eqp('fires', '', [['artillery', 'ARTILLERY', 'ARTY', 'HOWITZER', 'SPG', 'SP GUN', 'MORTAR', 'MLRS', 'MRL', 'ROCKET LAUNCHER'],
         ['FPV', 'FPV', 'LOITERING MUNITION', 'KAMIKAZE DRONE']]),
     ...eqp('ad', '', [['air defense', 'AIR DEFENSE', 'AIR DEFENCE', 'ADA', 'SAM', 'AAA', 'MANPADS']]),
     ...eqp('atgm', '', [['ATGM', 'ATGM', 'AT TEAM', 'RPG']]),
     ...eqp('engineer', '', [['engineer', 'ENGINEER', 'ENGINEERING', 'ENGR', 'ENG', 'SAPPER', 'CEV', 'BULLDOZER', 'DOZER', 'EXCAVATOR',
-        'BACKHOE', 'BRIDGE', 'BRIDGE LAYER', 'AVLB', 'MINELAYER', 'MINE PLOW'], ['CBRN', 'CBRN', 'DECON', 'SMOKE GENERATOR']]),
+        'BACKHOE', 'BRIDGE', 'BRIDGE LAYER', 'AVLB', 'MINELAYER', 'MINE LAYER', 'MINE PLOW'], ['CBRN', 'CBRN', 'DECON', 'SMOKE GENERATOR']]),
     ...eqp('logistics', '', [['truck', 'TRUCK', 'LORRY', 'FUEL', 'FUELER', 'FUELLER', 'REFUELER', 'REFUELLER', 'TANKER', 'POL', 'CARGO',
         'AMMO', 'WATER', 'SUPPLY', 'SUPPORT', 'SPT', 'LOGPAC', 'WRECKER', 'TRAILER', 'RECOVERY VEHICLE'],
-        ['ambulance', 'AMBULANCE', 'MEDEVAC']]),
+        ['ambulance', 'AMBULANCE', 'MEDEVAC'], ['logistics', 'LOGISTICS']]),
     ...eqp('c2', '', [['command post', 'COMMAND POST', 'CP', 'HQ', 'C2', 'ANTENNA', 'RADIO RELAY', 'SATCOM']]),
     ...eqp('ew', '', [['jammer', 'JAMMER', 'EW', 'REB', 'ANTI-DRONE', 'DRONE GUN']]),
-    ...eqp('air', '', [['helicopter', 'HELICOPTER', 'HELO', 'HELI', 'AIRCRAFT', 'JET']]),
+    ...eqp('air', '', [['helicopter', 'HELICOPTER', 'HELO', 'HELI', 'AIRCRAFT', 'JET'],
+        // Helicopters by the US letters for their job: AH-64, UH-60, CH-47, OH-58.
+        ['attack helicopter', 'AH'], ['utility helicopter', 'UH'], ['cargo helicopter', 'CH'], ['observation helicopter', 'OH']]),
     ...eqp('infantry', '', [['PAX', 'PAX', 'PERSONNEL', 'PERSON', 'PEOPLE', 'TROOP', 'SOLDIER', 'INFANTRY', 'DISMOUNT', 'MAN', 'MEN',
         'FIGHTER', 'SQUAD', 'TEAM', 'INDIVIDUAL']]),
     ...eqp('light', '', [['light vehicle', 'LIGHT VEHICLE', 'CAR', 'JEEP', 'PICKUP', 'SUV', 'TECHNICAL', 'MOTORCYCLE', 'MOTORBIKE', 'ATV', 'UTV', 'VAN', 'SEDAN',
@@ -218,13 +223,23 @@ const EQUIPMENT_CATALOGUE = [
     ...eqp('vehicle', '', [['vehicle', 'VIC', 'VEHICLE', 'VEH'], ['tracked vehicle', 'TRACKED'], ['wheeled vehicle', 'WHEELED']]),
 ];
 const normType = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+// AH, UH, CH and OH are short enough to turn up elsewhere: CH and AH are
+// 100 km squares too ("11S CH 12345 67890"). So one is read only as a word
+// of its own or with a model number of up to three digits after it (AH-64,
+// CH47, UH-60L), and not after a grid zone or before a grid's digits, as a
+// PC NAI isn't (PC_RE).
+const SHORT_HELOS = new Set(['AH', 'UH', 'CH', 'OH']);
+const shortHeloTest = (words) => {
+    const re = new RegExp(`(?<!\\b\\d{1,2}[C-HJ-NP-X] )\\b${words}(?: ?\\d{1,3}[A-Z]{0,2})?(?![A-Z0-9])(?! \\d)`);
+    return (w) => re.test(w);
+};
 // Names to match, longest first so the most specific one wins.
 const equipmentKeysOf = (entries) => entries.flatMap(([role, origin, name, ...more]) =>
     [...new Set([name, ...more])].map(k => {
         const words = normType(k), compact = words.replace(/ /g, '');
         const test = /\d/.test(compact)
             ? (w, c) => c.startsWith(compact) && !/\d/.test(c[compact.length] || '')
-            : (w) => ` ${w} `.includes(` ${words} `);
+            : SHORT_HELOS.has(words) ? shortHeloTest(words) : (w) => ` ${w} `.includes(` ${words} `);
         return { role, origin, name, len: compact.length, test };
     // The general vehicle words (vic, tracked, wheeled) come last, whatever
     // their length: "wheeled APC" is an APC, and only a bare vic is just a vehicle.
