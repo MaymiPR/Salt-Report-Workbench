@@ -18,7 +18,7 @@ const SaltCore = {
     dtg, summaryReport, summaryDetail, summaryPlaces, EQUIPMENT_CATALOGUE, EQUIPMENT_ROLES, lookupEquipment, teamEquipment, ECHELONS, echelonOf, ICD203, NARRATIVE_RULES, DOCTRINE,
     reportKey, knownVersions, changedReports, withUnsaved,
     MOVEMENT_CLASSES, formatDistance, speedUnit, kmhPerSpeedUnit, formatSpeed, formatArea, formatDuration, formatBearing,
-    pathMeters, areaMeters, ringPoints, STANDARD_RATES, movementClass, MARCH_MAX_KMH, marchRates,
+    pathMeters, areaMeters, ringPoints, movementClass, MARCH_MAX_KMH, marchRates,
     nearestSegment, AXIS_NEAR_METERS, wayOfMarchAt, axesOf, wayRelation,
 };
 

@@ -2165,7 +2165,6 @@ test('a path is its legs added up, and an area is what a ring holds, on the sphe
     pts.forEach(p => assert.ok(Math.abs(core.metersBetween(center, p) - 5000) < 0.01));
     assert.ok(Math.abs(pts[0].lon - 44) < 1e-9 && pts[0].lat > 33);
     assert.ok(Math.abs(core.bearingBetween(center, pts[9]) - 90) < 0.01, 'a quarter round is east');
-    assert.deepEqual(core.STANDARD_RATES.map(r => r.kind), ['vehicle', 'dismount', 'dismount', 'aircraft']);
 });
 
 test('what a report moves as comes from the catalogue', () => {

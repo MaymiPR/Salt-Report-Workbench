@@ -288,13 +288,20 @@ if (mapBody) {
         const ranged = e.target.closest('[data-drone-range]');
         if (e.key === 'Enter' && ranged) {
             e.preventDefault();
-            const d = sharedDrones[+ranged.dataset.droneRange], text = ranged.value.trim().replace(/\s*km$/i, ''), km = Number(text);
+            // Typed in this browser's units (km or miles), kept in km.
+            const unit = rangeUnit(), d = sharedDrones[+ranged.dataset.droneRange];
+            const text = ranged.value.trim().replace(/\s*(km|mi|miles?)$/i, ''), v = Number(text);
+            const km = unit === 'mi' ? Math.round(v * M_PER_MI) / 1000 : v;
             if (!d) return;
-            if (text && !(km > 0 && km <= MAX_DRONE_RANGE_KM)) { showToast(`Type its range in km (up to ${MAX_DRONE_RANGE_KM.toLocaleString('en-US')}), or leave it empty for none.`, true); return; }
+            if (text && !(km > 0 && km <= MAX_DRONE_RANGE_KM)) {
+                const most = unit === 'mi' ? Math.floor(MAX_DRONE_RANGE_KM * 1000 / M_PER_MI) : MAX_DRONE_RANGE_KM;
+                showToast(`Type its range in ${unit === 'mi' ? 'miles' : 'km'} (up to ${most.toLocaleString('en-US')}), or leave it empty for none.`, true);
+                return;
+            }
             ranged.blur();
             const { range: _, ...rest } = d;
             saveDrones(sharedDrones.map(x => (x === d ? (text ? { ...d, range: km } : rest) : x)),
-                text ? `${d.name}'s range is ${km} km.` : `${d.name} has no range set.`);
+                text ? `${d.name}'s range is ${droneDistance(km * 1000)}.` : `${d.name} has no range set.`);
         }
         if (e.key === 'Enter' && (e.target.id === 'mapDroneName' || e.target.id === 'mapDroneGridNew')) { e.preventDefault(); document.getElementById('mapDroneAdd').click(); }
     });
@@ -625,6 +632,7 @@ if (unitsBtn) {
         renderLog();
         renderMapCard();
         renderMeasureTools();
+        renderDronePop();
         showMeasure();
         redrawMap();
     });

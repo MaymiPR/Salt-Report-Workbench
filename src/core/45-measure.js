@@ -78,16 +78,6 @@ const ringPoints = (c, meters, n = 72) => {
         return { lon: l2 / rad, lat: f2 / rad };
     });
 };
-// The standard rates the time-distance tool offers, in km/h: a road march,
-// troops on foot by road and across country (FM 3-21.18's day rates), and a
-// helicopter at 120 knots.
-const STANDARD_RATES = [
-    { id: 'road', kind: 'vehicle', label: 'Vehicles, road march', kmh: 40 },
-    { id: 'foot', kind: 'dismount', label: 'Dismounts, on a road', kmh: 4 },
-    { id: 'cross', kind: 'dismount', label: 'Dismounts, cross-country', kmh: 2 },
-    { id: 'air', kind: 'aircraft', label: 'Aircraft, helicopter', kmh: 120 * M_PER_NM / 1000 },
-];
-
 // What a report's Size moves as, from the catalogue's roles (and the team's
 // entries, `team`): 'aircraft' when it is aviation (with any troops aboard),
 // 'dismount' when it is people on foot (with what they carry, an RPG say),

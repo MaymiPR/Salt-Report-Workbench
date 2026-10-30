@@ -715,6 +715,13 @@ const dialogOpeners = new Map();   // dialog -> what had focus before it opened
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
 const focusablesIn = (box) => [...box.querySelectorAll(FOCUSABLE)]
     .filter(n => n.getClientRects().length && getComputedStyle(n).visibility !== 'hidden');
+// A control drawn again (a new element in place of the old one): found by
+// its tag, id and data attributes, among those on screen; null when none is.
+const findAgain = (had) => {
+    const named = [...had.attributes].filter(a => (a.name === 'id' || a.name.startsWith('data-')) && a.name !== 'data-asking')
+        .map(a => `[${a.name}="${CSS.escape(a.value)}"]`).join('');
+    return (named && [...document.querySelectorAll(had.tagName.toLowerCase() + named)].find(n => n.getClientRects().length)) || null;
+};
 const enterDialog = (box, target) => {
     // From the Settings menu, which closes behind it: back to the menu's button.
     const from = el.menu.panel.contains(document.activeElement) ? el.menu.btn : document.activeElement;
@@ -725,10 +732,13 @@ const enterDialog = (box, target) => {
 const leaveDialog = (box) => {
     const back = dialogOpeners.get(box);
     dialogOpeners.delete(box);
-    // Unless what was picked put focus somewhere else on purpose.
+    // Unless what was picked put focus somewhere else on purpose. The control
+    // that opened it may have been drawn again meanwhile (a sync redrew the
+    // Report Log): then it's found again by its id and data attributes.
     const now = document.activeElement;
     const lost = !now || now === document.body || box.contains(now);
-    if (lost && back && back !== document.body && back.isConnected && typeof back.focus === 'function') back.focus();
+    const to = back && back !== document.body ? (back.isConnected ? back : findAgain(back)) : null;
+    if (lost && to && typeof to.focus === 'function') to.focus();
 };
 // The modal dialogs, topmost first; Tab stays in the first one open.
 const modalDialogs = () => [document.getElementById('choiceToast'), el.toast.confirm, el.startup.overlay, el.manual.modal];
@@ -810,9 +820,7 @@ const refocusAfter = (draw) => {
     draw();
     const now = document.activeElement;
     if (!had || had === document.body || had.isConnected || (now && now !== document.body)) return;
-    const named = [...had.attributes].filter(a => (a.name === 'id' || a.name.startsWith('data-')) && a.name !== 'data-asking')
-        .map(a => `[${a.name}="${CSS.escape(a.value)}"]`).join('');
-    const again = named && [...document.querySelectorAll(had.tagName.toLowerCase() + named)].find(n => n.getClientRects().length);
+    const again = findAgain(had);
     if (again) again.focus({ preventScroll: true });
 };
 // True on the second press (go ahead); the first press asks, and is false.
