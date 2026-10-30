@@ -976,8 +976,6 @@
                             <div class="io-actions" hidden>
                                 <button type="button" id="exportPanelBackupBtn">Export Backup (.txt)</button>
                                 <button type="button" id="exportPanelCsvBtn">Export CSV (.csv)</button>
-                                <button type="button" id="exportArcgisEsriBtn">Export for ArcGIS (.json)</button>
-                                <button type="button" id="exportArcgisGeojsonBtn">Export for ArcGIS (.geojson)</button>
                                 <button type="button" id="exportArcgisCsvBtn">Export for ArcGIS (.csv)</button>
                             </div>
 
@@ -1034,11 +1032,19 @@
                                             <div class="export-option-desc">One row per report, without its earlier updates: for tools that put every row on a map</div>
                                         </div>
                                     </label>
-                                    <label class="export-option-row" data-io-for="csv">
+                                    <label class="export-option-row" data-io-for="points">
+                                        <input type="checkbox" id="exportEveryVersionToggle">
+                                        <div>
+                                            <div class="export-option-text">Every version</div>
+                                            <div class="export-option-desc">A point for each saved version of a report, its updates included, at that version's grids, not only the latest</div>
+                                        </div>
+                                    </label>
+                                    <!-- One box for every format that has it: the CSV, and ArcGIS points and tracks. -->
+                                    <label class="export-option-row" data-io-for="csv points tracks">
                                         <input type="checkbox" id="exportMtiToggle">
                                         <div>
                                             <div class="export-option-text">MTI Export</div>
-                                            <div class="export-option-desc">Splits CSV into separate tracked and wheeled files</div>
+                                            <div class="export-option-desc">Splits the export into separate tracked and wheeled files</div>
                                         </div>
                                     </label>
                                 </section>
