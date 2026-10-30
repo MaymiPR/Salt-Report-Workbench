@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Destroyed BDA comes off the Size**: a report of `20x tanks` with 3
+  assessed Destroyed reads `17x tanks`, with *BDA: 3x tanks destroyed* small
+  under it in the Report Log and the map's card. Only Destroyed counts;
+  Damaged and the other effects leave the Size as it is. Each assessment
+  comes off the element of its type, as partial BDA pairs them; the rest of
+  the Size stays as written (counts, plurals, *possible*); an element
+  destroyed to none is dropped, and a Size with nothing left reads
+  *None left*. The stored Size is not changed: the form, backups and history
+  keep it as logged, and deleting, undoing or changing an assessment brings
+  the count back. Copied text says `S: 17x tanks (BDA: 3x tanks destroyed)`;
+  the map's tooltips and table, the Statistics counts, the summaries and
+  narrative, and the CSV, MTI, ArcGIS and Excel exports use what is left.
+  The CSV and the Excel *Reports* sheet add a *Size (as logged)* column when
+  BDA has taken from any report; the ArcGIS points and tracks always carry
+  `size_logged`. A hedge before the count (`poss 3x APCs`) is now read as
+  three in the BDA checklist too, as the Statistics read it.
+
 ## [2.32.1] - 2026-10-29
 
 ### Removed

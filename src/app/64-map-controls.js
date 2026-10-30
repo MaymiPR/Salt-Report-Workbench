@@ -158,7 +158,9 @@ window.addEventListener('blur', () => showGridReadout(null, false));
 const trackTip = (t) => {
     const r = t.report, local = timeDisplayMode === 'local';
     const first = t.points[0], last = t.points[t.points.length - 1];
-    const lines = [`<strong>${escapeHtml(formatFullId(r))}</strong>`, escapeHtml([r.size, r.activity].filter(Boolean).join(' · '))];
+    // Its Size after BDA, with what came off (SaltCore.sizeAfterBda).
+    const s = SaltCore.sizeAfterBda(r, narrTeam());
+    const lines = [`<strong>${escapeHtml(formatFullId(r))}</strong>`, escapeHtml([s.note ? `${s.shown} (${s.note})` : s.size, r.activity].filter(Boolean).join(' · '))];
     if (t.moved) {
         lines.push(`${t.points.length} positions, ${escapeHtml(SaltCore.formatDistance(t.lengthM, unitSystem))} toward ${SaltCore.compass16(t.bearingDeg)}`);
         lines.push(`${escapeHtml(SaltCore.toTimeString(first.time, local))} to ${escapeHtml(SaltCore.toTimeString(last.time, local))}`);

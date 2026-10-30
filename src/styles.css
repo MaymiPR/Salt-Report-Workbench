@@ -576,8 +576,9 @@ body.local-mode .startup-access-divider { display: none; }
     width: 1%;
     white-space: nowrap;
 }
-/* FMV mode: the drone a report was seen from, small under its time. */
-.observer-tag { display: block; margin-top: 2px; font-size: 0.78em; color: var(--text-secondary); }
+/* FMV mode: the drone a report was seen from, small under its time; and
+   what BDA took off a Size, small under the Size it leaves (log, map card). */
+.observer-tag, .size-bda-note { display: block; margin-top: 2px; font-size: 0.78em; color: var(--text-secondary); }
 .observer-field[hidden] { display: none; }
 
 /* Wrappable columns: max-width on th+td; min-width on td only (keeps headers

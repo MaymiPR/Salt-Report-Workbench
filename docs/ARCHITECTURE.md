@@ -75,8 +75,11 @@ Three constraints drive almost every decision:
 ### Client (`src/`)
 
 The core (`src/core/`) holds the pure logic: date and time formatting, identifiers, copy
-text, MGRS clean-up, BDA pairing, backup and CSV generation, parsing, and the
-geography (MGRS to latitude/longitude, reading grids and NAI/OBJ/PL names out of
+text, MGRS clean-up, BDA pairing and the Size it leaves (`sizeAfterBda`:
+a report's stored Size stays as logged, and what the page shows, counts and
+exports is that Size less what is assessed Destroyed, worked out each time,
+so removing an assessment needs nothing undone), backup and CSV generation,
+parsing, and the geography (MGRS to latitude/longitude, reading grids and NAI/OBJ/PL names out of
 a Location box, placing them in overlay areas, activity tags, the ArcGIS
 and track exports, shapefiles written and read), the counts behind the
 Statistics panel (`statsData`), the Excel workbook (`statsXlsx`: the
@@ -297,7 +300,7 @@ observer through an Edit or Update.
 
 The Narrative summary (`narrativeLines` in `core/80-narrative.js`) is rules, not a model:
 the same reports always give the same words, and nothing leaves the page.
-Each report's Size is split into elements and looked up in
+Each report's Size (after destroyed BDA, `sizeAfterBda`) is split into elements and looked up in
 `EQUIPMENT_CATALOGUE` (`lookupEquipment`: a name with a digit matches the
 start of a type, T-72 matching T-72B3 but not T-720; a word matches a whole
 word; the longest name wins), which gives each element a role (armor,

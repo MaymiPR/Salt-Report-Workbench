@@ -907,7 +907,7 @@ const exportForArcgis = (kind) => {
     const zipType = 'application/zip';
     if (kind.startsWith('tracks')) {
         // One line per report that moved, first grid to latest.
-        const tracks = SaltCore.arcgisTrackRows(reps, { local: timeDisplayMode === 'local', idOf: formatFullId });
+        const tracks = SaltCore.arcgisTrackRows(reps, { local: timeDisplayMode === 'local', idOf: formatFullId, team: narrTeam() });
         if (!tracks.length) { showToast('No report has moved: each needs updates at two or more grids.', true); return; }
         if (kind === 'tracks-shp') triggerDownload(`${base}_tracks.zip`, SaltCore.arcgisTracksShapefileZip(tracks, layerName(`${base}_tracks`)), zipType);
         else if (kind === 'tracks-esri') triggerDownload(`${base}_tracks.json`, SaltCore.arcgisTracksEsriJson(tracks), 'application/json');
@@ -917,7 +917,7 @@ const exportForArcgis = (kind) => {
         return;
     }
     const { rows, skipped } = SaltCore.arcgisRows(reps, currentOverlays(), {
-        local: timeDisplayMode === 'local', customLabels, idOf: formatFullId,
+        local: timeDisplayMode === 'local', customLabels, idOf: formatFullId, team: narrTeam(),
     });
     if (!rows.length) { showToast(`None of the ${plural(skipped, 'report')} has a readable MGRS grid.`, true); return; }
     if (kind === 'shp') triggerDownload(`${base}.zip`, SaltCore.arcgisShapefileZip(rows, layerName(base)), zipType);

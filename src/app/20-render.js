@@ -254,7 +254,9 @@ const matchesSearch = (r, filterText) => {
     // so "destroyed" or a weather note finds its report.
     const cus = Object.values(r.custom || {}).join(' ');
     const bda = (r.bda || []).map(b => `${b.effect||''} ${b.target||''} ${b.coords||''} ${b.note||''}`).join(' ');
-    return `${r.fullId} ${r.displayId} ${r.size} ${r.activity} ${r.location} ${r.yourAnalysis||''} ${r.user?.initials||''} ${r.observer||''} ${ts} ${cus} ${bda}`.toLowerCase().includes(q);
+    // The Size as shown (after BDA) finds it too, as well as the Size as logged.
+    const left = (r.bda || []).length ? SaltCore.effectiveSize(r, narrTeam()) : '';
+    return `${r.fullId} ${r.displayId} ${r.size} ${left} ${r.activity} ${r.location} ${r.yourAnalysis||''} ${r.user?.initials||''} ${r.observer||''} ${ts} ${cus} ${bda}`.toLowerCase().includes(q);
 };
 
 // Forget checked rows and expanded cells whose report (or history entry) is
@@ -296,6 +298,11 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
 
     const dir = currentSortMode.endsWith('Desc') ? -1 : 1;
     const textField = currentSortMode.replace(/Asc$|Desc$/, '');  // size | activity | location
+    // The Size as it stands after BDA (SaltCore.sizeAfterBda): what the
+    // Size column shows and sorts by, with what came off under it.
+    const team = narrTeam();
+    const sizes = new Map(rows.map(r => [r, SaltCore.sizeAfterBda(r, team)]));
+    const fieldOf = (r) => (textField === 'size' ? sizes.get(r).size : r[textField]);
     rows.sort((a, b) => {
         if (currentSortMode === 'recent') return (b.lastModified||0) - (a.lastModified||0);
         // ISO 8601 strings sort lexicographically the same as chronologically,
@@ -304,7 +311,7 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
         if (textField === 'num')  return dir * (reportNum(a) - reportNum(b));
         // Text columns: case-insensitive, with numbers in numeric order so
         // "2x T-72" sorts before "10x T-72".
-        return dir * String(a[textField] || '').localeCompare(String(b[textField] || ''), undefined, { numeric: true, sensitivity: 'base' });
+        return dir * String(fieldOf(a) || '').localeCompare(String(fieldOf(b) || ''), undefined, { numeric: true, sensitivity: 'base' });
     });
 
     const timeFmt = timeDisplayMode === 'local' ? toLocalTimeString : toZuluTimeString;
@@ -315,6 +322,10 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
     // get a click-to-expand affordance (marked post-render, see below). `key`
     // names the cell, so one expanded stays expanded over a redraw.
     const clampCell = (text, key) => `<span class="cell-clamp${expandedCells.has(key) ? ' expanded' : ''}" data-cell="${escapeHtml(key)}" title="${escapeHtml(text)}">${escapeHtml(text)}</span>`;
+    const sizeCell = (report, key) => {
+        const s = sizes.get(report);
+        return clampCell(s.shown, key) + (s.note ? `<span class="size-bda-note" title="Logged as ${escapeHtml(s.logged)}">${escapeHtml(s.note)}</span>` : '');
+    };
 
     // Keep the header's custom columns in step with the format, then emit a
     // matching cell per row (works for history rows too, which carry their
@@ -380,7 +391,7 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
                         : `All ${done} assessed`;
             bdaBtn = `<button class="bda-btn ${state}${worstCls ? ' bda-worst-' + worstCls : ''}${openBdaRows.has(report.id) ? ' open' : ''}" data-bda-id="${escapeHtml(report.id)}" title="${tip}" aria-expanded="${openBdaRows.has(report.id)}">${label}</button>`;
         }
-        row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${escapeHtml(report.id)}" title="Select" aria-label="Select ${escapeHtml(shownId)}"${selectedRows.has(rid) ? ' checked' : ''}> ${histBtn} <button class="copy-btn" data-id="${escapeHtml(report.id)}" aria-label="Copy ${escapeHtml(shownId)}">Copy</button>${discardBtn}${renumberBtn}${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${clampCell(report.size, `${rid}|size`)}</td><td class="col-activity">${clampCell(report.activity, `${rid}|activity`)}</td><td class="col-location">${clampCell(report.location, `${rid}|location`)}${locationTags(report.location, report.id)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}${observerTag(report.observer)}</td><td class="col-analysis">${clampCell(report.yourAnalysis, `${rid}|analysis`)}</td>${cusCells(report.custom, rid)}`;
+        row.innerHTML = `<td class="col-action"><div class="action-cell"><input type="checkbox" class="row-selector" data-id="${escapeHtml(report.id)}" title="Select" aria-label="Select ${escapeHtml(shownId)}"${selectedRows.has(rid) ? ' checked' : ''}> ${histBtn} <button class="copy-btn" data-id="${escapeHtml(report.id)}" aria-label="Copy ${escapeHtml(shownId)}">Copy</button>${discardBtn}${renumberBtn}${bdaBtn}</div></td><td class="col-by reporter-col">${reporterHTML}</td><td class="col-id">${statusText}</td><td class="col-size">${sizeCell(report, `${rid}|size`)}</td><td class="col-activity">${clampCell(report.activity, `${rid}|activity`)}</td><td class="col-location">${clampCell(report.location, `${rid}|location`)}${locationTags(report.location, report.id)}</td><td class="col-time">${escapeHtml(timeFmt(report.time))}${observerTag(report.observer)}</td><td class="col-analysis">${clampCell(report.yourAnalysis, `${rid}|analysis`)}</td>${cusCells(report.custom, rid)}`;
         // With its updates open: its rate of march from the grid before
         // (app/60-map.js, marchOf), and overall, under its time.
         const march = isOpen && report.history && report.history.length ? marchOf(report) : null;

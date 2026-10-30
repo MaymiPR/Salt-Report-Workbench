@@ -10,8 +10,8 @@
 // Title Separator toggle. Stored data is untouched.
 const formatFullId = (r) => SaltCore.formatFullId(r, atoTitleSep);
 
-// Copy text in the active workspace's format.
-const generateReportText = (report) => SaltCore.reportText(report, currentFormat(), atoTitleSep);
+// Copy text in the active workspace's format, its Size after BDA.
+const generateReportText = (report) => SaltCore.reportText(report, currentFormat(), atoTitleSep, narrTeam());
 
 // CSV filename: ATO_Title_YYYYMMDD_HHMM{Z|L}; the suffix matches the time mode.
 const exportFilename = (ato, title) => `${SaltCore.backupFilename(ato, title)}_${fileStamp(new Date(), timeDisplayMode === 'local')}`;

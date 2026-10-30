@@ -105,9 +105,10 @@ const renderMapTable = (reps) => {
         ? `<button type="button" class="map-place-chip" data-map-place="${escapeHtml(mapState.place)}" title="Show every place again">${escapeHtml(mapState.place)} <span aria-hidden="true">&times;</span></button>` : '';
     // Rebuilt after every drawing: a row with the keyboard's focus keeps it.
     const focused = s.body.contains(document.activeElement) ? document.activeElement.dataset.mapRow : null;
+    const team = narrTeam();
     s.body.innerHTML = reps.length ? reps.map(r => `
         <tr data-map-row="${escapeHtml(r.id)}" tabindex="0"${r.id === mapState.selected ? ' class="selected-row"' : ''}>
-            <td>${escapeHtml(formatFullId(r))}</td><td>${escapeHtml(r.size || '')}</td><td>${escapeHtml(r.activity || '')}</td>
+            <td>${escapeHtml(formatFullId(r))}</td><td>${escapeHtml(SaltCore.sizeAfterBda(r, team).shown)}</td><td>${escapeHtml(r.activity || '')}</td>
             <td>${escapeHtml(r.location || '')}</td><td>${escapeHtml(mapTimeFmt(r.time))}</td>
         </tr>`).join('')
         : `<tr class="map-table-empty"><td colspan="5">${mapOnlyInView ? 'No reports on this part of the map. Zoom out, or untick “Only what’s on the map”.' : 'No reports in this window.'}</td></tr>`;
@@ -140,6 +141,11 @@ const renderMapCard = () => {
     const local = timeDisplayMode === 'local';
     const row = (label, value) => (value ? `<div class="map-card-row"><span>${label}</span><div>${escapeHtml(value)}</div></div>` : '');
     const b = SaltCore.bdaSummary(r);
+    // Its Size after BDA, what came off under it (SaltCore.sizeAfterBda).
+    const size = SaltCore.sizeAfterBda(r, narrTeam());
+    const sizeRow = size.note
+        ? `<div class="map-card-row"><span>Size</span><div>${escapeHtml(size.shown)}<span class="size-bda-note" title="Logged as ${escapeHtml(size.logged)}">${escapeHtml(size.note)}</span></div></div>`
+        : row('Size', size.size);
     // Its rate of march when its track has times to go by: overall (or its
     // one leg), then each leg's, in this browser's units for what it is.
     const march = (r.history || []).length ? marchOf(r) : { legs: [] };
@@ -151,7 +157,7 @@ const renderMapCard = () => {
     card.innerHTML = `
         <div class="map-card-head"><strong>${escapeHtml(formatFullId(r))}</strong>
             <button type="button" class="map-card-close" data-card-act="close" title="Close" aria-label="Close">&times;</button></div>
-        ${row('Size', r.size)}${row('Activity', r.activity)}${row('Location', r.location)}
+        ${sizeRow}${row('Activity', r.activity)}${row('Location', r.location)}
         ${row(local ? 'Time (L)' : 'Time (Z)', mapTimeFmt(r.time))}${row('Observer', r.observer)}${row('Analysis', r.yourAnalysis)}
         ${b.total && (r.bda || []).length ? row('BDA', `${b.done} of ${b.total} assessed`) : ''}
         ${(r.history || []).length ? row('Updates', String(r.history.length)) : ''}${marchRows}

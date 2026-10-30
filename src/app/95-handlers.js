@@ -901,7 +901,7 @@ document.getElementById('exportPanelCsvBtn').addEventListener('click', () => {
         const idOf  = formatFullId;
         const base  = exportFilename(activeAto||'ATO', localConfig.title||'SALT');
         if (el.manage.mtiToggle.checked) {
-            const mti = SaltCore.mtiCsvs(reps, { local, idOf });
+            const mti = SaltCore.mtiCsvs(reps, { local, idOf, team: narrTeam() });
             if (mti.trackedRows) triggerDownload(`${base}_tracked.csv`, mti.tracked, 'text/csv;charset=utf-8;');
             if (mti.wheeledRows) setTimeout(() => triggerDownload(`${base}_wheeled.csv`, mti.wheeled, 'text/csv;charset=utf-8;'), 400);
             if (!mti.trackedRows && !mti.wheeledRows) showToast('No tracked/wheeled reports found.', true);
@@ -914,7 +914,7 @@ document.getElementById('exportPanelCsvBtn').addEventListener('click', () => {
                 ...reps.flatMap(r => Object.keys(r.custom || {})),
             ])];
             const latestOnly = document.getElementById('exportLatestOnlyToggle').checked;
-            triggerDownload(`${base}${latestOnly ? '_latest' : ''}.csv`, SaltCore.reportsCsv(reps, { local, customLabels, idOf, latestOnly, ...(fmvOn() ? { observer: true } : {}) }), 'text/csv;charset=utf-8;');
+            triggerDownload(`${base}${latestOnly ? '_latest' : ''}.csv`, SaltCore.reportsCsv(reps, { local, customLabels, idOf, latestOnly, team: narrTeam(), ...(fmvOn() ? { observer: true } : {}) }), 'text/csv;charset=utf-8;');
             showToast(latestOnly ? 'CSV exported: one row per report.' : 'CSV exported!');
             clearExportFilter();
         }
