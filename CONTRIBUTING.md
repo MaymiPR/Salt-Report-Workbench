@@ -37,7 +37,7 @@ The development tools are pinned to exact versions and their hashes, in
 runs the same ruff and Playwright, and a changed package fails the install.
 To change one, edit its `requirements-*.in` and regenerate with
 `pip-compile --generate-hashes --strip-extras --allow-unsafe requirements-dev.in`
-(from `pip install pip-tools`, on Python 3.13); Dependabot proposes updates
+(from `pip install pip-tools`, on Python 3.15); Dependabot proposes updates
 monthly. The pre-commit hooks are pinned to commits, and CI's Node to
 `.node-version`.
 

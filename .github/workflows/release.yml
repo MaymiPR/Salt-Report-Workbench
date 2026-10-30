@@ -44,7 +44,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.13"
+          python-version: "3.15"
       # release.py refuses a checkout that isn't clean or isn't the tag, and a
       # version with no CHANGELOG section; --notes writes that section.
       - name: Build
