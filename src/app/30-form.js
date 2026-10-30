@@ -135,12 +135,17 @@ const observerOf = (r) => (r.observer !== undefined || fmvOn() ? { observer: r.o
 
 // --- Location against the overlays ---
 
+// With MGRS Lock on, the parts typed that look meant as a grid but aren't
+// one (SaltCore.mgrsLockChecks): logged as typed, they'd get no zone and square.
+const lockProblems = () => (mgrsLock ? SaltCore.mgrsLockChecks(el.form.location.value, mgrsLockPrefix) : []);
+
 // Under the Location box: what Log / Update will add (click one to add it
-// now) and what disagrees with the grid.
+// now), what disagrees with the grid, and (MGRS Lock) what isn't a grid.
 const renderLocationHints = () => {
     const box = document.getElementById('locationHints');
     if (!box) return;
     const text = lockedLocation(el.form.location.value);
+    const notGrids = lockProblems();
     const ovs = placeOverlays();
     const plan = ovs.length && text.trim() ? SaltCore.locationPlan(text, ovs) : { add: [], conflicts: [] };
     const near = plan.add.some(k => k.startsWith('PL ')) ? locationInfo(text).nearestPl : null;
@@ -153,9 +158,10 @@ const renderLocationHints = () => {
                 : `<span class="loc-hint offered" title="Nearby; not added (Add Nearby Places is off).">${escapeHtml(k)}${sub}</span>`;
         }),
         ...plan.conflicts.map(c => `<span class="loc-hint warn" title="When you log, you pick which to keep.">${escapeHtml(c.message)}</span>`),
+        ...notGrids.map(c => `<span class="loc-hint warn" data-loc-lock title="When you log, you pick: fix it, or log it as typed.">Not a grid: ${escapeHtml(c.text)} ${escapeHtml(c.why)}</span>`),
     ];
     box.innerHTML = chips.join('');
-    box.hidden = !ovs.length;
+    box.hidden = !ovs.length && !notGrids.length;
 };
 
 // The Location box with the places its grid is in added (unless Add Nearby

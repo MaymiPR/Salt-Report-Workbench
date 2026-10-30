@@ -19,6 +19,15 @@ const askEditConflict = async (theirs) => {
     return pick;
 };
 
+// MGRS Lock on, and parts of the Location that look meant as grids aren't
+// ones. Resolves 'typed' (log it as it is), or 'fix' / null to go back to it.
+const askNotGrids = (list) => {
+    const one = list.length === 1;
+    return askChoice(one ? `Not a grid: ${list[0].text}` : `${list.length} parts of the Location aren't grids`,
+        `${list.map(c => `${c.text} ${c.why}`).join('; ')}. Logged as typed, ${one ? 'it' : 'they'} won't be read as ${one ? 'a grid' : 'grids'} on the map or in the statistics.`,
+        [{ label: 'Fix it', value: 'fix', primary: true }, { label: 'Log as typed', value: 'typed' }]);
+};
+
 // The form's values put back over a report loaded for editing.
 const refillForm = (data) => {
     el.form.size.value     = data.size;
@@ -58,6 +67,9 @@ async function handleFormSubmit(mode) {
     // a report being updated whose Location wasn't touched keeps it as written.
     const was = el.form.reportId.value && localReports.find(r => r.id === el.form.reportId.value);
     const untouched = was && mgrsLock && el.form.location.value === SaltCore.stripMgrsPrefix(was.location, mgrsLockPrefix);
+    // A part that looks meant as a grid but isn't one: fix it, or log it as typed.
+    const notGrids = untouched ? [] : lockProblems();
+    if (notGrids.length && await askNotGrids(notGrids) !== 'typed') { el.form.location.focus(); return; }
     const locked = untouched ? was.location : lockedLocation(el.form.location.value);
     if (locked !== el.form.location.value) el.form.location.value = locked;
     // Toasts from here on (settling the Location, a refused upload) say more

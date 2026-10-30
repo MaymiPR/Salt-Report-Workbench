@@ -1221,6 +1221,33 @@ test('a locked grid prefix goes in front of grids typed as digits', () => {
         assert.equal(core.normalizeLocation(core.applyMgrsPrefix(core.stripMgrsPrefix(loc, '11S NV'), '11S NV')), core.normalizeLocation(loc), loc));
 });
 
+test('MGRS Lock says which parts look meant as a grid but are not one', () => {
+    const why = (text, prefix = '11S NV') => core.mgrsLockChecks(text, prefix).map(c => `${c.text} ${c.why}`);
+    // Grids it takes, and what is not meant as one, pass.
+    ['39697 06762', '3969706762', '397 067', '1234', '11S NV 40007 05191', '11SNV4000705191', 'Hill 205', '205', '39 0',
+        'NAI 2', 'vic the bridge', 'PL BLUE', 'PC-12344', 'Route 7 junction', ''].forEach(t => assert.deepEqual(why(t), [], t));
+    assert.deepEqual(why('39697 0676'), ['39697 0676 has two numbers of different lengths']);
+    assert.deepEqual(why('396970676'), ['396970676 has an odd number of digits']);
+    assert.deepEqual(why('39697067621'), ['39697067621 has more than 10 digits']);
+    assert.deepEqual(why('396970 676210'), ['396970 676210 has more than 10 digits']);
+    assert.deepEqual(why('396 970 676'), ['396 970 676 is split into more than two numbers']);
+    // Typed in full: the zone, band, square and digits are each checked.
+    assert.deepEqual(why('61S NV 39697 06762'), ['61S NV 39697 06762 has no zone 61 (zones are 1 to 60)']);
+    assert.deepEqual(why('11I NV 39697 06762'), ['11I NV 39697 06762 has no latitude band I']);
+    assert.deepEqual(why('11S AV 39697 06762'), ['11S AV 39697 06762 has no square AV in zone 11']);
+    assert.deepEqual(why('11S NW 39697 06762'), ['11S NW 39697 06762 has no square NW in zone 11']);
+    assert.deepEqual(why('11X NV 39697 06762'), ['11X NV 39697 06762 has square NV outside band 11X']);
+    assert.deepEqual(why('11s nv 3969 06762'), ['11s nv 3969 06762 has two numbers of different lengths']);
+    // Each part on its own; the locked square checked under digits alone.
+    assert.deepEqual(why('39697 06762, NAI 2, 3969 0676'), [], 'equal halves of four are a grid');
+    assert.deepEqual(why('NAI 2, 39697 0676, Hill 205'), ['39697 0676 has two numbers of different lengths']);
+    assert.deepEqual(why('39697 06762', '11S AV'), ['39697 06762 would be in 11S AV, which has no square AV in zone 11']);
+    assert.deepEqual(why('39697 0676', ''), ['39697 0676 has two numbers of different lengths'], 'with no square locked yet too');
+    // What it passes, Log reads as a grid.
+    ['39697 06762', '397 067', '11S NV 40007 05191'].forEach(t =>
+        assert.equal(core.findGrids(core.applyMgrsPrefix(t, '11S NV')).length, 1, t));
+});
+
 // The files in a zip of stored entries, by name.
 const unzipStored = (zip) => {
     const v = new DataView(zip.buffer, zip.byteOffset, zip.byteLength), out = {};
