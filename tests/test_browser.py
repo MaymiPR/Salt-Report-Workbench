@@ -4432,6 +4432,18 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("Reports per NAI", parts["xl/charts/chart1.xml"])
         self.assertIn('ref="A1:', parts["xl/tables/table1.xml"])
         self.assertIn("2x T-72", parts["xl/sharedStrings.xml"])
+        # Each table's cells are outlined: the report table's header and rows.
+        styles = ET.fromstring(parts["xl/styles.xml"])
+        ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+        borders = styles.findall("m:borders/m:border", ns)
+        xfs = styles.findall("m:cellXfs/m:xf", ns)
+        sheet = ET.fromstring(parts["xl/worksheets/sheet2.xml"])
+        cells = sheet.findall("m:sheetData/m:row/m:c", ns)
+        self.assertTrue(cells)
+        for c in cells:
+            border = borders[int(xfs[int(c.get("s"))].get("borderId"))]
+            sides = [border.find(f"m:{s}", ns).get("style") for s in ("left", "right", "top", "bottom")]
+            self.assertEqual(sides, ["thin"] * 4, c.get("r"))
         # Live: a report logged from the form shows up without reopening.
         page.click("#statsViewToggleBtn")
         self.log(page, "1x truck", activity="parked", location="38SMB4500082100")

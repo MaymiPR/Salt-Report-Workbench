@@ -1316,7 +1316,39 @@ test('the Statistics workbook: its parts, the tables its charts are drawn from, 
     assert.match(table, /name="Identifier 2"/, 'repeated names made unique');
     const thrice = unzipStored(core.statsXlsx({ reports: { header: ['Identifier', 'Identifier', 'identifier'], rows: [['a', 'b', 'c']] } }, NOW));
     assert.match(thrice['xl/tables/table1.xml'], /name="Identifier"\/><tableColumn id="2" name="Identifier 2"\/><tableColumn id="3" name="identifier 3"/);
-    assert.match(files['xl/worksheets/sheet2.xml'], /<c r="B2" s="4"><v>46319.25<\/v><\/c>/);
+    assert.match(files['xl/worksheets/sheet2.xml'], /<c r="B2" s="8"><v>46319.25<\/v><\/c>/, 'a date, outlined');
+    // Every cell of each table is outlined, its header too, and an empty one
+    // is still written for its outline; the title and notes are not.
+    const styles = files['xl/styles.xml'];
+    const xfs = [...styles.match(/<cellXfs[^>]*>(.*?)<\/cellXfs>/)[1].matchAll(/<xf [^>]*?borderId="(\d+)"/g)].map(m => +m[1]);
+    const borders = [...styles.match(/<borders[^>]*>(.*?)<\/borders>/)[1].matchAll(/<border>(.*?)<\/border>/g)].map(m => m[1]);
+    const outlined = (s) => ['left', 'right', 'top', 'bottom'].every(side => new RegExp(`<${side} style="thin">`).test(borders[xfs[s]]));
+    const cellsOf = (sheet) => [...sheet.matchAll(/<c r="([A-Z]+)(\d+)" s="(\d+)"/g)].map(([, col, row, s]) => ({ ref: col + row, row: +row, s: +s }));
+    const reportCells = cellsOf(files['xl/worksheets/sheet2.xml']);
+    assert.equal(reportCells.length, 9, 'three columns by a header and two rows');
+    reportCells.forEach(c => assert.ok(outlined(c.s), `Reports ${c.ref}`));
+    assert.match(files['xl/worksheets/sheet2.xml'], /<c r="B3" s="7"\/>/, 'an empty cell, outlined');
+    const statCells = cellsOf(files['xl/worksheets/sheet1.xml']);
+    const shared = [...files['xl/sharedStrings.xml'].matchAll(/<t xml:space="preserve">(.*?)<\/t>/g)].map(m => m[1]);
+    const textAt = (ref) => { const m = new RegExp(`<c r="${ref}" s="\\d+" t="s"><v>(\\d+)</v>`).exec(files['xl/worksheets/sheet1.xml']); return m ? shared[+m[1]] : null; };
+    const at = (ref) => statCells.find(c => c.ref === ref);
+    assert.ok(!outlined(at('A1').s) && !outlined(at('A2').s), 'the title and context');
+    assert.ok(!outlined(statCells.find(c => textAt(c.ref) === 'Headline numbers').s), 'a section heading');
+    const kpi = statCells.find(c => c.ref.startsWith('A') && textAt(c.ref) === 'Reports');
+    assert.ok(outlined(kpi.s) && outlined(at(`B${kpi.row}`).s), 'a headline number and its label');
+    const naiHead = statCells.find(c => textAt(c.ref) === 'Item');
+    for (let r = naiHead.row; r <= naiHead.row + 12; r++) ['A', 'B'].forEach(col => assert.ok(outlined(at(`${col}${r}`).s), `chart table ${col}${r}`));
+    assert.ok(!at(`A${naiHead.row + 13}`) || !outlined(at(`A${naiHead.row + 13}`).s), 'nothing past the table');
+    assert.ok(!outlined(statCells.find(c => /top 10/.test(textAt(c.ref) || '')).s), 'a note');
+    // Every part is well-formed: each tag closed, in order.
+    Object.entries(files).filter(([n]) => /\.(xml|rels)$/.test(n)).forEach(([n, xml]) => {
+        const open = [];
+        for (const [, close, name, self] of xml.replace(/<\?xml[^>]*\?>/, '').matchAll(/<(\/?)([A-Za-z_][\w:.-]*)(?:\s[^<>]*?)?(\/?)>/g)) {
+            if (close) assert.equal(open.pop(), name, `${n}: </${name}>`);
+            else if (!self) open.push(name);
+        }
+        assert.deepEqual(open, [], `${n}: all closed`);
+    });
     assert.match(files['xl/worksheets/sheet2.xml'], /state="frozen"/);
     assert.match(files['xl/sharedStrings.xml'], /<t xml:space="preserve">ALPHA · all reports<\/t>/);
     // No reports and no charts: still a workbook, without a table or drawing.
