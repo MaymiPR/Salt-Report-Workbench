@@ -1466,7 +1466,12 @@ class HttpApiTests(unittest.TestCase):
             ("/api/delete_history", {"ato": "ALPHA", "deletions": []}),
             ("/api/delete_history", {"ato": "ALPHA"}),
             ("/api/save_profile", {"profile": {"initials": "  ", "color": "#32d74b"}}),
-            *((r.path, {}) for r in self.post_routes() if r.path != "/api/save_config"),
+            # Refresh needs nothing sent: it reads the backup folder.
+            *(
+                (r.path, {})
+                for r in self.post_routes()
+                if r.path not in ("/api/save_config", "/api/refresh")
+            ),
         ):
             message = self.refused(400, path, body)
             self.assertTrue(message.startswith("Validation failed: "), message)
@@ -1651,6 +1656,47 @@ class HttpApiTests(unittest.TestCase):
         srv.ensure_mission()
         self.assertEqual(srv.mission["id"], first)
 
+    def test_refresh_reads_backups_dropped_in_since_the_server_started(self):
+        shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report("a1", "ALPHA001")]})
+        srv.flush_pending_save()
+        folder = Path(srv.BACKUP_DIR)
+        # Its own files, as it wrote them: nothing new.
+        status, body = self.post("/api/refresh", {})
+        self.assertEqual((status, body["files"], body["workspaces"]), (200, [], {}))
+        self.assertEqual(self.post("/api/refresh", {}, base=self.viewer_base)[0], 405)
+        # A file dropped in: its workspace, with its file as the source, and
+        # none of its shared settings.
+        bravo = [report("b1", "BRAVO001", ato="BRAVO"), report("b2", "BRAVO002", ato="BRAVO")]
+        _, text = srv.render_backup({"BRAVO": bravo}, {}, {}, {}, overlays=[NAI1])
+        (folder / "BRAVO_Screen.txt").write_text(text, "utf-8")
+        # ALPHA's own file, changed by hand: a newer version of its report.
+        _, text = srv.render_backup(
+            {"ALPHA": [report("a1", "ALPHA001", lm=5, size="9x T-72")]}, {}, {}, {}
+        )
+        (folder / "ALPHA_Patrol.txt").write_text(text, "utf-8")
+        (folder / "broken.txt").write_text("not a backup", "utf-8")
+        status, body = self.post("/api/refresh", {})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["files"], ["ALPHA_Patrol.txt", "BRAVO_Screen.txt", "broken.txt"])
+        self.assertEqual(body["skipped"], 1)
+        self.assertEqual(
+            body["workspaces"],
+            {"ALPHA": {"added": False, "changes": 1}, "BRAVO": {"added": True, "changes": 2}},
+        )
+        state = self.sync()
+        self.assertEqual(len(state["workspaces"]["BRAVO"]), 2)
+        self.assertEqual(state["workspaces"]["ALPHA"][0]["size"], "9x T-72")
+        self.assertEqual(state["sources"]["BRAVO"], "BRAVO_Screen.txt")
+        self.assertEqual(state["overlays"], [], "a dropped file's settings are left")
+        self.assertEqual(
+            state["activity"][-1]["what"],
+            "refreshed from the backup folder: ALPHA 1 report new or changed, BRAVO added",
+        )
+        # Read once: the next Refresh, and the save it led to, find nothing new.
+        srv.flush_pending_save()
+        self.assertEqual(self.post("/api/refresh", {})[1]["workspaces"], {})
+
     def test_the_routes_leave_validation_to_the_validators(self):
         for route in self.post_routes():
             # A shared setting's route is the one handler, given its section.
@@ -1658,7 +1704,7 @@ class HttpApiTests(unittest.TestCase):
             self.assertNotIn("_bad_request", inspect.getsource(handler), route.path)
 
     def test_every_post_route_has_a_validator(self):
-        self.assertEqual(len(self.post_routes()), 17)
+        self.assertEqual(len(self.post_routes()), 18)
         for route in self.post_routes():
             self.assertTrue(callable(route.validator), route.path)
         # A shared setting's route has its section's validator.

@@ -986,6 +986,10 @@ def _v_save_config(data: dict) -> str | None:
     return None
 
 
+def _v_refresh(data: dict) -> str | None:
+    return None  # nothing to send: it reads the backup folder
+
+
 def _v_finish_mission(data: dict) -> str | None:
     if data.get('confirm') != 'DONE':
         return 'confirm must be "DONE"'
@@ -2190,6 +2194,9 @@ def load_data_from_disk() -> int:
         got = read_backups(candidates)
         _file_holds.clear()
         _merged_files.clear()
+        _file_seen.clear()
+        for path in candidates:
+            _note_seen(path)
         for fname, key in got['holds']:
             _file_holds.setdefault(fname.casefold(), (fname, set()))[1].add(key)
             _merged_files.setdefault(key, set()).add(fname.casefold())
@@ -2507,6 +2514,27 @@ SUPERSEDED_PREFIX = 'Superseded_'
 # it back in. Protected by data_lock.
 _file_holds: dict = {}
 _merged_files: dict = {}
+# Each backup file in BACKUP_DIR as the server last read or wrote it
+# (casefolded name -> (size, mtime in ns)), so Refresh reads only the files
+# put there, or changed, since. Protected by _disk_lock.
+_file_seen: dict = {}
+
+
+def _note_seen(path: str) -> None:
+    """Note a backup file as it is now: read or written by the server.
+    Caller holds ``_disk_lock`` (or is the boot)."""
+    with contextlib.suppress(OSError):
+        st = os.stat(path)
+        _file_seen[os.path.basename(path).casefold()] = (st.st_size, st.st_mtime_ns)
+
+
+def _unseen(path: str) -> bool:
+    """True when a backup file is not as the server last read or wrote it."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    return _file_seen.get(os.path.basename(path).casefold()) != (st.st_size, st.st_mtime_ns)
 
 
 def write_snapshot(filename: str, content: str, now: datetime | None = None) -> str:
@@ -2671,6 +2699,7 @@ def save_data_to_disk() -> None:
         for ato, filename, content in files:
             try:
                 _write_atomically(os.path.join(BACKUP_DIR, filename), content)
+                _note_seen(os.path.join(BACKUP_DIR, filename))
                 written.append((ato, filename, content))
             except Exception as exc:
                 errors.append(f'Error saving {filename}: {exc}')
@@ -2703,6 +2732,61 @@ def save_data_to_disk() -> None:
             except Exception as exc:
                 # The live backups are already safe; a missed snapshot is worth a line, not a crash.
                 safe_print(f'[!] Error writing snapshot: {exc}')
+
+
+def refresh_from_disk() -> dict:
+    """Refresh: read the backups in BACKUP_DIR that the server hasn't read or
+    written as they are now (dropped in after it started, or changed by hand)
+    and merge their workspaces in, as the boot would have (a report in both
+    keeps its newer version). Their reports only: a file's shared settings
+    (overlays, format and the rest) are left, so a dropped file can't replace
+    the team's. Gives ``files`` (the names read), ``skipped`` (how many could
+    not be), and ``workspaces``: ATO -> {added (it wasn't loaded), changes
+    (reports new or changed)}."""
+    with _disk_lock:
+        fresh = [
+            p
+            for p in backup_files(BACKUP_DIR)
+            if os.path.basename(p) != SHARED_SETTINGS_NAME and _unseen(p)
+        ]
+        if not fresh:
+            return {'files': [], 'skipped': 0, 'workspaces': {}}
+        got = read_backups(fresh)
+        for path in fresh:
+            _note_seen(path)
+        found: dict = {}
+        with data_lock:
+            for ato, reports in got['workspaces'].items():
+                have = DATA_STORE['workspaces'].get(ato)
+                changes = report_changes(have or [], _dicts(reports))
+                n = sum(len(v) for v in changes.values())
+                if have is not None and not n:
+                    continue
+                DATA_STORE['workspaces'][ato] = _merge_reports(have or [], _dicts(reports))
+                unloaded_workspaces.discard(ato)
+                if have is None:
+                    workspace_sources[ato] = got['sources'][ato]
+                found[ato] = {'added': have is None, 'changes': n}
+                mark_dirty(ato)
+            for fname, ato in got['holds']:
+                _file_holds.setdefault(fname.casefold(), (fname, set()))[1].add(ato)
+                _merged_files.setdefault(ato, set()).add(fname.casefold())
+            if found:
+                invalidate_sync_cache()
+    return {
+        'files': sorted(os.path.basename(p) for p in fresh),
+        'skipped': got['skipped'],
+        'workspaces': found,
+    }
+
+
+def said_of_refresh(found: dict) -> str:
+    """Refresh in plain words: 'refreshed: BRAVO added, ALPHA 3 reports new or changed'."""
+    parts = [
+        f'{ato} added' if w['added'] else f'{ato} {plural(w["changes"], "report")} new or changed'
+        for ato, w in sorted(found.items())
+    ]
+    return f'refreshed from the backup folder: {", ".join(parts)}'
 
 
 def mission_archive_dir() -> str:
@@ -2810,6 +2894,7 @@ def finish_mission(actor: str, by: str = '') -> tuple:
         unloaded_workspaces.clear()
         _file_holds.clear()
         _merged_files.clear()
+        _file_seen.clear()
         finished = [*([mission['id']] if mission['id'] else []), *mission['finished']]
         finished = finished[:MISSION_FINISHED_KEEP]
         mission.update(id=secrets.token_hex(8), since=int(time.time() * 1000), finished=finished)
@@ -3713,6 +3798,16 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             mission=new_id,
         )
 
+    def _post_refresh(self, data: dict) -> None:
+        """Refresh (see refresh_from_disk)."""
+        got = refresh_from_disk()
+        if not got['workspaces']:
+            self._unchanged(**got)
+            return
+        self._commit(
+            f'refresh: {", ".join(got["files"])}', said=said_of_refresh(got['workspaces']), **got
+        )
+
     def _handle_missions(self) -> None:
         self._send_json({'status': 'success', 'missions': mission_archives()})
 
@@ -3891,6 +3986,8 @@ ROUTES: tuple[Route, ...] = (
     # Done with Mission, and the finished missions: listed, settings recalled, workspaces loaded.
     Route('POST', '/api/finish_mission', _H._post_finish_mission, _v_finish_mission, viewer=False),
     Route('GET', '/api/missions', _H._handle_missions, viewer=False),
+    # Refresh: backups dropped in the folder since the server started.
+    Route('POST', '/api/refresh', _H._post_refresh, _v_refresh, viewer=False),
     Route(
         'POST', '/api/recall_settings', _H._post_recall_settings, _v_recall_settings, viewer=False
     ),

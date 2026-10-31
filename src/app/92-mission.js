@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // Missions: Done with Mission, a page finding the team has finished its
-// mission, and the finished ones (Previous Missions) with Recall Settings
-// and Load. The server moves a finished mission into Mission Archives and
+// mission, the finished ones (Previous Missions) with Recall Settings and
+// Load, and Refresh (backups dropped in the server's folder). The server moves a finished mission into Mission Archives and
 // starts the next with nothing but the basemaps; each browser starts again
 // too (the start of app/10-state.js), its preferences put by for Recall.
 // One of the ordered scripts that make up the page (see src/app/); they
@@ -203,10 +203,27 @@ const loadFrom = async (m) => {
     showToast(`Loaded ${wordsAnd(Object.keys(res.body.loaded || {}))} from ${m.name}.`);
 };
 
+// --- Refresh ---
+// The server reads the backups put in its folder since it started (or
+// changed by hand since it last read or wrote them), and the finished
+// missions are listed again.
+const refreshBackups = async () => {
+    if (isReadOnly || isLocalFile) return;
+    const res = await apiPost('/api/refresh', {});
+    loadMissions();
+    if (!res.ok) { if (res.status !== 401) showToast(`Not refreshed: ${res.message}`, true); return; }
+    const found = res.body.workspaces && typeof res.body.workspaces === 'object' ? res.body.workspaces : {};
+    const files = Array.isArray(res.body.files) ? res.body.files.length : 0, skipped = Number(res.body.skipped) || 0;
+    const said = Object.keys(found).sort().map(ato => (found[ato].added ? `${ato} added` : `${ato} ${plural(Number(found[ato].changes) || 0, 'report')} new or changed`));
+    const bad = skipped ? `; ${plural(skipped, 'file')} couldn't be read (the server's window names ${skipped === 1 ? 'it' : 'them'})` : '';
+    showToast(said.length ? `Refresh: ${plural(files, 'file')} read; ${wordsAnd(said)}${bad}.` : `Refresh: nothing new in the backup folder${bad}.`, skipped > 0);
+};
+
 // "A, B and C".
 const wordsAnd = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
 
 document.getElementById('finishMissionBtn').addEventListener('click', finishMission);
+document.getElementById('refreshBackupsBtn').addEventListener('click', refreshBackups);
 document.getElementById('missionsList').addEventListener('click', e => {
     const b = e.target.closest('button');
     if (!b) return;

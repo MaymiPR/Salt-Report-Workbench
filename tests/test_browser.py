@@ -1091,6 +1091,22 @@ class BrowserTests(unittest.TestCase):
         self.first_sync(other)
         self.wait_for_server(other, "s => !s.workspaces.UNSENTTWO")
 
+    def test_refresh_reads_a_backup_dropped_in_the_folder(self):
+        page = self.open_editor("AB")
+        self.log(page, "5x BTR")
+        # A backup of another workspace, put in the server's folder by hand.
+        text = page.evaluate(
+            """() => generateBackupText('DROPPEDIN', localReports.map(r => ({ ...r, id: 'x' + r.id, ato: 'DROPPEDIN' })), 'Patrol', {})"""
+        )
+        (self.tmp / "backups" / "DROPPEDIN_Patrol.txt").write_text(text, "utf-8")
+        self.open_workspaces(page)
+        page.click("#refreshBackupsBtn")
+        page.wait_for_selector("#toastNotification:has-text('DROPPEDIN added')")
+        self.wait_for_server(page, "s => (s.workspaces.DROPPEDIN || []).length === 1")
+        # Read once: again, nothing new.
+        page.click("#refreshBackupsBtn")
+        page.wait_for_selector("#toastNotification:has-text('nothing new in the backup folder')")
+
     def test_a_pull_from_before_a_failed_save_keeps_the_report(self):
         # Regression: a pull asked for before a report was logged, answered
         # after its save had failed (queued), put the server's copy in its
