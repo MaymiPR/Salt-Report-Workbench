@@ -508,7 +508,7 @@ class ValidatorTests(unittest.TestCase):
         core = build.core_source()
         block = core[core.index("const NARRATIVE_RULES = [") : core.index("const RULE_ORDER")]
         ids = set(re.findall(r"^\s*\['([a-z0-9]+)', '", block, re.M))
-        self.assertEqual(len(ids), 55)
+        self.assertEqual(len(ids), 56)
         self.assertEqual(ids, set(srv._NARRATIVE_RULES))
         self.assertIsNone(srv._v_save_narrative({"narrative": {"off": sorted(ids)}}))
 
