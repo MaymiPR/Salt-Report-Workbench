@@ -65,16 +65,35 @@ const movementDeg = (f) => {
     return null;
 };
 
+// Vehicles reported only by their running gear, as MTI reports give them
+// ("10x wheeled vics, 2x tracked"): the catalogue's name for each, and the
+// role it is read as. Tracked vehicles are read as armor or mechanized
+// forces; wheeled ones as supply vehicles or a motorized column.
+const RUNNING_GEAR = { 'tracked vehicle': 'tracked', 'wheeled vehicle': 'wheeled' };
+const GEAR_ROLE = { tracked: 'mech', wheeled: 'logistics' };
+// Mostly one or the other: at least two thirds of them.
+const gearMix = (tracked, wheeled) => (tracked >= 2 * wheeled ? 'tracked' : wheeled >= 2 * tracked ? 'wheeled' : 'mixed');
+
 // What the narrative needs about a report, beyond the summaries' facts: its
 // equipment (from its Size after BDA, the facts' `size`), the roles in it, its size by kind, and the areas it counts in
 // (its NAIs and OBJs, else its 10 km square, else none). With a way of
 // march (`march`: { axes, toward }), the way of march where it is (`way`,
 // wayOfMarchAt at its first grid) and, when it moves, how (`sense`: along,
 // back or across, wayRelation); without one, both null.
+// Tracked and wheeled vehicles with no type given count in its roles and
+// sizes as RUNNING_GEAR reads them (`gear`: { tracked, wheeled, mix }, else
+// null); a report with nothing surer than that, or than hedged types, is a
+// `guess`, which the rules weigh as a hedged one.
 const narrativeFacts = (f, team, march = null) => {
     const els = sizeElements(f.size, team).map(e => ({ ...e, kit: lookupEquipment(e.type, team) }));
-    const groups = {};
-    els.forEach(e => { const k = e.kit && ECHELON_KIND[e.kit.role]; if (k) groups[k] = (groups[k] || 0) + e.count; });
+    const groups = {}, gear = { tracked: 0, wheeled: 0 };
+    els.forEach(e => {
+        const g = e.kit && RUNNING_GEAR[e.kit.name];
+        if (g) gear[g] += e.count;
+        const k = e.kit && ECHELON_KIND[g ? GEAR_ROLE[g] : e.kit.role];
+        if (k) groups[k] = (groups[k] || 0) + e.count;
+    });
+    const geared = gear.tracked + gear.wheeled > 0;
     const sq = f.a.points.length ? gridSquare(f.a.points[0].mgrs, 1) : null;
     const way = march ? wayOfMarchAt(f.a.points[0] || null, march.axes, march.toward) : null;
     const deg = way ? movementDeg(f) : null;
@@ -84,7 +103,9 @@ const narrativeFacts = (f, team, march = null) => {
         // least sure of those words, else empty;
         // a weaker sign (see judge in narrativeJudgments).
         hedged: els.length > 0 && els.every(e => e.hedge) ? ['possible', 'probable', 'likely'].find(h => els.some(e => e.hedge === h)) : '',
-        roles: new Set(els.filter(e => e.kit).map(e => e.kit.role)),
+        gear: geared ? { ...gear, mix: gearMix(gear.tracked, gear.wheeled) } : null,
+        guess: geared && els.every(e => e.hedge || (e.kit && RUNNING_GEAR[e.kit.name])),
+        roles: new Set(els.filter(e => e.kit).map(e => (RUNNING_GEAR[e.kit.name] ? GEAR_ROLE[RUNNING_GEAR[e.kit.name]] : e.kit.role))),
         areas: f.places.length ? f.places : sq ? [sq.replace(/ (\d) (\d)$/, ' $1$2')] : [],
         id: f.r.displayId || f.r.id || '',
         who: (f.r.user && f.r.user.initials) || '',
@@ -271,10 +292,12 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
     const along = (f) => f.sense === 'along';
     // Fighting forces, as against supply, command or support vehicles.
     const combat = (f) => isManeuver(f) || (f.groups.infantry || 0) > 0 || f.roles.has('light');
-    const judge = (rule, level, what, signs, places = null) => {
+    // `guessed`: its level already allows for reports read from their
+    // running gear alone, so only the hedged ones take a step off.
+    const judge = (rule, level, what, signs, places = null, guessed = false) => {
         const seen = signs.filter(([, l]) => l.length);
         const list = byTime(seen.flatMap(([, l]) => l));
-        const unsure = seen.filter(([, l]) => l.every(f => f.hedged)).length;
+        const unsure = seen.filter(([, l]) => l.every(f => f.hedged || (f.guess && !guessed))).length;
         out.push({
             rule, order: RULE_ORDER[rule] ?? NARRATIVE_RULES.length, level: Math.max(Math.min(level, VERY_LIKELY) - unsure, Math.min(level, EVEN)), what,
             key: typeof what === 'string' ? what : what[''],
@@ -423,6 +446,31 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
                 CN: `are conducting or preparing an air assault near ${area} (an air-assault brigade)`,
                 '': `are conducting or preparing an air assault near ${area}`,
             }, signs, [area]);
+        }
+        // A force read from its vehicles: tracked and wheeled vehicles with
+        // no type given, by their mix (RUNNING_GEAR): mostly tracked, armor or
+        // mechanized forces; mostly wheeled, a supply or motorized column; else
+        // both. Never above likely: the running gear alone can't say more,
+        // and a sign seen only in hedged reports takes a step off, as ever.
+        const geared = at(f => f.guess);
+        if (on('vehicles') && geared.length) {
+            const tracked = geared.reduce((n, f) => n + f.gear.tracked, 0), wheeled = geared.reduce((n, f) => n + f.gear.wheeled, 0);
+            const mix = gearMix(tracked, wheeled);
+            const big = geared.filter(f => f.gear.tracked + f.gear.wheeled >= 10);
+            const again = geared.filter(f => geared.some(g => g !== f && g.gear.mix === f.gear.mix && Math.abs(g.ms - f.ms) <= 6 * HOUR));
+            const moving = geared.filter(advancing).length, halted = geared.filter(f => has(f, 'Stationary')).length;
+            const how = moving && moving >= halted ? ['are moving', 'through'] : halted ? ['have', 'halted in'] : ['have', 'in'];
+            const size = mix === 'wheeled' ? '' : ` of approximately ${echelonOf('maneuver', Math.max(...geared.map(f => f.gear.tracked)) || 1)} size`;
+            const force = {
+                tracked: `an armored or mechanized force${size}${wheeled ? ' with its support vehicles' : ''}`,
+                wheeled: `a supply or motorized column${tracked ? ' with an armored escort' : ''}`,
+                mixed: `a mechanized force${size} with its supply vehicles`,
+            }[mix];
+            judge('vehicles', Math.min(EVEN + (big.length || again.length ? 1 : 0), LIKELY), `${how[0]} ${force} ${how[1]} ${area}`,
+                [[`${andList([tracked && plural(tracked, 'tracked vehicle'), wheeled && plural(wheeled, 'wheeled vehicle')].filter(Boolean))}`
+                    + ` with no type given, ${mix === 'mixed' ? 'a mix' : `mostly ${mix}`}`, geared],
+                    ['10 vehicles or more in one report (about a company)', big], ['a second report like it within 6 hrs', again],
+                    ['the type of vehicle (tank, BMP, truck)', []]], [area], true);
         }
         // A logistics site: supply vehicles halted or resupplying, again and again.
         const supply = densest(at(f => (f.roles.has('logistics') && has(f, 'Stationary')) || has(f, 'Resupplying')), 12 * HOUR);
@@ -1040,14 +1088,27 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
         if (!e.kit) { unknown.set(e.type, (unknown.get(e.type) || 0) + 1); return; }
         if (!roles.has(e.kit.role)) roles.set(e.kit.role, new Map());
         const types = roles.get(e.kit.role);
-        types.set(e.type, (types.get(e.type) || 0) + e.count);
-        kitOf.set(e.type, e.kit);
+        // "10x wheeled vics" and "1x wheeled" are counted as one.
+        const type = RUNNING_GEAR[e.kit.name] ? e.kit.name : e.type;
+        types.set(type, (types.get(type) || 0) + e.count);
+        kitOf.set(type, e.kit);
     }));
     const label = Object.fromEntries(EQUIPMENT_ROLES);
     const roleList = EQUIPMENT_ROLES.map(([r]) => r).filter(r => roles.has(r));
     if (roleList.length) {
         say(`Equipment reported: ${roleList.map(r => `${label[r]} (${[...roles.get(r)].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
             .map(([t, n]) => typeCount(t, n, kitOf.get(t))).join(', ')})`).join('; ')}.`);
+    }
+    // Vehicles given only as tracked or wheeled, and how the rules read them.
+    const geared = facts.filter(f => f.gear);
+    if (geared.length) {
+        const tracked = geared.reduce((n, f) => n + f.gear.tracked, 0), wheeled = geared.reduce((n, f) => n + f.gear.wheeled, 0);
+        const read = !wheeled ? 'all tracked: read as armor or mechanized forces'
+            : !tracked ? 'all wheeled: read as supply vehicles or motorized columns'
+                : { tracked: 'mostly tracked: read as armor or mechanized forces, the wheeled as their support',
+                    wheeled: 'mostly wheeled: read as supply or motorized columns, the tracked as their escort',
+                    mixed: 'a mix: read as mechanized forces with their supply vehicles' }[gearMix(tracked, wheeled)];
+        say(`Tracked and wheeled (type not given): ${tracked} tracked, ${wheeled} wheeled in ${plural(geared.length, 'report')}; ${read}.`);
     }
     const origins = originCounts(facts), army = originOf(origins);
     if (army) {
@@ -1084,7 +1145,7 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
         out.push('   By place:');
         places.slice(0, 6).forEach(p => {
             const list = at(p.label);
-            const kinds = EQUIPMENT_ROLES.map(([r]) => r).filter(r => list.some(f => f.roles.has(r))).map(r => label[r]);
+            const kinds = EQUIPMENT_ROLES.map(([r]) => r).filter(r => list.some(f => f.els.some(e => e.kit && e.kit.role === r))).map(r => label[r]);
             // Whose area it is, from the unit list (not from the reports).
             const whose = set.units.filter(u => u.places.some(q => q.toUpperCase() === p.label.toUpperCase())).map(u => u.name);
             say(`${p.label}${whose.length ? ` (area of ${andList(whose)})` : ''}: ${plural(list.length, 'report')}, ${dayTime(list[0].ms, local)} to ${dayTime(list[list.length - 1].ms, local)}`

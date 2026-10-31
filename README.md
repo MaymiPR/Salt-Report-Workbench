@@ -75,7 +75,7 @@ editable charts.
 
 One click writes a Rollup, Most Trafficked, Place Activity, Shift Brief, or
 Narrative for any time window. The Narrative lists what was observed, then
-assessments from 55 rules based on open-source Russian and Chinese tactics, in
+assessments from 56 rules based on open-source Russian and Chinese tactics, in
 ICD 203 terms, each citing the reports behind it. It recognizes about 790 Russian
 and Chinese equipment types and general terms such as vic, tracked, wheeled and
 support, and counts a total with its breakdown once. Everything comes from

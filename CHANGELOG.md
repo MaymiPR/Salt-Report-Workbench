@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The narrative reads tracked and wheeled vehicles.** A report that gives
+  only how many vehicles were tracked or wheeled (`10x wheeled vics, 2x
+  tracked`, `1x wheeled, 10x tracked`) is read by its mix: mostly tracked
+  is armor or mechanized forces with their support vehicles, mostly wheeled
+  a supply or motorized column with an armored escort, and a mix a
+  mechanized force with its supply vehicles. Observed adds them up under
+  one name each and gives their mix; the rules read them as they read a
+  probable type, a step weaker than a named one; and a 56th rule, *A force
+  read from its vehicles*, judges them from as little as one report, never
+  above likely.
+
 ### Changed
 
 - **Activity takes less room.** In Manage > Workspaces and the viewers'

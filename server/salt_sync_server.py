@@ -728,6 +728,8 @@ _NARRATIVE_RULES = frozenset(
         'farp',
         'casevac',
         'regroup',
+        # Added in 2.34.
+        'vehicles',
     }
 )
 MAX_OVERLAY_POINTS = 200_000  # coordinate pairs in the shared set, all features together

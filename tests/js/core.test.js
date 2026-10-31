@@ -1698,7 +1698,7 @@ test("the team's own equipment, rules switched off, and rules of their own", () 
     assert.ok(!text.includes('scouting a route'), 'switched off');
     assert.ok(text.includes('ROUGHLY EVEN CHANCE (45-55%) that enemy forces are preparing a river crossing in NAI 1.'), text);
     assert.ok(text.includes('Basis: reports of bridging, ferry within 12 hrs (ALPHA016 260300Z, ALPHA017 260400Z).'), text);
-    assert.equal(core.NARRATIVE_RULES.length, 55);
+    assert.equal(core.NARRATIVE_RULES.length, 56);
     core.NARRATIVE_RULES.forEach(([id]) => assert.ok(core.DOCTRINE[id] && core.DOCTRINE[id].RU && core.DOCTRINE[id].CN, `${id}: doctrine for both`));
 });
 
@@ -1886,6 +1886,9 @@ const RULE_TABLE = {
         [['2x Il-76', 'landed', NAI1, 0], ['2x Ka-52', 'orbiting', NAI1, 30]]],
     amphibious: ['likely', [['2x ZBD-05', 'swimming the river', NAI1, 0], ['1x 2S19', 'halted', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
         [['2x BMP-2', 'moving N', NAI1, 0], ['1x 2S19', 'halted', NAI1, 30]]],
+    // Tracked and wheeled with no type given; a named type is no guess.
+    vehicles: ['roughly even chance', [['4x tracked', 'moving N', NAI1, 0], TRUCKS], [0],
+        [['4x T-72', 'moving N', NAI1, 0], TRUCKS]],
     // Defense
     defense: ['likely', [['6x PAX', 'digging in', NAI1, 0], ['1x MTU-20', 'emplacing obstacles', NAI1, 60], TRUCKS], [0, 1],
         [['6x PAX', 'stationary', NAI1, 0], TRUCKS]],
@@ -2335,7 +2338,41 @@ test('plain words read as plurals in the narrative: tracked vehicles, buses', ()
     const t = said([{ id: 'w1', displayId: 'ALPHA001', ato: 'ALPHA', title: 'P', size: '4x tracked, 2x wheeled, 2X BUSES, 1x tracked vic',
         activity: 'moving N', location: '38SMB4500082000', time: '2026-10-26T01:00:00.000Z', history: [], bda: [] }]);
     assert.ok(t.includes('light vehicles (2x buses)'), t);
-    assert.ok(t.includes('other vehicles (4x tracked vehicles, 2x wheeled vehicles, 1x tracked vic)'), t);
+    // Tracked and wheeled under one name each, however they were written.
+    assert.ok(t.includes('other vehicles (5x tracked vehicles, 2x wheeled vehicles)'), t);
+});
+
+test('tracked and wheeled vehicles with no type given: read by their mix, never above likely', () => {
+    const one = (size, activity = 'moving N', min = 0, where = NAI1) => [size, activity, where, min];
+    const judged = (rows, rule = 'vehicles') => {
+        const d = judgedBy(rows);
+        return { text: d.text.replace(/\s+/g, ' '), j: d.judgments.find(x => x.rule === rule) };
+    };
+    // Mostly tracked: armor or mechanized, its size from the tracked, the wheeled as support.
+    let { text, j } = judged([one('1x wheeled, 10x tracked')]);
+    assert.ok(text.includes('are moving an armored or mechanized force of approximately company size with its support vehicles through NAI 1'), text);
+    assert.equal(core.ICD203[j.level][0], 'likely', '10 vehicles or more in one report');
+    assert.ok(text.includes('10 tracked vehicles and 1 wheeled vehicle with no type given, mostly tracked'), text);
+    assert.ok(text.includes('Watch for: a second report like it within 6 hrs; the type of vehicle (tank, BMP, truck).'), text);
+    // Mostly wheeled: a supply or motorized column, the tracked as its escort.
+    ({ text } = judged([one('10x wheeled vics, 2x tracked vics')]));
+    assert.ok(text.includes('are moving a supply or motorized column with an armored escort through NAI 1'), text);
+    assert.ok(text.includes('Tracked and wheeled (type not given): 2 tracked, 10 wheeled in 1 report; mostly wheeled: read as supply or motorized columns, the tracked as their escort.'), text);
+    assert.ok(text.includes('other vehicles (10x wheeled vehicles, 2x tracked vehicles)'), text);
+    // Neither two thirds: both. Halted: halted in.
+    ({ text } = judged([one('3x tracked, 3x wheeled', 'stationary')]));
+    assert.ok(text.includes('have a mechanized force of approximately platoon size with its supply vehicles halted in NAI 1'), text);
+    // Two like it within 6 hrs make it likely; however many, never very likely.
+    ({ j } = judged([one('20x tracked'), one('20x tracked', 'moving N', 60), one('30x tracked', 'moving N', 120)]));
+    assert.equal(core.ICD203[j.level][0], 'likely');
+    // Hedged, it is a step weaker; a named type makes it no guess.
+    ({ j } = judged([one('2x poss tracked'), one('3x poss tracked', 'moving N', 60)]));
+    assert.equal(core.ICD203[j.level][0], 'roughly even chance');
+    assert.ok(!judged([one('4x tracked, 2x T-72')]).j, 'with a named type');
+    // The other rules read them too, as hedged signs: tracked halted with wheeled is an assembly area.
+    ({ j } = judged([one('6x tracked', 'stationary'), one('4x tracked', 'stationary', 60), one('5x wheeled', 'stationary', 90)], 'assembly'));
+    assert.ok(j, 'assembly');
+    assert.equal(core.ICD203[j.level][0], 'roughly even chance', 'hedged: a step off each sign seen only in them');
 });
 
 test('a summary of a kind it does not know is a rollup', () => {
