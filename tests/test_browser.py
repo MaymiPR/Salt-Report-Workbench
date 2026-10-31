@@ -1057,10 +1057,14 @@ class BrowserTests(unittest.TestCase):
         page.evaluate("document.querySelector('[data-mission-load]').click()")
         page.wait_for_selector("#choiceToast.show")
         ticks = page.locator("#choiceBody input[data-ato]")
-        self.assertEqual(
-            sorted(ticks.evaluate_all("l => l.map(i => i.dataset.ato)")), [self.ato, "MISSIONTWO"]
+        # Every workspace the server held (the other tests' too), all ticked.
+        listed = ticks.evaluate_all("l => l.filter(i => i.checked).map(i => i.dataset.ato)")
+        self.assertTrue({self.ato, "MISSIONTWO"} <= set(listed), listed)
+        page.evaluate(
+            "ato => document.querySelectorAll('#choiceBody input[data-ato]')"
+            ".forEach(i => { i.checked = i.dataset.ato === ato; })",
+            self.ato,
         )
-        page.uncheck("#choiceBody input[data-ato='MISSIONTWO']")
         page.click("#choiceButtons .choice-primary")
         self.wait_for_server(
             page,
