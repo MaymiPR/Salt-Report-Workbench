@@ -45,7 +45,7 @@ UNPACKER = '''\
 # S.A.L.T. Report Workbench @VERSION@, packed into one plain-text file.
 # SPDX-License-Identifier: AGPL-3.0-only
 #
-# Run it with Python 3.10 or newer. The file name and extension don't matter:
+# Run it with Python 3.11.8 or newer. The file name and extension don't matter:
 #
 #     python "SALT-Workbench-v@VERSION@.txt"
 #
@@ -135,8 +135,8 @@ def unpack(here):
 
 def main(argv):
     print(f' S.A.L.T. Report Workbench {VERSION}')
-    if sys.version_info < (3, 10):
-        print('[!] The workbench needs Python 3.10 or newer. Nothing was changed.')
+    if sys.version_info < (3, 11, 8):
+        print('[!] The workbench needs Python 3.11.8 or newer. Nothing was changed.')
         return 1
     keep = '--keep' in argv
     here = Path(__file__).resolve()

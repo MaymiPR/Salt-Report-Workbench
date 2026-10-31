@@ -131,7 +131,12 @@ class MergeLeftoverTests(unittest.TestCase):
         import subprocess
 
         files = subprocess.run(
-            ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
+            ["git", "ls-files"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
         ).stdout.split()
         marker = re.compile(r"^(<{7} |>{7} )", re.MULTILINE)
         hits = []

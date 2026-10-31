@@ -130,7 +130,7 @@ class PackTests(unittest.TestCase):
         expected = dict(BLOBS)
         expected["Start SALT Workbench.bat"] = old.encode("utf-8")
         self.assert_unpacked(folder, expected)
-        self.assertEqual((folder / "Auto Backups" / "ALPHA_Day1.txt").read_text(), "reports")
+        self.assertEqual((folder / "Auto Backups" / "ALPHA_Day1.txt").read_text("utf-8"), "reports")
 
     def test_run_from_inside_the_folder_it_unpacks_in_place(self):
         folder = self.tmp / "SALT Report Workbench"

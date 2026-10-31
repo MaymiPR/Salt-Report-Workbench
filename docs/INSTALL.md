@@ -13,7 +13,7 @@ Windows launcher, the license, and a short `README.txt`.
 
 - **`SaltReportWorkbench-v<version>.zip`**: extract it. On Windows, double-click
   **`Start SALT Workbench.bat`**; anywhere else, run `python salt_sync_server.py`
-  in that folder. Python 3.10+ and a browser are all it needs.
+  in that folder. Python 3.11.8+ and a browser are all it needs.
 - **`SALT-Workbench-v<version>.txt`**: the same files as one plain-text file, for
   transfer systems that refuse zips or scripts. Run it with Python:
 
@@ -130,7 +130,7 @@ is already encrypted (a VPN, an encrypted radio net) or fully trusted.
 
 `Start SALT Workbench.bat` starts the server with a double-click. It needs no
 install and no admin rights, and works from a network share. It uses the first
-Python 3.10+ it finds, in this order:
+Python 3.11.8+ it finds, in this order:
 
 1. The path on the `set "PYTHON_EXE="` line near the top of the file. If your
    machine needs a specific `python.exe`, open the launcher in Notepad and put
@@ -224,7 +224,7 @@ read-only port is taken, the console says it could not start the viewer and the
 editor port runs without it. `--viewer-port 0` turns the read-only port off.
 
 **The launcher can't find Python, or finds the wrong one.** It needs Python
-3.10 or newer. Put the full path to the right `python.exe` on the
+3.11.8 or newer. Put the full path to the right `python.exe` on the
 `set "PYTHON_EXE="` line in the launcher, or set `SALT_PYTHON` (see
 [Windows launcher](#windows-launcher)). A path set there that doesn't work is
 reported, not skipped.
