@@ -961,6 +961,33 @@ class BrowserTests(unittest.TestCase):
         page.evaluate("renderStatusBars()")
         self.assertTrue(page.locator("#notSavingBar").is_hidden())
 
+    def test_a_pull_from_before_a_failed_save_keeps_the_report(self):
+        # Regression: a pull asked for before a report was logged, answered
+        # after its save had failed (queued), put the server's copy in its
+        # place, and the report was gone for good.
+        page = self.open_editor()
+        self.synced(page)
+        held = []
+        page.route("**/api/sync", lambda route: held.append(route))
+        page.route("**/api/save_reports", lambda route: route.abort())
+        page.evaluate("() => { syncWithServer(); }")  # as a peer's change would
+        self.wait_until(lambda: held, "the pull never went out", page=page)
+        self.log(page, "2x BTR")
+        page.wait_for_function("changesWaiting()")
+        page.unroute("**/api/sync")
+        with page.expect_response("**/api/sync"):
+            held[0].continue_()
+        self.next_frames(page, 5)  # its answer read, and taken or not
+        self.assertEqual(self.sizes(page), ["2x BTR"])
+        stored = "(JSON.parse(localStorage.getItem('salt_reports_by_ato'))[activeAto] || []).map(r => r.size)"
+        self.assertEqual(page.evaluate(stored), ["2x BTR"])
+        # Once saves go through, the next sync sends it.
+        page.unroute("**/api/save_reports")
+        page.evaluate("() => syncWithServer()")
+        self.wait_for_server(page, f"s => (s.workspaces['{self.ato}'] || []).length === 1")
+        page.wait_for_function("!changesWaiting()")
+        self.assertEqual(self.sizes(page), ["2x BTR"])
+
     def test_an_unexpected_error_is_said(self):
         page = self.open_editor()
         page.evaluate("setTimeout(() => { throw new Error('boom'); })")
