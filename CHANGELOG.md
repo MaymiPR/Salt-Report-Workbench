@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.33.1] - 2026-10-30
+
+### Fixed
+
+- **A report whose save failed for a moment could be lost.** When the
+  server was busy or the connection dropped as a report was logged, the
+  page kept it to send again; but a sync asked for just before, answered
+  after, put the server's copy in its place, and the report was gone from
+  the log, from the browser's saved copy and, in the end, from the server.
+  Such an answer is now set aside, and the next sync sends the report
+  first.
+
 ## [2.33.0] - 2026-10-30
 
 ### Added
@@ -1516,7 +1528,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.33.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.33.1...HEAD
+[2.33.1]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.33.0...v2.33.1
 [2.33.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.32.1...v2.33.0
 [2.32.1]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.32.0...v2.32.1
 [2.32.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.31.0...v2.32.0

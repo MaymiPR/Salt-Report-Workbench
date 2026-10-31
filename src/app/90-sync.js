@@ -150,6 +150,10 @@ async function syncWithServer(again = false) {
         if (pull < pullApplied) return;
         // Asked for before a push that is still on its way: from before it.
         if (pushesInFlight > 0) { pullDeferred = true; return; }
+        // Asked for before a push that has since come back queued: from
+        // before it too, and taken it would drop that change for good. The
+        // next sync sends it first, as above.
+        if (changesWaiting()) return;
         const v = typeof state.version === 'number' ? state.version : null;
         // Older than a change this page has made or been told of (asked for
         // before it, answered after): it would undo that change on screen.

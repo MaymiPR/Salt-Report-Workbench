@@ -122,7 +122,9 @@ this: merging a partial batch is what it always did.
 When a push can't land (the server is unreachable, rate-limits it, or
 errors), the client sets `salt_offline_push`, and the next sync pushes again
 *before* pulling, so the pull can't overwrite changes the server hasn't seen.
-Because merging is idempotent (below), replaying is always safe.
+A pull already on its way when a push comes back that way is dropped when it
+answers, for the same reason. Because merging is idempotent (below),
+replaying is always safe.
 
 When the server refuses a batch outright (validation, size), the client
 splits it until it knows exactly which reports were refused, so the rest
