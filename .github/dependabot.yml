@@ -2,7 +2,8 @@
 # GitHub Actions used by CI and the development tools (ruff, pre-commit,
 # Playwright). Keep those current. Actions are pinned to commit SHAs (with the
 # version in a comment); the tools to versions and hashes in requirements-*.txt
-# (made from requirements-*.in by pip-compile). Dependabot updates both.
+# (made from requirements-*.in by pip-compile); the pre-commit hooks to commit
+# SHAs (with the version in a "# frozen:" comment). Dependabot updates all three.
 version: 2
 updates:
   - package-ecosystem: pip
