@@ -32,9 +32,10 @@ import zipfile
 from pathlib import Path
 
 try:
+    from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import sync_playwright
 except ImportError:  # the optional dev dependency isn't installed
-    sync_playwright = None
+    PlaywrightError = sync_playwright = None
 
 ROOT = Path(__file__).resolve().parent.parent
 CODE = "TESTCODE23"
@@ -51,6 +52,25 @@ def free_ports(n: int = 2) -> list[int]:
     finally:
         for s in socks:
             s.close()
+
+
+# Every request to the server is a connection of its own, and a closed one
+# holds its port a while: on a Windows runner, now and then, one can't be
+# made (no port or buffer free). The tests' own page loads and server checks
+# try again on these, and on nothing else.
+NETWORK_HICCUPS = ("Failed to fetch", "net::ERR_NO_BUFFER_SPACE", "net::ERR_ADDRESS_IN_USE")
+NETWORK_TRIES = 3
+
+
+def through_hiccups(action):
+    """``action()``, tried again (``NETWORK_TRIES`` in all) on a network hiccup."""
+    for attempt in range(1, NETWORK_TRIES + 1):
+        try:
+            return action()
+        except PlaywrightError as exc:
+            if attempt == NETWORK_TRIES or not any(h in str(exc) for h in NETWORK_HICCUPS):
+                raise
+            time.sleep(0.5 * attempt)
 
 
 def log_tail(path: Path, lines: int = 30) -> str:
@@ -193,11 +213,12 @@ class BrowserTests(unittest.TestCase):
         """The editor page past its first-run modal. The server trusts
         127.0.0.1, so the code is auto-filled; identity and workspace are not.
         Each test gets its own workspace, since they share one server."""
-        ato = ato or self._testMethodName.replace("test_", "").replace("_", "")[:30].upper()
+        ato = ato or self._testMethodName.removeprefix("test_").replace("_", "")[:30].upper()
         self.ato = ato
         page = self.context.new_page()
         page.on("pageerror", lambda exc: self.errors.append(str(exc)))
-        page.goto(self.editor + "/")
+        self.goto(page, self.editor + "/")
+        self.first_sync(page)
         page.fill("#startupInitials", initials)
         page.fill("#startupAto", ato)
         page.fill("#startupTitle", title)
@@ -205,6 +226,23 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#startupModal.show", state="hidden")
         self.assert_in_workspace(page, ato)
         return page
+
+    @staticmethod
+    def first_sync(page):
+        """Wait for the page's first sync, which fills in the startup form's
+        ATO and Title with the server's workspace (the last test's): landing
+        while a name is typed there, it would put the caret at the end, and
+        the name typed would go on after the last test's."""
+        page.wait_for_function("serverConfig !== null")
+
+    @staticmethod
+    def goto(page, url):
+        through_hiccups(lambda: page.goto(url))
+
+    @staticmethod
+    def reload(page):
+        # A page that failed to load reloads its own address.
+        through_hiccups(page.reload)
 
     def assert_in_workspace(self, page, ato):
         """The editor is in the workspace typed in: a test that goes on in
@@ -214,7 +252,7 @@ class BrowserTests(unittest.TestCase):
     def open_viewer(self):
         page = self.context.new_page()
         page.on("pageerror", lambda exc: self.errors.append(str(exc)))
-        page.goto(self.viewer + "/")
+        self.goto(page, self.viewer + "/")
         page.wait_for_selector("body.read-only")
         return page
 
@@ -252,10 +290,11 @@ class BrowserTests(unittest.TestCase):
     @staticmethod
     def wait_for_server(page, predicate, timeout=15):
         """Wait until ``predicate`` (JS, given the /api/sync state) holds.
-        Not wait_for_function: it takes the promise a fetch returns as true."""
+        Not wait_for_function: it takes the promise a fetch returns as true.
+        Every 250 ms: each look is a connection of its own."""
         check = f"() => fetch('/api/sync').then(r => r.json()).then({predicate})"
         deadline = time.monotonic() + timeout
-        while not page.evaluate(check):
+        while not through_hiccups(lambda: page.evaluate(check)):
             if time.monotonic() > deadline:
                 # What it had instead: each workspace's sizes, and the config.
                 had = page.evaluate(
@@ -264,7 +303,7 @@ class BrowserTests(unittest.TestCase):
                     ".map(([k, v]) => [k, v.map(r => r.size + (r.deleted ? ' (deleted)' : ''))])) }))"
                 )
                 raise AssertionError(f"the server never had {predicate}; it had {had}")
-            page.wait_for_timeout(100)
+            page.wait_for_timeout(250)
 
     @staticmethod
     def synced(page):
@@ -287,7 +326,8 @@ class BrowserTests(unittest.TestCase):
         self.addCleanup(context.close)
         other = context.new_page()
         other.on("pageerror", lambda exc: self.errors.append(str(exc)))
-        other.goto(self.editor + "/")
+        self.goto(other, self.editor + "/")
+        self.first_sync(other)
         other.fill("#startupInitials", initials)
         other.fill("#startupAto", ato)
         other.fill("#startupTitle", "Patrol")
@@ -315,9 +355,12 @@ class BrowserTests(unittest.TestCase):
         viewer = self.open_viewer()
         self.log(editor, "2x BTR")
         self.assertEqual(self.sizes(editor), ["2x BTR"])
-        # The toast says it was copied, and the status dot is green.
-        self.assertIn("logged", editor.locator("#toastNotification").text_content())
-        self.assertIn("online", editor.locator("#statusDot").get_attribute("class"))
+        # The toast says it was copied (once the copy is done, a moment after
+        # the row shows), and the status dot is green (once it is sent).
+        editor.wait_for_selector("#toastNotification:has-text('logged')")
+        editor.wait_for_function(
+            "document.getElementById('statusDot').classList.contains('online')"
+        )
         # SSE told the viewer; it renders without a reload, and has no form.
         viewer.wait_for_selector("#reportLogBody .col-size:has-text('2x BTR')")
         self.assertFalse(viewer.locator("#logButton").is_visible())
@@ -943,7 +986,8 @@ class BrowserTests(unittest.TestCase):
         page = self.open_editor()
         page.route("**/api/save_reports", lambda route: route.abort())
         self.log(page, "2x BTR")
-        self.assertTrue(page.evaluate("changesWaiting()"))
+        # Waiting once the save has failed, a moment after the row shows.
+        page.wait_for_function("changesWaiting()")
         self.assertTrue(page.locator("#notSavingBar").is_hidden(), "not after a moment")
         page.evaluate("waitingSince = Date.now() - 31000; renderStatusBars()")
         page.wait_for_selector("#notSavingBar:has-text('Not saving')")
@@ -1004,7 +1048,7 @@ class BrowserTests(unittest.TestCase):
         fresh = self.browser.new_context(ignore_https_errors=True)
         self.addCleanup(fresh.close)
         page = fresh.new_page()
-        page.goto(self.editor + "/")
+        self.goto(page, self.editor + "/")
         page.wait_for_selector("#startupModal.show")
         chips = page.locator("#startupPresetAtos [data-ato]")  # the first five
         chips.first.click()
@@ -1046,7 +1090,7 @@ class BrowserTests(unittest.TestCase):
         # so an ATO being typed went on in the Title box (seen on CI as an
         # editor starting in the last test's workspace).
         page = self.context.new_page()
-        page.goto(self.editor + "/")
+        self.goto(page, self.editor + "/")
         page.wait_for_selector("#startupModal.show")
         page.evaluate(
             """() => { el.startup.overlay.classList.remove('show'); openStartupModal();
@@ -1438,7 +1482,7 @@ class BrowserTests(unittest.TestCase):
             self.log(page, "2x BTR", location="38SMB4500085200")
             self.assertEqual(here("2x BTR"), "38SMB4500085200")
             # This browser's choice: it lasts a reload.
-            page.reload()
+            self.reload(page)
             page.wait_for_function(
                 "() => document.getElementById('toggleNearbyBtn').textContent.endsWith('Off')"
             )
@@ -1602,18 +1646,7 @@ class BrowserTests(unittest.TestCase):
         page = self.open_editor()
         self.import_overlays(page)
         # Another workspace has the same overlays, with nothing to import.
-        second = self.browser.new_context(
-            ignore_https_errors=True
-        )  # another browser: storage of its own
-        self.addCleanup(second.close)
-        other = second.new_page()
-        other.on("pageerror", lambda exc: self.errors.append(str(exc)))
-        other.goto(self.editor + "/")
-        other.fill("#startupInitials", "CD")
-        other.fill("#startupAto", "SHAREDTWO")
-        other.fill("#startupTitle", "Patrol")
-        other.click("#startupContinueBtn")
-        other.wait_for_selector("#startupModal.show", state="hidden")
+        other = self.second_editor("CD", "SHAREDTWO")
         self.log(other, "1x BTR", location="38SMB4500082000")
         other.wait_for_selector("#reportLogBody .col-location:has-text('38SMB4500082000, NAI 1')")
         page.click("#exportViewToggleBtn")
@@ -2251,7 +2284,7 @@ class BrowserTests(unittest.TestCase):
             page.click("#ioDrop")
         self.assertTrue(fc.value.is_multiple())
         # The choice is remembered; viewers only export.
-        page.reload()
+        self.reload(page)
         page.wait_for_function("() => isManageViewActive")  # the view on screen is restored too
         page.click(".ws-tab[data-tab='export']")
         self.assertEqual(page.input_value("#ioFormatSelect"), "tracks-shp")
@@ -2803,7 +2836,7 @@ class BrowserTests(unittest.TestCase):
             " && !document.querySelector('#mapSvg .map-ring-now')"
         )
         # Kept in this browser: a reload still shows them; x removes one, Clear all the rest.
-        page.reload()
+        self.reload(page)
         self.assert_in_workspace(page, self.ato)
         self.open_map(page)
         page.wait_for_function(
@@ -2907,7 +2940,7 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#mapMeasureOut:has-text('at 25 mph takes')")
         page.evaluate("localStorage.removeItem('salt_measure_speed')")
         # Per browser: a reload keeps it; the toggle puts metric back.
-        page.reload()
+        self.reload(page)
         self.assert_in_workspace(page, self.ato)
         page.click("#dataMgmtBtn")
         self.assertEqual(page.text_content("#toggleUnitsBtn"), "Units: Imperial")
@@ -3795,7 +3828,7 @@ class BrowserTests(unittest.TestCase):
             page.evaluate("document.querySelector('#mapBox .map-tools').offsetWidth"), tools
         )
         # The layers and the latest / all choice are kept in this browser.
-        page.reload()
+        self.reload(page)
         page.wait_for_selector("#mapSvg .map-report")
         self.assertEqual(page.get_attribute("[data-map-layer='heat']", "aria-pressed"), "false")
         self.assertEqual(page.get_attribute("[data-map-grids='all']", "aria-pressed"), "true")
@@ -3804,7 +3837,7 @@ class BrowserTests(unittest.TestCase):
         self.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=self.editor)
         page = self.context.new_page()
         page.on("pageerror", lambda exc: self.errors.append(str(exc)))
-        page.goto(self.editor + "/")
+        self.goto(page, self.editor + "/")
         page.wait_for_selector("#startupModal.show")
         # The startup field holds the code but draws it as dots.
         field = page.locator("#startupAccessCode")
@@ -3815,6 +3848,7 @@ class BrowserTests(unittest.TestCase):
         page.click("#startupAccessShowBtn")
         self.assertEqual(field.evaluate("e => getComputedStyle(e).webkitTextSecurity"), "none")
         self.assertEqual(page.inner_text("#startupAccessShowBtn"), "Hide")
+        self.first_sync(page)
         page.fill("#startupInitials", "AB")
         page.fill("#startupAto", "CODEMASK")
         page.fill("#startupTitle", "Patrol")
@@ -4410,7 +4444,7 @@ class BrowserTests(unittest.TestCase):
         page = self.open_editor()
         self.import_overlays(page)
         self.log(page, "2x BTR", location="38SMB4500082000")
-        page.reload()
+        self.reload(page)
         page.wait_for_selector("#reportLogTable")
         # The tiles are there before the map is drawn, so it opens where it stays
         # (measured within its pane, which is still sliding in).
@@ -4844,15 +4878,7 @@ class BrowserTests(unittest.TestCase):
         )
         self.wait_for_server(page, "s => (s.format.lines || []).some(l => l.label === 'W')")
         # Another browser, in yet another workspace, has it too.
-        second = self.browser.new_context(ignore_https_errors=True)
-        self.addCleanup(second.close)
-        other = second.new_page()
-        other.on("pageerror", lambda exc: self.errors.append(str(exc)))
-        other.goto(self.editor + "/")
-        other.fill("#startupInitials", "CD")
-        other.fill("#startupAto", "FORMATC")
-        other.fill("#startupTitle", "Patrol")
-        other.click("#startupContinueBtn")
+        other = self.second_editor("CD", "FORMATC")
         other.wait_for_selector("#saltFields [data-custom-label='W']")
         page.evaluate("saveFormat(defaultFormat())")
         self.wait_for_server(page, "s => !(s.format.lines || []).some(l => l.label === 'W')")
@@ -4940,7 +4966,7 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(page.input_value("#location"), "11S NV 39697 06762")
         page.click("#cancelButton")
         # Kept across a reload; off again leaves typed digits alone.
-        page.reload()
+        self.reload(page)
         self.assertEqual(page.input_value("#mgrsPrefix"), "38S MB")
         page.click("#dataMgmtBtn")
         page.click("#toggleMgrsLockBtn")
@@ -5473,7 +5499,7 @@ class BrowserTests(unittest.TestCase):
         with page.expect_download() as dl:
             page.click("#summarySaveBtn")
         self.assertEqual(Path(dl.value.path()).read_bytes(), b"MY OWN WORDING")
-        page.reload()
+        self.reload(page)
         page.wait_for_selector("#summaryText:has-text('MY OWN WORDING')")
         page.click("[data-summary-kind='rollup']")
         page.wait_for_selector("#summaryText:has-text('ROLLUP - ')")
@@ -5607,7 +5633,7 @@ class BrowserTests(unittest.TestCase):
         self.context.add_init_script("localStorage.setItem('salt_log_view', 'map')")
         page = self.context.new_page()
         page.on("pageerror", lambda exc: self.errors.append(str(exc)))
-        page.goto(self.editor + "/")
+        self.goto(page, self.editor + "/")
         page.wait_for_selector("#startupModal.show")
         self.settle(page)  # past the panes' own transitions
         shown = page.evaluate(
