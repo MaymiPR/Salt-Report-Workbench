@@ -194,6 +194,7 @@ outside `/api`) gets the standard library's HTML `404`.
 | `/api/save_drones` | POST | Replace the drones on the map: `[{name, grid, at, look?, range?, offStation?}]` (at most 10, names unique, `grid` and `look` MGRS grids as the page writes them, `at` when it was put there, in ms, `range` in km, more than 0 and at most 1,000, `offStation` true when it is off station, kept only then). Shared like the basemaps and kept in every backup file; each browser chooses whether they and their view show. |
 | `/api/save_fmv` | POST | Turn FMV mode on or off for everyone: `{fmv: {on: true \| false}}`. Kept in every backup file. Until it is first saved the server holds `{}`, and the page takes that as on when there are drones, else off (a file that never had it, or `{}`, leaves it unsaved at boot). |
 | `/api/save_narrative` | POST | Replace the narrative's settings: `{enemy, units: [{name, places, kinds}], equipment: [{type, role, origin}], off: [rule ids], custom: [{what, words, min, hours}], toward?}` (at most 50 units, 500 equipment entries, 30 rules; unit names and equipment types unique; roles and rule ids from the fixed lists, origin `RU`, `CN` or empty; a rule's `min` 1-20 reports within `hours` 1-168; `toward`, the AO's way of march, N, NE, E, SE, S, SW, W, NW or empty, kept only when set). Shared like the basemaps and kept in every backup file. |
+| `/api/refresh` | POST | Refresh: read the backups in the folder the server hasn't read or written as they are now (by size and modification time), and merge their workspaces in; their shared settings are left. `{files, skipped, workspaces: {ATO: {added, changes}}}`. Not on the viewer port. |
 | `/api/finish_mission` | POST | Done with Mission: `{confirm: "DONE"}`. Everything in the backup folder but `tls/` goes to `Mission Archives/<when> <title>/`, and the next mission starts with only the basemaps; `{archive, mission}`. A 500 resets nothing. Not on the viewer port. |
 | `/api/missions` | GET | The finished missions, newest first: `{name, finished, by, title, workspaces: {ATO: reports}, settings: {overlays, tags, drones, profiles, format, narrative, fmv}}`. Not on the viewer port. |
 | `/api/recall_settings` | POST | `{mission, parts}`: those settings of a finished mission, merged or replacing as Recall Settings says; `{taken, missed: {part: why}}`. |
@@ -477,6 +478,15 @@ nothing adds nothing.
 Unloading a workspace removes it from memory and leaves its file in place:
 unload is "from view", and a restart reloads the file. That is documented
 behavior, not a limitation.
+
+Refresh (`refresh_from_disk`) reads a file put in the backup folder while the
+server runs, without a restart. The server notes each file's size and
+modification time as it reads it at boot and as every save writes it
+(`_file_seen`), so Refresh reads only the files that differ: dropped in, or
+changed by hand. Their workspaces are merged in as the boot would (a new one's
+source is its file), but their shared settings are not, so a file from
+elsewhere can't replace the team's overlays or format. An unloaded workspace's
+file, unchanged, stays unloaded.
 
 ### Missions
 

@@ -22,6 +22,10 @@ All notable changes to this project are documented here. The format follows
   workspaces. *Recall Settings* brings back the overlays, tags, drones,
   initials, report format, narrative settings or FMV mode you tick, and your
   own display preferences; *Load* brings back the workspaces you tick.
+- **Refresh.** A button in Manage > Workspaces has the server read the
+  backup files put in its `Auto Backups` folder since it started (or changed
+  by hand), without a restart, and merge their workspaces in. Only their
+  reports: a dropped file can't replace the team's overlays or settings.
 - **The narrative reads tracked and wheeled vehicles.** A report that gives
   only how many vehicles were tracked or wheeled (`10x wheeled vics, 2x
   tracked`, `1x wheeled, 10x tracked`) is read by its mix: mostly tracked

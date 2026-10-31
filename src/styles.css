@@ -1230,6 +1230,8 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .ws-finish-btn { background-color: var(--red-soft); color: var(--system-red); border: 1px solid var(--red-strong); }
 .ws-finish-btn:hover { background-color: var(--red-hover); }
 body.read-only .ws-block-btns { display: none; }
+/* Refresh asks the server; a page opened without one has none. */
+body.local-mode #refreshBackupsBtn { display: none; }
 /* Previous Missions: the finished ones, three rows tall, scrolling. */
 .missions-list { max-height: 168px; overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; gap: 6px; }
 .mission-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background-color: var(--input-bg); border-radius: 10px; }
