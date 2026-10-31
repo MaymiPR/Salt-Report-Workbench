@@ -209,7 +209,7 @@ mission: dict = {'id': '', 'since': 0, 'finished': []}
 
 # This release. The page carries the same (APP_VERSION in src/app/10-state.js)
 # and warns when the two differ; tests/test_docs.py checks they agree.
-APP_VERSION = '2.33.1'
+APP_VERSION = '2.34.0'
 # When this server started, for /api/health.
 STARTED_AT = time.time()
 

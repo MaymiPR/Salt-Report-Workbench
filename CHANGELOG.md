@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.34.0] - 2026-10-31
+
 ### Added
 
 - **Done with Mission.** A button in Manage > Workspaces ends the mission and
@@ -1566,7 +1568,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.33.1...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.34.0...HEAD
+[2.34.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.33.1...v2.34.0
 [2.33.1]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.33.0...v2.33.1
 [2.33.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.32.1...v2.33.0
 [2.32.1]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.32.0...v2.32.1
