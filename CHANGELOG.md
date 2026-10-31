@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Activity takes less room.** In Manage > Workspaces and the viewers'
+  sidebar, the Activity box is four rows tall at the foot of the panel,
+  down from about eight, and the workspace list gets the space. It still
+  scrolls through the last 50 changes.
+
 ## [2.33.1] - 2026-10-30
 
 ### Fixed
