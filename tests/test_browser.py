@@ -3562,6 +3562,7 @@ class BrowserTests(unittest.TestCase):
 
         fake = hs.ThreadingHTTPServer(("127.0.0.1", 0), Fake)
         threading.Thread(target=fake.serve_forever, daemon=True).start()
+        self.addCleanup(fake.server_close)
         self.addCleanup(fake.shutdown)
         base = f"http://127.0.0.1:{fake.server_port}/ows"
         caps_holder["caps"] = self.capabilities(

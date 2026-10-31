@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/version-2.34.0-0A84FF" alt="Version 2.34.0">
   <a href="https://github.com/MaymiPR/SaltReportWorkbench/actions/workflows/ci.yml"><img src="https://github.com/MaymiPR/SaltReportWorkbench/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/python-3.10%2B-0A84FF" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/python-3.11.8%2B-0A84FF" alt="Python 3.11.8+">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-8E8E93" alt="License: AGPL v3"></a>
 </p>
 
@@ -114,7 +114,7 @@ write is refused.
 
 ## Quick start
 
-You need Python 3.10 or newer and a browser.
+You need Python 3.11.8 or newer and a browser.
 
 **From a release.** Download the zip from the
 [Releases page](https://github.com/MaymiPR/SaltReportWorkbench/releases/latest)

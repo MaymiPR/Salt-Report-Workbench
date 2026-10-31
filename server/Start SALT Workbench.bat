@@ -3,7 +3,7 @@ setlocal EnableExtensions
 rem SPDX-License-Identifier: AGPL-3.0-only
 rem
 rem S.A.L.T. Report Workbench launcher. Double-click to start the sync server.
-rem No install and no admin rights needed, only Python 3.10 or newer.
+rem No install and no admin rights needed, only Python 3.11.8 or newer.
 rem
 rem If your machine needs a specific python.exe, put its full path between the
 rem quotes on the PYTHON_EXE line below, for example:
@@ -39,7 +39,7 @@ if not defined PYTHON_EXE if defined SALT_PYTHON set "PYTHON_EXE=%SALT_PYTHON%"
 if defined PYTHON_EXE (
     call :try "%PYTHON_EXE%" && goto :run
     echo [!] Could not use "%PYTHON_EXE%".
-    echo      Check that the path is right and that it is Python 3.10 or newer.
+    echo      Check that the path is right and that it is Python 3.11.8 or newer.
     goto :fail
 )
 
@@ -60,7 +60,7 @@ for /d %%D in ("%LOCALAPPDATA%\Programs\Python\Python3*" "%ProgramFiles%\Python3
     call :try "%%D\python.exe" && goto :run
 )
 
-echo [!] Python 3.10 or newer was not found.
+echo [!] Python 3.11.8 or newer was not found.
 echo.
 echo      Open this file in Notepad and put the full path to python.exe on the
 echo      PYTHON_EXE line near the top, for example:
@@ -86,10 +86,10 @@ echo.
 pause
 exit /b 1
 
-rem Sets PY to %1 if it runs and is Python 3.10 or newer.
+rem Sets PY to %1 if it runs and is Python 3.11.8 or newer.
 :try
 if "%~1"=="" exit /b 1
 if not exist "%~1" exit /b 1
-"%~1" -c "import sys; sys.exit(sys.version_info < (3, 10))" >nul 2>&1 || exit /b 1
+"%~1" -c "import sys; sys.exit(sys.version_info < (3, 11, 8))" >nul 2>&1 || exit /b 1
 set "PY=%~1"
 exit /b 0

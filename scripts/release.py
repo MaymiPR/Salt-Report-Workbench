@@ -45,7 +45,7 @@ Field-ready SALT reporting with real-time LAN sync.
 =====================================================================
 
 REQUIREMENTS
-  Python 3.10 or newer, and any modern browser. Nothing else to install.
+  Python 3.11.8 or newer, and any modern browser. Nothing else to install.
 
 UPGRADING? COPY YOUR "Auto Backups" FOLDER FIRST
   A new release's zip extracts to a NEW folder named for its version,
@@ -144,7 +144,9 @@ def write_zip(path: Path, version: str, files: dict[str, bytes], stamp: tuple) -
 
 
 def _git(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True)
+    return subprocess.run(
+        ["git", "-C", str(ROOT), *args], capture_output=True, text=True, encoding="utf-8"
+    )
 
 
 def commit_stamp() -> tuple:

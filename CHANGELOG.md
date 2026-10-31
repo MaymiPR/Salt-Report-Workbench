@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Python 3.11.8 or newer.** The server, the launcher and the packed `.txt`
+  now need Python 3.11.8, what the operators' machines have, instead of 3.10
+  (end of life since 2026-10-01). An older Python is told so plainly, as
+  before. CI tests every change on 3.11.8 exactly, on Linux and Windows, as
+  well as 3.12 to 3.15.
+
+### Fixed
+
+- Checking a WMS address that answers with an error (a 404, say) closes the
+  connection at once instead of leaving it for Python to clean up.
+
 ## [2.34.0] - 2026-10-31
 
 ### Added

@@ -7,7 +7,7 @@ push reports with POSTs, the server merges them (newest edit wins), tells
 everyone over Server-Sent Events that something changed, and writes a
 readable backup file. An optional second port serves the same data read-only.
 
-Standard library only, so it runs on a stock Python 3.10+ install.
+Standard library only, so it runs on a stock Python 3.11.8+ install.
 See docs/ARCHITECTURE.md for the design.
 """
 
@@ -49,11 +49,12 @@ except ImportError:  # a Python built without OpenSSL can only run with --no-htt
     ssl = None
 
 # As early as it can be: the imports above work on older Pythons too, and what
-# follows (annotations like ``int | None``) needs 3.10. The file is kept free of
-# syntax 3.8 and 3.9 can't parse, so they reach this line and say why plainly.
-if sys.version_info < (3, 10):  # noqa: UP036
+# follows (annotations like ``int | None``) needs 3.10. 3.11.8 is the oldest
+# Python it is tested on. The file is kept free of syntax 3.8 and 3.9 can't
+# parse, so they reach this line and say why plainly.
+if sys.version_info < (3, 11, 8):
     sys.exit(
-        'The S.A.L.T. sync server needs Python 3.10 or newer; this is Python '
+        'The S.A.L.T. sync server needs Python 3.11.8 or newer; this is Python '
         + sys.version.split()[0]
         + '.'
     )
@@ -1735,8 +1736,9 @@ def wms_fetch(url: str) -> dict:
                 res.status, res.headers.get('Content-Type', ''), res.read(WMS_FETCH_MAX_BYTES + 1)
             )
     except urllib.error.HTTPError as e:
-        body = e.read(WMS_FETCH_MAX_BYTES + 1) if e.fp else b''
-        return answer(e.code, e.headers.get('Content-Type', '') if e.headers else '', body)
+        with e:  # an error response is still an open connection
+            body = e.read(WMS_FETCH_MAX_BYTES + 1) if e.fp else b''
+            return answer(e.code, e.headers.get('Content-Type', '') if e.headers else '', body)
     except (urllib.error.URLError, OSError, ValueError) as e:
         return {'error': str(getattr(e, 'reason', e)) or type(e).__name__}
 

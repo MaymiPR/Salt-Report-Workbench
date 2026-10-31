@@ -1012,10 +1012,10 @@ class StartupTests(unittest.TestCase):
 
     def test_an_older_python_is_told_plainly(self):
         result = self.run_server(
-            "--help", prelude="import sys; sys.version_info = (3, 9, 18, 'final', 0)"
+            "--help", prelude="import sys; sys.version_info = (3, 11, 7, 'final', 0)"
         )
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("needs Python 3.10 or newer", result.stderr)
+        self.assertIn("needs Python 3.11.8 or newer", result.stderr)
 
     def test_the_file_parses_on_python_3_8(self):
         # So 3.8 and 3.9 reach the version check instead of a SyntaxError.
@@ -1027,9 +1027,9 @@ class StartupTests(unittest.TestCase):
         self.assertNotRegex(
             source, re.compile(r"\bwith \($", re.M), "a parenthesized with needs 3.9 or later"
         )
-        check = source.index("if sys.version_info < (3, 10)")
+        check = source.index("if sys.version_info < (3, 11, 8)")
         first_annotation = re.search(r"^\w+: [\w |\[\],]+ = ", source, re.M).start()
-        self.assertLess(check, first_annotation, "checked before any 3.10 annotation runs")
+        self.assertLess(check, first_annotation, "checked before any annotation runs")
 
     def test_without_ssl_it_stops_unless_told_to_serve_plain_http(self):
         # Regression: it fell back to plain HTTP, the code readable on the network.
@@ -1130,7 +1130,9 @@ class RestoreTests(unittest.TestCase):
         self.assertEqual(
             sorted(p.name for p in kept.iterdir()), ["ALPHA_Patrol.txt", "BRAVO_Patrol.txt"]
         )
-        self.assertIn("restored snapshot 20261027_090000Z", (self.tmp / "audit.log").read_text())
+        self.assertIn(
+            "restored snapshot 20261027_090000Z", (self.tmp / "audit.log").read_text("utf-8")
+        )
         # Rounds are pruned by name; the kept copies never are.
         self.assertEqual(sorted(srv.snapshot_rounds()), ["20261027_090000Z", "20261028_090000Z"])
 
@@ -2310,6 +2312,7 @@ class HttpApiTests(unittest.TestCase):
             self.assertEqual(body["http"], 404)
         finally:
             fake.shutdown()
+            fake.server_close()
         _, body = self.post("/api/wms_fetch", {"url": "http://127.0.0.1:1/nothing"})
         self.assertIn("error", body)
         self.assertEqual(self.post("/api/wms_fetch", {"url": "file:///c:/windows/win.ini"})[0], 400)
