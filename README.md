@@ -130,7 +130,8 @@ that new folder starts with an empty `Auto Backups`. **Copy the `Auto Backups`
 folder from your old folder into the new one before starting** (or extract the
 new files over the old ones). Your reports are in that folder; so is the
 server's certificate (`Auto Backups/tls`), so copying it keeps the same
-certificate and browsers don't warn again.
+certificate and browsers don't warn again. Copy `Mission Archives` too, beside
+it, to keep the finished missions (Done with Mission puts them there).
 
 **From source:**
 

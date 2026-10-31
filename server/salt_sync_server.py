@@ -116,6 +116,16 @@ ACTIVITY_KEEP = 50
 # loader never takes it for a workspace backup. Workspace backups still carry
 # them too, for older versions.
 SHARED_SETTINGS_NAME = 'Shared settings.json'
+# Done with Mission moves everything in BACKUP_DIR but the certificate (tls/)
+# into a folder of its own under MISSION_ARCHIVE_NAME, beside BACKUP_DIR, named
+# for when it finished and its title (``2026-10-30 1415Z Patrol``), with what
+# it held summed up in MISSION_INFO_NAME for the Previous Missions list.
+MISSION_ARCHIVE_NAME = 'Mission Archives'
+MISSION_INFO_NAME = 'mission.json'
+MISSION_KEEP = frozenset({'tls'})
+# How many finished missions' ids are kept, so a page still on one of them
+# knows the team has moved on (see `mission` under State).
+MISSION_FINISHED_KEEP = 50
 
 # The bundled page sits beside the server in a built `dist/` folder; when run
 # straight from `server/` during development, fall back to `../dist/`.
@@ -188,6 +198,14 @@ unloaded_workspaces: set = set()
 # _activity_lock.
 activity_log: deque = deque(maxlen=ACTIVITY_KEEP)
 _activity_lock = threading.Lock()
+
+# The mission this server is on: {id, since (ms), finished (the ids of the
+# missions finished on it, newest first)}. Kept in Shared settings.json and
+# sent with /api/sync. A page that was on a finished one starts again from
+# nothing; one whose id the server has never had (a server that lost its
+# settings file, say) just takes the new id. Writes from a finished one are
+# refused (409). Protected by data_lock.
+mission: dict = {'id': '', 'since': 0, 'finished': []}
 
 # This release. The page carries the same (APP_VERSION in src/app/10-state.js)
 # and warns when the two differ; tests/test_docs.py checks they agree.
@@ -965,6 +983,39 @@ def _v_save_config(data: dict) -> str | None:
         return f'config.ato must be a string ≤{MAX_ATO_LEN} chars'
     if 'title' in cfg and not _is_str(cfg['title'], MAX_TITLE_LEN):
         return f'config.title must be a string ≤{MAX_TITLE_LEN} chars'
+    return None
+
+
+def _v_finish_mission(data: dict) -> str | None:
+    if data.get('confirm') != 'DONE':
+        return 'confirm must be "DONE"'
+    return None
+
+
+def _check_mission_name(data: dict) -> str | None:
+    if not _is_str(data.get('mission'), 200) or not data['mission']:
+        return 'mission must be the name of a finished mission'
+    return None
+
+
+def _v_recall_settings(data: dict) -> str | None:
+    if err := _check_mission_name(data):
+        return err
+    parts = data.get('parts')
+    if not isinstance(parts, list) or not parts or any(p not in RECALL_PARTS for p in parts):
+        return f'parts must be a list of {", ".join(RECALL_PARTS)}'
+    return None
+
+
+def _v_load_mission(data: dict) -> str | None:
+    if err := _check_mission_name(data):
+        return err
+    atos = data.get('atos')
+    if not isinstance(atos, list) or not atos or len(atos) > 500:
+        return 'atos must be a list of workspaces'
+    for a in atos:
+        if err := _check_ato({'ato': a}):
+            return f'atos: {err}'
     return None
 
 
@@ -1880,7 +1931,23 @@ def _parse_shared_settings(raw_text: str) -> dict:
     # One format here, not one per workspace: under '', it is the one pick_format finds.
     fmt = d.get('format')
     shared['formats'] = {'': fmt} if isinstance(fmt, dict) else {}
-    return {'workspaces': {}, **shared}
+    return {'workspaces': {}, **shared, 'mission': read_mission(d.get('mission'))}
+
+
+def read_mission(value) -> dict | None:
+    """The mission as Shared settings.json holds it, tidied; None for a file
+    from before missions, or one that makes no sense."""
+    if not isinstance(value, dict) or not _is_str(value.get('id'), 64) or not value['id']:
+        return None
+    since = value.get('since')
+    finished = value.get('finished')
+    return {
+        'id': value['id'],
+        'since': since if _is_int(since) else 0,
+        'finished': [f for f in finished if _is_str(f, 64) and f][:MISSION_FINISHED_KEEP]
+        if isinstance(finished, list)
+        else [],
+    }
 
 
 def _extract_json_from_file(raw_text: str) -> dict | None:
@@ -2010,98 +2077,147 @@ def _merge_reports(existing_list: list, incoming_list: list) -> list:
 # =============================================================================
 
 
+def backup_files(folder: str) -> list:
+    """The backups in ``folder`` the boot reads: every ``.txt`` and ``Shared
+    settings.json``, oldest first. None when it has none (or isn't there)."""
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    paths = [
+        os.path.join(folder, f)
+        for f in names
+        if (f.endswith('.txt') or f == SHARED_SETTINGS_NAME)
+        and os.path.isfile(os.path.join(folder, f))
+    ]
+    return sorted(paths, key=os.path.getmtime)
+
+
+def read_backups(candidates: list) -> dict:
+    """What some backup files hold, read as the boot reads them (see
+    load_data_from_disk): ``workspaces`` (ATO -> reports, merged across the
+    files), ``sources`` (ATO -> the newest file holding it), ``shared`` (the
+    shared settings), ``holds`` ([(file name, ATO)]), ``mission`` (from
+    Shared settings.json, or None) and ``skipped`` (how many files could not be
+    read; each is named on the console). ``candidates`` oldest first. No
+    global state."""
+    all_workspaces: dict = {}
+    source_by_ato: dict = {}
+    holds: list = []
+    found_mission = None
+    # The shared settings, as the files read so far say, oldest first.
+    shared = {s.key: s.initial() for s in SHARED_SECTIONS}
+    # The newest file in the shared form decides the overlays. Files from
+    # before they were shared (per-workspace dicts) are pooled, and used
+    # only when no file has the shared form yet.
+    shared_overlays: list | None = None
+    legacy_overlays: dict = {}
+    skipped = 0
+
+    for filepath in candidates:
+        fname = os.path.basename(filepath)
+        try:
+            with open(filepath, encoding='utf-8') as f:
+                raw = f.read()
+            if fname == SHARED_SETTINGS_NAME:
+                result = _parse_shared_settings(raw)
+                found_mission = result.get('mission') or found_mission
+            else:
+                result = _parse_backup(raw)
+            for ato_name, reports in result.get('workspaces', {}).items():
+                # Normalize like every handler does — lowercase keys from disk would miss uppercase requests.
+                key = (ato_name or '').strip().upper() or 'ATO'
+                if key in all_workspaces:
+                    all_workspaces[key] = _merge_reports(all_workspaces[key], reports)
+                else:
+                    all_workspaces[key] = reports
+                # Last file to touch a workspace becomes its recorded
+                # source; mtime-sorted candidates ensure that's the
+                # most recent backup file holding it.
+                source_by_ato[key] = fname
+                holds.append((fname, key))
+            for s in SHARED_SECTIONS:
+                # The newest file's. For the config, newest mtime wins:
+                # matches the runtime invariant that the most recent
+                # ATO/Title is active.
+                if s.newest_file and isinstance(result.get(s.key), s.kind):
+                    shared[s.key] = result[s.key]
+            # The profiles: every file's, merged.
+            shared['profiles'].update(result.get('profiles', {}))
+            # The format: the newest file's, for its active workspace if it has one.
+            if (fmt := pick_format(result.get('formats'), result.get('config'))) is not None:
+                shared['format'] = fmt
+            ovs = result.get('overlays')
+            if isinstance(ovs, list):
+                shared_overlays = fold_overlays(ovs)
+            elif isinstance(ovs, dict):
+                legacy_overlays.update(
+                    {(o.get('type'), o.get('name')): o for o in fold_overlays(ovs)}
+                )
+        except Exception as exc:
+            # Not silently: a backup that doesn't load is data missing from the session.
+            skipped += 1
+            safe_print(f'[!] Skipped {fname}: {exc}')
+
+    shared['overlays'] = (
+        shared_overlays if shared_overlays is not None else list(legacy_overlays.values())
+    )
+    return {
+        'workspaces': all_workspaces,
+        'sources': source_by_ato,
+        'shared': shared,
+        'holds': holds,
+        'mission': found_mission,
+        'skipped': skipped,
+    }
+
+
 def load_data_from_disk() -> int:
     """Read the backups in BACKUP_DIR into DATA_STORE + workspace_sources.
 
     Every ``.txt`` backup adds its workspaces. The shared settings
     (SHARED_SECTIONS) come from the newest file that holds them,
     ``Shared settings.json`` among them, so they return even when no workspace
-    does; the profiles, format and overlays have rules of their own, below. A
-    file that can't be read is named on the console and skipped; returns how
-    many were.
+    does; the profiles, format and overlays have rules of their own (see
+    read_backups). A file that can't be read is named on the console and
+    skipped; returns how many were.
     """
     with data_lock:
         os.makedirs(BACKUP_DIR, exist_ok=True)
-
-        candidates = sorted(
-            [
-                os.path.join(BACKUP_DIR, f)
-                for f in os.listdir(BACKUP_DIR)
-                if f.endswith('.txt') or f == SHARED_SETTINGS_NAME
-            ],
-            key=os.path.getmtime,
-        )
-
+        candidates = backup_files(BACKUP_DIR)
         if not candidates:
             return 0
-
-        all_workspaces: dict = {}
-        source_by_ato: dict = {}
-        # The shared settings, as the files read so far say, oldest first.
-        shared = {s.key: s.initial() for s in SHARED_SECTIONS}
-        # The newest file in the shared form decides the overlays. Files from
-        # before they were shared (per-workspace dicts) are pooled, and used
-        # only when no file has the shared form yet.
-        shared_overlays: list | None = None
-        legacy_overlays: dict = {}
-        skipped = 0
+        got = read_backups(candidates)
         _file_holds.clear()
         _merged_files.clear()
-
-        for filepath in candidates:
-            fname = os.path.basename(filepath)
-            try:
-                with open(filepath, encoding='utf-8') as f:
-                    raw = f.read()
-                if fname == SHARED_SETTINGS_NAME:
-                    result = _parse_shared_settings(raw)
-                else:
-                    result = _parse_backup(raw)
-                for ato_name, reports in result.get('workspaces', {}).items():
-                    # Normalize like every handler does — lowercase keys from disk would miss uppercase requests.
-                    key = (ato_name or '').strip().upper() or 'ATO'
-                    if key in all_workspaces:
-                        all_workspaces[key] = _merge_reports(all_workspaces[key], reports)
-                    else:
-                        all_workspaces[key] = reports
-                    # Last file to touch a workspace becomes its recorded
-                    # source; mtime-sorted candidates ensure that's the
-                    # most recent backup file holding it.
-                    source_by_ato[key] = fname
-                    _file_holds.setdefault(fname.casefold(), (fname, set()))[1].add(key)
-                    _merged_files.setdefault(key, set()).add(fname.casefold())
-                for s in SHARED_SECTIONS:
-                    # The newest file's. For the config, newest mtime wins:
-                    # matches the runtime invariant that the most recent
-                    # ATO/Title is active.
-                    if s.newest_file and isinstance(result.get(s.key), s.kind):
-                        shared[s.key] = result[s.key]
-                # The profiles: every file's, merged.
-                shared['profiles'].update(result.get('profiles', {}))
-                # The format: the newest file's, for its active workspace if it has one.
-                if (fmt := pick_format(result.get('formats'), result.get('config'))) is not None:
-                    shared['format'] = fmt
-                ovs = result.get('overlays')
-                if isinstance(ovs, list):
-                    shared_overlays = fold_overlays(ovs)
-                elif isinstance(ovs, dict):
-                    legacy_overlays.update(
-                        {(o.get('type'), o.get('name')): o for o in fold_overlays(ovs)}
-                    )
-            except Exception as exc:
-                # Not silently: a backup that doesn't load is data missing from the session.
-                skipped += 1
-                safe_print(f'[!] Skipped {fname}: {exc}')
-
-        shared['overlays'] = (
-            shared_overlays if shared_overlays is not None else list(legacy_overlays.values())
-        )
-        DATA_STORE['workspaces'] = all_workspaces
-        DATA_STORE.update(shared)
+        for fname, key in got['holds']:
+            _file_holds.setdefault(fname.casefold(), (fname, set()))[1].add(key)
+            _merged_files.setdefault(key, set()).add(fname.casefold())
+        DATA_STORE['workspaces'] = got['workspaces']
+        DATA_STORE.update(got['shared'])
         workspace_sources.clear()
-        workspace_sources.update(source_by_ato)
+        workspace_sources.update(got['sources'])
+        if got['mission']:
+            mission.update(got['mission'])
         invalidate_sync_cache()
-        return skipped
+        return got['skipped']
+
+
+def ensure_mission() -> None:
+    """A mission for a server that has none yet (new, or upgraded from before
+    missions), written to Shared settings.json at once: one made again after a
+    restart would be a new id to every page (harmless, as none of them was
+    finished, but the id is the server's from now on)."""
+    with data_lock:
+        if mission['id']:
+            return
+        mission.update(id=secrets.token_hex(8), since=int(time.time() * 1000), finished=[])
+        text = render_shared_settings(shared_settings(), dict(mission))
+    try:
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        _write_atomically(os.path.join(BACKUP_DIR, SHARED_SETTINGS_NAME), text)
+    except OSError as exc:
+        safe_print(f'[!] Could not save {SHARED_SETTINGS_NAME}: {exc}')
 
 
 def pick_format(formats, config) -> dict | None:
@@ -2279,11 +2395,13 @@ def render_backup(
     return filename, '\n'.join(lines)
 
 
-def render_shared_settings(shared: dict) -> str:
+def render_shared_settings(shared: dict, on: dict | None = None) -> str:
     """The text of ``Shared settings.json`` from ``shared`` (key -> value, as
-    ``shared_settings`` gives), one not given written empty. Pure, like
-    ``render_backup``."""
+    ``shared_settings`` gives), one not given written empty, and the mission
+    ``on`` when given. Pure, like ``render_backup``."""
     out = {s.key: shared.get(s.key) or s.kind() for s in SHARED_SECTIONS}
+    if on and on.get('id'):
+        out['mission'] = on
     return json.dumps(out, indent=1, ensure_ascii=False) + '\n'
 
 
@@ -2433,6 +2551,17 @@ def _move_superseded(name: str) -> None:
     )
 
 
+def _held_names() -> set:
+    """The files on disk holding reports no loaded workspace was read from or
+    written to (an unloaded workspace's, say), casefolded: no workspace's
+    file may take one of their names. Caller holds data_lock."""
+    return {
+        k
+        for k, (_, atos) in _file_holds.items()
+        if any(k not in _merged_files.get(a, ()) for a in atos)
+    }
+
+
 def _note_written(written: list) -> list:
     """Record the workspace backups just written, ``[(ato, filename)]``, and
     return the names of the files that now hold nothing. Caller holds data_lock."""
@@ -2522,20 +2651,14 @@ def save_data_to_disk() -> None:
                     # workspace's name, the shape backup files keep.
                     formats=formats_for(workspaces, shared['format']),
                     only=only,
-                    names=workspace_filenames(
-                        workspaces,
-                        shared['config'],
-                        {
-                            k
-                            for k, (_, atos) in _file_holds.items()
-                            if any(k not in _merged_files.get(a, ()) for a in atos)
-                        },
-                    ),
+                    names=workspace_filenames(workspaces, shared['config'], _held_names()),
                     **{k: v for k, v in shared.items() if k != 'format'},
                 )
                 if shared_pending or snapshot_due:
                     # None for the ATO: the shared settings, not a workspace.
-                    files.append((None, SHARED_SETTINGS_NAME, render_shared_settings(shared)))
+                    files.append(
+                        (None, SHARED_SETTINGS_NAME, render_shared_settings(shared, dict(mission)))
+                    )
             except Exception as exc:
                 # Nothing was written: keep every change pending, so a report
                 # the backup can't be made from never silently stops saving.
@@ -2580,6 +2703,272 @@ def save_data_to_disk() -> None:
             except Exception as exc:
                 # The live backups are already safe; a missed snapshot is worth a line, not a crash.
                 safe_print(f'[!] Error writing snapshot: {exc}')
+
+
+def mission_archive_dir() -> str:
+    """Where finished missions go: MISSION_ARCHIVE_NAME, beside BACKUP_DIR."""
+    return os.path.join(os.path.dirname(os.path.abspath(BACKUP_DIR)), MISSION_ARCHIVE_NAME)
+
+
+def _folder_part(s) -> str:
+    """Letters, digits, spaces, '-' and '_' kept, anything else made '_'."""
+    return ''.join(c if c.isalnum() or c in ' -_' else '_' for c in str(s)).strip(' _')[:60]
+
+
+def mission_summary(workspaces: dict, shared: dict) -> dict:
+    """What a mission held, for the Previous Missions list: each workspace's
+    live reports, and how much of each setting Recall can bring back."""
+    narrative = shared.get('narrative') or {}
+    return {
+        'workspaces': {
+            ato: sum(1 for r in _dicts(reps) if not r.get('deleted'))
+            for ato, reps in sorted(workspaces.items())
+        },
+        'settings': {
+            'overlays': len(_dicts(shared.get('overlays'))),
+            'tags': len(_dicts(shared.get('tags'))),
+            'drones': len(_dicts(shared.get('drones'))),
+            'profiles': len(shared.get('profiles') or {}),
+            'format': 1 if isinstance(shared.get('format'), dict) and shared['format'] else 0,
+            'narrative': 1 if isinstance(narrative, dict) and narrative else 0,
+            'fmv': 1 if read_fmv(shared.get('fmv')) else 0,
+        },
+    }
+
+
+def finish_mission(actor: str, by: str = '') -> tuple:
+    """Done with Mission. Every workspace and the shared settings are written
+    to BACKUP_DIR as they are now, everything in it but the certificate is
+    moved into a new folder of the mission archive, and the next mission
+    starts with nothing but the basemaps. All or nothing: a file that can't be
+    moved (held open by a sync client, say) has what was moved put back, and
+    the OSError is raised with nothing reset. ``actor`` is who it is in the
+    audit log, ``by`` their initials (or ''). Returns (the folder's name, the
+    new mission's id)."""
+    global _last_snapshot_at, _dirty_atos, _shared_dirty
+    with _disk_lock, data_lock:
+        workspaces = DATA_STORE['workspaces']
+        shared = shared_settings()
+        files = render_workspace_backups(
+            workspaces,
+            formats=formats_for(workspaces, shared['format']),
+            names=workspace_filenames(workspaces, shared['config'], _held_names()),
+            **{k: v for k, v in shared.items() if k != 'format'},
+        )
+        files.append((None, SHARED_SETTINGS_NAME, render_shared_settings(shared, dict(mission))))
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        for _, filename, content in files:
+            _write_atomically(os.path.join(BACKUP_DIR, filename), content)
+        now = datetime.now(timezone.utc)
+        title = (shared['config'].get('title') or '').strip()
+        if not title:
+            titles = [workspace_title(a, r, shared['config']) for a, r in workspaces.items()]
+            title = max(set(titles), key=titles.count) if titles else 'SALT'
+        root = mission_archive_dir()
+        os.makedirs(root, exist_ok=True)
+        base = f'{now:%Y-%m-%d %H%MZ} {_folder_part(title) or "SALT"}'
+        name, n = base, 1
+        while os.path.exists(os.path.join(root, name)):
+            n += 1
+            name = f'{base} ({n})'
+        audit(actor, f'finish_mission: archived as {name}')
+        dest = os.path.join(root, name)
+        os.makedirs(dest)
+        moved: list = []
+        with _audit_lock:
+            try:
+                for f in sorted(os.listdir(BACKUP_DIR)):
+                    if f not in MISSION_KEEP:
+                        os.replace(os.path.join(BACKUP_DIR, f), os.path.join(dest, f))
+                        moved.append(f)
+            except OSError:
+                for f in reversed(moved):
+                    with contextlib.suppress(OSError):
+                        os.replace(os.path.join(dest, f), os.path.join(BACKUP_DIR, f))
+                with contextlib.suppress(OSError):
+                    os.rmdir(dest)
+                raise
+        info = {
+            'finished': f'{now:%Y-%m-%dT%H:%M:%SZ}',
+            'by': by,
+            'title': title,
+            'mission': mission['id'],
+            **mission_summary(workspaces, shared),
+        }
+        with contextlib.suppress(OSError):
+            _write_atomically(
+                os.path.join(dest, MISSION_INFO_NAME),
+                json.dumps(info, indent=1, ensure_ascii=False),
+            )
+        # The next mission: the basemaps, and nothing else.
+        basemaps = DATA_STORE.get('basemaps')
+        DATA_STORE['workspaces'] = {}
+        for sec in SHARED_SECTIONS:
+            DATA_STORE[sec.key] = sec.initial()
+        DATA_STORE['basemaps'] = basemaps or []
+        workspace_sources.clear()
+        unloaded_workspaces.clear()
+        _file_holds.clear()
+        _merged_files.clear()
+        finished = [*([mission['id']] if mission['id'] else []), *mission['finished']]
+        finished = finished[:MISSION_FINISHED_KEEP]
+        mission.update(id=secrets.token_hex(8), since=int(time.time() * 1000), finished=finished)
+        new_id = mission['id']
+        _dirty_atos, _shared_dirty = set(), False
+        # The new mission's first save starts its own round of snapshots.
+        _last_snapshot_at = None
+        invalidate_sync_cache()
+        text = render_shared_settings(shared_settings(), dict(mission))
+        try:
+            _write_atomically(os.path.join(BACKUP_DIR, SHARED_SETTINGS_NAME), text)
+        except OSError:
+            _shared_dirty = True  # saved with the next change, or retried
+    with sse_lock:
+        client_workspace.clear()
+    with _activity_lock:
+        activity_log.clear()
+    return name, new_id
+
+
+def mission_folder(name) -> str | None:
+    """The path of the archived mission called ``name`` (a folder in the
+    mission archive, by its exact name), or None: no other path is ever
+    read from what a page sends."""
+    root = mission_archive_dir()
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return None
+    if not isinstance(name, str) or name not in names:
+        return None
+    path = os.path.join(root, name)
+    return path if os.path.isdir(path) else None
+
+
+def _read_json(path: str):
+    """A JSON file's value, or None when it can't be read."""
+    try:
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError, RecursionError):
+        return None
+
+
+def mission_archives() -> list:
+    """The finished missions, newest first: each folder in the mission
+    archive with backups in it, by its name, when it finished, who finished
+    it, its title, and what it holds (mission_summary). From its
+    MISSION_INFO_NAME when it has one; a folder put there by hand is read."""
+    root = mission_archive_dir()
+    try:
+        names = sorted(os.listdir(root), reverse=True)
+    except OSError:
+        return []
+    out = []
+    for name in names:
+        path = os.path.join(root, name)
+        if not os.path.isdir(path):
+            continue
+        info = _read_json(os.path.join(path, MISSION_INFO_NAME))
+        if not (
+            isinstance(info, dict)
+            and isinstance(info.get('workspaces'), dict)
+            and isinstance(info.get('settings'), dict)
+        ):
+            candidates = backup_files(path)
+            if not candidates:
+                continue
+            got = read_backups(candidates)
+            when = datetime.fromtimestamp(os.path.getmtime(path), timezone.utc)
+            info = {
+                'finished': f'{when:%Y-%m-%dT%H:%M:%SZ}',
+                'by': '',
+                'title': '',
+                **mission_summary(got['workspaces'], got['shared']),
+            }
+        out.append(
+            {
+                'name': name,
+                **{
+                    k: info.get(k) if isinstance(info.get(k), str) else ''
+                    for k in ('finished', 'by', 'title')
+                },
+                'workspaces': info['workspaces'],
+                'settings': info['settings'],
+            }
+        )
+    return out
+
+
+# What Recall Settings can bring back from a finished mission, in this order.
+RECALL_PARTS = ('overlays', 'tags', 'drones', 'profiles', 'format', 'narrative', 'fmv')
+
+
+def _by(items: list, key) -> list:
+    """``items`` with one per key, a later one in place of an earlier one."""
+    out: dict = {}
+    for item in items:
+        out[key(item)] = item
+    return list(out.values())
+
+
+def recalled(part: str, archived, now) -> tuple:
+    """A setting as Recall Settings leaves it: (the value, None), or (None,
+    why not). The lists and the profiles are added to what there is now, one
+    of the same name taking the place of the one there; the format, the
+    narrative and FMV mode take the place of what there is. Each is checked
+    as its save route checks it."""
+    if part == 'overlays':
+        value = _by(
+            [*_dicts(now), *fold_overlays(archived)], lambda o: (o.get('type'), o.get('name'))
+        )
+        body, clean = {'overlays': value, 'tagged': True}, clean_overlays
+        check, empty = _v_save_overlays, not fold_overlays(archived)
+    elif part == 'tags':
+        value = _by([*_dicts(now), *_dicts(archived)], lambda t: t.get('id'))
+        body, clean, check, empty = {'tags': value}, clean_tags, _v_save_tags, not _dicts(archived)
+    elif part == 'drones':
+        value = _by([*_dicts(now), *_dicts(archived)], lambda d: d.get('name'))
+        body, clean, check, empty = (
+            {'drones': value},
+            clean_drones,
+            _v_save_drones,
+            not _dicts(archived),
+        )
+    elif part == 'profiles':
+        got = archived if isinstance(archived, dict) else {}
+        good = {
+            p['initials'].strip(): {
+                'initials': p['initials'].strip(),
+                'color': p.get('color', '#0a84ff'),
+            }
+            for p in got.values()
+            if isinstance(p, dict) and _v_save_profile({'profile': p}) is None
+        }
+        if not good:
+            return None, 'none in that mission'
+        return {**(now if isinstance(now, dict) else {}), **good}, None
+    elif part == 'format':
+        body, clean, check = {'format': archived}, (lambda f: f), _v_save_format
+        empty = not isinstance(archived, dict) or not archived
+    elif part == 'narrative':
+        body, clean, check = {'narrative': archived}, clean_narrative, _v_save_narrative
+        empty = not isinstance(archived, dict) or not archived
+    elif part == 'fmv':
+        body, clean, check = {'fmv': read_fmv(archived)}, (lambda f: {'on': f['on']}), _v_save_fmv
+        empty = body['fmv'] is None
+    else:
+        return None, 'not a setting'
+    if empty:
+        return None, 'none in that mission'
+    if err := check(body):
+        return None, err
+    return clean(body[part]), None
+
+
+def _and_list(names: list) -> str:
+    """``A, B and C``."""
+    return names[0] if len(names) == 1 else f'{", ".join(names[:-1])} and {names[-1]}'
 
 
 # =============================================================================
@@ -2776,6 +3165,8 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                     **shared_settings(),
                     'sources': workspace_sources,
                     'unloaded': sorted(unloaded_workspaces),
+                    'mission': mission['id'],
+                    'missions_finished': mission['finished'],
                 }
                 full = json.dumps(data, separators=(',', ':'))
                 _sync_cache_prefix = full[:-1].encode('utf-8')
@@ -2965,6 +3356,21 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             return
         if route is None:
             self._error(404, 'Not found.')
+            return
+        # A page still on a mission the team has finished: what it sends
+        # belongs to that one. It is told the mission now, and starts again.
+        sent = self.headers.get('X-Salt-Mission', '')
+        with data_lock:
+            now_on, finished = mission['id'], sent in mission['finished']
+        if sent and finished:
+            self._send_json(
+                {
+                    'status': 'error',
+                    'message': 'The team has finished that mission.',
+                    'mission': now_on,
+                },
+                409,
+            )
             return
         # Schema check — bad shape never reaches DATA_STORE, and a route can
         # take every field its validator checked as given.
@@ -3285,6 +3691,93 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             return
         self._commit(section.logged(clean), said=section.said(before, clean))
 
+    def _post_finish_mission(self, data: dict) -> None:
+        """Done with Mission (see finish_mission)."""
+        actor = self._actor()
+        try:
+            name, new_id = finish_mission(actor, self._initials())
+        except OSError as exc:
+            safe_print(f'[!] Done with Mission failed, nothing was reset: {exc}')
+            self._error(
+                500,
+                f'Nothing was reset: a file could not be moved into {MISSION_ARCHIVE_NAME} ({exc}).',
+            )
+            return
+        safe_print('\n' + '─' * 64)
+        safe_print(f"[+] Mission finished: everything is in {MISSION_ARCHIVE_NAME}\\{name}.")
+        safe_print('─' * 64)
+        self._commit(
+            f'finish_mission: archived as {name}; new mission {new_id}',
+            said=f'finished the mission ({name})',
+            archive=name,
+            mission=new_id,
+        )
+
+    def _handle_missions(self) -> None:
+        self._send_json({'status': 'success', 'missions': mission_archives()})
+
+    def _post_recall_settings(self, data: dict) -> None:
+        """Recall Settings: chosen settings of a finished mission (see recalled)."""
+        name = data['mission']
+        path = mission_folder(name)
+        if path is None:
+            self._error(404, 'That mission is not in the archive.')
+            return
+        shared = read_backups(backup_files(path))['shared']
+        taken, missed = [], {}
+        with data_lock:
+            for part in (p for p in RECALL_PARTS if p in data['parts']):
+                value, why = recalled(part, shared.get(part), DATA_STORE.get(part))
+                if value is None:
+                    missed[part] = why
+                elif value != DATA_STORE.get(part):
+                    DATA_STORE[part] = value
+                    taken.append(part)
+            if taken:
+                invalidate_sync_cache()
+                mark_dirty()  # the profiles and format ride in every file
+        if not taken:
+            self._unchanged(taken=[], missed=missed)
+            return
+        self._commit(
+            f'recall_settings {name}: {", ".join(taken)}',
+            said=f'recalled the {_and_list(taken)} from {name}',
+            taken=taken,
+            missed=missed,
+        )
+
+    def _post_load_mission(self, data: dict) -> None:
+        """Load: chosen workspaces of a finished mission, merged into this one
+        (a report in both keeps its newer version) and saved with it."""
+        name = data['mission']
+        path = mission_folder(name)
+        if path is None:
+            self._error(404, 'That mission is not in the archive.')
+            return
+        want = {a.strip().upper() for a in data['atos']}
+        found = {
+            a: r for a, r in read_backups(backup_files(path))['workspaces'].items() if a in want
+        }
+        if not found:
+            self._error(404, 'Those workspaces are not in that mission.')
+            return
+        loaded = {}
+        with data_lock:
+            for ato, reports in sorted(found.items()):
+                DATA_STORE['workspaces'][ato] = _merge_reports(
+                    DATA_STORE['workspaces'].get(ato, []), _dicts(reports)
+                )
+                unloaded_workspaces.discard(ato)
+                workspace_sources[ato] = f'Mission {name}'
+                loaded[ato] = sum(1 for r in _dicts(reports) if not r.get('deleted'))
+                mark_dirty(ato)
+            invalidate_sync_cache()
+        self._commit(
+            f'load_mission {name}: {", ".join(loaded)}',
+            said=f'loaded {_and_list(list(loaded))} from {name}',
+            loaded=loaded,
+        )
+
     def _post_wms_fetch(self, data: dict) -> None:
         # Changes nothing here, so no save and no broadcast; logged all the
         # same, as the server reached out on an editor's behalf.
@@ -3395,6 +3888,13 @@ ROUTES: tuple[Route, ...] = (
     Route('POST', '/api/delete_history', _H._post_delete_history, _v_delete_history, viewer=False),
     # Changes nothing, but the server reaches out on an editor's behalf.
     Route('POST', '/api/wms_fetch', _H._post_wms_fetch, _v_wms_fetch, viewer=False),
+    # Done with Mission, and the finished missions: listed, settings recalled, workspaces loaded.
+    Route('POST', '/api/finish_mission', _H._post_finish_mission, _v_finish_mission, viewer=False),
+    Route('GET', '/api/missions', _H._handle_missions, viewer=False),
+    Route(
+        'POST', '/api/recall_settings', _H._post_recall_settings, _v_recall_settings, viewer=False
+    ),
+    Route('POST', '/api/load_mission', _H._post_load_mission, _v_load_mission, viewer=False),
     # Each shared setting's, from SHARED_SECTIONS.
     *(_save_route(s) for s in SHARED_SECTIONS),
 )
@@ -3971,6 +4471,7 @@ if __name__ == '__main__':
         sys.exit(1)
 
     skipped = load_data_from_disk()
+    ensure_mission()
 
     # HTTPS unless --no-https: a certificate given with --cert, or the server's own.
     tls = None

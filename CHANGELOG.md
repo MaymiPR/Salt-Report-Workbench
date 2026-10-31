@@ -8,6 +8,20 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Done with Mission.** A button in Manage > Workspaces ends the mission and
+  starts the next from nothing, once you type `DONE`. Your browser downloads
+  a backup of every workspace; the server moves everything it saved into a
+  folder of its own in `Mission Archives`, beside `Auto Backups`, deleting
+  nothing; then the workspaces, overlays, tags, drones, narrative settings,
+  report format, FMV mode and operators' initials are cleared for everyone,
+  and every browser starts again at the startup box, its preferences put by.
+  The basemaps stay. A browser holding reports the server never got offers
+  to save them to a file first, and the server won't take them into the new
+  mission.
+- **Previous Missions.** The finished missions are listed under the
+  workspaces. *Recall Settings* brings back the overlays, tags, drones,
+  initials, report format, narrative settings or FMV mode you tick, and your
+  own display preferences; *Load* brings back the workspaces you tick.
 - **The narrative reads tracked and wheeled vehicles.** A report that gives
   only how many vehicles were tracked or wheeled (`10x wheeled vics, 2x
   tracked`, `1x wheeled, 10x tracked`) is read by its mix: mostly tracked

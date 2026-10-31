@@ -31,6 +31,7 @@
     <div id="choiceToast" class="toast confirm choice" role="dialog" aria-modal="true" aria-labelledby="choiceMessage">
         <div id="choiceMessage" class="choice-message"></div>
         <div id="choiceDetail" class="choice-detail"></div>
+        <div id="choiceBody" class="choice-body" hidden></div>
         <div id="choiceButtons" class="choice-buttons"></div>
     </div>
 
@@ -299,6 +300,8 @@
                         <li>Lists every workspace currently loaded with its source (which backup file it was loaded from, or &ldquo;Uploaded backup&rdquo;, &ldquo;Uploaded CSV&rdquo;, or &ldquo;In-session&rdquo;), live report count, and history count.</li>
                         <li>The workspace you are in is highlighted blue and tagged <em>Active</em>. The initials after a workspace&rsquo;s source are the editors working in it.</li>
                         <li>Each row has an <strong>Unload</strong> button. The first press asks <em>Unload for everyone?</em> under the workspace's name, and a second unloads it. Unloading clears the workspace from memory and notifies peers; the backup file on disk is preserved, so a server restart would reload it. <strong>Undo</strong>, for ten seconds after, sends its reports back to the server, each with its own author, and puts you back in it if you were in it; its source then reads <em>Uploaded backup (.txt)</em>.</li>
+                        <li><strong>Done with Mission</strong>, at the top right, ends the mission and starts the next from nothing. It asks first, listing what happens, and goes ahead only once you type <code>DONE</code>. Your browser downloads a backup of every workspace (<code>Mission_Title_time.txt</code>, which Import reads). The server moves everything it saved (the backup files, <code>Shared settings.json</code>, <code>audit.log</code> and <code>snapshots/</code>) into a folder of its own in <code>Mission Archives</code>, beside <code>Auto Backups</code>, named for when it finished and its title (<code>2026-10-30 1415Z Patrol</code>): nothing is deleted, and if a file can't be moved (held open by a sync client, say) nothing is reset at all. Then every workspace, overlay, tag and drone, the narrative settings, the report format, FMV mode and the operators' initials are cleared for everyone; the basemaps and the server's certificate stay. Every browser starts again at the startup box. Its display preferences and initials are put by first, so they can come back. A browser that was offline, or held reports the server never got, offers to save them to a file first: the server won't take them into the new mission. Opened without a server, it backs up and clears this browser only.</li>
+                        <li><strong>Previous Missions</strong>, under the list once a mission has finished: each one with its workspaces, how many reports, when it finished and who finished it. <strong>Recall Settings</strong> brings back the parts you tick: overlays, tags, drones and initials are added to what there is now (one of the same name is replaced); the report format, the narrative settings and FMV mode replace what there is. <em>My display preferences and initials</em> brings back this browser's own, as they were before the mission ended. <strong>Load</strong> brings back the workspaces you tick, for everyone, saved with the new mission; a report in both keeps its newer version. A mission folder copied into <code>Mission Archives</code> by hand is listed too.</li>
                         <li><strong>Activity</strong>, at the foot of the tab, in a box four rows tall that scrolls: the last 50 changes made on the server, newest first, such as <em>CD logged ALPHA012 &middot; 2 min ago</em> or <em>AB moved to BRAVO</em>. A change in another workspace than yours says which. It starts empty each time the server starts (<em>Nothing yet since the server started.</em>), and holds no addresses. Viewers see it in their sidebar, under the workspaces.</li>
                         <li>While you are updating a report, a line under its name says when someone else saves it, such as <em>CD updated this report just now</em>. Edit or Update still asks before writing over their change.</li>
                     </ul>
@@ -529,6 +532,7 @@
                         <li><strong>Auto-loads all backup files on startup</strong>: it scans the Auto Backups folder for <code>{ATO}_{Title}.txt</code> files and loads every workspace it finds, so your data is always ready without any manual import step.</li>
                         <li><strong>Auto-saves after every change</strong>: any log, edit, update, or delete immediately rewrites that workspace&rsquo;s own backup file, so nothing is lost if the server restarts. Each workspace has its own file; unloading one leaves its file in place.</li>
                         <li><strong>Keeps an audit log</strong>, <code>Auto Backups/audit.log</code>: one line per change with the time, who made it (initials and address), and what it was, plus server starts and stops. Nothing in the app reads it; it is there for the question &ldquo;who changed this, and when?&rdquo;</li>
+                        <li><strong>Archives finished missions</strong> in <code>Mission Archives</code>, beside <code>Auto Backups</code>, one folder each, when an editor presses Done with Mission (Manage &gt; Workspaces).</li>
                         <li><strong>Keeps dated snapshots</strong> in <code>Auto Backups/snapshots/</code>: one when the server starts, then at most one an hour, the newest 48 kept. If something goes badly wrong (a bad import, a wrong delete), stop the server, copy the snapshot you want over the live backup file, and start it again.</li>
                         <li><strong>Broadcasts changes to all clients</strong> in real time via Server-Sent Events, so every connected browser updates instantly without anyone needing to refresh.</li>
                         <li><strong>Generates a fresh access code</strong> on every launch (shown in the console) so a previous session&rsquo;s code can&rsquo;t be reused.</li>
@@ -860,11 +864,20 @@
                             </button>
                         </div>
 
-                        <!-- Tab: Workspaces — loaded ATOs with source, counts, and Unload. -->
+                        <!-- Tab: Workspaces — loaded ATOs with source, counts, and Unload; Done with Mission and the finished missions (app/92-mission.js). -->
                         <div class="ws-tab-panel" data-tab-panel="workspaces" style="display:none;">
                             <div class="export-block ws-block-fill">
-                                <div class="export-block-label">Loaded Workspaces</div>
+                                <div class="ws-block-head">
+                                    <div class="export-block-label">Loaded Workspaces</div>
+                                    <div class="ws-block-btns">
+                                        <button type="button" id="finishMissionBtn" class="ws-head-btn ws-finish-btn" title="Back everything up, archive it on the server, and start a new mission">Done with Mission</button>
+                                    </div>
+                                </div>
                                 <div id="workspacesList" class="workspaces-list"></div>
+                            </div>
+                            <div class="export-block" id="missionsBlock" hidden>
+                                <div class="export-block-label">Previous Missions</div>
+                                <div id="missionsList" class="missions-list"></div>
                             </div>
                             <!-- What editors changed since the server started, newest first (app/40-io.js). -->
                             <div class="export-block">
@@ -1259,6 +1272,7 @@
     <script src="app/81-narrative.js"></script>
     <script src="app/85-mapview.js"></script>
     <script src="app/90-sync.js"></script>
+    <script src="app/92-mission.js"></script>
     <script src="app/95-handlers.js"></script>
     <script src="app/99-startup.js"></script>
 </body>

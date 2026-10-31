@@ -169,6 +169,17 @@ async function syncWithServer(again = false) {
 
 // `state` is the server's /api/sync answer.
 function applyServerUpdate(state) {
+    // The mission: one the team has finished, this browser leaves; one it
+    // has never been on (its first sync, or a server that lost its settings
+    // file), it takes as its own.
+    if (typeof state.mission === 'string' && state.mission && state.mission !== missionId) {
+        if (missionId && Array.isArray(state.missions_finished) && state.missions_finished.includes(missionId)) {
+            leaveFinishedMission(state.mission);
+            return;
+        }
+        missionId = state.mission;
+        writeStored('salt_mission', missionId);
+    }
     const { workspaces, config, profiles, sources, format, overlays, basemaps, narrative, drones, tags, fmv } = state;
     const readOnly = state.read_only, connectedUsers = state.connected_users;
     // The report format: the server's wins. A server that has none yet (a new

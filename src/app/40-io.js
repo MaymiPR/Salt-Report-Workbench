@@ -275,7 +275,7 @@ const switchManageTab = (tabName) => {
     writeStored('salt_workspaces_tab', tabName);
     // Refresh derived state on switch so filter counts / list aren't stale.
     if (tabName === 'export')          renderExportPreview();
-    else if (tabName === 'workspaces') { renderWorkspacesList(); renderActivity(); }
+    else if (tabName === 'workspaces') { renderWorkspacesList(); renderActivity(); loadMissions(); }
     else if (tabName === 'builder')    renderBuilder();
     else if (tabName === 'overlays')   { showMapSub('graphics'); renderOverlays(); renderBasemapManager(); }
 };

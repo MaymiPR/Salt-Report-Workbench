@@ -1005,6 +1005,92 @@ class BrowserTests(unittest.TestCase):
         page.evaluate("renderStatusBars()")
         self.assertTrue(page.locator("#notSavingBar").is_hidden())
 
+    def finish_mission(self, page):
+        """Done with Mission from ``page``: typed, its backup downloaded, the
+        page loaded again. Gives the backup's file name."""
+        self.open_workspaces(page)
+        page.click("#finishMissionBtn")
+        go = page.locator("#choiceButtons .choice-primary")
+        page.wait_for_selector("#choiceToast.show")
+        self.assertTrue(go.is_disabled(), "not before DONE is typed")
+        page.fill("#choiceBody input", "done")
+        with page.expect_download() as dl, page.expect_navigation():
+            go.click()
+        self.first_sync(page)
+        return dl.value.suggested_filename
+
+    @staticmethod
+    def open_workspaces(page):
+        page.click("#exportViewToggleBtn")
+        page.click(".ws-tab[data-tab='workspaces']")
+
+    def test_done_with_mission_starts_every_browser_again(self):
+        page = self.open_editor("AB")
+        self.log(page, "2x BTR")
+        other = self.second_editor("CD", "MISSIONTWO")
+        self.log(other, "3x BMP")
+        page.evaluate("() => writeStored('salt_time_mode', 'local')")
+        before = page.evaluate("missionId")
+        self.assertTrue(before, "the page knows its mission")
+        self.assertRegex(self.finish_mission(page), r"^Mission_Patrol_\d{8}_\d{4}Z\.txt$")
+        # This page: from nothing, its preferences put by, the new mission's id.
+        self.assertTrue(page.locator("#startupModal.show").is_visible())
+        self.assertNotEqual(page.evaluate("missionId"), before)
+        kept = page.evaluate("JSON.parse(localStorage.getItem('salt_prefs_before'))")
+        self.assertEqual(kept["salt_time_mode"], "local")
+        self.assertIn("salt_user_profile_local", kept, "the initials are put by too")
+        self.assertIsNone(page.evaluate("localStorage.getItem('salt_offline_config')"))
+        self.wait_for_server(page, "s => Object.keys(s.workspaces).length === 0")
+        # The other editor's page, told by the server, starts again too.
+        other.wait_for_selector("#startupModal.show", timeout=15000)
+        self.first_sync(other)
+        self.assertEqual(other.evaluate("missionId"), page.evaluate("missionId"))
+        self.assertEqual(other.evaluate("Object.keys(reportsByAto)"), [])
+        # Previous Missions: Recall brings the initials back; Load the workspaces.
+        page.fill("#startupInitials", "AB")
+        page.fill("#startupAto", "NEXT")
+        page.fill("#startupTitle", "Patrol")
+        page.click("#startupContinueBtn")
+        page.wait_for_selector("#startupModal.show", state="hidden")
+        self.open_workspaces(page)
+        page.wait_for_selector("#missionsBlock:not([hidden]) .mission-row")
+        page.evaluate("document.querySelector('[data-mission-load]').click()")
+        page.wait_for_selector("#choiceToast.show")
+        ticks = page.locator("#choiceBody input[data-ato]")
+        # Every workspace the server held (the other tests' too), all ticked.
+        listed = ticks.evaluate_all("l => l.filter(i => i.checked).map(i => i.dataset.ato)")
+        self.assertTrue({self.ato, "MISSIONTWO"} <= set(listed), listed)
+        page.evaluate(
+            "ato => document.querySelectorAll('#choiceBody input[data-ato]')"
+            ".forEach(i => { i.checked = i.dataset.ato === ato; })",
+            self.ato,
+        )
+        page.click("#choiceButtons .choice-primary")
+        self.wait_for_server(
+            page,
+            f"s => (s.workspaces['{self.ato}'] || []).length === 1 && !s.workspaces.MISSIONTWO",
+        )
+
+    def test_a_browser_with_unsent_reports_offers_them_as_a_file(self):
+        page = self.open_editor("AB")
+        self.log(page, "1x UAZ")
+        other = self.second_editor("CD", "UNSENTTWO")
+        other.route("**/api/save_reports", lambda route: route.abort())
+        self.log(other, "4x BTR")
+        other.wait_for_function("changesWaiting()")
+        self.finish_mission(page)
+        # Its save is refused now (it is from the finished mission): it asks.
+        other.unroute("**/api/save_reports")
+        other.evaluate("() => { syncWithServer(); }")
+        other.wait_for_selector("#choiceToast.show:has-text('The team has finished the mission.')")
+        self.assertIn("1 report the server never got", other.text_content("#choiceDetail"))
+        with other.expect_download() as dl, other.expect_navigation():
+            other.click("#choiceButtons .choice-primary")
+        self.assertTrue(dl.value.suggested_filename.startswith("Unsent_"))
+        self.assertIn("4x BTR", Path(dl.value.path()).read_text("utf-8"))
+        self.first_sync(other)
+        self.wait_for_server(other, "s => !s.workspaces.UNSENTTWO")
+
     def test_a_pull_from_before_a_failed_save_keeps_the_report(self):
         # Regression: a pull asked for before a report was logged, answered
         # after its save had failed (queued), put the server's copy in its
