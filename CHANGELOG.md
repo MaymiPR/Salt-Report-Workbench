@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A report whose save failed for a moment could be lost.** When the
+  server was busy or the connection dropped as a report was logged, the
+  page kept it to send again; but a sync asked for just before, answered
+  after, put the server's copy in its place, and the report was gone from
+  the log, from the browser's saved copy and, in the end, from the server.
+  Such an answer is now set aside, and the next sync sends the report
+  first.
+
 ## [2.33.0] - 2026-10-30
 
 ### Added
