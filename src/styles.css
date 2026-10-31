@@ -1221,6 +1221,35 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
     transition: background-color 0.15s ease;
 }
 .workspace-row-unload:hover { background-color: var(--red-hover); opacity: 1; }
+/* The Loaded Workspaces head: its label, and Done with Mission at the right. */
+.ws-block-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.ws-block-head .export-block-label { margin: 0; }
+.ws-block-btns { display: flex; gap: 8px; }
+.ws-head-btn { width: auto; margin: 0; padding: 5px 12px; border-radius: 100px; font-size: 0.78em; font-weight: 600; background-color: var(--blue-hover); color: var(--system-blue); border: none; }
+.ws-head-btn:hover { background-color: var(--blue-strong); opacity: 1; }
+.ws-finish-btn { background-color: var(--red-soft); color: var(--system-red); border: 1px solid var(--red-strong); }
+.ws-finish-btn:hover { background-color: var(--red-hover); }
+body.read-only .ws-block-btns { display: none; }
+/* Previous Missions: the finished ones, three rows tall, scrolling. */
+.missions-list { max-height: 168px; overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; gap: 6px; }
+.mission-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background-color: var(--input-bg); border-radius: 10px; }
+.mission-row-id { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.mission-row-name { font-weight: 600; font-size: 0.9em; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mission-row-sub { font-size: 0.78em; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mission-btn { width: auto; margin: 0; padding: 6px 12px; border-radius: 100px; font-size: 0.78em; font-weight: 600; background-color: var(--blue-hover); color: var(--system-blue); border: none; white-space: nowrap; }
+.mission-btn:hover { background-color: var(--blue-strong); opacity: 1; }
+.mission-btn:disabled { opacity: 0.4; cursor: default; }
+/* What a question's body holds: Done with Mission's list and typed word, Recall's and Load's tick boxes. */
+.choice-body { text-align: left; font-size: 0.88em; font-weight: 400; margin-bottom: 14px; }
+.choice-body[hidden] { display: none; }
+.mission-effects { margin: 0 0 12px; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; line-height: 1.4; }
+.mission-type { display: flex; align-items: center; gap: 10px; font-weight: 500; font-size: 1em; text-transform: none; letter-spacing: 0; color: var(--text-primary); }
+.mission-type input { flex: 1; min-width: 0; margin: 0; padding: 8px 10px; text-transform: uppercase; letter-spacing: 1px; }
+.mission-ticks { display: flex; flex-direction: column; gap: 8px; max-height: 40vh; overflow-y: auto; }
+.mission-tick { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.mission-tick input { margin: 0; }
+.mission-tick.off { color: var(--text-secondary); cursor: default; }
+.choice-buttons button:disabled { opacity: 0.4; cursor: default; filter: none; }
 
 /* --- Workspaces sidebar (viewer mode) — replaces form-section, same chrome. --- */
 .workspaces-sidebar {

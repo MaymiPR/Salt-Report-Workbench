@@ -26,6 +26,8 @@ window.addEventListener('unhandledrejection', e => sayUnexpected(e.reason && e.r
 // first. They are kept here and sent when it's opened again, but only on
 // this machine, so the others don't see them till then.
 window.addEventListener('beforeunload', e => {
+    // Starting a new mission: what waited was offered as a file first.
+    if (missionReloading) return;
     const refused = Object.values(unsaved).some(entries => Object.keys(entries).length);
     if (!changesWaiting() && !(refused && !isReadOnly)) return;
     e.preventDefault();

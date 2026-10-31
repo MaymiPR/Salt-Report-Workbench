@@ -100,9 +100,10 @@ report moves as and its rate of march), `50-arcgis.js` (the ArcGIS and shapefile
 likelihood terms, the built-in rules, doctrine), `80-narrative.js` (the
 narrative), `85-sync.js` (sync bookkeeping) and `90-exports.js` (the
 `SaltCore` object; closes the function). The rest of the page is
-`src/app/`, seventeen top-level scripts loaded in order (state, rendering,
+`src/app/`, eighteen top-level scripts loaded in order (state, rendering,
 form, import/export, overlays, the map in five parts, statistics, summary
-reports, the narrative's settings, the map view, sync, handlers, startup) that
+reports, the narrative's settings, the map view, sync, missions, handlers,
+startup) that
 share one global scope, so a name declared in an earlier file is visible in the
 later ones. Their numbers rise in the order the page loads them, and
 `tests/test_build.py` checks that, that each is loaded once, and that no
@@ -176,7 +177,7 @@ outside `/api`) gets the standard library's HTML `404`.
 | --- | --- | --- |
 | `/`, `/index.html` | GET | The bundled page. On the viewer port it is stamped `read-only` before any script runs; for the host's own browser the access code is injected into a `<meta>` tag. |
 | `/Salt%20Report%20Workbench.html` | GET | The same page, under its old single-file name, so old bookmarks still open it. |
-| `/api/sync` | GET | Full state: workspaces, config (the workspace viewers are shown), profiles, the report format, overlays, basemaps, drones, the narrative's settings, the tags (`tags`), FMV mode (`fmv`), sources, the workspaces unloaded since the server started (`unloaded`), connected users, which workspace each connected editor is in (`connected_where`, initials to ATO), the last 50 changes for the Activity list (`activity`: `{at, who, what, ato}`, newest last, who as initials and what in plain words such as `logged ALPHA012`; kept in memory only, so a restart empties it, and no addresses), the number of the change it is as of (`version`, read before the data, so the answer holds at least that change) and the server's release (`server_version`). |
+| `/api/sync` | GET | Full state: workspaces, config (the workspace viewers are shown), profiles, the report format, overlays, basemaps, drones, the narrative's settings, the tags (`tags`), FMV mode (`fmv`), sources, the workspaces unloaded since the server started (`unloaded`), connected users, which workspace each connected editor is in (`connected_where`, initials to ATO), the last 50 changes for the Activity list (`activity`: `{at, who, what, ato}`, newest last, who as initials and what in plain words such as `logged ALPHA012`; kept in memory only, so a restart empties it, and no addresses), the number of the change it is as of (`version`, read before the data, so the answer holds at least that change), the server's release (`server_version`), and the mission it is on (`mission`) with the ids of those finished before it (`missions_finished`). |
 | `/api/events` | GET | Server-Sent Events stream. Each message says the newest change's number, `{"v": n}`; a page that already has it doesn't pull, and others call `/api/sync`. Changes within 150 ms of each other go out as one message. |
 | `/api/health` | GET | No code needed, on either port: `{status: ok \| not saving, version, uptime_seconds, last_saved, save_failures, connected_machines, change}`. Nothing about the reports. |
 | `/api/basemap?u=` | GET | An image from an `http://` basemap, for an HTTPS page that can't load it itself. Only from the host of a saved basemap; a redirect followed only on that host (to https, say); images only, up to 16 MB. |
@@ -193,6 +194,10 @@ outside `/api`) gets the standard library's HTML `404`.
 | `/api/save_drones` | POST | Replace the drones on the map: `[{name, grid, at, look?, range?, offStation?}]` (at most 10, names unique, `grid` and `look` MGRS grids as the page writes them, `at` when it was put there, in ms, `range` in km, more than 0 and at most 1,000, `offStation` true when it is off station, kept only then). Shared like the basemaps and kept in every backup file; each browser chooses whether they and their view show. |
 | `/api/save_fmv` | POST | Turn FMV mode on or off for everyone: `{fmv: {on: true \| false}}`. Kept in every backup file. Until it is first saved the server holds `{}`, and the page takes that as on when there are drones, else off (a file that never had it, or `{}`, leaves it unsaved at boot). |
 | `/api/save_narrative` | POST | Replace the narrative's settings: `{enemy, units: [{name, places, kinds}], equipment: [{type, role, origin}], off: [rule ids], custom: [{what, words, min, hours}], toward?}` (at most 50 units, 500 equipment entries, 30 rules; unit names and equipment types unique; roles and rule ids from the fixed lists, origin `RU`, `CN` or empty; a rule's `min` 1-20 reports within `hours` 1-168; `toward`, the AO's way of march, N, NE, E, SE, S, SW, W, NW or empty, kept only when set). Shared like the basemaps and kept in every backup file. |
+| `/api/finish_mission` | POST | Done with Mission: `{confirm: "DONE"}`. Everything in the backup folder but `tls/` goes to `Mission Archives/<when> <title>/`, and the next mission starts with only the basemaps; `{archive, mission}`. A 500 resets nothing. Not on the viewer port. |
+| `/api/missions` | GET | The finished missions, newest first: `{name, finished, by, title, workspaces: {ATO: reports}, settings: {overlays, tags, drones, profiles, format, narrative, fmv}}`. Not on the viewer port. |
+| `/api/recall_settings` | POST | `{mission, parts}`: those settings of a finished mission, merged or replacing as Recall Settings says; `{taken, missed: {part: why}}`. |
+| `/api/load_mission` | POST | `{mission, atos}`: those workspaces of a finished mission, merged into this one and saved with it; `{loaded: {ATO: reports}}`. |
 | `/api/wms_fetch` | POST | `{url}`: the server GETs an http(s) address for an editor's page and returns its status, content type, size and text (not images). For WMS capabilities and Check when a service sends no CORS headers. Changes nothing; logged in the audit log. Not on the viewer port. |
 
 ### Overlays and geography
@@ -472,6 +477,44 @@ nothing adds nothing.
 Unloading a workspace removes it from memory and leaves its file in place:
 unload is "from view", and a restart reloads the file. That is documented
 behavior, not a limitation.
+
+### Missions
+
+The server is on one mission at a time, kept in `Shared settings.json` as
+`mission`: a random id, when it began, and the ids of the missions finished
+before it. A server with none (new, or from before missions) makes one at
+boot and writes it at once (`ensure_mission`), so a restart doesn't make
+another. `/api/sync` sends the id and the finished ones, and every write
+names the mission it is from (`X-Salt-Mission`).
+
+Done with Mission (`finish_mission`, POST `/api/finish_mission` with
+`confirm: "DONE"`) holds the disk and data locks throughout. It writes every
+workspace and the shared settings as they are, moves everything in the backup
+folder but `tls/` into `Mission Archives/<YYYY-MM-DD HHMMZ> <title>/` (beside
+the backup folder) with a `mission.json` summing it up, and starts the next
+mission with nothing but the basemaps. It is all or nothing: a file that can't
+be moved has what was moved put back, and the request fails with nothing
+reset.
+
+A page keeps the id it is on (`salt_mission`). A sync naming a new id while
+the page's is among the finished ones, or a write refused with 409 because it
+named a finished mission, makes the page leave it (`leaveFinishedMission` in
+`app/92-mission.js`). Reports the server never got are first offered as a
+backup file. The page then loads again, and its first step, before anything
+else reads storage, clears every `salt_` key but the access code, the mission,
+the basemaps and the preferences it puts by (`salt_prefs_before`), so nothing
+the old page was writing as it unloaded survives. An id the page has never
+seen and that isn't a finished one's (a server that lost its settings file) is
+simply taken: no page is cleared without the server saying its mission ended.
+
+`/api/missions` lists the archive's folders, from each `mission.json` or, for
+a folder put there by hand, by reading its backups as the boot does
+(`read_backups`). `/api/recall_settings` takes chosen settings from one
+(`recalled`: lists and profiles merged by name, the format, narrative and FMV
+replaced, each checked by its save route's validator), and
+`/api/load_mission` merges chosen workspaces into the current one. A mission
+is named by its folder's exact name, checked against a listing of the archive,
+so no other path is ever read from a request.
 
 ## Access control
 

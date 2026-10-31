@@ -240,6 +240,39 @@ const writeStored = (key, value) => {
         return false;
     }
 };
+// --- Missions ---
+// The mission this browser is on (the server's id for it; see app/92-mission.js).
+// A new one is begun here, before anything else is read from storage: what the
+// last page asked for (startNewMission) is done now, so nothing that page was
+// still writing as it unloaded is kept.
+// Kept from one mission to the next: the access code, which mission it is, the
+// preferences put by, a word to say once loaded, and the basemaps (they outlast
+// missions on the server too). Every other salt_ key goes.
+const MISSION_KEEP_KEYS = new Set(['salt_access_code', 'salt_access_confirmed', 'salt_mission', 'salt_mission_next',
+    'salt_mission_note', 'salt_prefs_before', 'salt_basemaps', 'salt_map_base']);
+// Of those that go, the ones that are the mission's own (its reports, and this
+// browser's copy of the team's settings, which Recall brings back from the
+// server), not this browser's preferences and identity, which are put by.
+const MISSION_DATA_KEYS = new Set(['salt_reports_by_ato', 'salt_offline_push', 'salt_offline_push_atos', 'salt_unsaved',
+    'salt_summary_edits', 'salt_last_active_ato', 'salt_offline_config', 'salt_overlays', 'salt_ws_overlays', 'salt_tags',
+    'salt_narrative', 'salt_drones', 'salt_fmv', 'salt_format', 'salt_last_format', 'salt_ws_formats', 'salt_profiles_cache']);
+const storedKeys = () => {
+    try { return Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter(Boolean); } catch (e) { return []; }
+};
+(() => {
+    const next = readStored('salt_mission_next', null);
+    if (!next || typeof next.id !== 'string') return;
+    const going = storedKeys().filter(k => k.startsWith('salt_') && !MISSION_KEEP_KEYS.has(k));
+    const prefs = {};
+    going.filter(k => !MISSION_DATA_KEYS.has(k)).forEach(k => { const v = readRaw(k); if (v !== null) prefs[k] = v; });
+    if (Object.keys(prefs).length) writeStored('salt_prefs_before', JSON.stringify(prefs));
+    going.forEach(removeStored);
+    writeStored('salt_mission', next.id);
+    if (next.note) writeStored('salt_mission_note', next.note);
+    removeStored('salt_mission_next');
+})();
+let missionId = readRaw('salt_mission', '');
+
 // Viewers keep no copy of the reports. The page comes from the server, so a
 // cached copy is useless without it, and it would leave every report at rest
 // on a machine that only watches. Whatever an earlier version left is cleared.
@@ -586,8 +619,11 @@ const APP_VERSION = '2.33.1';
 // pull answer older than one seen is out of date before it lands.
 let syncedVersion = 0, seenVersion = 0;
 const noteChange = (v) => { if (typeof v === 'number' && v > seenVersion) seenVersion = v; };
+// Each write says which mission it is from: the server refuses one from a
+// mission the team has finished (409, with the mission it is on now).
 const postJson = (path, body) => fetch(path, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...(missionId ? { 'X-Salt-Mission': missionId } : {}) },
+    body: JSON.stringify(body),
 }).then(res => { noteChange(Number(res.headers.get('X-Salt-Change')) || 0); return res; });
 // POST and say how it went: { ok, status, message, body }, where message is
 // the server's reason when it gives one and body its whole answer ({} when it
@@ -605,6 +641,12 @@ const apiPost = async (path, body) => {
     let message = said || (res.ok ? '' : `The server answered ${res.status}`);
     if (message && !/[.!?]$/.test(message)) message += '.';
     if (res.status === 401) handleUnauthorized();
+    // From a finished mission: this browser starts the new one, and what it
+    // sent is kept to offer as a file (not sent again), as if unreachable.
+    if (res.status === 409 && json && typeof json.mission === 'string') {
+        leaveFinishedMission(json.mission);
+        return { ok: false, status: 0, message, body: json };
+    }
     return { ok: res.ok, status: res.status, message, body: json && typeof json === 'object' ? json : {} };
 };
 // Save one of the shared lists (overlays, basemaps, drones, the narrative's
@@ -785,15 +827,20 @@ document.addEventListener('keydown', e => {
 let pendingConfirm = null;
 const hideConfirmation = () => { el.toast.confirm.classList.remove('show'); pendingConfirm = null; leaveDialog(el.toast.confirm); };
 
-// A question with several answers: `options` are { label, value, primary? };
-// resolves to the value picked, or null for Cancel (or Escape). A new
-// question answers an open one with null.
+// A question with several answers: `options` are { label, value, primary?,
+// disabled? }; resolves to the value picked, or null for Cancel (or Escape).
+// `body`: a node shown between the question and the answers (tick boxes, a
+// word to type), read by the caller once answered. A new question answers an
+// open one with null.
 let pendingChoice = null;
-const askChoice = (message, detail, options) => {
+const askChoice = (message, detail, options, body = null) => {
     if (pendingChoice) pendingChoice(null);
     const box = document.getElementById('choiceToast');
     document.getElementById('choiceMessage').textContent = message;
     document.getElementById('choiceDetail').textContent = detail || '';
+    const holder = document.getElementById('choiceBody');
+    holder.replaceChildren(...(body ? [body] : []));
+    holder.hidden = !body;
     const buttons = document.getElementById('choiceButtons');
     buttons.innerHTML = '';
     return new Promise(resolve => {
@@ -803,12 +850,13 @@ const askChoice = (message, detail, options) => {
             b.type = 'button';
             b.className = o.cancel ? 'choice-cancel' : o.primary ? 'choice-primary' : 'choice-option';
             b.textContent = o.label;
+            b.disabled = !!o.disabled;
             b.addEventListener('click', () => done(o.value));
             buttons.appendChild(b);
         });
         pendingChoice = done;
         box.classList.add('show');
-        enterDialog(box, buttons.querySelector('.choice-primary') || buttons.firstChild);
+        enterDialog(box, (body && body.querySelector('input')) || buttons.querySelector('.choice-primary:not(:disabled)') || buttons.firstChild);
     });
 };
 // Focus starts on Cancel: what Confirm runs usually can't be taken back.

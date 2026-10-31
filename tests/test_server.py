@@ -49,6 +49,7 @@ NAI1 = {
         ],
     },
 }
+TOPO = {"name": "Topo", "kind": "wms", "url": "http://10.0.0.5/wms", "layers": "0"}
 PL_BLUE = {
     "type": "PL",
     "name": "BLUE",
@@ -81,6 +82,7 @@ def reset_state() -> None:
     srv.client_initials.clear()
     srv.client_workspace.clear()
     srv.unloaded_workspaces.clear()
+    srv.mission.update(id="", since=0, finished=[])
     srv.activity_log.clear()
     srv._rate_buckets.clear()
     srv._auth_fail_buckets.clear()
@@ -1273,7 +1275,8 @@ EVERY_SETTING_SAVED = {
         "emy\":\"OPFOR\",\"units\":[{\"name\":\"1st Tank\",\"places\":[\"Hill 1\"],\"kinds\":[\"armor\"]}],\"eq"
         "uipment\":[{\"type\":\"T-90M\",\"role\":\"armor\",\"origin\":\"RU\"}],\"off\":[\"axes\",\"deep\"],\"cust"
         "om\":[{\"what\":\"Bridge\",\"words\":\"bridge, crossing\",\"min\":2,\"hours\":6}]},\"tags\":[],\"fmv\":{\"on\":true},\"sources\":{\"AL"
-        "PHA\":\"In-session\",\"BRAVO\":\"In-session\"},\"unloaded\":[]"
+        "PHA\":\"In-session\",\"BRAVO\":\"In-session\"},\"unloaded\":[],\"mission\":\"\","
+        "\"missions_finished\":[]"
     ),
 }
 
@@ -1474,6 +1477,180 @@ class HttpApiTests(unittest.TestCase):
     def post_routes():
         return [r for r in srv.ROUTES if r.method == "POST"]
 
+    # -- Done with Mission ---------------------------------------------------- #
+    def a_mission(self):
+        """A mission under way: ALPHA with two reports, an overlay, a basemap,
+        a profile and the certificate folder, all on disk."""
+        shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
+        shutil.rmtree(srv.mission_archive_dir(), ignore_errors=True)
+        srv.mission.update(id="m1", since=1, finished=[])
+        tls = Path(srv.BACKUP_DIR) / "tls"
+        tls.mkdir(parents=True)
+        (tls / "server.pem").write_text("certificate", "utf-8")
+        reps = [report("a1", "ALPHA001"), report("a2", "ALPHA002")]
+        for path, body in (
+            ("/api/save_reports", {"ato": "ALPHA", "reports": reps}),
+            ("/api/save_overlays", {"overlays": [NAI1], "tagged": True}),
+            ("/api/save_basemaps", {"basemaps": [TOPO]}),
+            ("/api/save_profile", {"profile": {"initials": "AB", "color": "#ff0000"}}),
+        ):
+            self.assertEqual(self.post(path, body)[0], 200, path)
+        srv.flush_pending_save()
+
+    def finish(self):
+        status, body = self.post("/api/finish_mission", {"confirm": "DONE"})
+        self.assertEqual(status, 200, body)
+        return body["archive"]
+
+    def test_done_with_mission_archives_everything_and_starts_again(self):
+        self.a_mission()
+        self.assertEqual(self.post("/api/finish_mission", {"confirm": "done"})[0], 400)
+        self.assertEqual(
+            self.post("/api/finish_mission", {"confirm": "DONE"}, base=self.viewer_base)[0], 405
+        )
+        name = self.finish()
+        self.assertRegex(name, r"^\d{4}-\d\d-\d\d \d{4}Z Patrol$")
+        archive = Path(srv.mission_archive_dir()) / name
+        self.assertEqual(archive.parent.parent, Path(srv.BACKUP_DIR).parent, "beside the backups")
+        # Everything but the certificate was moved, nothing deleted.
+        moved = {f.name for f in archive.iterdir()}
+        self.assertTrue(
+            {"ALPHA_Patrol.txt", srv.SHARED_SETTINGS_NAME, srv.AUDIT_LOG_NAME} <= moved,
+            moved,
+        )
+        self.assertIn("ALPHA002", (archive / "ALPHA_Patrol.txt").read_text("utf-8"))
+        info = json.loads((archive / srv.MISSION_INFO_NAME).read_text("utf-8"))
+        self.assertEqual(info["workspaces"], {"ALPHA": 2})
+        self.assertEqual(info["settings"]["overlays"], 1)
+        self.assertEqual(info["settings"]["profiles"], 1)
+        self.assertEqual(info["title"], "Patrol")
+        self.assertIn("finish_mission", (archive / srv.AUDIT_LOG_NAME).read_text("utf-8"))
+        self.assertEqual(
+            (Path(srv.BACKUP_DIR) / "tls" / "server.pem").read_text("utf-8"), "certificate"
+        )
+        self.assertFalse(list(Path(srv.BACKUP_DIR).glob("*.txt")))
+        # The next mission: nothing but the basemaps, under a new id.
+        state = self.sync()
+        self.assertEqual(state["workspaces"], {})
+        self.assertEqual(state["overlays"], [])
+        self.assertEqual(state["profiles"], {})
+        self.assertEqual(state["basemaps"], [TOPO])
+        self.assertNotIn(state["mission"], ("", "m1"))
+        self.assertEqual(state["missions_finished"], ["m1"])
+        self.assertEqual([e["what"] for e in state["activity"]], [f"finished the mission ({name})"])
+        shared = json.loads((Path(srv.BACKUP_DIR) / srv.SHARED_SETTINGS_NAME).read_text("utf-8"))
+        self.assertEqual(shared["mission"]["id"], state["mission"])
+        self.assertEqual(shared["basemaps"], [TOPO])
+        # A page still on the finished mission is told the new one; its
+        # write is refused. One on the new mission, or from before missions, is taken.
+        save = {"ato": "BRAVO", "reports": [report("b1", "BRAVO001", ato="BRAVO")]}
+        status, body = self.post("/api/save_reports", save, headers={"X-Salt-Mission": "m1"})
+        self.assertEqual((status, body["mission"]), (409, state["mission"]))
+        self.assertNotIn("BRAVO", self.sync()["workspaces"])
+        self.assertEqual(
+            self.post("/api/save_reports", save, headers={"X-Salt-Mission": state["mission"]})[0],
+            200,
+        )
+        self.assertEqual(self.post("/api/save_reports", save)[0], 200)
+        # The same minute twice: a folder of its own.
+        self.assertEqual(self.finish(), f"{name} (2)")
+
+    def test_a_file_that_cannot_be_moved_resets_nothing(self):
+        self.a_mission()
+        real = os.replace
+
+        def held_open(src, dst):
+            if (
+                os.path.basename(src) == srv.SHARED_SETTINGS_NAME
+                and srv.MISSION_ARCHIVE_NAME in dst
+            ):
+                raise PermissionError("in use by another process")
+            return real(src, dst)
+
+        with mock.patch.object(srv.os, "replace", held_open):
+            status, body = self.post("/api/finish_mission", {"confirm": "DONE"})
+        self.assertEqual(status, 500)
+        self.assertIn("Nothing was reset", body["message"])
+        self.assertEqual(len(self.sync()["workspaces"]["ALPHA"]), 2)
+        self.assertEqual(self.sync()["mission"], "m1")
+        self.assertTrue((Path(srv.BACKUP_DIR) / "ALPHA_Patrol.txt").exists(), "put back")
+        self.assertEqual(list(Path(srv.mission_archive_dir()).iterdir()), [], "its folder went")
+
+    def test_previous_missions_are_listed_recalled_and_loaded(self):
+        self.a_mission()
+        name = self.finish()
+        status, raw = self.request("/api/missions")
+        listed = json.loads(raw)["missions"]
+        self.assertEqual(status, 200)
+        self.assertEqual([m["name"] for m in listed], [name])
+        self.assertEqual(listed[0]["workspaces"], {"ALPHA": 2})
+        self.assertEqual(listed[0]["settings"]["overlays"], 1)
+        self.assertEqual(self.request("/api/missions", base=self.viewer_base)[0], 405)
+        # Recall: the parts asked for that the mission has; the rest say why not.
+        self.post("/api/save_overlays", {"overlays": [PL_BLUE], "tagged": True})
+        status, body = self.post(
+            "/api/recall_settings", {"mission": name, "parts": ["overlays", "profiles", "format"]}
+        )
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["taken"], ["overlays", "profiles"])
+        self.assertEqual(body["missed"], {"format": "none in that mission"})
+        state = self.sync()
+        self.assertEqual(
+            sorted(o["name"] for o in state["overlays"]), ["1", "BLUE"], "added to what is there"
+        )
+        self.assertEqual(state["profiles"]["AB"]["color"], "#ff0000")
+        self.assertEqual(
+            state["activity"][-1]["what"], f"recalled the overlays and profiles from {name}"
+        )
+        self.assertEqual(
+            self.post("/api/recall_settings", {"mission": name, "parts": ["overlays"]})[1]["taken"],
+            [],
+        )
+        for bad in ("../backups", "nothing", ""):
+            self.assertIn(
+                self.post("/api/recall_settings", {"mission": bad, "parts": ["tags"]})[0],
+                (400, 404),
+                bad,
+            )
+        self.assertEqual(
+            self.post("/api/recall_settings", {"mission": name, "parts": ["bogus"]})[0], 400
+        )
+        # Load: its workspaces, merged, from the mission, and saved with this one.
+        self.assertEqual(
+            self.post("/api/load_mission", {"mission": name, "atos": ["ZULU"]})[0], 404
+        )
+        status, body = self.post("/api/load_mission", {"mission": name, "atos": ["alpha"]})
+        self.assertEqual((status, body["loaded"]), (200, {"ALPHA": 2}))
+        state = self.sync()
+        self.assertEqual(len(state["workspaces"]["ALPHA"]), 2)
+        self.assertEqual(state["sources"]["ALPHA"], f"Mission {name}")
+        srv.flush_pending_save()
+        self.assertTrue((Path(srv.BACKUP_DIR) / "ALPHA_Patrol.txt").exists())
+
+    def test_a_mission_folder_put_there_by_hand_is_listed(self):
+        shutil.rmtree(srv.mission_archive_dir(), ignore_errors=True)
+        folder = Path(srv.mission_archive_dir()) / "Old exercise"
+        folder.mkdir(parents=True)
+        _, text = srv.render_backup({"BRAVO": [report("b1", "BRAVO001", ato="BRAVO")]}, {}, {}, {})
+        (folder / "BRAVO_Patrol.txt").write_text(text, "utf-8")
+        (Path(srv.mission_archive_dir()) / "empty").mkdir()
+        listed = srv.mission_archives()
+        self.assertEqual(
+            [m["name"] for m in listed], ["Old exercise"], "a folder with no backups isn't"
+        )
+        self.assertEqual(listed[0]["workspaces"], {"BRAVO": 1})
+
+    def test_a_server_with_no_mission_gets_one_and_keeps_it(self):
+        shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
+        srv.ensure_mission()
+        first = srv.mission["id"]
+        self.assertRegex(first, r"^[0-9a-f]{16}$")
+        srv.mission.update(id="", since=0, finished=[])
+        srv.load_data_from_disk()
+        self.assertEqual(srv.mission["id"], first, "read back after a restart")
+        srv.ensure_mission()
+        self.assertEqual(srv.mission["id"], first)
+
     def test_the_routes_leave_validation_to_the_validators(self):
         for route in self.post_routes():
             # A shared setting's route is the one handler, given its section.
@@ -1481,7 +1658,7 @@ class HttpApiTests(unittest.TestCase):
             self.assertNotIn("_bad_request", inspect.getsource(handler), route.path)
 
     def test_every_post_route_has_a_validator(self):
-        self.assertEqual(len(self.post_routes()), 14)
+        self.assertEqual(len(self.post_routes()), 17)
         for route in self.post_routes():
             self.assertTrue(callable(route.validator), route.path)
         # A shared setting's route has its section's validator.
