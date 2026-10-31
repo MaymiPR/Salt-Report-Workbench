@@ -54,6 +54,7 @@ const NARRATIVE_RULES = [
     ['withdrawal', 'Withdrawal', 'reports of withdrawing, retreating or breaking contact', 'Maneuver'],
     ['airassault', 'Air assault or airborne landing', 'transport helicopters, landings, airborne vehicles', 'Maneuver'],
     ['amphibious', 'Amphibious landing or crossing', 'amphibious vehicles or landings, with smoke, ferries or cover', 'Maneuver'],
+    ['vehicles', 'A force read from its vehicles', 'tracked or wheeled vehicles with no type given, by which there are more of', 'Maneuver'],
     ['defense', 'Preparing a defense', 'digging in, obstacles or mines, engineers, antitank weapons, vehicles halted', 'Defense'],
     ['strongpoint', 'A company strongpoint', 'two of armor, infantry and antitank weapons holding in one place for 12 hrs or more', 'Defense'],
     ['fortline', 'A fortified line in depth', 'digging in, obstacles or engineers in three or more places within 48 hrs', 'Defense'],
@@ -180,6 +181,10 @@ const DOCTRINE = {
     amphibious: {
         RU: 'Russian naval infantry and amphibious vehicles land, or cross water obstacles, under covering fire.',
         CN: 'PLA amphibious combined-arms brigades (ZBD-05, ZTD-05) land under covering fires, with smoke and EW.',
+    },
+    vehicles: {
+        RU: 'Russian tracked vehicles are the tanks, BMPs, MT-LBs and self-propelled guns of tank and motor rifle units; the wheeled are mostly supply trucks (Ural, KamAZ) and the BTR-mounted motor rifle battalions. A column mostly tracked is a combat element; mostly wheeled, its logistics or a BTR unit.',
+        CN: 'PLA heavy combined-arms brigades ride tracked vehicles (Type 99 and 96 tanks, ZBD-04 IFVs, PLZ-07 guns); medium brigades ride wheeled 8x8s (ZBL-08, ZTL-11, PCL-181), and supply moves on wheeled trucks. Mostly wheeled may be a medium brigade as well as logistics.',
     },
     defense: {
         RU: 'Russian defenses are echeloned: a security zone, then company strongpoints behind dense, mixed minefields covered by fire sacks, with reserves held back to counterattack.',
