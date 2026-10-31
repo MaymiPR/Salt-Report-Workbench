@@ -1076,8 +1076,9 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
     border-radius: 10px;
 }
 /* --- Activity: the server's last changes, newest first, in a box of one height
-   from the start (it scrolls; it doesn't grow with each change). --- */
-.peer-activity-list { height: 220px; overflow-y: auto; padding-right: 4px; flex: 0 0 auto; }
+   from the start, four rows tall at the foot of the panel (it scrolls; it
+   doesn't grow with each change), so the workspaces get the room. --- */
+.peer-activity-list { height: 120px; overflow-y: auto; padding-right: 4px; flex: 0 0 auto; }
 .peer-activity-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .peer-activity-row { font-size: 0.82em; padding: 5px 10px; border-radius: 8px; background-color: var(--input-bg); overflow-wrap: anywhere; }
 .peer-activity-when { color: var(--text-secondary); white-space: nowrap; }
