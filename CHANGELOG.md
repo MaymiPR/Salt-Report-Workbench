@@ -16,6 +16,19 @@ All notable changes to this project are documented here. The format follows
   server asks the source (`/api/elevation`), once a point, for everyone, and
   keeps the heights in `terrain.json` beside the backups, through Done with
   Mission.
+- **The Narrative reads the ground.** With an elevation source, the bottom
+  line adds *Terrain* (the heights the reports are at, how many are on high
+  ground, columns on slopes too steep for them, artillery behind a crest).
+  *Latest by place* adds the ground's height there and its steepest slope;
+  Columns say when they are on a slope too steep for what they are (over 30%
+  mostly wheeled, 60% mostly tracked); Enemy forces adds artillery *behind a
+  crest* (the ground 10 m higher 500 m ahead along the way of march) and
+  *high ground* (30 m over the middle height of the reports within 5 km).
+  Gaps and collection says when there is no elevation source, or heights
+  haven't come in.
+- **Rule 58, High ground held:** observers, air defense, radars or command
+  vehicles halted on high ground within 3 km of an NAI or OBJ, with Russian
+  and PLA doctrine. On by default; it needs an elevation source.
 
 ## [2.37.0] - 2026-11-01
 

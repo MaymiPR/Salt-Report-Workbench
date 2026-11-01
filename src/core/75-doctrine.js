@@ -59,6 +59,7 @@ const NARRATIVE_RULES = [
     ['defense', 'Preparing a defense', 'digging in, obstacles or mines, engineers, antitank weapons, vehicles halted', 'Defense'],
     ['strongpoint', 'A company strongpoint', 'two of armor, infantry and antitank weapons holding in one place for 12 hrs or more', 'Defense'],
     ['fortline', 'A fortified line in depth', 'digging in, obstacles or engineers in three or more places within 48 hrs', 'Defense'],
+    ['highground', 'High ground held', 'observers, air defense, radars or command vehicles halted on high ground near an NAI or OBJ (with an elevation source)', 'Defense'],
     ['screen', 'Security zone or screen', 'reconnaissance or small groups halted or observing in two or more places within 6 hrs', 'Defense'],
     ['antitank', 'Antitank positions', 'antitank weapons in position, with obstacles or tanks in hides', 'Defense'],
     ['remotemine', 'Remote mining', 'minelaying systems or scatterable mines, with rockets or artillery', 'Defense'],
@@ -190,6 +191,10 @@ const DOCTRINE = {
     column: {
         RU: 'Russian units move on roads in march columns behind a forward security element, about 20-30 km/h by day, with air defense and traffic regulators in the column; they deploy off the road into pre-battle and battle formation only near the enemy.',
         CN: 'PLA units move on roads in march columns, wheeled medium brigades faster than heavy tracked ones, with reconnaissance ahead and air defense covering the column; they deploy off the road only near the line of contact.',
+    },
+    highground: {
+        RU: 'Russian forces put observation posts, fire-adjustment teams and air defense on the dominant heights overlooking the approaches, and fight hard to hold them.',
+        CN: 'PLA doctrine stresses seizing commanding heights early for observation and fire control, holding them with small detachments under air defense cover.',
     },
     defense: {
         RU: 'Russian defenses are echeloned: a security zone, then company strongpoints behind dense, mixed minefields covered by fire sacks, with reserves held back to counterattack.',
