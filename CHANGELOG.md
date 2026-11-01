@@ -107,6 +107,16 @@ All notable changes to this project are documented here. The format follows
   it and sends it again, rather than being told it was saved when it never
   was.
 
+### Changed
+
+- **Saving no longer holds up the others.** Every save wrote the shared
+  settings (the overlays above all) into each workspace's file again,
+  while every sync and change waited. They are now written out once a
+  save, after the others can go on: with 8 workspaces of 1,000 reports and
+  2,000 overlays, a save holds them up for 0.015 s instead of 0.14 s, and
+  the hourly snapshots for 0.11 s instead of 1.5 s. The files are the same,
+  to the byte.
+
 ## [2.41.0] - 2026-11-01
 
 ### Added

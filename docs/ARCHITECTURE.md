@@ -497,10 +497,17 @@ the first save afterwards gives each workspace its own file.
 
 Concurrency is handled in two steps:
 
-1. `render_workspace_backups`, a pure function, builds the file texts while
-   `data_lock` is held, giving a consistent snapshot without any I/O.
+1. While `data_lock` is held, `workspace_backup_parts`, a pure function,
+   makes each workspace's part of its file (the summary and its reports'
+   JSON: reports are changed in place), and the shared settings are taken as
+   they are (each is replaced whole when it changes; the profiles are
+   copied), giving a consistent snapshot without any I/O. After the lock is
+   released, `shared_backup_json` serializes the shared settings once, the
+   overlays being megabytes, and `join_workspace_backups` puts each file
+   together (`render_workspace_backups` is the two in one). The files are
+   byte for byte what serializing each one whole would give.
 2. Each text is written to a temporary file, flushed to disk (`fsync`), and
-   moved into place with `os.replace` after the lock is released, so request
+   moved into place with `os.replace`, still without the lock, so request
    handlers are never blocked on the disk and readers never see a partial
    file. A separate `_disk_lock` keeps writes in order. If preparing or writing
    fails (a file held open by antivirus or a sync tool, say), the changes stay

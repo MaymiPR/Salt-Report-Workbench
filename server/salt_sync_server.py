@@ -611,6 +611,18 @@ def mark_dirty(ato: str | None = None) -> None:
         _dirty_atos.add(ato)
 
 
+def _still_pending(atos: set | None, shared: bool) -> None:
+    """Mark again what a save took to write and couldn't: the workspaces
+    ``atos`` (None: every one) and, when ``shared``, the shared settings, on
+    top of whatever changed since. Caller holds data_lock."""
+    global _dirty_atos, _shared_dirty
+    if atos is None:
+        _dirty_atos = None
+    elif _dirty_atos is not None:
+        _dirty_atos |= atos
+    _shared_dirty = _shared_dirty or shared
+
+
 def schedule_save() -> None:
     """Debounced disk write — coalesces bursts within SAVE_DEBOUNCE_SECONDS."""
     global _save_timer
@@ -2088,7 +2100,11 @@ DATA_STORE: dict = {'workspaces': {}, **{s.key: s.initial() for s in SHARED_SECT
 
 def shared_settings() -> dict:
     """The shared settings as DATA_STORE holds them, key -> value in
-    SHARED_SECTIONS order. Caller holds data_lock."""
+    SHARED_SECTIONS order. Caller holds data_lock.
+
+    Each is replaced whole when it changes, never changed in place (only the
+    profiles are added to, and the save copies them): save_data_to_disk
+    serializes these after letting data_lock go."""
     return {s.key: DATA_STORE.get(s.key, s.kind()) for s in SHARED_SECTIONS}
 
 
@@ -3115,7 +3131,26 @@ def render_backup(
     # Nothing loaded — don't emit an empty placeholder file.
     if not workspaces:
         return None
+    filename, head = _backup_head(workspaces, config, label)
+    machine = {'workspaces': workspaces}
+    given = {**shared, 'config': config, 'profiles': profiles}
+    for s in SHARED_SECTIONS:
+        if s.key == 'format':
+            machine['formats'] = formats  # per workspace, as older versions read it
+        else:
+            machine[s.key] = given.get(s.key) or s.kind()
+    return filename, head + _compact_json(machine) + '\n' + BACKUP_END + '\n'
 
+
+def _compact_json(value) -> str:
+    """JSON as a backup's machine data holds it: no spaces, characters as they are."""
+    return json.dumps(value, separators=(',', ':'), ensure_ascii=False)
+
+
+def _backup_head(workspaces: dict, config: dict, label: tuple | None) -> tuple[str, str]:
+    """``(filename, text)`` of a backup of ``workspaces`` (not empty) up to
+    its machine data's JSON: the summary, then the lines that open the
+    machine data, BACKUP_START and its newline last. See ``render_backup``."""
     if label:
         ato, title = label
     else:
@@ -3207,24 +3242,7 @@ def render_backup(
                     lines.append(f'      Analysis : {h["yourAnalysis"]}')
             lines.append('')
 
-    machine = {'workspaces': workspaces}
-    given = {**shared, 'config': config, 'profiles': profiles}
-    for s in SHARED_SECTIONS:
-        if s.key == 'format':
-            machine['formats'] = formats  # per workspace, as older versions read it
-        else:
-            machine[s.key] = given.get(s.key) or s.kind()
-    machine_json = json.dumps(machine, separators=(',', ':'), ensure_ascii=False)
-    lines += [
-        div,
-        ' MACHINE DATA: DO NOT EDIT BELOW THIS LINE',
-        div,
-        BACKUP_START,
-        machine_json,
-        BACKUP_END,
-        '',
-    ]
-
+    lines += [div, ' MACHINE DATA: DO NOT EDIT BELOW THIS LINE', div, BACKUP_START, '']
     return filename, '\n'.join(lines)
 
 
@@ -3296,8 +3314,27 @@ def render_workspace_backups(
     setting (by name, as ``render_backup`` takes them), so on boot every file
     contributes its workspace and the newest file decides the active one.
     ``names`` is what ``workspace_filenames`` gave (None: worked out here).
-    Pure, like ``render_backup``.
+    Pure, like ``render_backup``, and the same text it gives for each
+    workspace, byte for byte; the shared settings, megabytes with the
+    overlays, are serialized once for all of them. In two steps, which the
+    save takes apart: ``workspace_backup_parts``, then
+    ``join_workspace_backups``.
     """
+    parts = workspace_backup_parts(workspaces, config, formats, only, names)
+    return join_workspace_backups(parts, shared_backup_json(config, profiles, **shared))
+
+
+def workspace_backup_parts(
+    workspaces: dict,
+    config: dict,
+    formats: dict,
+    only: set | None = None,
+    names: dict | None = None,
+) -> list[tuple[str, str, str, str, str]]:
+    """Each workspace's own part of its backup, for those in ``only`` (None:
+    all): ``(ato, filename, head, reports JSON, format JSON)``. All a file
+    holds that comes from its reports, which are changed in place, so the
+    save makes these while it holds data_lock. Pure."""
     if names is None:
         names = workspace_filenames(workspaces, config)
     out = []
@@ -3305,16 +3342,36 @@ def render_workspace_backups(
         if only is not None and ato not in only:
             continue
         reports = workspaces[ato]
-        rendered = render_backup(
-            {ato: reports},
-            config,
-            profiles,
-            {ato: formats[ato]} if ato in formats else {},
-            label=(ato, workspace_title(ato, reports, config)),
-            **shared,
-        )
-        if rendered is not None:
-            out.append((ato, names[ato], rendered[1]))
+        _, head = _backup_head({ato: reports}, config, (ato, workspace_title(ato, reports, config)))
+        fmt = {ato: formats[ato]} if ato in formats else {}
+        out.append((ato, names[ato], head, _compact_json({ato: reports}), _compact_json(fmt)))
+    return out
+
+
+def shared_backup_json(config: dict, profiles: dict, **shared) -> tuple:
+    """The shared settings of a backup's machine data, serialized once for
+    every file of a save: ``,"<key>":<value>`` for each, in SHARED_SECTIONS
+    order, one not given written empty, and None where each file's own format
+    goes. By name as ``render_backup`` takes them. Pure."""
+    if unknown := set(shared) - _BACKUP_BY_NAME:
+        raise TypeError(f'shared_backup_json: not a shared setting: {sorted(unknown)}')
+    given = {**shared, 'config': config, 'profiles': profiles}
+    return tuple(
+        None
+        if s.key == 'format'
+        else f',{_compact_json(s.key)}:{_compact_json(given.get(s.key) or s.kind())}'
+        for s in SHARED_SECTIONS
+    )
+
+
+def join_workspace_backups(parts: list, shared_json: tuple) -> list[tuple[str, str, str]]:
+    """``(ato, filename, text)`` for each of ``workspace_backup_parts`` with
+    the shared settings ``shared_backup_json`` gave. Pure."""
+    out = []
+    for ato, filename, head, reports, fmt in parts:
+        machine = [f',"formats":{fmt}' if j is None else j for j in shared_json]
+        text = ''.join([head, '{"workspaces":', reports, *machine, '}\n', BACKUP_END, '\n'])
+        out.append((ato, filename, text))
     return out
 
 
@@ -3501,10 +3558,12 @@ def _note_save_result(errors: list) -> None:
 def save_data_to_disk() -> None:
     """Persist each changed workspace atomically to its own ``{ATO}_{Title}.txt``.
 
-    The backup texts are rendered while holding ``data_lock`` (a consistent,
-    CPU-only snapshot), then written after releasing it. Holding the lock
-    across the write used to stall every sync and POST for the duration of
-    the disk I/O, which is noticeable on the USB sticks and network shares
+    What the backups hold is taken while holding ``data_lock`` (a consistent,
+    CPU-only snapshot): each workspace's part, and the shared settings as they
+    are. The shared settings (megabytes with the overlays) are serialized once
+    after releasing it, for every file, and the files are written. Holding the
+    lock across the write used to stall every sync and POST for the duration
+    of the disk I/O, which is noticeable on the USB sticks and network shares
     this often runs from. Only workspaces marked dirty since the last save
     are rewritten, except when a dated snapshot is due, which covers all.
     ``Shared settings.json`` is rewritten when the shared settings changed.
@@ -3516,6 +3575,7 @@ def save_data_to_disk() -> None:
             _last_snapshot_at is None or now - _last_snapshot_at >= SNAPSHOT_INTERVAL_SECONDS
         )
         errors = []
+        parts, shared = [], None
         with data_lock:
             pending, shared_pending = _dirty_atos, _shared_dirty
             only = None if (snapshot_due or pending is None) else set(pending)
@@ -3523,24 +3583,46 @@ def save_data_to_disk() -> None:
             try:
                 workspaces = DATA_STORE.get('workspaces', {})
                 shared = shared_settings()
-                files = render_workspace_backups(
+                # Made now: the reports are changed in place.
+                parts = workspace_backup_parts(
                     workspaces,
-                    # The config and profiles by name; the format under each
-                    # workspace's name, the shape backup files keep.
-                    formats=formats_for(workspaces, shared['format']),
+                    shared['config'],
+                    # The format under each workspace's name, the shape backup files keep.
+                    formats_for(workspaces, shared['format']),
                     only=only,
                     names=workspace_filenames(workspaces, shared['config'], _held_names()),
-                    **{k: v for k, v in shared.items() if k != 'format'},
                 )
-                if shared_pending or snapshot_due:
-                    # None for the ATO: the shared settings, not a workspace.
-                    files.append(
-                        (None, SHARED_SETTINGS_NAME, render_shared_settings(shared, dict(mission)))
-                    )
+                # The shared settings are serialized after the lock is let
+                # go: each is replaced whole when it changes, never changed in
+                # place, so these stay as they are now. The profiles are
+                # added to in place, so they are copied, as is the mission.
+                if isinstance(profiles := shared['profiles'], dict):
+                    shared = {**shared, 'profiles': dict(profiles)}
+                on = dict(mission)
             except Exception as exc:
                 # Nothing was written: keep every change pending, so a report
                 # the backup can't be made from never silently stops saving.
-                _dirty_atos, _shared_dirty = pending, shared_pending
+                _still_pending(pending, shared_pending)
+                parts, shared = [], None
+                errors.append(f'Could not prepare the backups: {exc!r}')
+        files = []
+        if shared is not None:
+            try:
+                # The config and profiles first, the format already in each part.
+                by_name = {
+                    k: v for k, v in shared.items() if k not in ('config', 'profiles', 'format')
+                }
+                files = join_workspace_backups(
+                    parts, shared_backup_json(shared['config'], shared['profiles'], **by_name)
+                )
+                if shared_pending or snapshot_due:
+                    # None for the ATO: the shared settings, not a workspace.
+                    files.append((None, SHARED_SETTINGS_NAME, render_shared_settings(shared, on)))
+            except Exception as exc:
+                # As above. Changes since the lock was let go are pending
+                # already: these are added to them, not put in their place.
+                with data_lock:
+                    _still_pending(pending, shared_pending)
                 files = []
                 errors.append(f'Could not prepare the backups: {exc!r}')
         try:

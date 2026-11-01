@@ -233,6 +233,68 @@ class BackupFormatTests(unittest.TestCase):
         text = f'{srv.BACKUP_START}{{"workspaces":{{}},"config":{{"ato":3,"title":"T"}}}}{srv.BACKUP_END}'
         self.assertEqual(srv._extract_json_from_file(text)["config"], {"ato": "", "title": "T"})
 
+    def test_each_workspace_file_is_byte_for_byte_what_it_was(self):
+        # The shared settings are now serialized once for every file of a
+        # save, not once a file: the files must not change by a byte. The old
+        # way is render_backup, which still serializes the whole file at once.
+        class Frozen(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime(2026, 11, 1, 9, 30, tzinfo=timezone.utc)
+
+        ws = {
+            "ALPHA": [
+                report(
+                    custom={"Wetter": "Bewölkt"}, bda=[{"target": "T-72", "effect": "Destroyed"}]
+                ),
+                report("r2", "ALPHA002", lm=7, yourAnalysis="Likely recon 🛰", history=[report()]),
+            ],
+            "BRAVO 2": [report("b1", "BRAVO001", ato="BRAVO 2", title="Screen", deleted=True)],
+            "Ωmega": [report("o1", "OMEGA001", ato="Ωmega", time=None, lm=1.5)],
+        }
+        config = {"ato": "ALPHA", "title": "Patrol «Nord»"}
+        profiles = {"AB": {"initials": "AB", "color": "#0a84ff"}, "ÉF": {"initials": "ÉF"}}
+        fmt = {"preset": "salt", "lines": [{"type": "id"}, {"type": "text", "text": "„x“"}]}
+        shared = {
+            "overlays": [NAI1, PL_BLUE, {**NAI1, "name": "2", "label": "NAI 2 – Brücke"}],
+            "basemaps": [TOPO],
+            "drones": [{"name": "RAVEN", "grid": "38SMB1", "at": 1, "range": 2.5}],
+            "narrative": {"enemy": "OPFOR", "units": [], "custom": [], "equipment": []},
+            "tags": [],  # empty: written as the section's empty value, as before
+            "fmv": {"on": True},
+        }
+        for formats, only in (
+            (srv.formats_for(ws, fmt), None),
+            ({}, None),
+            (srv.formats_for(ws, fmt), {"BRAVO 2"}),
+        ):
+            with mock.patch.object(srv, "datetime", Frozen):
+                new = srv.render_workspace_backups(ws, config, profiles, formats, only, **shared)
+                old = [
+                    (
+                        ato,
+                        srv.workspace_filenames(ws, config)[ato],
+                        srv.render_backup(
+                            {ato: ws[ato]},
+                            config,
+                            profiles,
+                            {ato: formats[ato]} if ato in formats else {},
+                            label=(ato, srv.workspace_title(ato, ws[ato], config)),
+                            **shared,
+                        )[1],
+                    )
+                    for ato in sorted(ws)
+                    if only is None or ato in only
+                ]
+            self.assertEqual([f[:2] for f in new], [f[:2] for f in old])
+            for (ato, _, text), (_, _, was) in zip(new, old, strict=True):
+                self.assertEqual(text.encode("utf-8"), was.encode("utf-8"), ato)
+        # The machine data reads back as it always has.
+        parsed = srv._extract_json_from_file(new[0][2])
+        self.assertEqual(parsed["workspaces"], {"BRAVO 2": ws["BRAVO 2"]})
+        self.assertEqual(parsed["overlays"], shared["overlays"])
+        self.assertEqual(parsed["formats"], {"BRAVO 2": fmt})
+
     def test_files_without_markers_or_with_corrupt_json_are_rejected(self):
         self.assertIsNone(srv._extract_json_from_file("just some notes"))
         self.assertIsNone(
@@ -3885,7 +3947,7 @@ class HttpApiTests(unittest.TestCase):
         cancel_pending_save()
         boom = RuntimeError("bad report")
         with (
-            mock.patch.object(srv, "render_workspace_backups", side_effect=boom),
+            mock.patch.object(srv, "workspace_backup_parts", side_effect=boom),
             mock.patch.object(srv, "safe_print") as printed,
         ):
             srv.save_data_to_disk()
@@ -3898,6 +3960,33 @@ class HttpApiTests(unittest.TestCase):
             srv.save_data_to_disk()
         text = (Path(srv.BACKUP_DIR) / "ALPHA_Patrol.txt").read_text("utf-8")
         self.assertEqual(len(srv._extract_json_from_file(text)["workspaces"]["ALPHA"]), 2)
+
+    def test_shared_settings_that_cannot_be_written_keep_every_change(self):
+        # The shared settings are serialized after data_lock is let go, so a
+        # change can land meanwhile: a failure then adds the save's changes
+        # back to it, rather than putting them in its place.
+        self.addCleanup(cancel_pending_save)
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        srv.flush_pending_save()
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report("r2", "ALPHA002")]})
+        cancel_pending_save()
+
+        def changed_meanwhile_then_fails(*args, **kw):
+            self.assertTrue(srv.data_lock.acquire(timeout=2), "data_lock is let go by now")
+            try:
+                srv.mark_dirty("BRAVO")
+            finally:
+                srv.data_lock.release()
+            raise RuntimeError("bad overlay")
+
+        with (
+            mock.patch.object(srv, "shared_backup_json", side_effect=changed_meanwhile_then_fails),
+            mock.patch.object(srv, "safe_print") as printed,
+        ):
+            srv.save_data_to_disk()
+        self.assertEqual(srv._dirty_atos, {"ALPHA", "BRAVO"})
+        self.assertIn("bad overlay", printed.call_args_list[0].args[0])
+        self.assertEqual(self.pending_retry(), 1.0)
 
     def test_a_locked_backup_is_retried_with_a_growing_wait(self):
         # Windows antivirus or OneDrive holding the file makes os.replace fail;
