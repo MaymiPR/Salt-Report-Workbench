@@ -18,7 +18,7 @@ Windows launcher, the license, and a short `README.txt`.
   transfer systems that refuse zips or scripts. Run it with Python:
 
   ```bat
-  python "SALT-Workbench-v2.39.0.txt"
+  python "SALT-Workbench-v2.40.0.txt"
   ```
 
   It unpacks into a `SALT Report Workbench` folder beside itself, checks every
