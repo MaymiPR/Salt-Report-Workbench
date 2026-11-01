@@ -26,6 +26,13 @@ All notable changes to this project are documented here. The format follows
   line; Copy, Save .txt and Print have it all. The judgments themselves, their
   levels and the reports behind them, are unchanged.
 
+### Fixed
+
+- The page opened as a file (offline, without the server) no longer fills the
+  browser's console with errors: it asked the server it doesn't have for
+  every sync and save, and the browser logged each refused request. It now
+  knows there is no server and doesn't ask; it works as before.
+
 ## [2.35.0] - 2026-10-31
 
 ### Changed

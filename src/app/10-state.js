@@ -619,9 +619,12 @@ const APP_VERSION = '2.36.0';
 // pull answer older than one seen is out of date before it lands.
 let syncedVersion = 0, seenVersion = 0;
 const noteChange = (v) => { if (typeof v === 'number' && v > seenVersion) seenVersion = v; };
+// A page opened as a file has no server: its calls fail at once, as the
+// browser would fail them, without a request it logs as an error.
+const serverFetch = (path, opts) => (isLocalFile ? Promise.reject(new Error('A page opened as a file has no server.')) : fetch(path, opts));
 // Each write says which mission it is from: the server refuses one from a
 // mission the team has finished (409, with the mission it is on now).
-const postJson = (path, body) => fetch(path, {
+const postJson = (path, body) => serverFetch(path, {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...(missionId ? { 'X-Salt-Mission': missionId } : {}) },
     body: JSON.stringify(body),
 }).then(res => { noteChange(Number(res.headers.get('X-Salt-Change')) || 0); return res; });
