@@ -13,6 +13,7 @@ See docs/ARCHITECTURE.md for the design.
 
 import argparse
 import base64
+import concurrent.futures
 import contextlib
 import ctypes
 import functools
@@ -38,6 +39,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
+import zlib
 from collections import deque
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
@@ -67,7 +69,7 @@ if sys.version_info < (3, 11, 8):
 #   Utilities                 printing, saving soon, the audit log, the access code
 #   Validation                request limits, and one validator per POST body
 #   Shared settings           SHARED_SECTIONS, one per shared setting; DATA_STORE
-#   Map services              /api/wms_fetch and the /api/basemap proxy
+#   Map services              /api/wms_fetch, the /api/basemap proxy, heights (/api/elevation)
 #   Rate limiting             token buckets per address
 #   Backup parsing & merging  a backup file's JSON, and merging reports by id
 #   Disk I/O                  loading at boot, the backup files, snapshots, saving
@@ -123,7 +125,7 @@ SHARED_SETTINGS_NAME = 'Shared settings.json'
 # it held summed up in MISSION_INFO_NAME for the Previous Missions list.
 MISSION_ARCHIVE_NAME = 'Mission Archives'
 MISSION_INFO_NAME = 'mission.json'
-MISSION_KEEP = frozenset({'tls'})
+MISSION_KEEP = frozenset({'tls', 'terrain.json'})
 # How many finished missions' ids are kept, so a page still on one of them
 # knows the team has moved on (see `mission` under State).
 MISSION_FINISHED_KEEP = 50
@@ -147,6 +149,23 @@ WMS_FETCH_TIMEOUT = 15
 # /api/basemap: an HTTPS page can't load map images from an http:// basemap, so
 # the server fetches them, from the hosts of the saved basemaps only.
 BASEMAP_PROXY_MAX_BYTES = 16 * 1024 * 1024
+# /api/elevation: heights for the narrative, from the elevation source in its
+# settings, kept in TERRAIN_NAME beside the backups (in MISSION_KEEP: the
+# ground doesn't change between missions). At most ELEVATION_MAX_POINTS a
+# request; those not kept are asked for by ELEVATION_WORKERS threads, and a
+# request waits ELEVATION_WAIT_SECONDS for them (the rest come with the page's
+# next ask). A point whose fetch failed isn't asked again for
+# TERRAIN_RETRY_SECONDS. Elevation tiles are read at TERRAIN_TILE_ZOOM (about
+# 10 m a pixel), the last TERRAIN_TILES_KEPT of them kept decoded.
+TERRAIN_NAME = 'terrain.json'
+TERRAIN_MAX_ENTRIES = 200_000
+TERRAIN_SAVE_SECONDS = 2.0
+TERRAIN_RETRY_SECONDS = 60
+TERRAIN_TILE_ZOOM = 14
+TERRAIN_TILES_KEPT = 16
+ELEVATION_MAX_POINTS = 500
+ELEVATION_WORKERS = 4
+ELEVATION_WAIT_SECONDS = 8
 # HTTPS: the server's own certificate lives in the backup folder's tls/ and is
 # made again this many days before it runs out. A new connection gets
 # TLS_HANDSHAKE_TIMEOUT seconds to start its handshake (or its plain request).
@@ -656,6 +675,36 @@ MAX_BASEMAP_URL = 2000
 MAX_BASEMAP_LAYERS = 2000
 # What a WMS's capabilities said to ask for: version, projection, image format.
 _BASEMAP_WMS_FIELDS = {'version': 10, 'crs': 40, 'format': 60}
+# A WMS address's own parameters that a request of ours replaces (core.js
+# WMS_KEYS), and the names of Web Mercator (core.js WMS_MERC_CRS).
+_WMS_KEYS = frozenset(
+    {
+        'SERVICE',
+        'VERSION',
+        'REQUEST',
+        'LAYERS',
+        'STYLES',
+        'CRS',
+        'SRS',
+        'BBOX',
+        'WIDTH',
+        'HEIGHT',
+        'FORMAT',
+        'TRANSPARENT',
+        'QUERY_LAYERS',
+        'INFO_FORMAT',
+        'I',
+        'J',
+        'X',
+        'Y',
+        'FEATURE_COUNT',
+    }
+)
+_WMS_MERC_CRS = frozenset({'EPSG:3857', 'EPSG:900913', 'EPSG:102100', 'EPSG:102113', 'EPSG:3785'})
+# How the narrative's elevation source holds heights: a WMS layer read by
+# GetFeatureInfo (''), or elevation tiles in one of two encodings.
+_TERRAIN_ENCODINGS = frozenset({'', 'terrarium', 'terrain-rgb'})
+_TERRAIN_UNITS = frozenset({'m', 'ft'})
 MAX_NARRATIVE_NAME = 60  # the enemy's name, and each unit's
 MAX_UNITS = 50
 MAX_UNIT_PLACES = 40
@@ -1265,6 +1314,50 @@ def _v_save_fmv(data: dict) -> str | None:
     return None
 
 
+def _check_terrain(t) -> str | None:
+    """An elevation source's settings (narrative.terrain): the basemap it
+    reads, the layer (a WMS's), the tile encoding and the units."""
+    if not isinstance(t, dict):
+        return 'must be an object'
+    if not _is_str(t.get('basemap'), MAX_BASEMAP_NAME) or not t['basemap'].strip():
+        return f'basemap must be a basemap name ≤{MAX_BASEMAP_NAME} chars'
+    if not _is_str(t.get('layer', ''), MAX_BASEMAP_LAYERS):
+        return f'layer must be a string ≤{MAX_BASEMAP_LAYERS} chars'
+    if t.get('encoding', '') not in _TERRAIN_ENCODINGS:
+        return 'encoding must be terrarium, terrain-rgb or empty'
+    if t.get('units', 'm') not in _TERRAIN_UNITS:
+        return 'units must be m or ft'
+    return None
+
+
+def _is_point(p) -> bool:
+    return (
+        isinstance(p, list)
+        and len(p) == 2
+        and all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in p
+        )
+        and -180 <= p[0] <= 180
+        and -85.06 <= p[1] <= 85.06
+    )
+
+
+def _v_elevation(data: dict) -> str | None:
+    points = data.get('points')
+    if not isinstance(points, list) or not 1 <= len(points) <= ELEVATION_MAX_POINTS:
+        return f'points must be a list of 1 to {ELEVATION_MAX_POINTS} [lon, lat]'
+    if not all(_is_point(p) for p in points):
+        return 'points must be [lon, lat] numbers'
+    return None
+
+
+def _v_elevation_test(data: dict) -> str | None:
+    problem = _check_terrain(data.get('terrain'))
+    if problem:
+        return f'terrain: {problem}'
+    return None if _is_point(data.get('point')) else 'point must be [lon, lat] numbers'
+
+
 def _v_save_narrative(data: dict) -> str | None:
     n = data.get('narrative')
     if not isinstance(n, dict):
@@ -1321,6 +1414,10 @@ def _v_save_narrative(data: dict) -> str | None:
     off = n.get('off', [])
     if not isinstance(off, list) or not all(r in _NARRATIVE_RULES for r in off):
         return 'narrative.off must list built-in rules'
+    if n.get('terrain'):
+        problem = _check_terrain(n['terrain'])
+        if problem:
+            return f'narrative.terrain: {problem}'
     toward = n.get('toward', '')
     if not isinstance(toward, str) or toward not in _MARCH_DIRECTIONS:
         return 'narrative.toward must be N, NE, E, SE, S, SW, W, NW or empty'
@@ -1588,6 +1685,18 @@ def clean_narrative(n: dict) -> dict:
         'off': sorted(set(n.get('off', []))),
         # Only when set, so settings without one are as they were.
         **({'toward': n['toward']} if n.get('toward') else {}),
+        **(
+            {
+                'terrain': {
+                    'basemap': n['terrain']['basemap'].strip(),
+                    'layer': n['terrain'].get('layer', '').strip(),
+                    'encoding': n['terrain'].get('encoding', ''),
+                    'units': n['terrain'].get('units', 'm'),
+                }
+            }
+            if n.get('terrain')
+            else {}
+        ),
         'custom': [
             {
                 'what': c['what'].strip(),
@@ -1802,11 +1911,12 @@ class _SameHostRedirects(urllib.request.HTTPRedirectHandler):
 _basemap_opener = urllib.request.build_opener(_SameHostRedirects)
 
 
-def basemap_fetch(url: str) -> tuple[int, str, bytes]:
-    """GET a basemap image: (status, content type, body). Never raises; a
-    failure comes back as status 502."""
+def basemap_fetch(url: str, accept: str = 'image/*') -> tuple[int, str, bytes]:
+    """GET a basemap image (or, with ``accept``, another reply from the
+    same service): (status, content type, body). Never raises; a failure
+    comes back as status 502."""
     req = urllib.request.Request(
-        url.strip(), headers={'User-Agent': 'SALT-Report-Workbench', 'Accept': 'image/*'}
+        url.strip(), headers={'User-Agent': 'SALT-Report-Workbench', 'Accept': accept}
     )
     try:
         with _basemap_opener.open(req, timeout=WMS_FETCH_TIMEOUT) as res:
@@ -1819,6 +1929,397 @@ def basemap_fetch(url: str) -> tuple[int, str, bytes]:
         return 502, '', b''
     except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException):
         return 502, '', b''
+
+
+# --- Heights: /api/elevation ---
+# The narrative reads the ground from an elevation source in its settings
+# (narrative.terrain: a saved basemap, the layer or tile encoding that holds
+# heights, and the units they come in). The server asks the source, so every
+# page, viewers' too, reads the same heights; what it learns is kept in
+# TERRAIN_NAME beside the backups, in meters, through Done with Mission.
+
+# The ways the page and the server know a height: by its point, rounded to
+# about a meter (as core.js terrainKey rounds it), under the source it came
+# from, so a new source starts afresh.
+terrain_lock = threading.Lock()
+TERRAIN_CACHE: dict[str, float | None] = {}
+_terrain_loaded_from: str | None = None
+_terrain_save_timer: threading.Timer | None = None
+# Points being fetched now, and points whose last fetch failed (key -> when),
+# not asked again for TERRAIN_RETRY_SECONDS. Protected by terrain_lock.
+_terrain_inflight: set[str] = set()
+_terrain_failed: dict[str, float] = {}
+_terrain_error: dict[str, str] = {}
+# The GetFeatureInfo format each source answered with a number, so the next
+# point asks for that one first.
+_terrain_format: dict[str, str] = {}
+_terrain_pool: concurrent.futures.ThreadPoolExecutor | None = None
+# Decoded elevation tiles, the most recent few: url -> (width, pixel at).
+_terrain_tiles: dict[str, tuple] = {}
+
+
+def _terrain_path() -> str:
+    return os.path.join(BACKUP_DIR, TERRAIN_NAME)
+
+
+def _terrain_load() -> None:
+    """Read the kept heights, once per backup folder. Call under terrain_lock."""
+    global _terrain_loaded_from
+    path = _terrain_path()
+    if _terrain_loaded_from == path:
+        return
+    _terrain_loaded_from = path
+    TERRAIN_CACHE.clear()
+    try:
+        with open(path, encoding='utf-8') as f:
+            kept = json.load(f)
+    except (OSError, ValueError):
+        return
+    if isinstance(kept, dict):
+        for k, v in list(kept.items())[:TERRAIN_MAX_ENTRIES]:
+            if isinstance(k, str) and (
+                v is None or (isinstance(v, (int, float)) and math.isfinite(v))
+            ):
+                TERRAIN_CACHE[k] = v
+
+
+def _terrain_save_soon() -> None:
+    """Write the kept heights a little after the last one learned. Call under terrain_lock."""
+    global _terrain_save_timer
+    if _terrain_save_timer is not None:
+        return
+    _terrain_save_timer = threading.Timer(TERRAIN_SAVE_SECONDS, flush_terrain)
+    _terrain_save_timer.daemon = True
+    _terrain_save_timer.start()
+
+
+def flush_terrain() -> None:
+    """Write the kept heights now (also at shutdown). A failure only means fetching again."""
+    global _terrain_save_timer
+    with terrain_lock:
+        _terrain_save_timer = None
+        if _terrain_loaded_from is None:
+            return
+        content = json.dumps(TERRAIN_CACHE, separators=(',', ':'))
+        path = _terrain_loaded_from
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _write_atomically(path, content)
+    except OSError as exc:
+        safe_print(f'[!] Could not keep the terrain heights ({exc}); they will be fetched again.')
+
+
+def terrain_source(terrain: dict | None = None) -> dict | None:
+    """The elevation source: the narrative's terrain settings (or ``terrain``,
+    to test some before saving) with the saved basemap they name; None when
+    unset or the basemap is gone."""
+    with data_lock:
+        if terrain is None:
+            terrain = (DATA_STORE.get('narrative') or {}).get('terrain')
+        if not isinstance(terrain, dict) or not terrain.get('basemap'):
+            return None
+        base = next(
+            (b for b in _dicts(DATA_STORE.get('basemaps')) if b.get('name') == terrain['basemap']),
+            None,
+        )
+    if base is None:
+        return None
+    src = {
+        'kind': base.get('kind'),
+        'url': str(base.get('url', '')).strip(),
+        'version': str(base.get('version') or '1.3.0'),
+        'crs': str(base.get('crs') or 'EPSG:4326').upper(),
+        'layer': str(terrain.get('layer') or '').strip()
+        or str(base.get('layers') or '').split(',')[0].strip(),
+        'encoding': terrain.get('encoding') or '',
+        'units': terrain.get('units') or 'm',
+    }
+    sig = '\n'.join(src[k] for k in ('kind', 'url', 'layer', 'encoding', 'units'))
+    src['sig'] = hashlib.sha256(sig.encode('utf-8')).hexdigest()[:12]
+    return src
+
+
+def terrain_key(src: dict, lon: float, lat: float) -> str:
+    return f'{src["sig"]}|{lon:.5f},{lat:.5f}'
+
+
+# A height past these (meters) is a source's "no data" value, not the ground:
+# the lowest and highest land are about -430 and 8,850 m.
+_HEIGHT_MIN, _HEIGHT_MAX = -1000.0, 9000.0
+# The number in a GetFeatureInfo reply: after a name a DEM's value goes by
+# (GeoServer's GRAY_INDEX, ArcGIS's Pixel Value, MapServer's value_0, a band)
+# when there is one, else the reply's only number.
+_HEIGHT_NAMES = r'GRAY_INDEX|Pixel[ _]?Value|value_0|value_list|Band[ _]?1|band_1|elevation|elev|height|altitude|dem|value'
+_HEIGHT_AFTER_NAME = re.compile(
+    rf'(?:{_HEIGHT_NAMES})\b["\']?\s*(?:[:=]|</t[hd]>\s*<t[hd][^>]*>)?\s*["\']?\s*(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)',
+    re.I,
+)
+_NUMBER = re.compile(r'(?<![\w.])-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?![\w.])')
+_INFO_FORMATS = ('text/plain', 'application/json', 'text/html', 'application/vnd.ogc.gml')
+
+
+def _height_from_reply(text: str) -> float | None:
+    """The height a GetFeatureInfo reply gives, or None when it gives none."""
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        doc = None
+    if isinstance(doc, (dict, list)):
+        found: list[float] = []
+
+        def walk(node, key=''):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    walk(v, str(k))
+            elif isinstance(node, list):
+                for v in node:
+                    walk(v, key)
+            elif (
+                isinstance(node, (int, float))
+                and not isinstance(node, bool)
+                and re.fullmatch(rf'(?:{_HEIGHT_NAMES})', key, re.I)
+            ):
+                found.append(float(node))
+            elif isinstance(node, str) and re.fullmatch(rf'(?:{_HEIGHT_NAMES})', key, re.I):
+                with contextlib.suppress(ValueError):
+                    found.append(float(node))
+
+        walk(doc)
+        return found[0] if found else None
+    m = _HEIGHT_AFTER_NAME.search(text)
+    if m:
+        return float(m.group(1))
+    plain = re.sub(r'<[^>]+>', ' ', text)
+    numbers = _NUMBER.findall(plain)
+    return float(numbers[0]) if len(numbers) == 1 else None
+
+
+def _feature_info_url(src: dict, lon: float, lat: float, info_format: str) -> str:
+    """A WMS GetFeatureInfo address for one point: the middle pixel of a
+    101-pixel square about 100 m across, in the basemap's own projection."""
+    path, _, query = src['url'].partition('?')
+    keep = [kv for kv in query.split('&') if kv and kv.split('=', 1)[0].upper() not in _WMS_KEYS]
+    v13 = src['version'] == '1.3.0'
+    crs = src['crs']
+    if crs in _WMS_MERC_CRS:
+        x = lon * math.pi / 180 * 6378137
+        y = (
+            math.log(math.tan(math.pi / 4 + max(-85.0511, min(85.0511, lat)) * math.pi / 360))
+            * 6378137
+        )
+        bbox = (x - 50, y - 50, x + 50, y + 50)
+    elif v13 and crs == 'EPSG:4326':
+        bbox = (lat - 0.00045, lon - 0.00045, lat + 0.00045, lon + 0.00045)
+    else:
+        bbox = (lon - 0.00045, lat - 0.00045, lon + 0.00045, lat + 0.00045)
+    ours = {
+        'SERVICE': 'WMS',
+        'VERSION': src['version'],
+        'REQUEST': 'GetFeatureInfo',
+        'LAYERS': src['layer'],
+        'QUERY_LAYERS': src['layer'],
+        'STYLES': '',
+        ('CRS' if v13 else 'SRS'): crs,
+        'BBOX': ','.join(f'{v:.7f}' for v in bbox),
+        'WIDTH': '101',
+        'HEIGHT': '101',
+        ('I' if v13 else 'X'): '50',
+        ('J' if v13 else 'Y'): '50',
+        'INFO_FORMAT': info_format,
+        'FEATURE_COUNT': '1',
+    }
+    return f'{path}?{"&".join([*keep, urllib.parse.urlencode(ours, safe=",:/")])}'
+
+
+def _png_reader(data: bytes) -> tuple[int, int, Callable[[int, int], tuple]]:
+    """Decode an 8-bit RGB or RGBA PNG (as elevation tiles are): its width,
+    height, and a function giving the (r, g, b, a) of a pixel. Raises ValueError for
+    anything else."""
+    if data[:8] != b'\x89PNG\r\n\x1a\n':
+        raise ValueError('the tile is not a PNG')
+    pos, idat, head = 8, [], None
+    while pos + 8 <= len(data):
+        size = int.from_bytes(data[pos : pos + 4], 'big')
+        kind = data[pos + 4 : pos + 8]
+        body = data[pos + 8 : pos + 8 + size]
+        pos += 12 + size
+        if kind == b'IHDR':
+            head = body
+        elif kind == b'IDAT':
+            idat.append(body)
+        elif kind == b'IEND':
+            break
+    if head is None or len(head) < 13:
+        raise ValueError('the tile has no PNG header')
+    width, height = int.from_bytes(head[0:4], 'big'), int.from_bytes(head[4:8], 'big')
+    depth, color, interlace = head[8], head[9], head[12]
+    if depth != 8 or color not in (2, 6) or interlace != 0:
+        raise ValueError('the tile is not an 8-bit RGB PNG')
+    bpp = 3 if color == 2 else 4
+    raw = zlib.decompress(b''.join(idat))
+    stride = width * bpp
+    rows: list[bytearray] = []
+    prev = bytearray(stride)
+    for y in range(height):
+        start = y * (stride + 1)
+        kind, row = raw[start], bytearray(raw[start + 1 : start + 1 + stride])
+        for i in range(stride):
+            a = row[i - bpp] if i >= bpp else 0
+            b = prev[i]
+            c = prev[i - bpp] if i >= bpp else 0
+            if kind == 1:
+                row[i] = (row[i] + a) & 255
+            elif kind == 2:
+                row[i] = (row[i] + b) & 255
+            elif kind == 3:
+                row[i] = (row[i] + (a + b) // 2) & 255
+            elif kind == 4:
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                row[i] = (row[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        rows.append(row)
+        prev = row
+
+    def at(px: int, py: int) -> tuple:
+        r = rows[py][px * bpp : px * bpp + bpp]
+        return (r[0], r[1], r[2], r[3] if bpp == 4 else 255)
+
+    return width, height, at
+
+
+def _tile_height(src: dict, lon: float, lat: float) -> float | None:
+    """The height an elevation tile (Terrarium or Mapbox Terrain-RGB) gives at a point."""
+    z = TERRAIN_TILE_ZOOM
+    n = 2**z
+    fx = (lon + 180) / 360 * n
+    lat_r = math.radians(max(-85.0511, min(85.0511, lat)))
+    fy = (1 - math.log(math.tan(lat_r) + 1 / math.cos(lat_r)) / math.pi) / 2 * n
+    x, y = int(fx), int(fy)
+    url = (
+        src['url']
+        .replace('{z}', str(z))
+        .replace('{x}', str(x))
+        .replace('{-y}', str(n - 1 - y))
+        .replace('{y}', str(y))
+    )
+    with terrain_lock:
+        tile = _terrain_tiles.get(url)
+    if tile is None:
+        status, _, body = basemap_fetch(url)
+        if status != 200:
+            raise ValueError(f'the tile service answered {status}')
+        tile = _png_reader(body)
+        with terrain_lock:
+            while len(_terrain_tiles) >= TERRAIN_TILES_KEPT:
+                _terrain_tiles.pop(next(iter(_terrain_tiles)))
+            _terrain_tiles[url] = tile
+    width, height, at = tile
+    r, g, b, a = at(min(width - 1, int((fx - x) * width)), min(height - 1, int((fy - y) * height)))
+    if a == 0:
+        return None
+    if src['encoding'] == 'terrain-rgb':
+        return -10000 + (r * 65536 + g * 256 + b) * 0.1
+    return r * 256 + g + b / 256 - 32768
+
+
+def elevation_at(
+    src: dict, lon: float, lat: float, replies: list | None = None
+) -> tuple[float | None, str]:
+    """(height in meters or None for no data, '') from the source, or (None,
+    why) when it couldn't be asked or gave no number. ``replies``, when
+    given, gets the text of each WMS reply read."""
+    try:
+        if src['kind'] == 'tiles':
+            h = _tile_height(src, lon, lat)
+        else:
+            formats = [_terrain_format.get(src['sig']), *_INFO_FORMATS]
+            h, said = None, ''
+            for fmt in dict.fromkeys(f for f in formats if f):
+                status, _, body = basemap_fetch(_feature_info_url(src, lon, lat, fmt), accept='*/*')
+                # An error status is the service, not the format: no use asking again.
+                if status != 200:
+                    said = f'the service answered {status}'
+                    break
+                text = body[:WMS_FETCH_MAX_BYTES].decode('utf-8', 'replace')
+                if replies is not None:
+                    replies.append(text)
+                h = _height_from_reply(text)
+                if h is not None:
+                    _terrain_format[src['sig']] = fmt
+                    break
+                said = 'its reply holds no height'
+            if h is None:
+                return None, said
+        if h is not None and src['units'] == 'ft':
+            h *= 0.3048
+        if h is None or not math.isfinite(h) or not _HEIGHT_MIN <= h <= _HEIGHT_MAX:
+            return None, ''
+        return round(h, 1), ''
+    except (ValueError, zlib.error, OSError, IndexError) as exc:
+        return None, str(exc) or type(exc).__name__
+
+
+def _terrain_fetch(src: dict, key: str, lon: float, lat: float) -> None:
+    h, why = elevation_at(src, lon, lat)
+    with terrain_lock:
+        _terrain_inflight.discard(key)
+        if why:
+            _terrain_failed[key] = time.time()
+            _terrain_error[src['sig']] = why
+            return
+        if len(TERRAIN_CACHE) < TERRAIN_MAX_ENTRIES:
+            TERRAIN_CACHE[key] = h
+            _terrain_save_soon()
+        _terrain_error.pop(src['sig'], None)
+
+
+def elevations(points: list) -> dict:
+    """Heights for ``points`` ([lon, lat] each): {source, heights, pending,
+    unknown, error}. Those kept are given at once; the rest are asked for, and
+    those answered within ELEVATION_WAIT_SECONDS given too. ``pending`` lists
+    the points still being asked, ``unknown`` those the source failed on lately
+    (null for now, both); ``error`` says why the source last failed, or ''."""
+    global _terrain_pool
+    src = terrain_source()
+    if src is None:
+        return {
+            'source': '',
+            'heights': [None] * len(points),
+            'pending': [],
+            'unknown': [],
+            'error': '',
+        }
+    keys = [terrain_key(src, lon, lat) for lon, lat in points]
+    futures = []
+    now = time.time()
+    with terrain_lock:
+        _terrain_load()
+        if _terrain_pool is None:
+            _terrain_pool = concurrent.futures.ThreadPoolExecutor(
+                ELEVATION_WORKERS, thread_name_prefix='terrain'
+            )
+        for (lon, lat), key in zip(points, keys, strict=True):
+            if key in TERRAIN_CACHE or key in _terrain_inflight:
+                continue
+            if now - _terrain_failed.get(key, 0) < TERRAIN_RETRY_SECONDS:
+                continue
+            _terrain_inflight.add(key)
+            futures.append(_terrain_pool.submit(_terrain_fetch, src, key, lon, lat))
+    concurrent.futures.wait(futures, timeout=ELEVATION_WAIT_SECONDS)
+    with terrain_lock:
+        heights = [TERRAIN_CACHE.get(k) for k in keys]
+        pending = [i for i, k in enumerate(keys) if k in _terrain_inflight]
+        unknown = [
+            i for i, k in enumerate(keys) if k not in TERRAIN_CACHE and k not in _terrain_inflight
+        ]
+        error = _terrain_error.get(src['sig'], '')
+    return {
+        'source': src['sig'],
+        'heights': heights,
+        'pending': pending,
+        'unknown': unknown,
+        'error': error,
+    }
 
 
 # =============================================================================
@@ -3898,6 +4399,28 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         audit(self._actor(), f'wms_fetch {url.split("?", 1)[0][:200]}')
         self._send_json({'status': 'success', **wms_fetch(url)})
 
+    def _post_elevation(self, data: dict) -> None:
+        # Changes nothing anyone sees: the heights learned are kept for the next ask.
+        self._send_json({'status': 'success', **elevations(data['points'])})
+
+    def _post_elevation_test(self, data: dict) -> None:
+        """Test as elevation: one point from settings not yet saved, its height
+        and the start of the reply, so the editor sees what the source says."""
+        src = terrain_source(data['terrain'])
+        if src is None:
+            self._error(400, 'That basemap is not saved: pick one in the list.')
+            return
+        audit(self._actor(), f'elevation_test {src["url"].split("?", 1)[0][:200]}')
+        replies: list = []
+        lon, lat = data['point']
+        height, why = elevation_at(src, lon, lat, replies)
+        said = (
+            re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', replies[0])).strip()[:300]
+            if replies
+            else ''
+        )
+        self._send_json({'status': 'success', 'height': height, 'error': why, 'reply': said})
+
     def _post_save_profile(self, data: dict) -> None:
         profile = data['profile']
         ini = profile['initials'].strip()
@@ -4001,6 +4524,9 @@ ROUTES: tuple[Route, ...] = (
     Route('POST', '/api/delete_history', _H._post_delete_history, _v_delete_history, viewer=False),
     # Changes nothing, but the server reaches out on an editor's behalf.
     Route('POST', '/api/wms_fetch', _H._post_wms_fetch, _v_wms_fetch, viewer=False),
+    # Heights for the narrative, from its elevation source only: viewers' too.
+    Route('POST', '/api/elevation', _H._post_elevation, _v_elevation),
+    Route('POST', '/api/elevation_test', _H._post_elevation_test, _v_elevation_test, viewer=False),
     # Done with Mission, and the finished missions: listed, settings recalled, workspaces loaded.
     Route('POST', '/api/finish_mission', _H._post_finish_mission, _v_finish_mission, viewer=False),
     Route('GET', '/api/missions', _H._handle_missions, viewer=False),
@@ -4554,6 +5080,7 @@ def graceful_drain() -> None:
         pass
     try:
         flush_pending_save()
+        flush_terrain()
         safe_print('[+] Pending changes flushed to disk.')
     except Exception as exc:
         safe_print(f'[!] Error flushing on shutdown: {exc}')

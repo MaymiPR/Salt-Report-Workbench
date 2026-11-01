@@ -81,7 +81,10 @@ Everything lives in `Auto Backups/` beside the server (or `--backup-dir`):
   within half a second of every change;
 - `snapshots/`: dated copies of all of them, on every start and then at most
   once an hour, the newest 48 rounds kept (about two days);
-- `audit.log`: every accepted change, who made it and when, in UTC.
+- `audit.log`: every accepted change, who made it and when, in UTC;
+- `terrain.json`: the heights the narrative's elevation source gave, kept
+  so it isn't asked twice (through Done with Mission; deleting it only
+  means asking again).
 
 Copy the whole `Auto Backups` folder somewhere safe at the end of each day, and
 at the end of the operation. It holds your actual reports: handle it according

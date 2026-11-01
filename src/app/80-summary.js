@@ -52,6 +52,8 @@ const renderSummary = () => {
     s.placeRow.hidden = summaryKind !== 'place';
     // The narrative's settings: always there beside it, the full height of the view.
     showNarrSettings(summaryKind === 'narrative');
+    // The heights it reads: asked for, and drawn again as they come.
+    if (summaryKind === 'narrative') askTerrain();
     document.querySelectorAll('[data-summary-kind]').forEach(b => setOn(b, b.dataset.summaryKind === summaryKind));
     const opts = summaryOpts(live);
     const full = SaltCore.summaryDetail(summaryKind, live, currentOverlays(), opts);
@@ -176,6 +178,7 @@ const summaryOpts = (live) => {
         local: timeDisplayMode === 'local', from, to, now: new Date(),
         ato: shownAto() || 'NO WORKSPACE', title: (live.find(r => r.title) || {}).title || localConfig.title || '',
         by: (userProfile && userProfile.initials) || '', place: summaryPlace, narrative: sharedNarrative,
+        terrain: terrainInput(),
     };
 };
 // The text Edit starts from. The narrative's paragraphs come unwrapped: the

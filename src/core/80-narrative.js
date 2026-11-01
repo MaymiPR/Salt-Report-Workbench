@@ -41,6 +41,38 @@ const wayOfMarchAt = (pt, axes = [], toward = '') => {
     const i = HEADINGS_8.indexOf(toward);
     return i >= 0 ? { deg: i * 45, dir: toward, axis: '' } : null;
 };
+// --- The ground ---
+
+// Heights come from the elevation source in the settings, through the sync
+// server, by point (terrainKey: to about a meter, as the server keys them).
+// For each report's grid the narrative reads five: the grid, and one
+// TERRAIN_STEP_METERS north, east, south and west of it, for the slope; with
+// a way of march there, a sixth TERRAIN_AHEAD_METERS ahead along it, for
+// ground rising in front (a crest).
+const TERRAIN_STEP_METERS = 100, TERRAIN_AHEAD_METERS = 500;
+const terrainKey = (lon, lat) => `${lon.toFixed(5)},${lat.toFixed(5)}`;
+const offsetPoint = (pt, meters, deg) => {
+    const r = deg * Math.PI / 180;
+    return { lon: pt.lon + meters * Math.sin(r) / (111320 * Math.cos(pt.lat * Math.PI / 180)), lat: pt.lat + meters * Math.cos(r) / 110574 };
+};
+const groundPoints = (pt, aheadDeg = null) => [pt, ...[0, 90, 180, 270].map(d => offsetPoint(pt, TERRAIN_STEP_METERS, d)),
+    ...(aheadDeg === null ? [] : [offsetPoint(pt, TERRAIN_AHEAD_METERS, aheadDeg)])];
+// Every point the narrative may read the height of for some reports, once
+// each, as [lon, lat] rounded as terrainKey rounds them.
+const terrainPoints = (reps, overlays = [], settings = null) => {
+    const set = narrativeSettings(settings), axes = axesOf(overlays), seen = new Map();
+    (reps || []).filter(r => r && !r.deleted).forEach(r => {
+        const g = findGrids(r.location)[0];
+        if (!g) return;
+        const way = set.toward || axes.length ? wayOfMarchAt(g, axes, set.toward) : null;
+        groundPoints(g, way ? way.deg : null).forEach(p => {
+            const k = terrainKey(p.lon, p.lat);
+            if (!seen.has(k)) seen.set(k, [Number(p.lon.toFixed(5)), Number(p.lat.toFixed(5))]);
+        });
+    });
+    return [...seen.values()];
+};
+
 // The axes of advance among some overlays, each by its name with its lines.
 const axesOf = (overlays) => (overlays || []).filter(o => overlayOk(o) && o.type === 'AXIS' && /LineString/.test(o.geometry.type))
     .map(o => ({ key: overlayKey(o), lines: o.geometry.type === 'LineString' ? [o.geometry.coordinates] : o.geometry.coordinates }));

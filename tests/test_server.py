@@ -544,6 +544,22 @@ class ValidatorTests(unittest.TestCase):
             {"narrative": {"equipment": [{"type": "X", "role": "mech", "origin": "US"}]}},
             "origin",
         )
+        # The elevation source: a basemap, a layer, an encoding, units.
+        terrain = {"basemap": "DEM", "layer": "dem", "encoding": "", "units": "ft"}
+        self.assertIsNone(v({"narrative": {"terrain": terrain}}))
+        self.assertIsNone(v({"narrative": {"terrain": {}}}), "none")
+        self.assertRejects(v, {"narrative": {"terrain": {"layer": "dem"}}}, "basemap")
+        self.assertRejects(
+            v, {"narrative": {"terrain": {**terrain, "encoding": "png"}}}, "encoding"
+        )
+        self.assertRejects(v, {"narrative": {"terrain": {**terrain, "units": "yd"}}}, "units")
+        e = srv._v_elevation
+        self.assertIsNone(e({"points": [[44.0, 33.0]]}))
+        self.assertRejects(e, {"points": []}, "points")
+        self.assertRejects(e, {"points": [[0, 0]] * (srv.ELEVATION_MAX_POINTS + 1)}, "points")
+        self.assertRejects(e, {"points": [[44.0, 95.0]]}, "lon, lat")
+        self.assertRejects(e, {"points": [["44", 33]]}, "lon, lat")
+        self.assertRejects(srv._v_elevation_test, {"terrain": terrain, "point": [1]}, "point")
         # How it moves: one of the running gears, or not said.
         self.assertRejects(
             v, {"narrative": {"equipment": [{"type": "X", "role": "mech", "gear": "legs"}]}}, "gear"
@@ -1492,6 +1508,198 @@ class HttpApiTests(unittest.TestCase):
     def post_routes():
         return [r for r in srv.ROUTES if r.method == "POST"]
 
+    # -- Heights for the narrative ------------------------------------------- #
+    @staticmethod
+    def fresh_terrain():
+        """No heights kept, in memory or on disk, and nothing failed lately."""
+        with srv.terrain_lock:
+            srv.TERRAIN_CACHE.clear()
+            srv._terrain_loaded_from = None
+            srv._terrain_failed.clear()
+            srv._terrain_error.clear()
+            srv._terrain_tiles.clear()
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(os.path.join(srv.BACKUP_DIR, srv.TERRAIN_NAME))
+
+    def fake_dem(self, answer):
+        """A WMS whose GetFeatureInfo says ``answer(lon, lat)`` for the middle
+        of the box asked, as GeoServer's text/plain does; its address, and
+        the list of the points it was asked."""
+        import http.server as hs
+
+        asked = []
+
+        class Fake(hs.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                q = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(self.path).query))
+                if q.get("REQUEST") != "GetFeatureInfo" or q.get("INFO_FORMAT") != "text/plain":
+                    body = b"<ServiceException>unsupported</ServiceException>"
+                else:
+                    s, w, n, e = (float(v) for v in q["BBOX"].split(","))  # 1.3.0 EPSG:4326
+                    lon, lat = round((w + e) / 2, 5), round((s + n) / 2, 5)
+                    asked.append((lon, lat))
+                    body = f"Results for FeatureType 'dem':\nGRAY_INDEX = {answer(lon, lat)}\n".encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        fake = hs.ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+        threading.Thread(target=fake.serve_forever, daemon=True).start()
+        self.addCleanup(fake.server_close)
+        self.addCleanup(fake.shutdown)
+        return f"http://127.0.0.1:{fake.server_port}/wms?map=dem", asked
+
+    def test_heights_come_from_the_narratives_source_once_and_are_kept_for_everyone(self):
+        self.fresh_terrain()
+        self.addCleanup(self.fresh_terrain)
+        url, asked = self.fake_dem(lambda lon, lat: -32768 if lon > 45 else round(lon * 10, 1))
+        pts = [[44.0, 33.0], [44.5, 33.1], [46.0, 33.0]]
+        # No source: no heights, and nothing asked.
+        _, body = self.post("/api/elevation", {"points": pts})
+        self.assertEqual((body["source"], body["heights"], body["pending"]), ("", [None] * 3, []))
+        dem = {
+            "name": "DEM",
+            "kind": "wms",
+            "url": url,
+            "layers": "dem,hillshade",
+            "version": "1.3.0",
+            "crs": "EPSG:4326",
+        }
+        self.assertEqual(self.post("/api/save_basemaps", {"basemaps": [dem]})[0], 200)
+        terrain = {"basemap": "DEM", "layer": "", "encoding": "", "units": "ft"}
+        self.assertEqual(
+            self.post("/api/save_narrative", {"narrative": {"terrain": terrain}})[0], 200
+        )
+        self.assertEqual(self.sync()["narrative"]["terrain"], terrain)
+        # In feet, given in meters; past the lowest land, no data (kept as such).
+        _, body = self.post("/api/elevation", {"points": pts})
+        self.assertEqual(body["heights"], [round(440 * 0.3048, 1), round(445 * 0.3048, 1), None])
+        self.assertEqual((body["pending"], body["unknown"], body["error"]), ([], [], ""))
+        self.assertEqual(len(asked), 3)
+        # Asked once: the next ask, a viewer's too, is answered from what is kept.
+        _, again = self.post("/api/elevation", {"points": pts}, base=self.viewer_base, code=None)
+        self.assertEqual(again["heights"], body["heights"])
+        self.assertEqual(len(asked), 3)
+        # Kept on disk, beside the backups, and read back.
+        srv.flush_terrain()
+        kept = json.loads((Path(srv.BACKUP_DIR) / srv.TERRAIN_NAME).read_text("utf-8"))
+        self.assertEqual(sorted(v is None for v in kept.values()), [False, False, True])
+        with srv.terrain_lock:
+            srv.TERRAIN_CACHE.clear()
+            srv._terrain_loaded_from = None
+        self.assertEqual(
+            self.post("/api/elevation", {"points": pts})[1]["heights"], body["heights"]
+        )
+        self.assertEqual(len(asked), 3)
+        # Another source starts afresh.
+        terrain["units"] = "m"
+        self.post("/api/save_narrative", {"narrative": {"terrain": terrain}})
+        self.assertEqual(self.post("/api/elevation", {"points": pts[:1]})[1]["heights"], [440.0])
+        self.assertEqual(len(asked), 4)
+
+    def test_a_source_that_fails_says_why_and_is_not_asked_again_at_once(self):
+        self.fresh_terrain()
+        self.addCleanup(self.fresh_terrain)
+        dem = {"name": "DEM", "kind": "wms", "url": "http://127.0.0.1:1/wms", "layers": "dem"}
+        self.post("/api/save_basemaps", {"basemaps": [dem]})
+        self.post("/api/save_narrative", {"narrative": {"terrain": {"basemap": "DEM"}}})
+        _, body = self.post("/api/elevation", {"points": [[44.0, 33.0]]})
+        self.assertEqual((body["heights"], body["pending"], body["unknown"]), ([None], [], [0]))
+        self.assertIn("502", body["error"])
+        self.assertIn(next(iter(srv._terrain_failed)), srv._terrain_failed)
+        self.assertEqual(srv.TERRAIN_CACHE, {}, "a failure isn't kept as no data")
+
+    def test_heights_from_elevation_tiles(self):
+        import http.server as hs
+        import struct
+        import zlib
+
+        # One 2x1 tile: Terrarium 512.5 m, then a transparent pixel (no data).
+        r, g, b = divmod(512 + 32768, 256)[0], (512 + 32768) % 256, 128
+        raw = bytes([0, r, g, b, 255, 0, 0, 0, 0])
+
+        def chunk(k, d):
+            return struct.pack(">I", len(d)) + k + d + struct.pack(">I", zlib.crc32(k + d))
+
+        png = (
+            b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 1, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw))
+            + chunk(b"IEND", b"")
+        )
+
+        class Fake(hs.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(png)))
+                self.end_headers()
+                self.wfile.write(png)
+
+        fake = hs.HTTPServer(("127.0.0.1", 0), Fake)
+        threading.Thread(target=fake.serve_forever, daemon=True).start()
+        self.addCleanup(fake.server_close)
+        self.addCleanup(fake.shutdown)
+        self.fresh_terrain()
+        self.addCleanup(self.fresh_terrain)
+        tiles = {
+            "name": "DEM tiles",
+            "kind": "tiles",
+            "url": f"http://127.0.0.1:{fake.server_port}/{{z}}/{{x}}/{{y}}.png",
+        }
+        self.post("/api/save_basemaps", {"basemaps": [tiles]})
+        terrain = {"basemap": "DEM tiles", "encoding": "terrarium"}
+        self.post("/api/save_narrative", {"narrative": {"terrain": terrain}})
+        # Two points in one tile at zoom 14: its left half and its right.
+        n = 2**srv.TERRAIN_TILE_ZOOM
+        left = [(100 + 0.25) / n * 360 - 180, 0.0001]
+        right = [(100 + 0.75) / n * 360 - 180, 0.0001]
+        _, body = self.post("/api/elevation", {"points": [left, right]})
+        self.assertEqual(body["heights"], [512.5, None])
+        self.assertEqual(
+            srv.elevation_at({**srv.terrain_source(), "encoding": "terrain-rgb"}, *left)[0],
+            None,
+            "the same pixel read as Terrain-RGB is far off the ground: no data",
+        )
+
+    def test_test_as_elevation_shows_the_height_and_the_reply(self):
+        self.fresh_terrain()
+        self.addCleanup(self.fresh_terrain)
+        url, _ = self.fake_dem(lambda lon, lat: 612.5)
+        dem = {
+            "name": "DEM",
+            "kind": "wms",
+            "url": url,
+            "layers": "dem",
+            "version": "1.3.0",
+            "crs": "EPSG:4326",
+        }
+        self.post("/api/save_basemaps", {"basemaps": [dem]})
+        status, body = self.post(
+            "/api/elevation_test", {"terrain": {"basemap": "DEM"}, "point": [44.0, 33.0]}
+        )
+        self.assertEqual((status, body["height"], body["error"]), (200, 612.5, ""))
+        self.assertIn("GRAY_INDEX = 612.5", body["reply"])
+        self.assertEqual(srv.TERRAIN_CACHE, {}, "a test isn't kept")
+        status, body = self.post(
+            "/api/elevation_test", {"terrain": {"basemap": "Nope"}, "point": [44.0, 33.0]}
+        )
+        self.assertEqual(status, 400)
+        status, _ = self.post(
+            "/api/elevation_test",
+            {"terrain": {"basemap": "DEM"}, "point": [44.0, 33.0]},
+            base=self.viewer_base,
+        )
+        self.assertEqual(status, 405, "editors only")
+
     # -- Done with Mission ---------------------------------------------------- #
     def a_mission(self):
         """A mission under way: ALPHA with two reports, an overlay, a basemap,
@@ -1502,6 +1710,7 @@ class HttpApiTests(unittest.TestCase):
         tls = Path(srv.BACKUP_DIR) / "tls"
         tls.mkdir(parents=True)
         (tls / "server.pem").write_text("certificate", "utf-8")
+        (Path(srv.BACKUP_DIR) / srv.TERRAIN_NAME).write_text("{}", "utf-8")
         reps = [report("a1", "ALPHA001"), report("a2", "ALPHA002")]
         for path, body in (
             ("/api/save_reports", {"ato": "ALPHA", "reports": reps}),
@@ -1543,6 +1752,7 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(
             (Path(srv.BACKUP_DIR) / "tls" / "server.pem").read_text("utf-8"), "certificate"
         )
+        self.assertTrue((Path(srv.BACKUP_DIR) / srv.TERRAIN_NAME).is_file(), "the heights stay")
         self.assertFalse(list(Path(srv.BACKUP_DIR).glob("*.txt")))
         # The next mission: nothing but the basemaps, under a new id.
         state = self.sync()
@@ -1714,7 +1924,7 @@ class HttpApiTests(unittest.TestCase):
             self.assertNotIn("_bad_request", inspect.getsource(handler), route.path)
 
     def test_every_post_route_has_a_validator(self):
-        self.assertEqual(len(self.post_routes()), 18)
+        self.assertEqual(len(self.post_routes()), 20)
         for route in self.post_routes():
             self.assertTrue(callable(route.validator), route.path)
         # A shared setting's route has its section's validator.
@@ -1723,7 +1933,11 @@ class HttpApiTests(unittest.TestCase):
 
     def test_every_write_is_refused_on_the_viewer_port(self):
         self.assertTrue(self.post_routes())
+        # Heights change nothing anyone sees: viewers' narratives need them too.
+        self.assertEqual([r.path for r in self.post_routes() if r.viewer], ["/api/elevation"])
         for route in self.post_routes():
+            if route.path == "/api/elevation":
+                continue
             self.assertFalse(route.viewer, route.path)
             message = self.refused(405, route.path, {"config": {"ato": "A"}}, base=self.viewer_base)
             self.assertEqual(message, "This server is read-only.")
