@@ -83,6 +83,9 @@ All notable changes to this project are documented here. The format follows
 - **Imported names are no longer cut in the middle of an emoji.** Names
   shortened to fit (graphics from KML, GeoJSON or a shapefile, and basemaps)
   could end on half of a character, which the server refuses.
+- **Switching back to an unloaded workspace takes it off the unloaded list**
+  however its name is typed. With spaces around it or in lower case, it
+  stayed listed as unloaded after someone was working in it again.
 
 ## [2.41.0] - 2026-11-01
 

@@ -4576,8 +4576,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         where = (clean['ato'] or '').strip().upper()
         moved = self._now_in(where)
         with data_lock:
-            revived = clean['ato'] in unloaded_workspaces
-            unloaded_workspaces.discard(clean['ato'])
+            # The list holds names as the workspaces are keyed: trimmed, upper case.
+            revived = where in unloaded_workspaces
+            unloaded_workspaces.discard(where)
             if revived:
                 invalidate_sync_cache()
         stored, before = self._store_shared('config', clean)  # the config rides in every file

@@ -2766,6 +2766,16 @@ class HttpApiTests(unittest.TestCase):
         self.post("/api/unload_ato", {"ato": "NEVER"})
         self.assertEqual(self.sync()["unloaded"], [])
 
+    def test_switching_to_an_unloaded_workspace_as_typed_takes_it_off_the_list(self):
+        # Regression: the list holds the workspace's name trimmed and in upper
+        # case, and save_config looked for it as sent, so " alpha " stayed listed.
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        self.post("/api/unload_ato", {"ato": "ALPHA"})
+        self.assertEqual(self.sync()["unloaded"], ["ALPHA"])
+        status, _ = self.post("/api/save_config", {"config": {"ato": " alpha ", "title": "T"}})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.sync()["unloaded"], [])
+
     def test_an_edit_to_an_older_copy_is_refused(self):
         # Regression: edit_report overwrote whatever the server held, so an
         # edit made to a stale copy undid a later change by someone else.
