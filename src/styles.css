@@ -1943,6 +1943,12 @@ input[type="checkbox"].narr-switch:checked { background: var(--system-green); ba
 .summary-sources { display: block; padding-left: 6ch; white-space: normal; color: var(--text-secondary); user-select: none; -webkit-user-select: none; }
 .summary-sources .text-btn { font: inherit; }
 .summary-sources [hidden] { display: none; }
+/* A judgment's Details: the button at the end of its line, and the detail
+   below it, a block even while closed so the next line starts on its own. */
+.summary-detail-btn { font: inherit; user-select: none; -webkit-user-select: none; }
+.summary-detail { display: block; }
+.summary-detail > [hidden] { display: none; }
+.summary-annex-note { color: var(--text-secondary); }
 
 /* --- BDA (hidden until ellipsis toggle) --- */
 /* Roll-up strip between the header and the table: one chip per outcome,

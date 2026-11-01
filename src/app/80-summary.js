@@ -73,23 +73,57 @@ const renderSummary = () => {
     s.subtitle.textContent = `${ato || 'No workspace'} · ${plural(live.length, 'report')} in the workspace`;
     s.panel.querySelectorAll('.range-mode').forEach(n => { n.textContent = timeDisplayMode === 'local' ? '(Local)' : '(Zulu)'; });
 };
-// The report on screen, and under each judgment the reports behind it:
-// "From ALPHA012, ALPHA015", each a button that shows it in the Report Log.
-// The lists are only on screen: Copy, Save and Print have the text alone.
+// The report on screen. Under each judgment of the narrative's assessment,
+// a Details button opens its detail from the annex (basis, doctrine, unit,
+// confidence) and the reports behind it: "From ALPHA012, ALPHA015", each a
+// button that shows it in the Report Log. The annex itself is folded into
+// one line, as its judgments open where they are. A judgment with no detail
+// has its list under it. All of this is on screen only: Copy, Save and Print
+// have the text alone, the annex in full.
 const SOURCES_SHOWN = 8;
-const showSummaryText = (pre, { text, judgments }) => {
+const showSummaryText = (pre, { text, judgments, annex = null }) => {
     const lines = text.split('\n');
     const byKey = new Map(localReports.filter(r => !r.deleted).map(r => [SaltCore.reportKey(r), r]));
     const parts = [];
     let from = 0;
     judgments.forEach(j => {
         const reps = j.sources.map(k => byKey.get(k)).filter(Boolean);
-        if (!reps.length) return;
-        parts.push(lines.slice(from, j.line + 1).join('\n'), sourcesList(reps));
+        if (!reps.length && !j.detail) return;
+        parts.push(lines.slice(from, j.line + 1).join('\n'));
+        parts.push(...(j.detail ? judgmentDetail(lines.slice(...j.detail).join('\n'), reps) : [sourcesList(reps)]));
         from = j.line + 1;
     });
+    // The annex's place keeps its blank lines around the one line.
+    if (annex) {
+        parts.push(`${lines.slice(from, annex[0]).join('\n')}\n`, annexNote(lines[annex[0]]), '\n');
+        from = annex[1];
+    }
     parts.push(lines.slice(from).join('\n'));
     pre.replaceChildren(...parts);
+};
+// A judgment's Details button, at the end of its line, and the detail it
+// opens below. The box is a block even while closed, so the next line starts
+// on a line of its own.
+const judgmentDetail = (text, reps) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'text-btn summary-detail-btn';
+    btn.dataset.summaryDetail = '';
+    btn.textContent = 'Details';
+    btn.setAttribute('aria-expanded', 'false');
+    const box = document.createElement('span');
+    box.className = 'summary-detail';
+    const body = document.createElement('span');
+    body.hidden = true;
+    body.append(text, ...(reps.length ? [sourcesList(reps)] : []));
+    box.append(body);
+    return [' ', btn, box];
+};
+const annexNote = (heading) => {
+    const note = document.createElement('span');
+    note.className = 'summary-annex-note';
+    note.textContent = `${heading}: each judgment's Details above. Copy, Save .txt and Print include it in full.`;
+    return note;
 };
 const sourcesList = (reps) => {
     const box = document.createElement('span');
@@ -261,6 +295,14 @@ const summaryFileName = () =>
     s.panel.addEventListener('click', e => {
         const source = e.target.closest('[data-summary-source]');
         if (source) { showInLog(source.dataset.summarySource); return; }
+        const detail = e.target.closest('[data-summary-detail]');
+        if (detail) {
+            const body = detail.nextElementSibling.firstElementChild, open = body.hidden;
+            body.hidden = !open;
+            detail.textContent = open ? 'Hide' : 'Details';
+            detail.setAttribute('aria-expanded', String(open));
+            return;
+        }
         const more = e.target.closest('[data-summary-more]');
         if (more) {
             const box = more.closest('.summary-sources');
