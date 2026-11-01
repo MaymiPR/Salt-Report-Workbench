@@ -100,6 +100,12 @@ All notable changes to this project are documented here. The format follows
   server compressed it again for nearly every machine, and machines asking
   at the same moment each compressed it. Each is now kept, and compressed
   once.
+- **Closing the server's window saves first.** Closing it with X skipped
+  the final save that Ctrl+C makes, losing the last half second of changes,
+  or everything since saves began failing. It now saves as Ctrl+C does. And
+  a change sent while the server is stopping is refused, so the page keeps
+  it and sends it again, rather than being told it was saved when it never
+  was.
 
 ## [2.41.0] - 2026-11-01
 

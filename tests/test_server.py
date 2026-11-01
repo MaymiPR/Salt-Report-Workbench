@@ -98,6 +98,9 @@ def reset_state() -> None:
     srv._dirty_atos = None
     srv._shared_dirty = True
     srv._save_failures = 0
+    # Not stopping, and not stopped: a drain is once a run.
+    srv._stopping = False
+    srv._drained = None
     srv._file_holds.clear()
     srv._merged_files.clear()
 
@@ -1280,6 +1283,114 @@ class RestoreTests(unittest.TestCase):
     def test_the_flag_runs_it_and_exits(self):
         with mock.patch.object(sys, "argv", ["salt_sync_server", "--restore", "list"]):
             self.assertEqual(srv.parse_cli_args().restore, "list")
+
+
+class StoppingTests(unittest.TestCase):
+    def setUp(self):
+        reset_state()
+        self.addCleanup(reset_state)
+
+    def test_the_drain_runs_once_and_a_second_caller_gets_its_answer(self):
+        # Ctrl+C and the window closing can both ask; the second must not
+        # save over the first, or tell the clients twice.
+        started = threading.Event()
+        go_on = threading.Event()
+
+        def slow():
+            started.set()
+            go_on.wait(5)
+            return False
+
+        with mock.patch.object(srv, "_drain", side_effect=slow) as drain:
+            answers = []
+            first = threading.Thread(target=lambda: answers.append(srv.graceful_drain()))
+            first.start()
+            self.assertTrue(started.wait(5))
+            second = threading.Thread(target=lambda: answers.append(srv.graceful_drain()))
+            second.start()
+            time.sleep(0.1)
+            self.assertEqual(answers, [], "the second waits for the first")
+            go_on.set()
+            first.join(5)
+            second.join(5)
+            self.assertEqual(answers, [False, False])
+            self.assertIs(srv.graceful_drain(), False)
+        drain.assert_called_once()
+
+    def test_closing_the_window_logging_off_or_shutting_down_runs_the_drain(self):
+        for event in (srv.CTRL_CLOSE_EVENT, srv.CTRL_LOGOFF_EVENT, srv.CTRL_SHUTDOWN_EVENT):
+            with (
+                mock.patch.object(srv, "graceful_drain") as drain,
+                mock.patch.object(srv, "safe_print"),
+            ):
+                self.assertIs(srv._on_console_close(event), True, event)
+            drain.assert_called_once_with()
+        # Ctrl+C and Ctrl+Break are Python's: KeyboardInterrupt, then the drain.
+        for event in (0, 1):
+            with mock.patch.object(srv, "graceful_drain") as drain:
+                self.assertIs(srv._on_console_close(event), False, event)
+            drain.assert_not_called()
+
+    def test_the_console_handler_never_raises(self):
+        # It runs on a thread of Windows' own, with the process ending after it.
+        with (
+            mock.patch.object(srv, "graceful_drain", side_effect=OSError("disk gone")),
+            mock.patch.object(srv, "safe_print", side_effect=OSError("console gone")),
+        ):
+            self.assertIs(srv._on_console_close(srv.CTRL_CLOSE_EVENT), True)
+
+    def fake_ctypes(self, kernel32):
+        return mock.Mock(
+            WINFUNCTYPE=lambda *types: lambda fn: fn,
+            c_int=int,
+            c_ulong=int,
+            WinDLL=lambda name, **kw: kernel32,
+        )
+
+    def test_the_handler_is_installed_on_windows_and_calls_the_drain(self):
+        kernel32 = mock.Mock()
+        kernel32.SetConsoleCtrlHandler.return_value = 1
+        with (
+            mock.patch.object(srv, "_console_handler", None),
+            mock.patch.object(srv.os, "name", "nt"),
+            mock.patch.object(srv, "ctypes", self.fake_ctypes(kernel32)),
+        ):
+            self.assertTrue(srv.install_console_close_handler())
+            self.assertTrue(srv.install_console_close_handler(), "installed once")
+            handler, add = kernel32.SetConsoleCtrlHandler.call_args.args
+            installed = srv._console_handler
+        kernel32.SetConsoleCtrlHandler.assert_called_once()
+        self.assertEqual(add, 1)
+        self.assertIs(handler, installed, "kept, so Windows never calls a freed one")
+        with (
+            mock.patch.object(srv, "graceful_drain") as drain,
+            mock.patch.object(srv, "safe_print"),
+        ):
+            self.assertEqual(handler(srv.CTRL_CLOSE_EVENT), 1)
+            self.assertEqual(handler(0), 0)
+        drain.assert_called_once_with()
+
+    def test_the_handler_is_left_out_elsewhere_or_when_windows_refuses_it(self):
+        with mock.patch.object(srv, "_console_handler", None):
+            with mock.patch.object(srv.os, "name", "posix"):
+                self.assertFalse(srv.install_console_close_handler())
+            refusing = mock.Mock()
+            refusing.SetConsoleCtrlHandler.return_value = 0
+            broken = mock.Mock()
+            broken.SetConsoleCtrlHandler.side_effect = AttributeError("no such function")
+            for kernel32 in (refusing, broken):
+                with (
+                    mock.patch.object(srv.os, "name", "nt"),
+                    mock.patch.object(srv, "ctypes", self.fake_ctypes(kernel32)),
+                ):
+                    self.assertFalse(srv.install_console_close_handler())
+                self.assertIsNone(srv._console_handler)
+            # No ctypes for Windows at all (WINFUNCTYPE is Windows' alone).
+            with (
+                mock.patch.object(srv.os, "name", "nt"),
+                mock.patch.object(srv, "ctypes", mock.Mock(spec=[])),
+            ):
+                self.assertFalse(srv.install_console_close_handler())
 
 
 def own_folder(test) -> Path:
@@ -3911,6 +4022,7 @@ class HttpApiTests(unittest.TestCase):
         )
         self.assertTrue(lines[said + 1].startswith("    Error saving to "), lines[said + 1])
         cancel_pending_save()
+        srv._stopping, srv._drained = False, None  # a drain is once a run: as if started again
         with (
             mock.patch.object(srv, "stop_terrain"),
             mock.patch.object(srv, "safe_print") as printed,
@@ -4493,6 +4605,67 @@ class HttpApiTests(unittest.TestCase):
             flush.assert_called_once()
             self.assertEqual(resp.readline(), b"event: shutdown\n")
             self.assertEqual(resp.readline(), b"data: server-stopping\n")
+
+    def drain_quietly(self, **patches):
+        """graceful_drain with the save, the heights and the console stubbed:
+        the stubbed save, to look at."""
+        with (
+            mock.patch.object(srv, "flush_pending_save", **patches) as flush,
+            mock.patch.object(srv, "stop_terrain"),
+            mock.patch.object(srv, "safe_print"),
+        ):
+            srv.graceful_drain()
+        return flush
+
+    def test_a_write_once_stopping_is_refused_and_nothing_changes(self):
+        # Regression: a write between the final save and the exit was answered
+        # as saved, and never was.
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        self.drain_quietly()
+        message = self.refused(
+            503, "/api/save_reports", {"ato": "ALPHA", "reports": [report(rid="r2")]}
+        )
+        self.assertEqual(
+            message, "The server is stopping. Nothing was changed; try again once it is back."
+        )
+        self.refused(503, "/api/save_config", {"config": {"ato": "BRAVO", "title": "T"}})
+        # Reads still answer, and show nothing new.
+        self.assertEqual([r["id"] for r in self.sync()["workspaces"]["ALPHA"]], ["r1"])
+        self.assertEqual(self.sync()["config"], {"ato": "", "title": ""})
+
+    def test_the_final_save_waits_for_a_write_being_handled(self):
+        self.assertTrue(srv._begin_write())  # one being handled now
+        ended = False
+        try:
+            saved_after = []
+            with mock.patch.object(srv, "STOP_WAIT_SECONDS", 5):
+                drain = threading.Thread(
+                    target=self.drain_quietly,
+                    kwargs={"side_effect": lambda: saved_after.append(ended)},
+                )
+                drain.start()
+                time.sleep(0.2)
+                self.assertEqual(saved_after, [], "not saved while it is being handled")
+                self.assertEqual(
+                    self.post("/api/save_reports", {"ato": "A", "reports": []})[0], 503
+                )
+                ended = True
+                srv._end_write()
+                drain.join(5)
+            self.assertEqual(saved_after, [True], "saved once it had landed")
+        finally:
+            if not ended:
+                srv._end_write()
+
+    def test_the_final_save_waits_for_a_stuck_write_only_so_long(self):
+        self.assertTrue(srv._begin_write())
+        try:
+            with mock.patch.object(srv, "STOP_WAIT_SECONDS", 0.2):
+                started = time.monotonic()
+                self.drain_quietly().assert_called_once()
+            self.assertLess(time.monotonic() - started, 3)
+        finally:
+            srv._end_write()
 
     def test_sync_is_gzipped_for_clients_that_accept_it(self):
         self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})

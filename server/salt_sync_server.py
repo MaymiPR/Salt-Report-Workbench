@@ -4332,7 +4332,16 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         ):
             self._bad_request(f'Validation failed: {err}.')
             return
-        route.handler(self, data)
+        # Stopping: a change taken now would be answered and never saved.
+        if not _begin_write():
+            self._error(
+                503, 'The server is stopping. Nothing was changed; try again once it is back.'
+            )
+            return
+        try:
+            route.handler(self, data)
+        finally:
+            _end_write()
 
     def _bad_request(self, message: str) -> None:
         self._error(400, message)
@@ -5428,9 +5437,73 @@ def unsaved_changes() -> bool:
         return _dirty_atos is None or bool(_dirty_atos) or _shared_dirty
 
 
+# Set as the server starts stopping (graceful_drain). A write after it would
+# be answered and then never saved, so it is refused with 503, which the page
+# takes as "send it again later". Protected by _writes.
+_stopping = False
+# The POST requests being handled now, so the drain can wait for them to land
+# before the final save. Protected by _writes.
+_writes_open = 0
+_writes = threading.Condition()
+# How long the drain waits for the requests being handled to finish.
+STOP_WAIT_SECONDS = 1.0
+
+
+def _begin_write() -> bool:
+    """Before a POST is handled: False once the server is stopping, else it
+    is counted until _end_write."""
+    global _writes_open
+    with _writes:
+        if _stopping:
+            return False
+        _writes_open += 1
+        return True
+
+
+def _end_write() -> None:
+    global _writes_open
+    with _writes:
+        _writes_open -= 1
+        _writes.notify_all()
+
+
+def _stop_writes(wait: float) -> None:
+    """Refuse every POST from now on, and wait up to ``wait`` seconds for
+    the ones being handled to finish."""
+    global _stopping
+    with _writes:
+        _stopping = True
+        _writes.wait_for(lambda: _writes_open <= 0, wait)
+
+
+# The drain runs once (see graceful_drain); its answer, None until it has.
+_drain_lock = threading.Lock()
+_drained: bool | None = None
+
+
 def graceful_drain() -> bool:
-    """Notify SSE clients of shutdown, then flush pending disk write. False,
-    said plainly, when the changes could not be saved."""
+    """Stop taking writes, flush the pending disk write, then notify SSE
+    clients of shutdown. False, said plainly, when the changes could not be
+    saved. Runs once, whether Ctrl+C or the console window closing asks
+    first: a second caller waits for it and gets the same answer."""
+    global _drained
+    with _drain_lock:
+        if _drained is None:
+            _drained = _drain()
+        return _drained
+
+
+def _drain() -> bool:
+    _stop_writes(STOP_WAIT_SECONDS)
+    with contextlib.suppress(Exception):
+        stop_terrain()
+    # Saved before the clients are told: a client that stopped reading can
+    # hold its write for SSE_WRITE_TIMEOUT_SECONDS, longer than Windows waits
+    # when the window is closed.
+    try:
+        flush_pending_save()
+    except Exception as exc:
+        safe_print(f'[!] Error flushing on shutdown: {exc}')
     try:
         with sse_lock:
             snapshot = list(sse_clients)
@@ -5439,12 +5512,6 @@ def graceful_drain() -> bool:
                 c.send(b'event: shutdown\ndata: server-stopping\n\n')
     except Exception:
         pass
-    with contextlib.suppress(Exception):
-        stop_terrain()
-    try:
-        flush_pending_save()
-    except Exception as exc:
-        safe_print(f'[!] Error flushing on shutdown: {exc}')
     with contextlib.suppress(Exception):
         flush_terrain()
     saved = not _save_failures and not unsaved_changes()
@@ -5457,6 +5524,52 @@ def graceful_drain() -> bool:
         safe_print('    What changed since the last good save is not on disk.')
     audit('server', 'stopped')
     return saved
+
+
+# Windows console events (SetConsoleCtrlHandler): the window closed (X), the
+# user logging off, Windows shutting down. Ctrl+C and Ctrl+Break (0 and 1)
+# are left to Python, which raises KeyboardInterrupt. Windows sends the last
+# two only to a process without user32.dll, and Python loads it, so in
+# practice the handler catches the window closing.
+CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT = 2, 5, 6
+_CONSOLE_CLOSE_EVENTS = frozenset((CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT))
+# The installed handler, kept so it is never garbage-collected while Windows can call it.
+_console_handler = None
+
+
+def _on_console_close(event: int) -> bool:
+    """The console control handler. Windows ends the process as soon as it
+    returns, or after about 5 seconds, so the final save is made here, as
+    Ctrl+C makes it. True when the event was one of _CONSOLE_CLOSE_EVENTS.
+    Never raises: it runs on a thread of Windows' own."""
+    if event not in _CONSOLE_CLOSE_EVENTS:
+        return False
+    with contextlib.suppress(Exception):
+        safe_print('\n[*] The window is closing: saving the changes first...')
+    with contextlib.suppress(Exception):
+        graceful_drain()
+    return True
+
+
+def install_console_close_handler() -> bool:
+    """On Windows, have closing the console window, logging off or shutting
+    down run the drain (see _on_console_close). False, and nothing done,
+    elsewhere or when it can't be installed."""
+    global _console_handler
+    if os.name != 'nt':
+        return False
+    if _console_handler is not None:
+        return True
+    try:
+        handler_type = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_ulong)
+        handler = handler_type(lambda event: 1 if _on_console_close(event) else 0)
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        if not kernel32.SetConsoleCtrlHandler(handler, 1):
+            return False
+    except Exception:
+        return False
+    _console_handler = handler
+    return True
 
 
 if __name__ == '__main__':
@@ -5558,6 +5671,9 @@ if __name__ == '__main__':
     # Skip the launch thread when it has no work to do.
     if not args.no_browser or (os.name == 'nt' and not args.no_minimize):
         threading.Thread(target=_launch, daemon=True).start()
+
+    # Closing the window saves first, as Ctrl+C does (Windows only).
+    install_console_close_handler()
 
     try:
         httpd.serve_forever()

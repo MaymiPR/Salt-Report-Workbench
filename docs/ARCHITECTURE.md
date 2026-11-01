@@ -507,6 +507,12 @@ Concurrency is handled in two steps:
    marked unsaved and the save is retried after 1, 2 and 5 seconds, then every
    30 seconds, with one console line per run of failures.
 
+Stopping (`graceful_drain`, run once whether Ctrl+C or closing the console
+window asks; on Windows a console control handler catches the close) first
+refuses every write with 503, which the page sends again later, and waits up
+to a second for the writes being handled. Then it saves what is pending and
+tells the pages, so nothing is answered as saved that never was.
+
 The shared settings (overlays, basemaps, drones, the narrative's settings,
 the tags, profiles, the report format, the config) are also written to their own
 `Shared settings.json`, so they survive a restart even when no workspace
