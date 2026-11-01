@@ -1673,7 +1673,9 @@ test('the bottom line comes first: the strongest judgment, another kind beside i
     assert.equal(bluf, 'BLUF: LIKELY that enemy forces are scouting a route through NAI 1 for armor or mechanized forces (a).'
         + ' Confidence: moderate. At the same time, LIKELY that they are preparing a defense in NAI 1 (b). Confidence: moderate.'
         + ' Strength: largest single sighting armor and mechanized approximately platoon size (2x T-72, 3x BMP-2; ALPHA012 252200Z, NAI 1); with recon and engineers.'
-        + ' Activity: 5 reports from 2 observers, up from 0 in the previous 12 hrs; busiest NAI 1 (4).'
+        + ' Mobility: mostly tracked: can move across country, with wheeled support (6 tracked, 2 wheeled).'
+        + ' Closest: OBJ BRIDGE, 7.1 km from ALPHA014 260100Z.'
+        + ' Activity: 5 reports from 2 observers, up from 0 in the previous 12 hrs; busiest NAI 1 (4); tempo falling.'
         + ' Latest: ALPHA015 260200Z, vic hill 220: 1x XYZ-9, stationary.'
         + ' Watch for: antitank weapons in position (b); combat vehicles halted in position (b); smoke (c).'
         + ' Gap: 1 report without a grid: ALPHA015 260200Z. A grid would place it. ');
@@ -1757,7 +1759,7 @@ test("the team's own equipment, rules switched off, and rules of their own", () 
     assert.ok(!text.includes('scouting a route'), 'switched off');
     assert.ok(text.includes('ROUGHLY EVEN CHANCE (45-55%) that enemy forces are preparing a river crossing in NAI 1.'), text);
     assert.ok(text.includes('Basis: reports of bridging, ferry within 12 hrs (ALPHA016 260300Z, ALPHA017 260400Z).'), text);
-    assert.equal(core.NARRATIVE_RULES.length, 56);
+    assert.equal(core.NARRATIVE_RULES.length, 57);
     core.NARRATIVE_RULES.forEach(([id]) => assert.ok(core.DOCTRINE[id] && core.DOCTRINE[id].RU && core.DOCTRINE[id].CN, `${id}: doctrine for both`));
 });
 
@@ -1948,6 +1950,9 @@ const RULE_TABLE = {
     // Tracked and wheeled with no type given; a named type is no guess.
     vehicles: ['roughly even chance', [['4x tracked', 'moving N', NAI1, 0], TRUCKS], [0],
         [['4x T-72', 'moving N', NAI1, 0], TRUCKS]],
+    // Six tracked moving, with no rate of march, are no road march.
+    column: ['roughly even chance', [['6x trucks', 'moving N', NAI1, 0], TRUCKS], [0],
+        [['6x T-72', 'moving N', NAI1, 0], TRUCKS]],
     // Defense
     defense: ['likely', [['6x PAX', 'digging in', NAI1, 0], ['1x MTU-20', 'emplacing obstacles', NAI1, 60], TRUCKS], [0, 1],
         [['6x PAX', 'stationary', NAI1, 0], TRUCKS]],
@@ -2413,6 +2418,56 @@ test('plain words read as plurals in the narrative: tracked vehicles, buses', ()
     assert.ok(t.includes('light vehicles (2x buses)'), t);
     // Tracked and wheeled under one name each, however they were written.
     assert.ok(t.includes('other vehicles (5x tracked vehicles, 2x wheeled vehicles)'), t);
+});
+
+// A report that moved: from `from` at `t0` to `to` `min` minutes later.
+const moved = (id, size, from, to, t0, min) => report({ id, displayId: id, size, activity: 'moving N', location: to, user: { initials: 'AB' },
+    time: new Date(Date.parse(t0) + min * 60000).toISOString(), history: [{ size, activity: 'moving N', location: from, time: t0, lastModified: 1 }] });
+
+test('how they move: mobility, a column and its rate of march, a phase line crossed, an objective closed on', () => {
+    // 8x BTR-82A, 6 km north in 10 min, across PL BLUE, to 2 km short of OBJ BRIDGE.
+    const t = said([moved('C1', '8x BTR-82A', '38SMB4500082000', '38SMB4500088000', '2026-10-25T22:00:00Z', 10)]);
+    assert.ok(t.includes('Mobility: all wheeled: faster on roads, and tied to them more (0 tracked, 8 wheeled).'), t);
+    assert.ok(t.includes('Closest: OBJ BRIDGE, 2.0 km from C1 252210Z, closing about 36 km/h.'), t);
+    assert.ok(t.includes('- Phase lines: C1 crossed PL BLUE by 252210Z, moving N.'), t);
+    assert.ok(t.includes('- Objectives: OBJ BRIDGE, 2.0 km from C1 252210Z, closing about 36 km/h.'), t);
+    assert.ok(t.includes('NAI 1: 1 report, the last C1 252210Z: 8x BTR-82A, moving N; in all 8 wheeled.'), t);
+    assert.ok(t.includes('- Mobility: 8 wheeled; all wheeled: faster on roads, and tied to them more.'), t);
+    assert.ok(t.includes('- Columns (4 or more vehicles moving): C1 252210Z, NAI 1: 8 vehicles (8 wheeled), heading N, 36 km/h (road-march speed).'), t);
+    // A road march: mostly wheeled, at road speed: likely.
+    assert.ok(t.includes('LIKELY (55-80%) that enemy forces are moving a column on the roads through NAI 1.'), t);
+    // Tracked faster than tracks go says to check; slow for an hour, halts or across country.
+    const fast = said([moved('F1', '6x T-72', '38SMB4500072000', '38SMB4500087000', '2026-10-25T22:00:00Z', 10)]);
+    assert.ok(fast.includes('90 km/h (faster than tracked vehicles go: check the type or the times)'), fast);
+    const slow = said([moved('S1', '6x T-72', '38SMB4500082000', '38SMB4500084000', '2026-10-25T22:00:00Z', 120)]);
+    assert.ok(slow.includes('1 km/h (slow: halts on the way, or across country)'), slow);
+    assert.ok(!slow.includes('moving a column on the roads'), 'tracked, and slow: no road march');
+    // Towed guns are said to be slow to move and set up.
+    assert.ok(said(at1([['4x D-30', 'moving N']])).includes('- Mobility: 4 towed; towed guns are slow to move and to set up.'));
+});
+
+test('the tempo, and what is new against the period before', () => {
+    const at = (id, size, location, time) => report({ id, displayId: id, size, activity: 'halted', location, time, user: { initials: 'AB' } });
+    // One report every 3 hrs, then four in the last 3: rising.
+    const reps = [at('A', '2x T-72', '38SMB4500082000', '2026-10-25T10:00:00Z'), at('B', '2x T-72', '38SMB4500082000', '2026-10-25T19:00:00Z'),
+        at('C', '2x T-72', '38SMB4500082000', '2026-10-25T22:00:00Z'), at('D', '2x T-72', '38SMB4500082000', '2026-10-26T01:00:00Z'),
+        ...[0, 15, 30, 45].map((m, i) => at(`E${i}`, '2x T-72, 1x TOS-1A', '38SMB5500082000', new Date(Date.parse('2026-10-26T04:00:00Z') + m * 60000).toISOString()))];
+    const t = said(reps);
+    assert.ok(t.includes('- Tempo: 4 reports in the last 3 hrs, against about 1.1 per 3 hrs before: rising.'), t);
+    assert.ok(t.includes('; tempo rising.'), 'in the bottom line');
+    // A (in the period before) had T-72s in NAI 1: the TOS and NAI 2 are new.
+    assert.ok(t.includes('- New this period: first sightings of TOS-1; activity in NAI 2 for the first time.'), t);
+    // Nothing in the period before: nothing said to be new.
+    assert.ok(!said(reps.slice(1)).includes('New this period'));
+});
+
+test('wheeled supply following tracked forces along the way of march pushes logistics forward', () => {
+    const d = judgedBy([['4x T-72', 'moving N', NAI1, 0], ['3x trucks', 'moving N', NAI1, 60], ['3x trucks', 'moving N', NAI1, 120]], TOWARD('N'));
+    const flat = d.text.replace(/\s+/g, ' ');
+    assert.ok(flat.includes('wheeled, within 6 hrs after tracked forces, along the way of march (N) (T1 250100Z, T2 250200Z)'), flat);
+    // Without the tracked forces ahead, it is one to watch for.
+    const alone = judgedBy([['3x trucks', 'moving N', NAI1, 60], ['3x trucks', 'moving N', NAI1, 120]], TOWARD('N')).text.replace(/\s+/g, ' ');
+    assert.ok(/Watch for: [^.]*wheeled, within 6 hrs after tracked forces, along the way of march/.test(alone), alone);
 });
 
 test('tracked and wheeled vehicles with no type given: read by their mix, never above likely', () => {

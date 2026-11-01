@@ -286,6 +286,12 @@ const nearestSegment = (lon, lat, line) => {
     }
     return best;
 };
+// Whether segment a-b crosses segment c-d (points as [lon, lat]): the sides
+// each pair of ends lies on, which a flat projection doesn't change.
+const segmentsCross = (a, b, c, d) => {
+    const side = (p, q, r) => Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]));
+    return side(a, b, c) * side(a, b, d) < 0 && side(c, d, a) * side(c, d, b) < 0;
+};
 const metersToGeometry = (g, lon, lat) =>
     g.type === 'LineString' ? metersToLine(lon, lat, g.coordinates)
   : g.type === 'MultiLineString' ? Math.min(...g.coordinates.map(l => metersToLine(lon, lat, l)))

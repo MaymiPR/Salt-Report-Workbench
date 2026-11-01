@@ -77,7 +77,7 @@ One click writes a Rollup, Most Trafficked, Place Activity, Shift Brief, or
 Narrative for any time window. The Narrative opens with a bottom line up
 front (the strongest judgments, the force's size, the activity, the latest
 report, what to watch for and the first gap), then the situation, the enemy
-forces, one line a judgment from 56 rules based on open-source Russian and
+forces, one line a judgment from 57 rules based on open-source Russian and
 Chinese tactics in ICD 203 terms, what to watch for, and the collection the
 gaps call for; each judgment's basis and reports open under it. It recognizes about 790 Russian
 and Chinese equipment types and general terms such as vic, tracked, wheeled and

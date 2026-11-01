@@ -369,6 +369,17 @@ is), 4. WATCH FOR, 5. GAPS AND COLLECTION, and ANNEX A. JUDGMENT DETAIL
 arranges what `narrativeJudgments` gives: the judgments, their levels and
 the reports behind them are the same.
 
+What is happening now comes from the reports' running gear and tracks:
+`gearCounts` (how each report's equipment moves, from `CATALOGUE_GEAR`),
+`mobilityRead`, a report's overall rate of march (`marchRates`) read
+against its gear by `speedRead` (`ROAD_KMH`, `TRACKED_MAX_KMH`,
+`SLOW_KMH`), the phase lines its track crosses (`crossingsOf`, with
+`segmentsCross` in `core/30-geography.js`), each OBJ's nearest report and
+whether its track closed on it (`objectivesOf`, `metersToOverlay`), and the
+tempo (`tempoOf`). These are said in the bottom line, Situation and Enemy
+forces; the road march rule (`column`) and the logistics rule's sign for
+wheeled supply behind tracked forces read them too.
+
 `summaryDetail` (`core/60-statistics.js`) is `summaryReport` with what is
 behind the text: for each judgment shown, its rule, level, the last line of
 its entry in the assessment, the lines of its detail in the annex and the

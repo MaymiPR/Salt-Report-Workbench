@@ -14,6 +14,24 @@ All notable changes to this project are documented here. The format follows
   word that doesn't say, such as APC, is left unsaid rather than guessed).
   *Look up a type* in the Narrative settings says it, and the team's own
   types have a *Moves on* choice.
+- **The Narrative reads how the enemy moves and what is happening now.**
+  The bottom line adds *Mobility* (tracked against wheeled, and what that
+  means for where they can go) and *Closest* (the objective a report is
+  nearest, and whether it is closing on it), and the tempo. Situation adds
+  the tempo, phase lines crossed (from a report's track) and reported at,
+  each objective's nearest report, what is new against the period before,
+  and *Latest by place* in place of *By place*. Enemy forces adds how it all
+  moves and the columns seen moving, with their rate of march checked
+  against their running gear (road-march speed, faster than tracked
+  vehicles go, or slow).
+- **Rule 57, Road march column:** six or more vehicles moving, mostly
+  wheeled or at road-march speed, with Russian and PLA doctrine. On by
+  default, like the others.
+
+### Changed
+
+- The logistics pushing forward rule counts one more sign: wheeled supply
+  moving along the way of march within 6 hrs after tracked forces.
 
 ## [2.36.0] - 2026-10-31
 

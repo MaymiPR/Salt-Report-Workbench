@@ -752,6 +752,8 @@ _NARRATIVE_RULES = frozenset(
         'regroup',
         # Added in 2.34.
         'vehicles',
+        # Added in 2.37.
+        'column',
     }
 )
 MAX_OVERLAY_POINTS = 200_000  # coordinate pairs in the shared set, all features together
