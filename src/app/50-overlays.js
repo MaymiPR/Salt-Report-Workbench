@@ -343,10 +343,10 @@ let reviewBulkTag = null;
 const reviewOverlay = (row) => {
     if (row.type === SKIP) return null;
     const tag = tagOf(row.type);
-    const label = row.label ? { label: row.label.slice(0, 100) } : {};
-    if (!tag.builtIn) return { type: tag.id, name: (row.label || '').trim().slice(0, 40) || 'UNNAMED', ...label, geometry: row.geometry };
+    const label = row.label ? { label: cutText(row.label, 100) } : {};
+    if (!tag.builtIn) return { type: tag.id, name: cutText((row.label || '').trim(), 40) || 'UNNAMED', ...label, geometry: row.geometry };
     const ref = SaltCore.overlayRef(row.label, row.type);
-    const name = (ref ? ref.name : 'UNNAMED').slice(0, 40);
+    const name = cutText(ref ? ref.name : 'UNNAMED', 40);
     const geometry = tag.shape === 'area' ? SaltCore.asArea(row.geometry) : row.geometry;
     return { type: row.type, name, ...label, geometry };
 };
@@ -495,7 +495,7 @@ const retagged = (o, type) => {
     if (o.type === type) return o;
     const name = tagOf(type).builtIn ? ((SaltCore.overlayRef(o.label || o.name, type) || {}).name || 'UNNAMED')
         : tagOf(o.type).builtIn ? (o.label || overlayKey(o)).trim() : o.name;
-    return { ...o, type, name: name.slice(0, 40) || 'UNNAMED' };
+    return { ...o, type, name: cutText(name, 40) || 'UNNAMED' };
 };
 // Give graphics a tag, or none (''). One that would then have the name of
 // another graphic with that tag is left as it is, and that is said. Undo

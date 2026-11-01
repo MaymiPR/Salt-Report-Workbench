@@ -583,6 +583,10 @@ const { dateFields, clockValue, fileStamp, escapeHtml, safeColor,
 // version it replaces. The server keeps the higher stamp, so a browser whose
 // clock runs behind a peer's would otherwise have its change thrown away.
 const nextStamp = (prev) => Math.max(Date.now(), ((prev && prev.lastModified) || 0) + 1);
+// The first `n` units of `s` (as .slice counts), never ending on half of a
+// character written as two (an emoji, say): the server refuses text with a
+// lone half in it.
+const cutText = (s, n) => { const t = String(s).slice(0, n); return /[\uD800-\uDBFF]$/.test(t) ? t.slice(0, -1) : t; };
 const debounce    = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 const toZuluTimeString  = (d) => SaltCore.toTimeString(d, false);
 const toLocalTimeString = (d) => SaltCore.toTimeString(d, true);
@@ -619,9 +623,25 @@ const APP_VERSION = '2.41.0';
 // pull answer older than one seen is out of date before it lands.
 let syncedVersion = 0, seenVersion = 0;
 const noteChange = (v) => { if (typeof v === 'number' && v > seenVersion) seenVersion = v; };
+// A request the server never answers (a connection left half open by a
+// network drop, say) gives up after a while and fails as an unreachable
+// server does, so a push stuck on one can't hold back every pull. Most are
+// answered at once; these may take longer: a large backup's reports, a
+// service the server asks on the page's behalf, a mission moved or read on
+// disk. The event stream stays open and has none.
+const REQUEST_MS = 20000;
+const REQUEST_MS_BY_PATH = {
+    '/api/sync': 30000, '/api/save_reports': 60000, '/api/wms_fetch': 60000, '/api/elevation_test': 60000,
+    '/api/finish_mission': 120000, '/api/load_mission': 120000, '/api/recall_settings': 120000, '/api/refresh': 120000,
+};
 // A page opened as a file has no server: its calls fail at once, as the
 // browser would fail them, without a request it logs as an error.
-const serverFetch = (path, opts) => (isLocalFile ? Promise.reject(new Error('A page opened as a file has no server.')) : fetch(path, opts));
+const serverFetch = (path, opts) => {
+    if (isLocalFile) return Promise.reject(new Error('A page opened as a file has no server.'));
+    const ms = REQUEST_MS_BY_PATH[path] || REQUEST_MS;
+    const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(ms) : undefined;
+    return fetch(path, { ...opts, signal });
+};
 // Each write says which mission it is from: the server refuses one from a
 // mission the team has finished (409, with the mission it is on now).
 const postJson = (path, body) => serverFetch(path, {

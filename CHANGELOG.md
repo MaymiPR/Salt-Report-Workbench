@@ -51,6 +51,38 @@ All notable changes to this project are documented here. The format follows
   reports, the audit log and the snapshots are in `Mission Archives`, so
   upgrading and the end of the operation now say to copy it with
   `Auto Backups`.
+- **Reports kept while the server couldn't take them now go on their own.**
+  Reports logged while the server was unreachable, or busy for a moment,
+  were sent only when someone else next saved something, so on a quiet
+  network they stayed on the one laptop while the bar said they would be
+  sent. They now go as soon as the connection is back, and are tried again
+  every few seconds until the server takes them.
+- **Restore, settling a Check tag, and deleting history rows now save
+  whatever syncs meanwhile.** A sync landing while one of these asked, or
+  while history rows were being deleted, made the change go nowhere, though
+  the page said it was done. Now it is saved, or, when someone changed the
+  report in the meantime so it no longer applies, the page says so and
+  changes nothing. Settling a Check tag says it is updated once it is saved.
+- **A fault drawing the screen after a sync no longer shows Offline.** The
+  dot turned red with nothing said, and the sync was not tried again. The
+  fault is now said, the dot stays green, and the next sync tries again.
+- **An empty workspace is no longer unloaded by a save.** A save from a
+  workspace with nothing logged yet asked the server to unload it, with
+  whatever others had logged there meanwhile.
+- **A request the server never answers now gives up.** A save stuck on a
+  dropped connection held back every update from the others with nothing
+  said. Requests now give up after 20 seconds (longer for large backups,
+  services asked through the server, and missions) and are treated as the
+  server being unreachable: the reports are kept and sent again.
+- **A save refused for a reason that isn't the reports is asked once.** The
+  page split the save to find the bad report whatever the refusal, so one
+  that wasn't about the reports (a wrong address, say) became a burst of
+  requests that ran into the server's rate limit. Now only a refusal of the
+  reports' content or size is split; any other marks the reports "Not
+  saved" with the server's reason, as before.
+- **Imported names are no longer cut in the middle of an emoji.** Names
+  shortened to fit (graphics from KML, GeoJSON or a shapefile, and basemaps)
+  could end on half of a character, which the server refuses.
 
 ## [2.41.0] - 2026-11-01
 
