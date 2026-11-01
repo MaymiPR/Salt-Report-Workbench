@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Line of sight on the map.** A picked report that observes, or fires
+  direct from a position, draws its lines of sight to the NAIs and OBJs near
+  it (green where it sees; where ground hides it, an X there and red past it)
+  and a ring for each kind of its weapons' reach, with Sight and Reach on its
+  card. A new measure tool, Line of sight, checks any two points (up to
+  20 km): seen, or where the ground hides it and by how much. Both need an
+  elevation source.
+
 ## [2.40.0] - 2026-11-01
 
 ### Added

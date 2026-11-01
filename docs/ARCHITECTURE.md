@@ -406,7 +406,11 @@ armor, mech and atgm direct, fires indirect and ad air defense; the team's
 entries may give their own in km (`REACH_MAX_KM`). `reachRead` gives each
 report's reach into the NAIs and OBJs (direct fire through `sightOf`, the
 rest by `areasWithin`), `threatsOf` the areas under threat for the bottom
-line.
+line. The map draws the same for a picked report from `sightPicture` (its
+lines with `losCheck`'s answer and the point the ground hides them at, its
+reach rings, its words, and the heights it reads), and the Line of sight
+tool's line from `losBetween`; the page asks those heights as well as the
+narrative's (`askTerrainFor`, app/81-narrative.js).
 With no heights, none of it is said, and the narrative is what it was but
 for one line under Gaps and collection saying there is no elevation source.
 

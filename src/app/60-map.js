@@ -17,7 +17,10 @@ const storedText = (key) => { try { return localStorage.getItem(key); } catch (e
 // none: an Unknown graphic, with no tag (app/50-overlays.js): gray, its dot in the list.
 // AXIS: an axis of advance, the enemy's dark red, wider than a track and on a white edge.
 // goto: the X on a grid gone to, yellow on a black edge, unlike anything else drawn.
-const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', AXIS: '#b0001e', track: '#ff3b30', edge: '#000000', core: '#ffffff', none: '#8e8e93', goto: '#ffd60a' };
+// seen, hidden, waiting: a line of sight that sees, the ground past what hides
+// it, and one not known yet. direct, indirect, ad: the rings of a report's reach.
+const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', AXIS: '#b0001e', track: '#ff3b30', edge: '#000000', core: '#ffffff', none: '#8e8e93', goto: '#ffd60a',
+    seen: '#30d158', hidden: '#ff453a', waiting: '#8e8e93', direct: '#ff9f0a', indirect: '#bf5af2', ad: '#64d2ff' };
 // The layers on, in any mix (per browser); the heat map alone to start with.
 const MAP_LAYERS = [['heat', 'Heat map'], ['tracks', 'Tracks'], ['reports', 'Reports']];
 // Everything the map keeps between drawings, in one place: what this browser

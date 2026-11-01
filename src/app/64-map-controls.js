@@ -418,6 +418,7 @@ const MEASURE_TOOLS = [
     ['area', 'Area', 'Click round a shape: its area and perimeter'],
     ['ring', 'Range ring', 'Click a center, then the radius (or drag it out)'],
     ['time', 'Time-distance', 'Click along a route: how long it takes at a speed'],
+    ['sight', 'Line of sight', 'Two points: whether the first can see the second over the ground (with an elevation source)'],
     // Editors only: an axis of advance drawn, then named and saved for everyone.
     ['axis', 'Draw axis', 'Click from where the enemy comes from, along its way, to where it heads; then name it and save it'],
 ];
@@ -504,7 +505,8 @@ const renderMeasureTools = () => {
 // A point clicked (or Space with the map focused) for the tool in use.
 const addMeasurePoint = ([lon, lat]) => {
     const p = { lon, lat }, pts = mapState.measure;
-    if (mapState.measureTool === 'distance') mapState.measure = pts.length >= 2 ? [p] : [...pts, p];
+    if (mapState.measureTool === 'distance' || mapState.measureTool === 'sight') mapState.measure = pts.length >= 2 ? [p] : [...pts, p];
+    if (mapState.measureTool === 'sight' && mapState.measure.length === 2) askTerrainFor(SaltCore.losBetween(...mapState.measure).points, 'tool');
     else if (mapState.measureTool === 'ring') {
         if (!pts.length || mapState.ringR) { mapState.measure = [p]; mapState.ringR = 0; }
         else mapState.ringR = SaltCore.metersBetween(pts[0], p);
@@ -546,7 +548,7 @@ const saveDrawnAxis = async () => {
 // the first did; it goes.
 const finishMeasure = (dbl) => {
     const tool = mapState.measureTool, pts = mapState.measure, px = mapState.measurePx;
-    if (!mapState.measuring || tool === 'distance' || tool === 'ring' || mapState.measureDone) return;
+    if (!mapState.measuring || tool === 'distance' || tool === 'sight' || tool === 'ring' || mapState.measureDone) return;
     if (dbl && pts.length > 1 && px) {
         const [a, b] = [pts[pts.length - 2], pts[pts.length - 1]].map(p => px(p.lon, p.lat));
         if (Math.hypot(a[0] - b[0], a[1] - b[1]) <= 6) pts.pop();
@@ -581,6 +583,16 @@ const showMeasure = () => {
         out.textContent = !pts.length ? 'Measure: click a point on the map, then another.'
             : pts.length === 1 ? `From ${grid(pts[0])}: click the second point.`
             : `${measureText(pts)}, from ${grid(pts[0])} to ${grid(pts[1])}.`;
+    } else if (tool === 'sight') {
+        const c = pts.length === 2 ? SaltCore.losBetween(pts[0], pts[1], terrainInput()) : null;
+        const far = SaltCore.formatDistance(SaltCore.LOS_TOOL_MAX_METERS, unitSystem);
+        out.textContent = !pts.length ? 'Line of sight: click where the eye is, then what it looks at (both 2 m above the ground).'
+            : !c ? `From ${grid(pts[0])}: click what it looks at.`
+            : c.state === 'far' ? `${measureText(pts)}: longer than ${far}, not checked.`
+            : c.state === 'off' ? 'Line of sight needs an elevation source: pick one in the Narrative settings, under Terrain.'
+            : c.state === 'waiting' ? `${measureText(pts)}: asking the heights along the line...`
+            : c.state === 'seen' ? `Seen: ${grid(pts[1])} can be seen from ${grid(pts[0])}, ${measureText(pts)}.`
+            : `Hidden by ground ${dist(c.x)} from ${grid(pts[0])}, ${Math.round(c.over)} m above the sightline: ${grid(pts[1])} can't be seen from it (${measureText(pts)}).`;
     } else if (tool === 'ring') {
         out.textContent = !pts.length ? 'Range ring: click the center, then click the radius (or drag it out from the center).'
             : !mapState.ringR ? `Center ${grid(pts[0])}: click the radius.`
@@ -618,7 +630,7 @@ let measureHoverFrame = 0;
 const hoverMeasure = (lonLat) => {
     const pts = mapState.measure, tool = mapState.measureTool;
     const wants = mapState.measuring && pts.length && !mapState.measureDone
-        && (tool === 'ring' ? !mapState.ringR : tool !== 'distance' || pts.length === 1);
+        && (tool === 'ring' ? !mapState.ringR : (tool !== 'distance' && tool !== 'sight') || pts.length === 1);
     if (!wants && !mapState.measureHover) return;
     mapState.measureHover = wants && lonLat ? { lon: lonLat[0], lat: lonLat[1] } : null;
     cancelAnimationFrame(measureHoverFrame);

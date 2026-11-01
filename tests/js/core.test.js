@@ -2588,6 +2588,43 @@ test('reach: types that fight but whose reach is not known are a gap, deep strik
     assert.ok(ours.includes('- Reach, T1 252000Z (2x T-14): direct fire to 5 km (T-14): covers NAI 1 (in it).'), ours);
 });
 
+test('the map: a picked report shows its lines of sight and the rings of its reach; the tool checks any two points', () => {
+    const obs = report({ id: 'O1', displayId: 'O1', size: '1x Kornet', activity: 'observing', location: '38SMB4600082000', time: '2026-10-25T20:00:00Z' });
+    const [olon] = ll('38SMB4600082000'), km = (lon) => (lon - olon) * 111320 * Math.cos(33.27 * Math.PI / 180) / 1000;
+    const ridge = (lon) => (km(lon) > 1 && km(lon) < 1.5 ? 260 : 200);
+    const flat = core.sightPicture(obs, OVERLAYS, null, groundFor([obs], () => 200));
+    assert.deepEqual(flat.rings, [{ kind: 'direct', m: 5500, by: 'Kornet' }]);
+    // In NAI 1: no line into it. NAI 2, 4 km east: to its nearest edge and its middle.
+    assert.deepEqual(flat.lines.map(l => `${l.key} ${l.state}`), ['NAI 2 seen', 'NAI 2 seen']);
+    assert.equal(flat.sight, 'in NAI 1; sees into NAI 2');
+    assert.equal(flat.reach, 'direct fire to 5.5 km (Kornet): covers NAI 1 (in it) and NAI 2 (4.0 km)');
+    assert.ok(flat.points.length > 45, `${flat.points.length} heights along the lines`);
+    // Behind a ridge: hidden, with the point that hides it 1 to 1.5 km east.
+    const hid = core.sightPicture(obs, OVERLAYS, null, groundFor([obs], ridge));
+    assert.ok(hid.lines.every(l => l.state === 'hidden' && km(l.block.lon) > 0.9 && km(l.block.lon) < 1.6), JSON.stringify(hid.lines));
+    // No elevation source: the lines, not known; the reach in range only.
+    const blind = core.sightPicture(obs, OVERLAYS, null, null);
+    assert.ok(blind.lines.every(l => l.state === 'unknown'));
+    assert.equal(blind.sight, '');
+    assert.ok(blind.reach.includes('NAI 2 in range, line of sight not known without an elevation source'), blind.reach);
+    // A report that neither observes nor fires direct: no lines; no grid: nothing.
+    const guns = core.sightPicture({ ...obs, size: '6x 2S19', activity: 'emplacing' }, OVERLAYS, null, null);
+    assert.deepEqual([guns.lines.length, guns.rings.map(g => `${g.kind} ${g.m}`)], [0, ['indirect 24700']]);
+    assert.equal(core.sightPicture({ ...obs, location: 'vic the hill' }, OVERLAYS, null, null), null);
+    // The tool, from the observer to 3 km east.
+    const a = { lon: olon, lat: ll('38SMB4600082000')[1] }, b = { lon: ll('38SMB4900082000')[0], lat: ll('38SMB4900082000')[1] };
+    const tool = (h) => {
+        const pts = core.losBetween(a, b).points;
+        return core.losBetween(a, b, { on: true, heights: new Map(pts.map(([lon, lat]) => [core.terrainKey(lon, lat), h(lon)])) });
+    };
+    assert.equal(tool(() => 200).state, 'seen');
+    const behind = tool(ridge);
+    assert.ok(behind.state === 'hidden' && behind.over > 50 && km(behind.block.lon) > 0.9, JSON.stringify(behind));
+    assert.equal(core.losBetween(a, b).state, 'off');
+    assert.equal(core.losBetween(a, b, { on: true, heights: new Map() }).state, 'waiting');
+    assert.equal(core.losBetween(a, { lon: a.lon + 0.3, lat: a.lat }, { on: true, heights: new Map() }).state, 'far');
+});
+
 test('the tempo, and what is new against the period before', () => {
     const at = (id, size, location, time) => report({ id, displayId: id, size, activity: 'halted', location, time, user: { initials: 'AB' } });
     // One report every 3 hrs, then four in the last 3: rising.
