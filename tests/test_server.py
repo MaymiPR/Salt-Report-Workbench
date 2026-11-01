@@ -18,6 +18,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import ssl
 import sys
 import tempfile
@@ -4107,6 +4108,59 @@ class HttpApiTests(unittest.TestCase):
             resp.readline()  # bootstrap update
             resp.readline()  # blank line ending it
             self.assertEqual(resp.readline(), b": heartbeat\n")
+
+    def test_a_stream_quiet_for_longer_than_the_write_timeout_stays_open(self):
+        # The write timeout is for writes: waiting for the next heartbeat isn't one.
+        with (
+            mock.patch.object(srv, "SSE_WRITE_TIMEOUT_SECONDS", 0.1),
+            mock.patch.object(srv, "SSE_HEARTBEAT_SECONDS", 0.4),
+            contextlib.closing(self.open_events()) as resp,
+        ):
+            resp.readline()
+            resp.readline()
+            self.assertEqual(resp.readline(), b": heartbeat\n")
+            resp.readline()
+            self.assertEqual(resp.readline(), b": heartbeat\n")
+            self.assertEqual(len(srv.sse_clients), 1)
+
+    def test_a_client_that_stops_reading_is_dropped_and_the_others_still_hear(self):
+        # Regression: event streams had no write timeout, so a machine that
+        # held its connection but stopped reading blocked the notice for
+        # every client after it, for good.
+        port = self.editor.server_address[1]
+        with mock.patch.object(srv, "SSE_WRITE_TIMEOUT_SECONDS", 0.3):
+            stuck = socket.socket()
+            self.addCleanup(stuck.close)
+            stuck.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+            stuck.settimeout(5)
+            stuck.connect(("127.0.0.1", port))
+            stuck.sendall(
+                b"GET /api/events HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+                + f"Cookie: salt_access={CODE}\r\n\r\n".encode()
+            )
+            got = b""
+            while b"data:" not in got:
+                got += stuck.recv(4096)
+            self.assertTrue(self.wait_until(lambda: len(srv.sse_clients) == 1))
+            resp = self.open_events()
+            self.addCleanup(resp.close)
+            resp.readline()
+            resp.readline()
+            self.assertTrue(self.wait_until(lambda: len(srv.sse_clients) == 2))
+        stalled, listening = srv.sse_clients
+        self.assertEqual(stalled.sock.gettimeout(), 0.3, "writes to a stream may wait so long")
+        # Fill what the machine isn't reading, until a write has to wait
+        # (Windows takes a single huge write whole, so a megabyte at a time).
+        with self.assertRaises(TimeoutError):
+            for _ in range(1024):
+                stalled.wfile.write(b": " + b"x" * (1 << 20) + b"\n\n")
+        started = time.monotonic()
+        srv._send_notice()
+        self.assertLess(time.monotonic() - started, 5, "the stalled stream was given up on")
+        self.assertEqual(srv.sse_clients, [listening], "and dropped")
+        # Told after it, as if it weren't there.
+        self.assertRegex(resp.readline(), NOTICE)
+        self.assertEqual(stalled.send(b": heartbeat\n\n"), False, "its stream is closed")
 
     def test_a_client_that_leaves_is_pruned_with_its_initials(self):
         self.post("/api/save_profile", {"profile": {"initials": "AB", "color": "#32d74b"}})

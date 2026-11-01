@@ -90,6 +90,11 @@ All notable changes to this project are documented here. The format follows
   `Infinity` or a number too large (`1e999`) in a field nothing checks was
   stored, and from then on no page could read a sync. It is now refused
   with a plain message, and nothing is stored.
+- **One machine that stops reading no longer stops live updates for the
+  rest.** A laptop that kept its connection open but stopped taking what the
+  server sent (asleep, or on a failing network) held the update for every
+  page after it, and they stopped showing changes live. Its connection is
+  now closed after 10 seconds, and the others are told as before.
 
 ## [2.41.0] - 2026-11-01
 

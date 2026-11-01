@@ -655,7 +655,9 @@ Each SSE connection holds a thread that waits in `select()` with a timeout of
 `SSE_HEARTBEAT_SECONDS` (15): the socket becoming readable means the client
 left, and a timeout means it's time to send a heartbeat. Broadcasts copy the
 client list under `sse_lock` and write outside it, so one stalled client can't
-block the others.
+block the others. A write to a stream may wait `SSE_WRITE_TIMEOUT_SECONDS`
+(10); a client that holds its connection but stops reading is then dropped,
+so the clients after it are told at most that much later, once.
 
 ## Build
 

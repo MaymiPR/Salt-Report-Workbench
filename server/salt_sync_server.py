@@ -224,6 +224,10 @@ _sync_gz_cache: tuple[bytes, bytes] | None = None
 _sync_gz_lock = threading.Lock()
 # Seconds between SSE heartbeats; each one also detects a client that left without a FIN.
 SSE_HEARTBEAT_SECONDS: float = 15.0
+# Seconds a write to an event stream may wait. A machine that holds the
+# connection but stops reading would otherwise hold the notice for everyone
+# after it; past this its stream is closed (the page opens a new one).
+SSE_WRITE_TIMEOUT_SECONDS: float = 10.0
 
 # Per-workspace provenance (ato -> source label). Rides on /api/sync. Protected by data_lock.
 workspace_sources: dict = {}
@@ -339,13 +343,16 @@ class SSEClient:
                 self.sock.shutdown(socket.SHUT_RDWR)
 
     def send(self, payload: bytes) -> bool:
-        """Write to SSE stream; False on disconnect."""
+        """Write to SSE stream; False on disconnect, or a write that timed out
+        (SSE_WRITE_TIMEOUT_SECONDS), which also closes the stream: part of
+        the payload may be in it, and its thread then cleans up."""
         with self._lock:
             try:
                 self.wfile.write(payload)
                 self.wfile.flush()
                 return True
             except Exception:
+                self.close()
                 return False
 
 
@@ -451,7 +458,9 @@ def _say_machines() -> None:
 
 def _send_notice() -> None:
     """Tell every SSE client the latest change's number; prune dead ones.
-    Snapshots under lock, writes lock-free so a stuck peer can't block other ops."""
+    Snapshots under lock, writes lock-free so a stuck peer can't block other
+    ops, and a peer that stops reading holds the rest for at most
+    SSE_WRITE_TIMEOUT_SECONDS, once: its stream is then closed."""
     global _notice_timer
     with _notice_lock:
         _notice_timer = None
@@ -4160,7 +4169,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         self.send_header('Connection', 'keep-alive')
         self.end_headers()
         sock = self.request  # underlying TCP socket
-        sock.settimeout(None)  # the stream stays open: no idle timeout
+        # The stream stays open: no idle timeout, as the reads below wait in
+        # select(). Writes get one, so a client that stops reading is dropped.
+        sock.settimeout(SSE_WRITE_TIMEOUT_SECONDS)
 
         client = SSEClient(self.wfile, _machine(self.client_address[0]), sock)
         with sse_lock:
