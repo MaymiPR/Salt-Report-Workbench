@@ -77,13 +77,17 @@ class DocsTests(unittest.TestCase):
         self.assertEqual(found, wanted, f"pyproject.toml says {version}")
 
 
-EM_DASH = re.compile("\u2014|&mdash;")
+# An em dash as it is, or as HTML writes it (&mdash;, &#8212;, &#x2014;), or
+# as a script's string escapes it (\u2014, \u{2014}).
+EM_DASH_FORMS = r"\u2014|&mdash;|&#0*8212;|&#x0*2014;|\\u2014|\\u\{0*2014\}"
+EM_DASH = re.compile(EM_DASH_FORMS, re.I)
+QUOTED_EM_DASH = re.compile(rf"""['"`][^'"`]*(?:{EM_DASH_FORMS})""", re.I)
 
 
 def page_text_lines():
     """(where, line) for the page's text a user can read: the HTML outside
     comments, scripts and styles, and the string literals in its scripts
-    (code before any // comment that quotes an em dash)."""
+    (code before any // comment that quotes an em dash, in any of its forms)."""
     html = read("src/index.html")
     shown = re.sub(r"<!--.*?-->|<script.*?</script>|<style.*?</style>", "", html, flags=re.S)
     for n, line in enumerate(shown.splitlines(), 1):
@@ -91,7 +95,7 @@ def page_text_lines():
     for path in sorted((ROOT / "src").rglob("*.js")):
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             code = line.split("//", 1)[0]
-            if re.search(r"""['"`][^'"`]*\u2014""", code):
+            if QUOTED_EM_DASH.search(code):
                 yield f"{path.relative_to(ROOT).as_posix()}:{n}", code
 
 
@@ -108,6 +112,20 @@ class NoEmDashTests(unittest.TestCase):
                     n for n, line in enumerate(read(name).splitlines(), 1) if EM_DASH.search(line)
                 ]
                 self.assertEqual(hits, [], f"em dashes on lines {hits}")
+
+    def test_every_form_of_one_is_caught(self):
+        for code in (
+            "tile('x', '—')",
+            "tile('x', '&mdash;')",
+            'html = "<option>&#8212; None</option>"',
+            "`a &#x2014; b`",
+            "say('a \\u2014 b')",
+            "say(`a \\u{2014} b`)",
+        ):
+            with self.subTest(code):
+                self.assertTrue(QUOTED_EM_DASH.search(code))
+        self.assertFalse(QUOTED_EM_DASH.search("say('a - b')"))
+        self.assertTrue(EM_DASH.search("<p>A &MDASH; B</p>"))
 
     def test_none_in_the_page(self):
         hits = [

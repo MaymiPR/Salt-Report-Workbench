@@ -15,6 +15,9 @@ let summaryKind = readStored('salt_summary_kind', 'rollup');
 if (typeof summaryKind !== 'string' || !Object.prototype.hasOwnProperty.call(SUMMARY_CHARTS, summaryKind)) summaryKind = 'rollup';
 let summaryPlace = '';
 let summaryText = '';
+let summaryBuilt = null;      // what the report on screen was built from, so a sync that changes nothing leaves it be
+let summaryBuiltOver = null;  // and the overlays it was read against
+let summaryShown = null;      // its last node, so a report put there otherwise is built again
 // Your own wording, per workspace and kind, kept in this browser until
 // Revert: the generated text stops following new reports while it's edited.
 const summaryEdits = (s => (s && typeof s === 'object' ? s : {}))(readStored('salt_summary_edits', {}));
@@ -45,29 +48,43 @@ const renderSummary = () => {
     if (!s.panel || !isSummaryViewActive) return;
     const ato = shownAto();
     const live = localReports.filter(r => !r.deleted);
-    // The place picker lists every overlay and every place reports name.
-    const places = SaltCore.summaryPlaces(live, currentOverlays());
-    if (!places.includes(summaryPlace)) summaryPlace = places[0] || '';
-    s.place.replaceChildren(...places.map(p => { const o = new Option(p, p); o.selected = p === summaryPlace; return o; }));
     s.placeRow.hidden = summaryKind !== 'place';
     // The narrative's settings: always there beside it, the full height of the view.
     showNarrSettings(summaryKind === 'narrative');
     // The heights it reads: asked for, and drawn again as they come.
     if (summaryKind === 'narrative') askTerrain();
     document.querySelectorAll('[data-summary-kind]').forEach(b => setOn(b, b.dataset.summaryKind === summaryKind));
-    const opts = summaryOpts(live);
-    const full = SaltCore.summaryDetail(summaryKind, live, currentOverlays(), opts);
-    summaryText = full.text;
     // On screen the narrative is wrapped to the width it has, so no line breaks
     // twice; Copy, Save and Print keep the 100 columns.
     const fit = summaryKind === 'narrative' ? summaryFit() : 100;
-    const onScreen = fit < 100 ? SaltCore.summaryDetail(summaryKind, live, currentOverlays(), { ...opts, width: fit }) : full;
-    // Edited text is shown as edited; while editing, the box is left alone.
     // Another workspace (or kind) while editing: the box closes, the edit kept.
     if (summaryEditing && summaryEditingKey !== editKey()) summaryEditing = false;
-    // Your own wording has no lists: its lines aren't the judgments' anymore.
-    if (editKey() in summaryEdits) s.text.textContent = shownSummary();
-    else showSummaryText(s.text, onScreen);
+    // Built again only when what it is built from has changed (the reports,
+    // the window, the settings, the heights, the minute it is prepared in),
+    // so a sync that changes none of it leaves the open Details and the
+    // keyboard's place as they are. When it is built again, they come back.
+    const reports = JSON.stringify(live);
+    const builtFrom = ({ now, terrain, ...rest }) => JSON.stringify([summaryKind, ato, fit, rest, Math.floor(now.getTime() / 60000),
+        terrain.on, terrain.note, terrain.heights.size, terrainFor, editKey() in summaryEdits ? summaryEdits[editKey()] : null]) + reports;
+    let opts = summaryOpts(live);
+    if (builtFrom(opts) !== summaryBuilt || currentOverlays() !== summaryBuiltOver || !s.text.lastChild || s.text.lastChild !== summaryShown) {
+        // The place picker lists every overlay and every place reports name.
+        const places = SaltCore.summaryPlaces(live, currentOverlays());
+        if (!places.includes(summaryPlace)) { summaryPlace = places[0] || ''; opts = summaryOpts(live); }
+        s.place.replaceChildren(...places.map(p => { const o = new Option(p, p); o.selected = p === summaryPlace; return o; }));
+        summaryBuilt = builtFrom(opts);
+        summaryBuiltOver = currentOverlays();
+        // The 100 columns, and the screen's width: the narrative read once for both.
+        const full = SaltCore.summaryDetail(summaryKind, live, currentOverlays(), { ...opts, screen: fit });
+        summaryText = full.text;
+        // Edited text is shown as edited; while editing, the box is left alone.
+        // Your own wording has no lists: its lines aren't the judgments' anymore.
+        const kept = summaryOpenNow(s.text);
+        if (editKey() in summaryEdits) s.text.textContent = shownSummary();
+        else showSummaryText(s.text, full.screen);
+        summaryShown = s.text.lastChild;
+        summaryOpenAgain(s.text, kept);
+    }
     s.text.hidden = summaryEditing;
     s.editor.hidden = !summaryEditing;
     document.getElementById('summaryEditBtn').textContent = summaryEditing ? 'Done' : 'Edit Text';
@@ -86,13 +103,18 @@ const SOURCES_SHOWN = 8;
 const showSummaryText = (pre, { text, judgments, annex = null }) => {
     const lines = text.split('\n');
     const byKey = new Map(localReports.filter(r => !r.deleted).map(r => [SaltCore.reportKey(r), r]));
-    const parts = [];
+    const parts = [], ids = new Map();
     let from = 0;
     judgments.forEach(j => {
         const reps = j.sources.map(k => byKey.get(k)).filter(Boolean);
         if (!reps.length && !j.detail) return;
+        // What the judgment is known by when the report is built again: its
+        // rule and reports (and which of those alike it is).
+        const same = `${j.rule}|${j.sources.join(' ')}`, n = (ids.get(same) || 0) + 1;
+        ids.set(same, n);
+        const id = `${same}|${n}`;
         parts.push(lines.slice(from, j.line + 1).join('\n'));
-        parts.push(...(j.detail ? judgmentDetail(lines.slice(...j.detail).join('\n'), reps) : [sourcesList(reps)]));
+        parts.push(...(j.detail ? judgmentDetail(lines.slice(...j.detail).join('\n'), reps, id) : [sourcesList(reps, id)]));
         from = j.line + 1;
     });
     // The annex's place keeps its blank lines around the one line.
@@ -106,20 +128,44 @@ const showSummaryText = (pre, { text, judgments, annex = null }) => {
 // A judgment's Details button, at the end of its line, and the detail it
 // opens below. The box is a block even while closed, so the next line starts
 // on a line of its own.
-const judgmentDetail = (text, reps) => {
+const judgmentDetail = (text, reps, id = '') => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'text-btn summary-detail-btn';
     btn.dataset.summaryDetail = '';
+    btn.dataset.summaryJudgment = id;
     btn.textContent = 'Details';
     btn.setAttribute('aria-expanded', 'false');
     const box = document.createElement('span');
     box.className = 'summary-detail';
     const body = document.createElement('span');
     body.hidden = true;
-    body.append(text, ...(reps.length ? [sourcesList(reps)] : []));
+    body.append(text, ...(reps.length ? [sourcesList(reps, id)] : []));
     box.append(body);
     return [' ', btn, box];
+};
+// A Details button's detail opened or closed, and the button saying so.
+const setDetail = (btn, open) => {
+    btn.nextElementSibling.firstElementChild.hidden = !open;
+    btn.textContent = open ? 'Hide' : 'Details';
+    btn.setAttribute('aria-expanded', String(open));
+};
+// Which Details are open in the report on screen, and where the keyboard is
+// in it (by the judgment's id); after it is built again, the same again.
+const summaryOpenNow = (pre) => {
+    const open = new Set([...pre.querySelectorAll('[data-summary-detail][aria-expanded="true"]')].map(b => b.dataset.summaryJudgment));
+    const at = pre.contains(document.activeElement) ? document.activeElement : null;
+    const box = at && at.closest('[data-summary-judgment]');
+    return { open, at: box && { id: box.dataset.summaryJudgment, detail: 'summaryDetail' in at.dataset, source: at.dataset.summarySource, more: 'summaryMore' in at.dataset } };
+};
+const summaryOpenAgain = (pre, { open, at }) => {
+    pre.querySelectorAll('[data-summary-detail]').forEach(b => { if (open.has(b.dataset.summaryJudgment)) setDetail(b, true); });
+    if (!at) return;
+    const of = `[data-summary-judgment="${CSS.escape(at.id)}"]`;
+    const back = at.detail ? pre.querySelector(`${of}[data-summary-detail]`)
+        : at.source ? pre.querySelector(`${of} [data-summary-source="${CSS.escape(at.source)}"]`)
+        : at.more ? pre.querySelector(`${of} [data-summary-more]`) : null;
+    if (back && !back.hidden) back.focus({ preventScroll: true });
 };
 const annexNote = (heading) => {
     const note = document.createElement('span');
@@ -127,9 +173,10 @@ const annexNote = (heading) => {
     note.textContent = `${heading}: each judgment's Details above. Copy, Save .txt and Print include it in full.`;
     return note;
 };
-const sourcesList = (reps) => {
+const sourcesList = (reps, id = '') => {
     const box = document.createElement('span');
     box.className = 'summary-sources';
+    box.dataset.summaryJudgment = id;
     box.setAttribute('role', 'group');
     box.setAttribute('aria-label', 'Reports behind this judgment');
     box.append('From ');
@@ -215,6 +262,8 @@ const openSummaryView = () => {
     writeStored('salt_view', 'summary');
     // A shift is the usual question; start with the last twelve hours.
     if (!s.fromDate.value && !s.toDate.value) fillWindow(s, 12);
+    // Opened, it is built afresh (every Details closed), as it always was.
+    s.text.replaceChildren();
     renderSummary();
 };
 // Leave the edit box; what was typed stays as the report's text.
@@ -285,7 +334,10 @@ const summaryFileName = () =>
     const s = summaryEls();
     if (!s.panel) return;
     document.getElementById('summaryViewToggleBtn').addEventListener('click', () => (isSummaryViewActive ? closeSummaryView() : openSummaryView()));
-    [s.fromDate, s.toDate, s.fromTime, s.toTime].forEach(n => { n.addEventListener('change', renderSummary); n.addEventListener('input', renderSummary); });
+    // Typing in a box draws it once typing pauses; a date picked (change
+    // after input) is drawn once, the second finding nothing changed.
+    const soon = debounce(renderSummary, 250);
+    [s.fromDate, s.toDate, s.fromTime, s.toTime].forEach(n => { n.addEventListener('change', renderSummary); n.addEventListener('input', soon); });
     [s.fromTime, s.toTime].forEach(n => n.addEventListener('blur', e => { if (autoColonTime(e.target)) renderSummary(); }));
     s.place.addEventListener('change', () => { summaryPlace = s.place.value; renderSummary(); });
     // A narrower or wider window: the narrative re-wraps to fit.
@@ -299,13 +351,7 @@ const summaryFileName = () =>
         const source = e.target.closest('[data-summary-source]');
         if (source) { showInLog(source.dataset.summarySource); return; }
         const detail = e.target.closest('[data-summary-detail]');
-        if (detail) {
-            const body = detail.nextElementSibling.firstElementChild, open = body.hidden;
-            body.hidden = !open;
-            detail.textContent = open ? 'Hide' : 'Details';
-            detail.setAttribute('aria-expanded', String(open));
-            return;
-        }
+        if (detail) { setDetail(detail, detail.nextElementSibling.firstElementChild.hidden); return; }
         const more = e.target.closest('[data-summary-more]');
         if (more) {
             const box = more.closest('.summary-sources');

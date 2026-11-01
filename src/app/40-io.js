@@ -747,7 +747,7 @@ const openCsvImportView = () => {
 
     // Build a select with "(None)" + every CSV column; auto-select `selected`
     const buildOptions = (selected) => {
-        let html = '<option value="">&mdash; None &mdash;</option>';
+        let html = '<option value="">(None)</option>';
         pendingCsv.headers.forEach((h, i) => {
             const sel  = i === selected ? ' selected' : '';
             const text = h ? escapeHtml(h) : `Column ${i+1}`;

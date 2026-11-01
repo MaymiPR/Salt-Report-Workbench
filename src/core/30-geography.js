@@ -237,9 +237,51 @@ const overlayRef = (rawName, fallbackType) => {
     return { type: fallbackType, name, key: `${fallbackType} ${name}` };
 };
 
+// The box round some coordinates ([lon, lat], or lists of them to any
+// depth): [west, south, east, north], or null when there are none or one
+// isn't a number. Worked out once per list (kept by the object, as
+// overlayOk's answer is: a sync's new objects bring new boxes), since every
+// report is read against every graphic.
+const boxKept = new WeakMap();
+const boxOf = (coords) => {
+    if (!Array.isArray(coords)) return null;
+    if (boxKept.has(coords)) return boxKept.get(coords);
+    const b = [Infinity, Infinity, -Infinity, -Infinity];
+    let ok = true;
+    const walk = (c) => {
+        if (!ok || !Array.isArray(c)) { ok = false; return; }
+        if (typeof c[0] === 'number') {
+            const [x, y] = c;
+            if (!Number.isFinite(x) || !Number.isFinite(y)) { ok = false; return; }
+            if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y;
+        } else c.forEach(walk);
+    };
+    walk(coords);
+    const box = ok && b[0] <= b[2] ? b : null;
+    boxKept.set(coords, box);
+    return box;
+};
+// A point this far (degrees, about 0.1 mm) or more outside a box is outside
+// whatever is in it; nearer, the shape itself is asked, so rounding never
+// changes an answer.
+const BOX_MARGIN = 1e-9;
+const outsideBox = (b, lon, lat) => !!b && (lon < b[0] - BOX_MARGIN || lon > b[2] + BOX_MARGIN || lat < b[1] - BOX_MARGIN || lat > b[3] + BOX_MARGIN);
+// The fewest meters from a point to anything in a box, on metersToLine's
+// flat projection (so never more than metersToLine gives to what is in
+// it), less a millimeter for rounding; 0 with no box. `kx` is the meters in
+// a degree of longitude there, for a caller asking of many boxes.
+const metersToBox = (b, lon, lat, kx = 111320 * Math.cos(lat * Math.PI / 180)) => {
+    if (!b) return 0;
+    const ky = 110574;
+    const dx = Math.max(0, b[0] - lon, lon - b[2]) * kx, dy = Math.max(0, b[1] - lat, lat - b[3]) * ky;
+    return Math.max(0, Math.hypot(dx, dy) - 0.001);
+};
+
 // Ray casting in longitude/latitude: exact enough for areas a few tens of
-// kilometers across. Holes (inner rings) exclude.
+// kilometers across. Holes (inner rings) exclude. A point outside a ring's
+// box is outside it, without the ring's every edge.
 const inRing = (lon, lat, ring) => {
+    if (outsideBox(boxOf(ring), lon, lat)) return false;
     let inside = false;
     for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
         const [xi, yi] = ring[i], [xj, yj] = ring[j];
@@ -318,6 +360,13 @@ const asArea = (g) => {
     }
     return g;
 };
+// The same, worked out once per geometry (kept by the object, as boxOf's).
+const areaKept = new WeakMap();
+const areaOf = (g) => {
+    if (!g || typeof g !== 'object') return asArea(g);
+    if (!areaKept.has(g)) areaKept.set(g, asArea(g));
+    return areaKept.get(g);
+};
 
 // A graphic with one of the team's own tags (its type the tag's id): an area
 // of one places the reports inside it, as an NAI does, by the graphic's name
@@ -348,28 +397,68 @@ const namesGraphic = (text, name) => {
 //           type, from: 'typed' }) or whose areas its grids are in ('grid').
 //           Only the Location naming and the map use these; the statistics
 //           and the narrative keep to NAI, OBJ and PL.
+// The same text against the same overlays gives the same answer (the same
+// object, so it isn't to be changed), kept with overlayIndex's.
 const analyzeLocation = (text, overlays) => {
+    const index = overlayIndex(overlays);
+    const memo = typeof text === 'string' ? index.read : null;
+    if (memo && memo.has(text)) return memo.get(text);
+    const a = readLocation(text, index);
+    if (memo) {
+        if (memo.size >= LOCATIONS_KEPT) memo.clear();
+        memo.set(text, a);
+    }
+    return a;
+};
+// The overlays as a Location is read against them, worked out once per list:
+// those the server would take (one it wouldn't is left out, so one bad shape
+// can't stop every report being read), the NAI and OBJ areas (asArea's) with
+// their keys, the phase lines with their boxes, the team's tagged graphics,
+// every NAI and OBJ in order with its key, area and box (`places`, for the
+// narrative's distances); and the answers given against them so far: by
+// text (`read`), and the narrative's areas near a point (`near`), each at
+// most LOCATIONS_KEPT. Kept by the list, and used only while the list holds
+// the same overlays, one for one: the page puts a new list in place when
+// they change, and one changed in place is simply read again. (An overlay
+// object itself is never changed in place, as overlayOk already relies on.)
+const LOCATIONS_KEPT = 20000;
+const overlayIndexes = new WeakMap();
+const overlayIndex = (overlays) => {
+    const list = Array.isArray(overlays) ? overlays : [];
+    const was = overlayIndexes.get(list);
+    if (was && was.items.length === list.length && was.items.every((o, i) => o === list[i])) return was;
+    const ovs = list.filter(overlayOk);
+    const areas = (t) => ovs.filter(o => o.type === t).map(o => ({ key: overlayKey(o), geometry: areaOf(o.geometry) }))
+        .filter(x => /Polygon/.test(x.geometry.type));
+    const index = {
+        items: [...list], NAI: areas('NAI'), OBJ: areas('OBJ'),
+        pls: ovs.filter(o => o.type === 'PL').map(o => ({ key: overlayKey(o), geometry: o.geometry, box: boxOf(o.geometry.coordinates) })),
+        tagged: ovs.filter(isTeamTagged), read: new Map(), near: new Map(),
+        places: ovs.filter(o => o.type === 'NAI' || o.type === 'OBJ').map(o => {
+            const g = areaOf(o.geometry);
+            return { o, key: overlayKey(o), g, box: g && /LineString|Polygon/.test(g.type) ? boxOf(g.coordinates) : null };
+        }),
+    };
+    overlayIndexes.set(list, index);
+    return index;
+};
+const readLocation = (text, index) => {
     const points = findGrids(text);
     let rest = String(text || '');
     points.forEach(p => { rest = rest.slice(0, p.start) + ' '.repeat(p.end - p.start) + rest.slice(p.end); });
     const refs = findRefs(rest);
     const typed = t => refs.filter(r => r.type === t).map(r => r.key);
-    // An overlay the server wouldn't take is left out, so one bad shape
-    // can't stop every report being read.
-    const ovs = (overlays || []).filter(overlayOk);
-    const keyOf = overlayKey;
-    const contains = (o) => points.some(p => geometryContains(o.geometry, p.lon, p.lat));
+    const contains = (g) => points.some(p => geometryContains(g, p.lon, p.lat));
     const checks = [];
     const place = (t) => {
         const keys  = typed(t);
-        const areas = ovs.filter(o => o.type === t).map(o => ({ ...o, geometry: asArea(o.geometry) }))
-            .filter(o => /Polygon/.test(o.geometry.type));
-        const inside = [...new Set(areas.filter(contains).map(keyOf))];
+        const areas = index[t];
+        const inside = [...new Set(areas.filter(x => contains(x.geometry)).map(x => x.key))];
         if (!keys.length) return { keys: inside, from: inside.length ? 'grid' : '' };
         if (points.length) {
             keys.forEach(k => {
-                const own = areas.filter(o => keyOf(o) === k);
-                if (own.length && !own.some(contains)) {
+                const own = areas.filter(x => x.key === k);
+                if (own.length && !own.some(x => contains(x.geometry))) {
                     const other = inside.filter(i => !keys.includes(i));
                     checks.push(other.length ? `${k} typed; grid is in ${other.join(', ')}` : `${k} typed; grid is outside it`);
                 }
@@ -378,17 +467,20 @@ const analyzeLocation = (text, overlays) => {
         return { keys, from: 'typed' };
     };
     const nai = place('NAI'), obj = place('OBJ');
+    // The nearest phase line: one whose box is further than the nearest so
+    // far can't be nearer, so its line isn't measured.
     let nearestPl = null;
-    ovs.filter(o => o.type === 'PL').forEach(o => points.forEach(p => {
-        const d = metersToGeometry(o.geometry, p.lon, p.lat);
-        if (isFinite(d) && (!nearestPl || d < nearestPl.meters)) nearestPl = { key: keyOf(o), meters: d };
+    index.pls.forEach(l => points.forEach(p => {
+        if (nearestPl && metersToBox(l.box, p.lon, p.lat) > nearestPl.meters) return;
+        const d = metersToGeometry(l.geometry, p.lon, p.lat);
+        if (isFinite(d) && (!nearestPl || d < nearestPl.meters)) nearestPl = { key: l.key, meters: d };
     }));
     const custom = [], seen = new Set();
-    ovs.filter(isTeamTagged).forEach(o => {
+    index.tagged.forEach(o => {
         const key = o.name.trim(), k = key.toUpperCase();
         if (seen.has(k)) return;
         const named = namesGraphic(rest, key);
-        if (!named && !(/Polygon/.test(o.geometry.type) && contains(o))) return;
+        if (!named && !(/Polygon/.test(o.geometry.type) && contains(o.geometry))) return;
         seen.add(k);
         custom.push({ key, type: o.type, from: named ? 'typed' : 'grid' });
     });

@@ -220,7 +220,8 @@ const activityMatches = (text, tags) => {
 const arcgisTrackRows = (reps, { local, idOf, team = null }) => reportTracks(reps).filter(t => t.moved).map(t => {
     const r = t.report, first = t.points[0], last = t.points[t.points.length - 1];
     const act = classifyActivity(r.activity);
-    const iso = d => (d ? new Date(d).toISOString().replace(/\.\d{3}Z$/, 'Z') : '');
+    // A time that can't be read is none ('').
+    const iso = d => { const x = timeOf(d); return x ? x.toISOString().replace(/\.\d{3}Z$/, 'Z') : ''; };
     return {
         report_id: idOf(r), ato: r.ato || '', title: r.title || '',
         size: effectiveSize(r, team), size_logged: r.size || '', activity: r.activity || '', act_tags: act.tags.join('; '),

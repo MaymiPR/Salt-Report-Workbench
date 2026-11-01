@@ -6171,5 +6171,149 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("Project to WGS 1984", result["refused"])
 
 
+class LineOfSightAndSummaryTests(BrowserTests):
+    """Line of sight where the elevation source has no height or fails, and a
+    summary that a sync doesn't rebuild. A server of its own; BrowserTests'
+    tests are run once, there (they are taken off this class below)."""
+
+    def fake_dem(self, answer):
+        """A WMS on a free port that answers every request with ``answer()``:
+        (status, body). Saved as the elevation source; both go at the end."""
+        import http.server as hs
+        import threading
+
+        class Dem(hs.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                status, body = answer()
+                self.send_response(status)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        fake = hs.ThreadingHTTPServer(("127.0.0.1", 0), Dem)
+        threading.Thread(target=fake.serve_forever, daemon=True).start()
+        self.addCleanup(fake.server_close)
+        self.addCleanup(fake.shutdown)
+
+        def tidy():
+            self.post_to_server("/api/save_narrative", {"narrative": {}})
+            self.post_to_server("/api/save_basemaps", {"basemaps": []})
+
+        self.addCleanup(tidy)
+        dem = {
+            "name": "DEM",
+            "kind": "wms",
+            "url": f"http://127.0.0.1:{fake.server_port}/wms",
+            "layers": "dem",
+            "version": "1.3.0",
+            "crs": "EPSG:4326",
+        }
+        self.post_to_server("/api/save_basemaps", {"basemaps": [dem]})
+        self.post_to_server("/api/save_narrative", {"narrative": {"terrain": {"basemap": "DEM"}}})
+
+    def pick_and_check(self, page):
+        """A Kornet observing in NAI 1, its card open on the map."""
+        self.import_overlays(page)
+        self.log(page, "1x Kornet", activity="observing", location="38SMB4600082000")
+        self.open_map(page)
+        page.evaluate("selectMapReport(localReports[0].id, [200, 200])")
+
+    def two_points(self, page):
+        """The card closed, the Line of sight tool between two points."""
+        page.click("[data-card-act='close']")
+        page.click("#mapMeasureBtn")
+        page.click("[data-measure-tool='sight']")
+        page.wait_for_selector("#mapMeasureOut:has-text('click where the eye is')")
+        box = page.locator("#mapBox").bounding_box()
+        x, y = box["x"] + box["width"] * 0.4, box["y"] + box["height"] * 0.6
+        page.mouse.click(x, y)
+        page.wait_for_selector("#mapMeasureOut:has-text('click what it looks at')")
+        page.mouse.click(x + 120, y - 60)
+
+    def test_line_of_sight_where_the_source_has_no_height_is_said_not_waited_for(self):
+        # Water everywhere: the source's "no data" value, past any real height.
+        self.fake_dem(lambda: (200, b"Results for FeatureType 'dem':\nGRAY_INDEX = -9999\n"))
+        page = self.open_editor()
+        self.pick_and_check(page)
+        page.wait_for_selector(
+            "#mapCard:has-text('NAI 2 in range, line of sight not known: no height here from the elevation source')",
+            timeout=30000,
+        )
+        self.assertIn(
+            "NAI 2 not known: no height here from the elevation source.",
+            page.inner_text("#mapCard"),
+        )
+        # Drawn gray and dashed, as one not known; never green or red.
+        strokes = "[...document.querySelectorAll('#mapSvg .map-sight path')].map(p => p.getAttribute('stroke'))"
+        page.wait_for_function(f"{strokes}.filter(s => s === '#8e8e93').length === 2")
+        self.assertFalse({"#30d158", "#ff453a"} & set(page.evaluate(strokes)))
+        self.two_points(page)
+        page.wait_for_selector(
+            "#mapMeasureOut:has-text('No height here from the elevation source: line of sight from 38S MB')",
+            timeout=30000,
+        )
+        self.assertNotIn("asking", page.inner_text("#mapMeasureOut"))
+
+    def test_line_of_sight_says_why_when_the_heights_are_not_coming(self):
+        self.fake_dem(lambda: (502, b"Bad Gateway"))
+        page = self.open_editor()
+        self.pick_and_check(page)
+        page.wait_for_selector(
+            "#mapCard:has-text('Heights not available: the service answered 502.')", timeout=30000
+        )
+        self.two_points(page)
+        page.wait_for_selector(
+            "#mapMeasureOut:has-text('Heights not available: the service answered 502.')",
+            timeout=30000,
+        )
+
+    def test_a_sync_keeps_the_narratives_open_details_and_the_keyboards_place(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        # Digging in and obstacles in NAI 1: a defense, with its Details.
+        self.log(page, "6x PAX", activity="digging in", location="38SMB4500082000")
+        self.log(page, "4x PAX", activity="emplacing obstacles", location="38SMB4600082000")
+        self.synced(page)
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        page.wait_for_selector("#summaryText [data-summary-detail]")
+        details = page.locator("#summaryText [data-summary-detail]").first
+        judgment = details.get_attribute("data-summary-judgment")
+        details.click()
+        details.focus()
+        state = """() => { const b = document.activeElement;
+            return [b.dataset.summaryJudgment, 'summaryDetail' in b.dataset, b.getAttribute('aria-expanded'),
+                    b.nextElementSibling.firstElementChild.hidden]; }"""
+        self.assertEqual(page.evaluate(state), [judgment, True, "true", False])
+        # A sync that changes nothing here: nothing is built again.
+        page.evaluate("document.getElementById('summaryText').lastChild.mark = 'same'")
+        page.evaluate("renderSummary()")
+        self.assertEqual(
+            page.evaluate("document.getElementById('summaryText').lastChild.mark"), "same"
+        )
+        self.assertEqual(page.evaluate(state), [judgment, True, "true", False])
+        # One that changes the report (a report elsewhere): built again, the
+        # Details open and the keyboard on its button, as they were.
+        page.evaluate(
+            """() => { localReports.push({ ...localReports[0], id: 'elsewhere', displayId: 'ZZ999',
+                size: '1x truck', activity: 'parked', location: '38SMB3000060000' }); renderSummary(); }"""
+        )
+        self.assertIsNone(page.evaluate("document.getElementById('summaryText').lastChild.mark"))
+        self.assertIn("Activity: 3 reports", " ".join(page.evaluate("summaryText").split()))
+        self.assertEqual(page.evaluate(state), [judgment, True, "true", False])
+        self.assertEqual(
+            page.locator("#summaryText [data-summary-detail][aria-expanded='true']").count(), 1
+        )
+
+
+# Only its own tests: BrowserTests' run once, on their own class.
+for _name in [n for n in vars(BrowserTests) if n.startswith("test_")]:
+    setattr(LineOfSightAndSummaryTests, _name, None)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -102,7 +102,15 @@ const askTerrain = async () => {
     const res = await apiPost('/api/elevation', { points: pts });
     terrainAsking = false;
     if (source !== JSON.stringify(sharedNarrative.terrain || null)) { askTerrain(); return; }
-    if (!res.ok) { terrainNote = res.message; return; }
+    // What shows the heights is drawn again when some came, or when why
+    // they aren't coming changed (the map then says so).
+    const noteWas = terrainNote;
+    const shown = (got) => {
+        if (!got && terrainNote === noteWas) return;
+        if (isSummaryViewActive && summaryKind === 'narrative') renderSummary();
+        if (isMapViewActive) { redrawMap(); renderMapCard(); showMeasure(); }
+    };
+    if (!res.ok) { terrainNote = res.message; shown(0); return; }
     const { source: on = '', heights = [], pending = [], unknown = [], error = '' } = res.body;
     // The server knows no source yet (this page saved one a moment ago):
     // nothing to keep, so ask again soon, then now and then.
@@ -119,8 +127,7 @@ const askTerrain = async () => {
     if (pending.length || want.length > pts.length || unknown.length) {
         terrainRetry = setTimeout(() => { terrainRetry = null; askTerrain(); }, pending.length || want.length > pts.length ? TERRAIN_SOON_MS : TERRAIN_LATER_MS);
     }
-    if (got && isSummaryViewActive && summaryKind === 'narrative') renderSummary();
-    if (got && isMapViewActive) { redrawMap(); renderMapCard(); showMeasure(); }
+    shown(got);
 };
 // Heights the map wants as well (`what`: 'pick' or 'tool'), asked for once
 // each; nothing new, nothing asked.
@@ -131,8 +138,16 @@ const askTerrainFor = (points, what) => {
     askTerrain();
 };
 // What the narrative is given of the ground: whether there is a source, the
-// heights known, and why the source last failed.
-const terrainInput = () => ({ on: terrainSet(), heights: terrainHeights, note: terrainNote });
+// heights known, and why the source last failed (on a page opened as a
+// file, that none can be asked).
+const TERRAIN_FILE_NOTE = 'a page opened as a file has no server to ask for them';
+const terrainInput = () => ({ on: terrainSet(), heights: terrainHeights, note: isLocalFile ? TERRAIN_FILE_NOTE : terrainNote });
+// For the map, while heights it wants aren't in: why they aren't coming,
+// when that is known, or ''.
+const terrainUnavailable = () => {
+    const why = terrainInput().note.replace(/[.]$/, '');
+    return why ? `Heights not available: ${/^[A-Z][a-z]/.test(why) ? why[0].toLowerCase() + why.slice(1) : why}.` : '';
+};
 
 // --- The parts ---
 
