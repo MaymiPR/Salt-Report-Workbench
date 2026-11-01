@@ -195,7 +195,7 @@ const BAD_ADDRESS = "That address isn't valid.";
 
 // A name not used yet: the service's own, then "(2)", "(3)"...
 const freeBasemapName = (want) => {
-    const base = (want || 'Basemap').trim().slice(0, 54) || 'Basemap';
+    const base = cutText((want || 'Basemap').trim(), 54) || 'Basemap';
     const taken = n => sharedBasemaps.some(b => b.name.toLowerCase() === n.toLowerCase());
     let name = base;
     for (let i = 2; taken(name); i++) name = `${base} (${i})`;

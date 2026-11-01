@@ -417,13 +417,22 @@ el.log.deleteBtn.addEventListener('click', async () => {
             }
         });
         reportsByAto[activeAto] = localReports;
+    }
+    // A push, as far as pulls go, until the save below is sent: a pull
+    // landing meanwhile would put the reports back as they were, and the
+    // deletions would never be sent.
+    pushesInFlight++;
+    let saved;
+    try {
         // Tell the server to remove the same entries server-side and broadcast
         // SSE. Unreachable or refused, the push below carries the same change.
-        await apiPost('/api/delete_history', { ato: activeAto, deletions: histSel });
+        if (histSel.length) await apiPost('/api/delete_history', { ato: activeAto, deletions: histSel });
+        // Persist locally + push (save_reports merges by lastModified, which we bumped above).
+        clearChecked();
+        saved = await saveLocalAndSync(reportsByAto);
+    } finally {
+        pushSettled();
     }
-    // Persist locally + push (save_reports merges by lastModified, which we bumped above).
-    clearChecked();
-    const saved = await saveLocalAndSync(reportsByAto);
     resetForm();
     updateSelectionUI();
     const canUndo = undone.ids.length || Object.keys(undone.history).length;
