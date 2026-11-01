@@ -236,8 +236,8 @@ node --test tests/js/core.test.js        # the page's logic
 ```
 
 Browser tests run when Playwright is installed, and are skipped otherwise. On
-macOS and Linux, `make check` runs most of what CI runs (not the built-server
-smoke test). See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and conventions,
+macOS and Linux, `make check` runs most of what CI runs (not the smoke tests
+of the built server and of the release on Windows). See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and conventions,
 and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the code layout and how
 sync works.
 
