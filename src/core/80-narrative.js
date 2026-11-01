@@ -201,6 +201,37 @@ const crossingsOf = (facts, overlays) => {
 };
 // The tempo: reports in the last 3 hrs of the period against the average 3
 // hrs before them, rising, steady or falling; null in a period under 6 hrs.
+// The ground at a report, from the heights the page has (terrain.heights,
+// by terrainKey): its grid's height, the slope round it (percent, from the
+// four points TERRAIN_STEP_METERS away) and how much the ground rises
+// TERRAIN_AHEAD_METERS ahead along the way of march; null while its grid's
+// height isn't in (or the source has none there).
+const groundAt = (pt, way, heights) => {
+    if (!pt || !heights) return null;
+    const [c, n, e, s, w, ahead] = groundPoints(pt, way ? way.deg : null).map(p => heights.get(terrainKey(p.lon, p.lat)));
+    if (typeof c !== 'number') return null;
+    const all = [n, e, s, w].every(v => typeof v === 'number');
+    return {
+        h: c,
+        slope: all ? Math.hypot((e - w) / (2 * TERRAIN_STEP_METERS), (n - s) / (2 * TERRAIN_STEP_METERS)) * 100 : null,
+        rise: typeof ahead === 'number' ? ahead - c : null,
+    };
+};
+// High ground: a report HIGH_GROUND_METERS or more above the middle height
+// of the reports within HIGH_NEAR_METERS of it (itself among them, three at
+// least). A crest: ground CREST_METERS or more higher ahead. Slopes past
+// these (percent) are steep for mostly wheeled or mostly tracked vehicles.
+const HIGH_GROUND_METERS = 30, HIGH_NEAR_METERS = 5000, CREST_METERS = 10;
+const STEEP_PCT = { wheeled: 30, tracked: 60 };
+const OVERLOOK_METERS = 3000;
+const slopeRead = (f) => {
+    const t = f.mob.tracked || 0, w = f.mob.wheeled || 0;
+    if (!f.ground || f.ground.slope === null || (!t && !w)) return '';
+    const mix = gearMix(t, w);
+    if (mix === 'wheeled' && f.ground.slope > STEEP_PCT.wheeled) return `on a ${Math.round(f.ground.slope)}% slope: steep for wheeled vehicles, check the type or the grid`;
+    if (mix === 'tracked' && f.ground.slope > STEEP_PCT.tracked) return `on a ${Math.round(f.ground.slope)}% slope: steep even for tracked vehicles, check the type or the grid`;
+    return '';
+};
 const TEMPO_HOURS = 3;
 const tempoOf = (facts, end) => {
     const span = end - facts[0].ms;
@@ -530,6 +561,19 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
                 '': `are moving a combined-arms group through ${area}`,
             }, [['armor or mechanized forces moving', alongside], ['artillery, air defense or engineers moving with them', escorts],
                 ...marchSign('moving along the way of march', ahead)], [area]);
+        }
+        // High ground held: observers, air defense, radars or command posts
+        // halted (or observing) on high ground, overlooking an NAI or OBJ.
+        const watchers = at(f => f.high && has(f, 'Stationary', 'Observing', 'Emplacing')
+            && (f.roles.has('recon') || f.roles.has('ad') || f.roles.has('c2') || has(f, 'Observing') || can(f, 'uav')));
+        const over = watchers.filter(f => f.overlooks);
+        if (on('highground') && over.length) {
+            const held = watchers.length >= 2 && watchers[watchers.length - 1].ms - watchers[0].ms >= 12 * HOUR ? watchers : [];
+            const key = over[over.length - 1].overlooks;
+            const signs = [['on high ground, halted or observing', watchers], [`overlooking ${key} within ${OVERLOOK_METERS / 1000} km`, over],
+                ['air defense or radars among them', watchers.filter(f => f.roles.has('ad'))], ['there 12 hrs or more', held]];
+            judge('highground', levelBy(kindsOf(signs), 3, 4),
+                key === area ? `are holding high ground in ${area}, likely for observation` : `are holding high ground at ${area}, likely for observation over ${key}`, signs, [area]);
         }
         // A road march: six or more vehicles moving, mostly wheeled (so on the
         // roads) or at road-march speed for what they are.
@@ -1233,11 +1277,26 @@ const SUPPORT_WORD = { recon: 'recon', fires: 'artillery', ad: 'air defense', at
 // (what was seen, by kind), the assessment (one line a judgment, grouped),
 // what to watch for, the gaps and the collection they call for, and an
 // annex with each judgment's basis, doctrine, unit and confidence.
-const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays = [], width = 100 }) => {
+const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays = [], width = 100, terrain = null }) => {
     const set = narrativeSettings(settings);
     const axes = axesOf(overlays);
     const march = set.toward || axes.length ? { axes, toward: set.toward } : null;
     const facts = cur.map(f => narrativeFacts(f, set.team, march));
+    // The ground (terrain: { on, heights, note }, from the page): each
+    // report's, whether it is on high ground, and the NAI or OBJ it overlooks.
+    // Without heights none of it is said, and the narrative is as it was.
+    const heights = terrain && terrain.on ? terrain.heights : null;
+    const areasNear = overlays.filter(o => overlayOk(o) && (o.type === 'NAI' || o.type === 'OBJ'));
+    facts.forEach(f => { f.ground = groundAt(f.a.points[0] || null, f.way, heights); });
+    facts.forEach(f => {
+        if (!f.ground) return;
+        const near = facts.filter(g => g.ground && metersBetween(f.a.points[0], g.a.points[0]) <= HIGH_NEAR_METERS).map(g => g.ground.h).sort((x, y) => x - y);
+        f.high = near.length >= 3 && f.ground.h - near[Math.floor((near.length - 1) / 2)] >= HIGH_GROUND_METERS;
+        if (!f.high) return;
+        const o = areasNear.map(a => [overlayKey(a), metersToOverlay(a.geometry, f.a.points[0])]).filter(([, d]) => d <= OVERLOOK_METERS)
+            .sort((x, y) => x[1] - y[1] || x[0].localeCompare(y[0]))[0];
+        f.overlooks = o ? o[0] : '';
+    });
     const out = [], shown = [];
     const say = (text, first = '   ', rest = first) => out.push(...wrapText(text, first, rest, width));
     const item = (text) => say(text, '   - ', '     ');
@@ -1339,6 +1398,13 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
         gaps.push(`Not in the equipment catalogue: ${[...unknown].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).map(([t, n]) => `${t}${n > 1 ? ` (${n})` : ''}`).join(', ')}.`
             + ' Add them in the Narrative settings, under Equipment, so the rules can read them.');
     }
+    const blufGap = gaps[0];
+    const withGrid = facts.filter(f => f.a.points.length);
+    if (!heights) gaps.push('Terrain: no elevation source, so no heights or slopes; pick one in the Narrative settings, under Terrain.');
+    else if (withGrid.some(f => !f.ground)) {
+        gaps.push(`Terrain: no height yet for ${plural(withGrid.filter(f => !f.ground).length, 'report')}`
+            + `${terrain.note ? ` (the source: ${terrain.note.replace(/[.]$/, '')})` : ' (still being asked, or the source has none there)'}.`);
+    }
 
     // --- BLUF ---
     // The strongest judgment, and the strongest of another group (a defense
@@ -1359,6 +1425,16 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
     else if (roleList.length) bluf(`Strength: no unit size from the reports; ${andList(roleList.map(r => label[r]))} reported.`);
     if (mobility) bluf(`Mobility: ${mobility} (${moving.tracked || 0} tracked, ${moving.wheeled || 0} wheeled).`);
     if (objectives.length) bluf(`Closest: ${objText(objectives[0])}.`);
+    const grounded = facts.filter(f => f.ground), highUp = grounded.filter(f => f.high);
+    const steep = facts.filter(f => has(f, 'Moving') && vehiclesIn(f.mob) >= 4 && slopeRead(f));
+    const covered = facts.filter(f => f.ground && f.ground.rise !== null && f.ground.rise >= CREST_METERS && f.roles.has('fires') && has(f, 'Stationary', 'Emplacing', 'Firing'));
+    if (grounded.length) {
+        const hs = grounded.map(f => f.ground.h);
+        bluf(`Terrain: reports at ${Math.round(Math.min(...hs))} to ${Math.round(Math.max(...hs))} m`
+            + `${highUp.length ? `; ${highUp.length} on high ground${highUp.some(f => f.places.length) ? ` (${andList([...new Set(highUp.flatMap(f => f.places))].slice(0, 3))})` : ''}` : ''}`
+            + `${steep.length ? `; ${plural(steep.length, 'column')} on slopes too steep for ${steep.length === 1 ? 'it' : 'them'}` : ''}`
+            + `${covered.length ? `; ${covered.length} artillery behind a crest` : ''}.`);
+    }
     const trend = prev ? `, ${facts.length > prev.length ? 'up from' : facts.length < prev.length ? 'down from' : 'the same as'} ${prev.length} in the previous ${hrs} hrs` : '';
     bluf(`Activity: ${plural(facts.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''}${trend}`
         + `${places.length ? `; busiest ${places.slice(0, 2).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}${tempo ? `; tempo ${tempo.word}` : ''}.`);
@@ -1366,7 +1442,7 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
     const where = last.places.length ? last.places.join(', ') : last.a.points.length ? last.a.points[0].mgrs : (last.r.location || 'no location');
     bluf(`Latest: ${last.id} ${dayTime(last.ms, local)}, ${where}: ${last.shown || '-'}, ${last.r.activity || '-'}.`);
     if (watchList.length) bluf(`Watch for: ${watchList.slice(0, 3).join('; ')}.`);
-    if (gaps.length) bluf(`Gap: ${quietBrief || gaps[0]}`);
+    if (blufGap) bluf(`Gap: ${quietBrief || blufGap}`);
 
     // --- 1. SITUATION: what the reports say ---
     out.push('', '1. SITUATION');
@@ -1416,10 +1492,13 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
         item('Latest by place:');
         places.slice(0, 6).forEach(p => {
             const list = at(p.label), last = list[list.length - 1], mix = mixText(addCounts(list));
+            const ground = list.filter(f => f.ground), hs = ground.map(f => f.ground.h), slopes = ground.map(f => f.ground.slope).filter(v => v !== null);
+            const lie = hs.length ? `; ground ${Math.round(Math.min(...hs))}${Math.max(...hs) - Math.min(...hs) >= 1 ? ` to ${Math.round(Math.max(...hs))}` : ''} m`
+                + `${slopes.length ? `, steepest ${Math.round(Math.max(...slopes))}%` : ''}` : '';
             // Whose area it is, from the unit list (not from the reports).
             const whose = set.units.filter(u => u.places.some(q => q.toUpperCase() === p.label.toUpperCase())).map(u => u.name);
             say(`${p.label}${whose.length ? ` (area of ${andList(whose)})` : ''}: ${plural(list.length, 'report')}, the last ${last.id} ${dayTime(last.ms, local)}: `
-                + `${last.shown || '-'}, ${last.r.activity || '-'}${mix ? `; in all ${mix}` : ''}.`, '       ', '         ');
+                + `${last.shown || '-'}, ${last.r.activity || '-'}${mix ? `; in all ${mix}` : ''}${lie}.`, '       ', '         ');
         });
     }
 
@@ -1447,10 +1526,19 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
     const columns = facts.filter(f => has(f, 'Moving') && vehiclesIn(f.mob) >= 4);
     if (columns.length) {
         item(`Columns (4 or more vehicles moving): ${columns.slice(-4).reverse().map(f => {
-            const where = f.places.length ? `, ${f.places.join(', ')}` : '', speed = speedRead(f.rate, f.mob), mix = mixText(f.mob);
+            const where = f.places.length ? `, ${f.places.join(', ')}` : '', speed = speedRead(f.rate, f.mob), mix = mixText(f.mob), slope = slopeRead(f);
             return `${f.id} ${dayTime(f.ms, local)}${where}: ${vehiclesIn(f.mob)} vehicles${mix ? ` (${mix})` : ''}${f.act.heading ? `, heading ${f.act.heading}` : ''}`
-                + `${f.rate ? `, ${kmhText(f.rate.kmh)}` : ''}${speed ? ` (${speed})` : ''}`;
+                + `${f.rate ? `, ${kmhText(f.rate.kmh)}` : ''}${speed ? ` (${speed})` : ''}${slope ? `, ${slope}` : ''}`;
         }).join('; ')}${columns.length > 4 ? `; and ${columns.length - 4} earlier` : ''}.`);
+    }
+    if (covered.length) {
+        item(`Behind a crest: ${covered.slice(-4).reverse().map(f => `${f.id} ${dayTime(f.ms, local)}${f.places.length ? `, ${f.places.join(', ')}` : ''}: ${f.shown}, `
+            + `the ground ${Math.round(f.ground.rise)} m higher ${TERRAIN_AHEAD_METERS} m ahead (${f.way.dir}), a covered firing position`).join('; ')}`
+            + `${covered.length > 4 ? `; and ${covered.length - 4} earlier` : ''}.`);
+    }
+    if (highUp.length) {
+        item(`High ground: ${highUp.slice(-4).reverse().map(f => `${f.id} ${dayTime(f.ms, local)}${f.places.length ? `, ${f.places.join(', ')}` : ''}: ${f.shown || '-'}, `
+            + `${Math.round(f.ground.h)} m${f.overlooks ? `, overlooking ${f.overlooks}` : ''}`).join('; ')}${highUp.length > 4 ? `; and ${highUp.length - 4} earlier` : ''}.`);
     }
     if (army) {
         item(origins.RU && origins.CN

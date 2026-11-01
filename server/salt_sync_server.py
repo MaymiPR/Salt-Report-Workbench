@@ -803,6 +803,8 @@ _NARRATIVE_RULES = frozenset(
         'vehicles',
         # Added in 2.37.
         'column',
+        # Added in 2.38.
+        'highground',
     }
 )
 MAX_OVERLAY_POINTS = 200_000  # coordinate pairs in the shared set, all features together

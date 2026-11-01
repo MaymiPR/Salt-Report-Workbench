@@ -382,6 +382,18 @@ tempo (`tempoOf`). These are said in the bottom line, Situation and Enemy
 forces; the road march rule (`column`) and the logistics rule's sign for
 wheeled supply behind tracked forces read them too.
 
+The ground comes from the heights the page gives (`terrain`, in the
+summary's options: `{on, heights, note}`, heights by `terrainKey` as the
+sync server's `/api/elevation` answered them for `terrainPoints`). `groundAt`
+reads a report's height, the slope round it and the rise ahead along the way
+of march; a report is on high ground 30 m over the middle height of the
+reports within 5 km (`HIGH_GROUND_METERS`, `HIGH_NEAR_METERS`), overlooking
+the nearest NAI or OBJ within 3 km. The bottom line's Terrain, the places'
+ground, columns on steep slopes (`slopeRead`, `STEEP_PCT`), artillery behind
+a crest (`CREST_METERS`), high ground, and the rule `highground` read them.
+With no heights, none of it is said, and the narrative is what it was but
+for one line under Gaps and collection saying there is no elevation source.
+
 `summaryDetail` (`core/60-statistics.js`) is `summaryReport` with what is
 behind the text: for each judgment shown, its rule, level, the last line of
 its entry in the assessment, the lines of its detail in the annex and the

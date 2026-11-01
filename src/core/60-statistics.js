@@ -590,7 +590,7 @@ const summaryDetail = (kind, reps, overlays, opts) => {
             out.push(...(list.length ? list.map(f => reportLine(f, local)) : ['None in this period.']));
         }
     } else if (kind === 'narrative') {
-        const n = narrativeLines(cur, prev, { local, hrs, end: to === null ? now.getTime() : to, places: placesTop, settings: narrative, overlays, width });
+        const n = narrativeLines(cur, prev, { local, hrs, end: to === null ? now.getTime() : to, places: placesTop, settings: narrative, overlays, width, terrain: opts.terrain || null });
         const at = out.length;
         judgments = n.judgments.map(j => ({ ...j, line: at + j.line, detail: j.detail && j.detail.map(i => at + i) }));
         annex = n.annex && n.annex.map(i => at + i);

@@ -1759,7 +1759,7 @@ test("the team's own equipment, rules switched off, and rules of their own", () 
     assert.ok(!text.includes('scouting a route'), 'switched off');
     assert.ok(text.includes('ROUGHLY EVEN CHANCE (45-55%) that enemy forces are preparing a river crossing in NAI 1.'), text);
     assert.ok(text.includes('Basis: reports of bridging, ferry within 12 hrs (ALPHA016 260300Z, ALPHA017 260400Z).'), text);
-    assert.equal(core.NARRATIVE_RULES.length, 57);
+    assert.equal(core.NARRATIVE_RULES.length, 58);
     core.NARRATIVE_RULES.forEach(([id]) => assert.ok(core.DOCTRINE[id] && core.DOCTRINE[id].RU && core.DOCTRINE[id].CN, `${id}: doctrine for both`));
 });
 
@@ -1803,6 +1803,10 @@ test('the catalogue covers variants, and no name means two things', () => {
 const at1 = (rows) => rows.map(([size, activity], i) => report({ id: `d${i}`, displayId: `D${i}`, size, activity, location: '38SMB4500082000',
     time: new Date(Date.parse('2026-10-25T20:00:00Z') + i * 1800000).toISOString(), user: { initials: i % 2 ? 'AB' : 'CD' } }));
 const said = (reps) => core.summaryReport('narrative', reps, OVERLAYS, SUMMARY_OPTS).replace(/\s+/g, ' ');
+// The ground the page would give the core for some reports: `height(lon, lat)`
+// at every point it asks (terrainPoints), null where it gives no number.
+const groundFor = (reps, height, settings = null, overlays = OVERLAYS) => ({ on: true, note: '',
+    heights: new Map(core.terrainPoints(reps, overlays, settings).map(([lon, lat]) => [core.terrainKey(lon, lat), height(lon, lat)])) });
 
 test('the doctrine follows the design of the equipment reported', () => {
     const chinese = said(at1([['2x ZBL-08', 'observing'], ['3x Type 99A, 4x ZBD-04', 'moving N'], ['1x PCL-181', 'moving N']]));
@@ -1960,6 +1964,10 @@ const RULE_TABLE = {
         [['2x T-72', 'dug in', NAI1, 0], ['6x PAX', 'holding', NAI1, 600]]],
     fortline: ['roughly even chance', [['6x PAX', 'digging in', NAI1, 0], ['6x PAX', 'digging in', NAI2, 60], ['6x PAX', 'digging in', OBJ1, 120], TRUCKS], [0, 1, 2],
         [['6x PAX', 'digging in', NAI1, 0], ['6x PAX', 'digging in', NAI2, 60]]],
+    // Needs the ground: a hill 100 m up where T0 stands in NAI 1, the rest at 200 m.
+    highground: ['roughly even chance', [['2x BRDM-2', 'observing', NAI1, 0], ['3x trucks', 'halted', '38SMB4700082000', 30], ['3x trucks', 'halted', '38SMB4300082000', 60]], [0],
+        [['2x BRDM-2', 'moving N', NAI1, 0], ['3x trucks', 'halted', '38SMB4700082000', 30], ['3x trucks', 'halted', '38SMB4300082000', 60]],
+        (lon, lat) => (Math.abs(lon - ll(NAI1)[0]) < 0.0005 && Math.abs(lat - ll(NAI1)[1]) < 0.0005 ? 300 : 200)],
     screen: ['roughly even chance', [['2x BRDM-2', 'observing', NAI1, 0], ['3x PAX', 'observing', NAI2, 60], TRUCKS], [0, 1],
         [['2x BRDM-2', 'observing', NAI1, 0], ['3x PAX', 'observing', NAI2, 420]]],
     antitank: ['likely', [['2x Kornet', 'in position', NAI1, 0], ['2x T-72', 'halted', NAI1, 30], ['3x trucks', 'moving N', NAI1, 60]], [0, 1],
@@ -2033,15 +2041,19 @@ test('the table has a row for every built-in rule, in their order', () => {
     assert.deepEqual(Object.keys(RULE_TABLE), core.NARRATIVE_RULES.map(([id]) => id));
 });
 
-Object.entries(RULE_TABLE).forEach(([rule, [level, fires, behind, doesNot]]) => {
+Object.entries(RULE_TABLE).forEach(([rule, [level, fires, behind, doesNot, height]]) => {
     test(`rule ${rule}: fires from its signs, with the reports behind it; one sign short, it doesn't`, () => {
-        const yes = judgedBy(fires), j = yes.judgments.find(x => x.rule === rule);
+        // A rule that reads the ground gets the heights its row gives.
+        const ground = (rows) => (height ? { terrain: groundFor(tableReps(rows), height) } : {});
+        const yes = judgedBy(fires, ground(fires)), j = yes.judgments.find(x => x.rule === rule);
         assert.ok(j, `${rule} fires\n${yes.text}`);
         assert.equal(core.ICD203[j.level][0], level, `${rule}: its level\n${yes.text}`);
         assert.deepEqual(j.sources, behind.map(i => `t${i}`), `${rule}: the reports behind it`);
         // Switched off, it doesn't fire however strong the signs.
-        assert.ok(!judgedBy(fires, { narrative: { off: [rule] } }).judgments.some(x => x.rule === rule), `${rule}: off`);
-        const no = judgedBy(doesNot);
+        assert.ok(!judgedBy(fires, { ...ground(fires), narrative: { off: [rule] } }).judgments.some(x => x.rule === rule), `${rule}: off`);
+        // Nor, when it reads the ground, without heights.
+        if (height) assert.ok(!judgedBy(fires).judgments.some(x => x.rule === rule), `${rule}: no ground, no judgment`);
+        const no = judgedBy(doesNot, ground(doesNot));
         assert.ok(!no.judgments.some(x => x.rule === rule), `${rule} doesn't fire\n${no.text}`);
     });
 });
@@ -2444,6 +2456,43 @@ test('how they move: mobility, a column and its rate of march, a phase line cros
     assert.ok(!slow.includes('moving a column on the roads'), 'tracked, and slow: no road march');
     // Towed guns are said to be slow to move and set up.
     assert.ok(said(at1([['4x D-30', 'moving N']])).includes('- Mobility: 4 towed; towed guns are slow to move and to set up.'));
+});
+
+test('the ground: heights, slopes, high ground, a column on a steep slope, a gun behind a crest, and what is missing', () => {
+    const at = (id, size, activity, location, min) => report({ id, displayId: id, size, activity, location, user: { initials: 'AB' },
+        time: new Date(Date.parse('2026-10-25T20:00:00Z') + min * 60000).toISOString() });
+    const reps = [at('H1', '2x BRDM-2', 'observing', '38SMB4500082000', 0), at('H2', '3x trucks', 'halted', '38SMB4700082000', 30),
+        at('H3', '3x trucks', 'halted', '38SMB4300082000', 60),
+        // Wheeled, moving, where the ground climbs 40 m in 100 m.
+        at('C1', '8x BTR-82A', 'moving N', '38SMB4600084000', 90),
+        // A gun, with the way of march north and the ground 25 m higher 500 m ahead.
+        at('G1', '3x 2S19', 'firing', '38SMB4400083000', 120)];
+    const [h1lon, h1lat] = ll('38SMB4500082000'), [c1lon] = ll('38SMB4600084000'), [g1lon, g1lat] = ll('38SMB4400083000');
+    const height = (lon, lat) => {
+        if (Math.abs(lon - h1lon) < 0.0005 && Math.abs(lat - h1lat) < 0.0005) return 300;
+        if (Math.abs(lon - c1lon) < 0.002 && lat > ll('38SMB4600084000')[1] - 0.002 && lat < ll('38SMB4600084000')[1] + 0.002) return 200 + (lon - c1lon) * 111000 * Math.cos(lat * Math.PI / 180) * 0.4;
+        if (Math.abs(lon - g1lon) < 0.0005 && lat > g1lat + 0.003) return 225;
+        return 200;
+    };
+    const settings = { toward: 'N' };
+    const t = core.summaryReport('narrative', reps, OVERLAYS, { ...SUMMARY_OPTS, narrative: settings, terrain: groundFor(reps, height, settings) }).replace(/\s+/g, ' ');
+    assert.ok(t.includes('Terrain: reports at 200 to 300 m; 1 on high ground (NAI 1); 1 column on slopes too steep for it; 1 artillery behind a crest.'), t);
+    assert.ok(t.includes('C1 252130Z, NAI 1: 8 vehicles (8 wheeled), heading N, on a 40% slope: steep for wheeled vehicles, check the type or the grid'), t);
+    assert.ok(t.includes('- Behind a crest: G1 252200Z, NAI 1: 3x 2S19, the ground 25 m higher 500 m ahead (N), a covered firing position.'), t);
+    assert.ok(t.includes('- High ground: H1 252000Z, NAI 1: 2x BRDM-2, 300 m, overlooking NAI 1.'), t);
+    assert.ok(t.includes('; ground 200 to 300 m, steepest 40%.'), t);
+    assert.ok(t.includes('that enemy forces are holding high ground in NAI 1, likely for observation.'), t);
+    // Without an elevation source: none of it, and the gaps say so (but not the bottom line).
+    const none = said(reps);
+    assert.ok(!/Terrain: reports|High ground:|Behind a crest|holding high ground|% slope/.test(none), none);
+    assert.ok(none.includes('- Terrain: no elevation source, so no heights or slopes; pick one in the Narrative settings, under Terrain.'), none);
+    assert.ok(!none.includes('Gap: Terrain'), 'not the bottom line');
+    // Some heights not in yet: said, with why when the source said.
+    const part = groundFor(reps, height, settings);
+    part.heights.delete(core.terrainKey(...ll('38SMB4400083000').map(v => Number(v.toFixed(5)))));
+    part.note = 'the service answered 502.';
+    const waiting = core.summaryReport('narrative', reps, OVERLAYS, { ...SUMMARY_OPTS, narrative: settings, terrain: part }).replace(/\s+/g, ' ');
+    assert.ok(waiting.includes('- Terrain: no height yet for 1 report (the source: the service answered 502).'), waiting);
 });
 
 test('the tempo, and what is new against the period before', () => {
