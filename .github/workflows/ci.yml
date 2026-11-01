@@ -73,7 +73,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   browser:
-    name: Browser tests (${{ matrix.os }})
+    name: Browser tests (Python ${{ matrix.python }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -81,11 +81,16 @@ jobs:
       matrix:
         # Windows too: that is where the team opens the page.
         os: [ubuntu-24.04, windows-latest]
+        python: ["3.15"]
+        include:
+          # And once on the server's oldest Python, 3.11.8 exactly.
+          - os: ubuntu-24.04
+            python: "3.11.8"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.15"
+          python-version: ${{ matrix.python }}
       # The page's DOM layer, driven in a real Chromium against the built server.
       - run: pip install --require-hashes -r requirements-browser.txt
       - if: runner.os == 'Linux'
@@ -123,3 +128,88 @@ jobs:
           name: SaltReportWorkbench-dist
           path: dist/
           if-no-files-found: error
+
+  # What operators get, used the way they use it: the release zip and the
+  # one-file .txt, built from this checkout, extracted and started on Windows
+  # with Python 3.11.8, the Python their laptops have.
+  shipped:
+    name: Shipped release (Python 3.11.8, windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11.8"
+      # --allow-dirty: a pull request or main is not a release tag.
+      - name: Build the release
+        run: |
+          version=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"], end="")')
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          python scripts/release.py "$version" -o out --allow-dirty
+      - name: Extract the zip
+        shell: pwsh
+        run: Expand-Archive "out/SaltReportWorkbench-v$env:VERSION.zip" -DestinationPath check/zip
+      - name: Unpack the .txt and compare
+        run: |
+          mkdir check/txt
+          cp "out/SALT-Workbench-v$VERSION.txt" check/txt/
+          python -I "check/txt/SALT-Workbench-v$VERSION.txt"
+          diff -r "check/zip/SaltReportWorkbench-v$VERSION" "check/txt/SALT Report Workbench"
+          echo "The .txt unpacks to the zip's files."
+      # Through the launcher, with the Python named in SALT_PYTHON as the
+      # launcher allows, so it is this 3.11.8. HTTPS and an access code, as
+      # operators run it; /api/health needs no code. Started, checked and
+      # stopped in one step, so no step ends with the server still running.
+      - name: Start the extracted server and check /api/health
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $check = @'
+          import json, ssl, sys, time, urllib.request
+          # The server's own self-signed certificate, as on the operators' LAN.
+          ctx = ssl.create_default_context()
+          ctx.check_hostname = False
+          ctx.verify_mode = ssl.CERT_NONE
+          deadline = time.monotonic() + 120  # it makes its TLS key first
+          while True:
+              try:
+                  with urllib.request.urlopen(sys.argv[1], context=ctx, timeout=10) as r:
+                      health = json.load(r)
+                  break
+              except OSError as exc:
+                  if time.monotonic() > deadline:
+                      sys.exit(f"No answer from {sys.argv[1]}: {exc}")
+                  time.sleep(1)
+          print(health)
+          if health["version"] != sys.argv[2] or health["status"] != "ok":
+              sys.exit(f"Expected version {sys.argv[2]} and status ok")
+          '@
+          $port = python -c "import socket; s = socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1])"
+          $env:SALT_PYTHON = (Get-Command python).Source
+          $env:PYTHONUNBUFFERED = "1"  # so the log below has the server's lines
+          $server = Start-Process cmd.exe -PassThru -NoNewWindow `
+            -WorkingDirectory "check/zip/SaltReportWorkbench-v$env:VERSION" `
+            -ArgumentList "/c call `".\Start SALT Workbench.bat`" --no-browser --no-minimize --port $port --viewer-port 0" `
+            -RedirectStandardOutput "$env:RUNNER_TEMP/server.out" -RedirectStandardError "$env:RUNNER_TEMP/server.err"
+          $server.Id | Set-Content "$env:RUNNER_TEMP/server.pid"
+          try {
+            $check | python - "https://127.0.0.1:$port/api/health" $env:VERSION
+            $healthy = $LASTEXITCODE -eq 0
+          } finally {
+            taskkill /F /T /PID $server.Id
+          }
+          Get-Content "$env:RUNNER_TEMP/server.out", "$env:RUNNER_TEMP/server.err"
+          if (-not $healthy) { exit 1 }
+          exit 0
+      # In case the step above was cut off with the server still running.
+      - name: Stop the server
+        if: always()
+        shell: pwsh
+        run: |
+          $pidFile = "$env:RUNNER_TEMP/server.pid"
+          if (Test-Path $pidFile) { taskkill /F /T /PID (Get-Content $pidFile) }
+          exit 0
