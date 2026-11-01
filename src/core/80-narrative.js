@@ -74,6 +74,110 @@ const GEAR_ROLE = { tracked: 'mech', wheeled: 'logistics' };
 // Mostly one or the other: at least two thirds of them.
 const gearMix = (tracked, wheeled) => (tracked >= 2 * wheeled ? 'tracked' : wheeled >= 2 * tracked ? 'wheeled' : 'mixed');
 
+// How a report's equipment moves, by running gear (lookupEquipment's
+// `gear`): { tracked: 4, wheeled: 2, ... }, a type that doesn't say counted
+// as 'unsaid'; and the same added up over reports.
+const gearCounts = (els) => {
+    const n = {};
+    els.forEach(e => { if (!e.kit) return; const g = e.kit.gear || 'unsaid'; n[g] = (n[g] || 0) + e.count; });
+    return n;
+};
+const addCounts = (list) => list.reduce((n, f) => { Object.entries(f.mob).forEach(([g, c]) => { n[g] = (n[g] || 0) + c; }); return n; }, {});
+// The vehicles among them: what moves on the ground, but people and what they carry.
+const vehiclesIn = (n) => (n.tracked || 0) + (n.wheeled || 0) + (n.towed || 0) + (n.unsaid || 0);
+// What the tracked and wheeled among them mean for where they can go.
+// Wheeled armored vehicles leave the road too, but go faster on it and
+// lean on it more.
+const mobilityRead = (n) => {
+    const t = n.tracked || 0, w = n.wheeled || 0;
+    if (!t && !w) return '';
+    if (!w) return 'all tracked: can move across country';
+    if (!t) return 'all wheeled: faster on roads, and tied to them more';
+    return { tracked: 'mostly tracked: can move across country, with wheeled support',
+        wheeled: 'mostly wheeled: faster on roads, and tied to them more',
+        mixed: 'tracked and wheeled about equally' }[gearMix(t, w)];
+};
+const GEAR_WORDS = [['tracked', 'tracked'], ['wheeled', 'wheeled'], ['towed', 'towed'], ['portable', 'carried'], ['foot', 'on foot'], ['air', 'in the air'], ['static', 'fixed']];
+const mixText = (n) => GEAR_WORDS.filter(([g]) => n[g]).map(([g, w]) => `${n[g]} ${w}`).join(', ');
+// A rate of march (marchRates' overall) against the running gear: road-march
+// speed for mostly tracked, wheeled or mixed vehicles (km/h), faster than
+// tracked vehicles go (a wrong type, or a wrong time), or slow for an hour or
+// more (halts, or across country). '' when it says none of these.
+const ROAD_KMH = { tracked: 20, wheeled: 30, mixed: 25 };
+const TRACKED_MAX_KMH = 65, SLOW_KMH = 5;
+const speedRead = (rate, n) => {
+    const t = n.tracked || 0, w = n.wheeled || 0;
+    if (!rate || (!t && !w)) return '';
+    const mix = gearMix(t, w);
+    if (mix === 'tracked' && rate.kmh > TRACKED_MAX_KMH) return 'faster than tracked vehicles go: check the type or the times';
+    if (rate.kmh >= ROAD_KMH[mix]) return 'road-march speed';
+    if (rate.kmh < SLOW_KMH && rate.hours >= 1) return 'slow: halts on the way, or across country';
+    return '';
+};
+const roadSpeed = (f) => speedRead(f.rate, f.mob) === 'road-march speed';
+const kmhText = (k) => `${k < 10 ? Math.round(k * 10) / 10 : Math.round(k)} km/h`;
+const distText = (m) => (m < 1000 ? `${Math.max(100, Math.round(m / 100) * 100)} m` : `${(m / 1000).toFixed(1)} km`);
+
+// Meters from a point to an overlay: 0 inside an area, else to its edge;
+// to a line, the line; to a point, the point.
+const metersToOverlay = (g, pt) => {
+    const a = asArea(g);
+    if (!a) return Infinity;
+    if (geometryContains(a, pt.lon, pt.lat)) return 0;
+    const at = ([lon, lat]) => metersBetween(pt, { lon, lat });
+    if (a.type === 'Point') return at(a.coordinates);
+    if (a.type === 'MultiPoint') return Math.min(...a.coordinates.map(at));
+    if (a.type === 'Polygon') return Math.min(...a.coordinates.map(r => metersToLine(pt.lon, pt.lat, r)));
+    if (a.type === 'MultiPolygon') return Math.min(...a.coordinates.flat().map(r => metersToLine(pt.lon, pt.lat, r)));
+    return metersToGeometry(a, pt.lon, pt.lat);
+};
+// Each OBJ, nearest first: the report nearest it at its latest grid, how
+// far, and, when its track has moved, whether it closed on it (at least
+// CLOSE_MIN_METERS from its first grid to its last: km/h) or drew away.
+const CLOSE_MIN_METERS = 200;
+const objectivesOf = (facts, overlays) => overlays.filter(o => overlayOk(o) && o.type === 'OBJ').map(o => {
+    let best = null;
+    facts.forEach(f => {
+        if (!f.track) return;
+        const d = metersToOverlay(o.geometry, f.track.points[f.track.points.length - 1]);
+        if (isFinite(d) && (!best || d < best.d || (d === best.d && f.ms > best.f.ms))) best = { f, d };
+    });
+    if (!best) return null;
+    const pts = best.f.track.points, first = pts[0], last = pts[pts.length - 1];
+    const hours = (Date.parse(last.time) - Date.parse(first.time)) / HOUR;
+    const change = pts.length >= 2 && hours > 0 ? metersToOverlay(o.geometry, first) - best.d : 0;
+    return { key: overlayKey(o), ...best, closing: change >= CLOSE_MIN_METERS ? change / 1000 / hours : 0, away: change <= -CLOSE_MIN_METERS };
+}).filter(Boolean).sort((x, y) => x.d - y.d || x.key.localeCompare(y.key));
+// Phase lines crossed: each leg of a report's track that crosses a PL, with
+// when (the leg's end) and which way, the latest first.
+const linesOf = (g) => (g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates : []);
+const crossingsOf = (facts, overlays) => {
+    const pls = overlays.filter(o => overlayOk(o) && o.type === 'PL').flatMap(o => linesOf(o.geometry).map(line => ({ key: overlayKey(o), line })));
+    const out = [];
+    facts.forEach(f => {
+        const p = f.track ? f.track.points : [];
+        for (let i = 1; i < p.length; i++) {
+            const a = [p[i - 1].lon, p[i - 1].lat], b = [p[i].lon, p[i].lat];
+            pls.forEach(({ key, line }) => {
+                if (line.some((c, j) => j > 0 && segmentsCross(a, b, line[j - 1], c)) && !out.some(x => x.f === f && x.key === key && x.time === p[i].time)) {
+                    out.push({ f, key, time: p[i].time, dir: HEADINGS_8[Math.round(bearingBetween(p[i - 1], p[i]) / 45) % 8] });
+                }
+            });
+        }
+    });
+    return out.sort((x, y) => Date.parse(y.time) - Date.parse(x.time) || x.key.localeCompare(y.key));
+};
+// The tempo: reports in the last 3 hrs of the period against the average 3
+// hrs before them, rising, steady or falling; null in a period under 6 hrs.
+const TEMPO_HOURS = 3;
+const tempoOf = (facts, end) => {
+    const span = end - facts[0].ms;
+    if (span < 2 * TEMPO_HOURS * HOUR) return null;
+    const last = facts.filter(f => f.ms > end - TEMPO_HOURS * HOUR).length;
+    const avg = (facts.length - last) / ((span - TEMPO_HOURS * HOUR) / (TEMPO_HOURS * HOUR));
+    return { last, avg, word: last >= Math.max(3, 1.5 * avg) ? 'rising' : last <= 0.5 * avg ? 'falling' : 'steady' };
+};
+
 // What the narrative needs about a report, beyond the summaries' facts: its
 // equipment (from its Size after BDA, the facts' `size`), the roles in it, its size by kind, and the areas it counts in
 // (its NAIs and OBJs, else its 10 km square, else none). With a way of
@@ -109,6 +213,11 @@ const narrativeFacts = (f, team, march = null) => {
         areas: f.places.length ? f.places : sq ? [sq.replace(/ (\d) (\d)$/, ' $1$2')] : [],
         id: f.r.displayId || f.r.id || '',
         who: (f.r.user && f.r.user.initials) || '',
+        // How its equipment moves (gearCounts), its track (reportTracks, or
+        // null without a grid) and its overall rate of march (marchRates).
+        mob: gearCounts(els),
+        track: reportTracks([f.r])[0] || null,
+        rate: marchRates(f.r, movementClass(f.size, team)).overall,
     };
 };
 const isManeuver = (f) => f.roles.has('armor') || f.roles.has('mech');
@@ -389,6 +498,17 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
                 '': `are moving a combined-arms group through ${area}`,
             }, [['armor or mechanized forces moving', alongside], ['artillery, air defense or engineers moving with them', escorts],
                 ...marchSign('moving along the way of march', ahead)], [area]);
+        }
+        // A road march: six or more vehicles moving, mostly wheeled (so on the
+        // roads) or at road-march speed for what they are.
+        const cols = at(f => has(f, 'Moving') && vehiclesIn(f.mob) >= 6);
+        const wheeledCols = cols.filter(f => (f.mob.wheeled || 0) >= 4 && gearMix(f.mob.tracked || 0, f.mob.wheeled) === 'wheeled');
+        const fastCols = cols.filter(roadSpeed);
+        if (on('column') && (wheeledCols.length || fastCols.length)) {
+            const again = densest(cols, 12 * HOUR);
+            const signs = [['six or more vehicles moving', cols], ['mostly wheeled', wheeledCols], ['at road-march speed', fastCols],
+                ['another column through it within 12 hrs', again.length >= 2 ? again : []]];
+            judge('column', levelBy(kindsOf(signs), 3, 4), `are moving a column on the roads through ${area}`, signs, [area]);
         }
         // A water obstacle or gap: bridging or ferries, smoke, cover, armor waiting.
         const bridge = at(f => can(f, 'bridging'));
@@ -987,10 +1107,13 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
     const convoys = densest(facts.filter(f => f.roles.has('logistics') && advancing(f)), 12 * HOUR);
     const fuelAmmo = convoys.filter(f => FUEL_AMMO.test(textOf(f)));
     const forwardOn = convoys.filter(along);
+    // Wheeled supply on the way of march within 6 hrs after tracked combat forces on it.
+    const tail = forwardOn.filter(f => f.mob.wheeled && facts.some(m => m !== f && isManeuver(m) && m.mob.tracked && along(m) && f.ms > m.ms && f.ms - m.ms <= 6 * HOUR));
     if (on('logforward') && convoys.length >= 2 && (mass.length || fuelAmmo.length || forwardOn.length)) {
         const signs = [['supply vehicles moving within 12 hrs', convoys], ['fuel or ammunition among them', fuelAmmo],
             [focus ? `armor or mechanized forces massing in ${focus}` : 'armor or mechanized forces massing', mass],
-            ...marchSign('moving forward along the way of march', forwardOn)];
+            ...marchSign('moving forward along the way of march', forwardOn),
+            ...marchSign('wheeled, within 6 hrs after tracked forces, along the way of march', tail)];
         judge('logforward', levelBy(kindsOf(signs) + (convoys.length >= 4 ? 1 : 0), 3, 4), {
             RU: `are pushing fuel and ammunition forward${focus ? ` toward ${focus}` : ''}, as before an attack`,
             CN: `are pushing fuel and ammunition forward${focus ? ` toward ${focus}` : ''}, as before an attack`,
@@ -1124,6 +1247,20 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
         return top && { kind, text: `${ECHELON_LABEL[kind]} approximately ${echelonOf(kind, top.groups[kind])} size (${top.shown}; ${top.id} ${dayTime(top.ms, local)}${top.places.length ? `, ${top.places.join(', ')}` : ''})` };
     }).filter(Boolean);
     const at = (p) => facts.filter(f => f.places.includes(p));
+    // How it all moves; the objectives and phase lines; the tempo; and, with
+    // a period before, what is new in this one.
+    const moving = addCounts(facts), mobility = mobilityRead(moving);
+    const objectives = objectivesOf(facts, overlays), crossings = crossingsOf(facts, overlays);
+    const tempo = tempoOf(facts, end);
+    const objText = (o) => (o.d === 0 ? `${o.key}, in it: ${o.f.id} ${dayTime(o.f.ms, local)}`
+        : `${o.key}, ${distText(o.d)} from ${o.f.id} ${dayTime(o.f.ms, local)}${o.closing ? `, closing about ${kmhText(o.closing)}` : o.away ? ', moving away' : ''}`);
+    // New: identified Russian or Chinese types, and places, that the period
+    // before (with reports in it) didn't have.
+    const before = prev && prev.length ? prev.map(f => narrativeFacts(f, set.team, null)) : null;
+    const seenBefore = before && new Set(before.flatMap(f => f.els.filter(e => e.kit).map(e => e.kit.name)));
+    const newKit = before ? [...new Set(facts.flatMap(f => f.els.filter(e => e.kit && e.kit.origin && !seenBefore.has(e.kit.name)).map(e => e.kit.name)))] : [];
+    const placesBefore = before && new Set(before.flatMap(f => f.places));
+    const newPlaces = before ? places.map(p => p.label).filter(p => !placesBefore.has(p)) : [];
 
     // The ten strongest judgments, grouped as the settings list the rules;
     // a group comes where its strongest judgment does, so the first is the
@@ -1188,9 +1325,11 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
     const support = roleList.filter(r => r in SUPPORT_WORD).map(r => SUPPORT_WORD[r]);
     if (main) bluf(`Strength: largest single sighting ${main.text}${support.length ? `; with ${andList(support)}` : ''}.`);
     else if (roleList.length) bluf(`Strength: no unit size from the reports; ${andList(roleList.map(r => label[r]))} reported.`);
+    if (mobility) bluf(`Mobility: ${mobility} (${moving.tracked || 0} tracked, ${moving.wheeled || 0} wheeled).`);
+    if (objectives.length) bluf(`Closest: ${objText(objectives[0])}.`);
     const trend = prev ? `, ${facts.length > prev.length ? 'up from' : facts.length < prev.length ? 'down from' : 'the same as'} ${prev.length} in the previous ${hrs} hrs` : '';
     bluf(`Activity: ${plural(facts.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''}${trend}`
-        + `${places.length ? `; busiest ${places.slice(0, 2).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}.`);
+        + `${places.length ? `; busiest ${places.slice(0, 2).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}${tempo ? `; tempo ${tempo.word}` : ''}.`);
     const last = facts[facts.length - 1];
     const where = last.places.length ? last.places.join(', ') : last.a.points.length ? last.a.points[0].mgrs : (last.r.location || 'no location');
     bluf(`Latest: ${last.id} ${dayTime(last.ms, local)}, ${where}: ${last.shown || '-'}, ${last.r.activity || '-'}.`);
@@ -1202,6 +1341,11 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
     item(`${plural(facts.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''}, ${dayTime(facts[0].ms, local)} to ${dayTime(last.ms, local)}`
         + `${prevNote}; ${placed} in an NAI or OBJ`
         + `${places.length ? `, most in ${places.slice(0, 3).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}.`);
+    if (tempo) {
+        const avg = tempo.avg < 10 ? Math.round(tempo.avg * 10) / 10 : Math.round(tempo.avg);
+        item(`Tempo: ${tempo.last ? plural(tempo.last, 'report') : 'none'} in the last ${TEMPO_HOURS} hrs, against about ${avg} per ${TEMPO_HOURS} hrs before: `
+            + `${tempo.word}${!tempo.last ? ', or a gap in coverage' : ''}.`);
+    }
     // Where they headed.
     const heads = new Map();
     facts.forEach(f => { if (f.act.heading) { const h = HEADINGS_8[Math.round(f.act.headingDeg / 45) % 8]; heads.set(h, (heads.get(h) || 0) + 1); } });
@@ -1214,22 +1358,36 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
         const n = (s) => moved.filter(f => f.sense === s).length;
         item(`Way of march: ${ways.join('; ')}.${moved.length ? ` Of ${plural(moved.length, 'report')} moving there: ${n('along')} along it, ${n('back')} back along it, ${n('across')} across it.` : ''}`);
     }
+    // Phase lines crossed (from tracks) and reported at; the objectives, nearest first.
+    const atPl = new Map();
+    facts.forEach(f => f.pls.forEach(p => { if (!atPl.has(p)) atPl.set(p, []); atPl.get(p).push(f); }));
+    if (crossings.length || atPl.size) {
+        const crossed = crossings.slice(0, 4).map(c => `${c.f.id} crossed ${c.key} by ${dayTime(Date.parse(c.time), local)}, moving ${c.dir}`);
+        const near = [...atPl].sort((x, y) => y[1].length - x[1].length || x[0].localeCompare(y[0])).slice(0, 3)
+            .map(([p, l]) => `at ${p}: ${plural(l.length, 'report')}, the last ${l[l.length - 1].id} ${dayTime(l[l.length - 1].ms, local)}`);
+        item(`Phase lines: ${[...crossed, ...near].join('; ')}${crossings.length > 4 ? `; and ${crossings.length - 4} earlier crossings` : ''}.`);
+    }
+    if (objectives.length) item(`Objectives: ${objectives.slice(0, 4).map(objText).join('; ')}.`);
+    if (newKit.length || newPlaces.length) {
+        item(`New this period: ${[newKit.length && `first sightings of ${andList(newKit.slice(0, 6))}${newKit.length > 6 ? ` and ${newKit.length - 6} more` : ''}`,
+            newPlaces.length && `activity in ${andList(newPlaces.slice(0, 4))} for the first time`].filter(Boolean).join('; ')}.`);
+    }
     // Any firing, the latest three.
     const shots = facts.filter(f => f.act.tags.includes('Firing'));
     if (shots.length) {
         item(`Firing: ${plural(shots.length, 'report')}: ${shots.slice(-3).reverse().map(f => `${f.id} ${dayTime(f.ms, local)} ${f.shown || '-'}, ${f.r.activity || '-'}`).join('; ')}`
             + `${shots.length > 3 ? `; and ${shots.length - 3} earlier` : ''}.`);
     }
-    // Each busy place in a sentence: when, what kinds, what they were doing.
+    // Each busy place as last seen: when, what, doing what, and how what
+    // was there moves.
     if (places.length) {
-        item('By place:');
+        item('Latest by place:');
         places.slice(0, 6).forEach(p => {
-            const list = at(p.label);
-            const kinds = EQUIPMENT_ROLES.map(([r]) => r).filter(r => list.some(f => f.els.some(e => e.kit && e.kit.role === r))).map(r => label[r]);
+            const list = at(p.label), last = list[list.length - 1], mix = mixText(addCounts(list));
             // Whose area it is, from the unit list (not from the reports).
             const whose = set.units.filter(u => u.places.some(q => q.toUpperCase() === p.label.toUpperCase())).map(u => u.name);
-            say(`${p.label}${whose.length ? ` (area of ${andList(whose)})` : ''}: ${plural(list.length, 'report')}, ${dayTime(list[0].ms, local)} to ${dayTime(list[list.length - 1].ms, local)}`
-                + `${kinds.length ? `; ${kinds.join(', ')}` : ''}; ${activityLine(list)}.`, '       ', '         ');
+            say(`${p.label}${whose.length ? ` (area of ${andList(whose)})` : ''}: ${plural(list.length, 'report')}, the last ${last.id} ${dayTime(last.ms, local)}: `
+                + `${last.shown || '-'}, ${last.r.activity || '-'}${mix ? `; in all ${mix}` : ''}.`, '       ', '         ');
         });
     }
 
@@ -1249,6 +1407,18 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
                     wheeled: 'mostly wheeled: read as supply or motorized columns, the tracked as their escort',
                     mixed: 'a mix: read as mechanized forces with their supply vehicles' }[gearMix(tracked, wheeled)];
         item(`Tracked and wheeled (type not given): ${tracked} tracked, ${wheeled} wheeled in ${plural(geared.length, 'report')}; ${read}.`);
+    }
+    // How it all moves, and the columns seen moving with their rates of march.
+    if (mixText(moving)) {
+        item(`Mobility: ${mixText(moving)}${mobility ? `; ${mobility}` : ''}${moving.towed ? '; towed guns are slow to move and to set up' : ''}.`);
+    }
+    const columns = facts.filter(f => has(f, 'Moving') && vehiclesIn(f.mob) >= 4);
+    if (columns.length) {
+        item(`Columns (4 or more vehicles moving): ${columns.slice(-4).reverse().map(f => {
+            const where = f.places.length ? `, ${f.places.join(', ')}` : '', speed = speedRead(f.rate, f.mob), mix = mixText(f.mob);
+            return `${f.id} ${dayTime(f.ms, local)}${where}: ${vehiclesIn(f.mob)} vehicles${mix ? ` (${mix})` : ''}${f.act.heading ? `, heading ${f.act.heading}` : ''}`
+                + `${f.rate ? `, ${kmhText(f.rate.kmh)}` : ''}${speed ? ` (${speed})` : ''}`;
+        }).join('; ')}${columns.length > 4 ? `; and ${columns.length - 4} earlier` : ''}.`);
     }
     if (army) {
         item(origins.RU && origins.CN

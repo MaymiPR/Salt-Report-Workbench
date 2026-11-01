@@ -55,6 +55,7 @@ const NARRATIVE_RULES = [
     ['airassault', 'Air assault or airborne landing', 'transport helicopters, landings, airborne vehicles', 'Maneuver'],
     ['amphibious', 'Amphibious landing or crossing', 'amphibious vehicles or landings, with smoke, ferries or cover', 'Maneuver'],
     ['vehicles', 'A force read from its vehicles', 'tracked or wheeled vehicles with no type given, by which there are more of', 'Maneuver'],
+    ['column', 'Road march column', 'six or more vehicles moving, mostly wheeled or at road-march speed', 'Maneuver'],
     ['defense', 'Preparing a defense', 'digging in, obstacles or mines, engineers, antitank weapons, vehicles halted', 'Defense'],
     ['strongpoint', 'A company strongpoint', 'two of armor, infantry and antitank weapons holding in one place for 12 hrs or more', 'Defense'],
     ['fortline', 'A fortified line in depth', 'digging in, obstacles or engineers in three or more places within 48 hrs', 'Defense'],
@@ -185,6 +186,10 @@ const DOCTRINE = {
     vehicles: {
         RU: 'Russian tracked vehicles are the tanks, BMPs, MT-LBs and self-propelled guns of tank and motor rifle units; the wheeled are mostly supply trucks (Ural, KamAZ) and the BTR-mounted motor rifle battalions. A column mostly tracked is a combat element; mostly wheeled, its logistics or a BTR unit.',
         CN: 'PLA heavy combined-arms brigades ride tracked vehicles (Type 99 and 96 tanks, ZBD-04 IFVs, PLZ-07 guns); medium brigades ride wheeled 8x8s (ZBL-08, ZTL-11, PCL-181), and supply moves on wheeled trucks. Mostly wheeled may be a medium brigade as well as logistics.',
+    },
+    column: {
+        RU: 'Russian units move on roads in march columns behind a forward security element, about 20-30 km/h by day, with air defense and traffic regulators in the column; they deploy off the road into pre-battle and battle formation only near the enemy.',
+        CN: 'PLA units move on roads in march columns, wheeled medium brigades faster than heavy tracked ones, with reconnaissance ahead and air defense covering the column; they deploy off the road only near the line of contact.',
     },
     defense: {
         RU: 'Russian defenses are echeloned: a security zone, then company strongpoints behind dense, mixed minefields covered by fire sacks, with reserves held back to counterattack.',
