@@ -105,6 +105,8 @@ let statsScope = storedText('salt_stats_scope') === 'all' ? 'all' : 'ato';
 let statsCharts = [];       // what is on screen, for hover and export
 let statsKpis = [];         // the headline numbers on screen, for the workbook
 let statsBuilt = null;      // what the panel was last drawn from, so a sync that changes nothing leaves it be
+let statsFrom = null;       // what that was worked out from: the reports' fields it reads, the window, the settings
+let statsFromOver = null;   // and the overlays
 
 const FOLD_AT = 10;  // longer lists show their top ten and an "Other" bar
 const fold = (items) => (items.length <= FOLD_AT + 1 ? items : [
@@ -162,12 +164,19 @@ const renderStats = () => {
     const ato = shownAto();
     const { reps, phrase, atoOf, atos } = statsWindow();
     const local = timeDisplayMode === 'local';
-    const d = SaltCore.statsData(reps, currentOverlays(), { local, team: narrTeam() });
     const scope = statsScope === 'all' ? `All ATOs (${atos})` : (ato || 'No workspace');
     const context = `${scope} · ${phrase} · ${plural(reps.length, 'report')}`;
     s.subtitle.textContent = context;
     s.panel.querySelectorAll('.range-mode').forEach(n => { n.textContent = local ? '(Local)' : '(Zulu)'; });
     document.querySelectorAll('[data-stats-scope]').forEach(b => setOn(b, b.dataset.statsScope === statsScope));
+    // Nothing it reads has changed (a sync that changed nothing here): nothing
+    // is worked out again. What it reads of each report, its workspace, the
+    // window, the team's equipment and the overlays.
+    const from = JSON.stringify([context, local, narrList('equipment'), reps.map(r => [r.location, r.activity, r.size, r.bda || null, r.time, atoOf.get(r)])]);
+    if (from === statsFrom && currentOverlays() === statsFromOver && statsBuilt !== null && s.body.childElementCount) return;
+    statsFrom = from;
+    statsFromOver = currentOverlays();
+    const d = SaltCore.statsData(reps, currentOverlays(), { local, team: narrTeam() });
     // Reports per ATO, largest first: only across every workspace.
     const perAto = new Map();
     reps.forEach(r => perAto.set(atoOf.get(r), (perAto.get(atoOf.get(r)) || 0) + 1));
@@ -378,7 +387,10 @@ const exportStatsXlsx = () => {
     document.getElementById('statsExcelBtn').addEventListener('click', () => {
         try { exportStatsXlsx(); } catch (e) { showToast('Export error: ' + e.message, true); }
     });
-    [s.fromDate, s.toDate, s.fromTime, s.toTime].forEach(n => { n.addEventListener('change', renderStats); n.addEventListener('input', renderStats); });
+    // Typing in a box draws it once typing pauses; a date picked (change
+    // after input) is drawn once, the second finding nothing changed.
+    const soon = debounce(renderStats, 250);
+    [s.fromDate, s.toDate, s.fromTime, s.toTime].forEach(n => { n.addEventListener('change', renderStats); n.addEventListener('input', soon); });
     [s.fromTime, s.toTime].forEach(n => n.addEventListener('blur', e => { if (autoColonTime(e.target)) renderStats(); }));
     s.panel.addEventListener('click', e => {
         const preset = e.target.closest('[data-stats-hours]');

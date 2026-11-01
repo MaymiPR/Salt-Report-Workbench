@@ -397,6 +397,31 @@ test('the copied text, the Statistics and the summaries read the Size after BDA'
     assert.equal(core.parseBackup(core.backupText('ALPHA', [r], 'Patrol', {}, {}, NOW)).data.workspaces.ALPHA[0].size, '20x T-72, 2x BMP-2');
 });
 
+test('a report with no time, or one that cannot be read, is in no hour or day, and the exports give it none', () => {
+    // null is not 1 January 1970: it is no time, as '' is.
+    const reps = [report({ id: 'a', displayId: 'ALPHA001', location: '38SMB4500082000' }), report({ id: 'b', displayId: 'ALPHA002', time: null, location: '38SMB4500082000' }),
+        report({ id: 'c', displayId: 'ALPHA003', time: 'not a time', location: '38SMB4500082000' }), report({ id: 'd', displayId: 'ALPHA004', time: '', location: '38SMB4500082000' })];
+    const d = core.statsData(reps, [], { local: false });
+    assert.equal(d.kpis.reports, 4, 'each still counts as a report');
+    assert.deepEqual(d.days, [{ label: '2026-10-24', value: 1 }]);
+    assert.deepEqual(d.hours.filter(h => h.value), [{ label: '04', value: 1 }]);
+    // The workbook: a date for the one with a time, an empty cell for the rest.
+    const wb = core.workbookReportRows(reps, [], { local: false, idOf: x => x.displayId });
+    const at = wb.header.indexOf('Time (Z)');
+    assert.deepEqual(wb.rows.map(row => row[at]), [{ date: core.excelSerial(Date.parse('2026-10-24T04:12:00Z'), false) }, '', '', '']);
+    // The summaries leave out all three alike.
+    const roll = core.summaryReport('rollup', reps, [], { local: false, now: NOW }).split('\n');
+    assert.ok(roll.includes('   1 report. 1 with a grid; 0 in an NAI or OBJ.'), roll.join('\n'));
+    // ArcGIS points and tracks: no time, rather than a throw.
+    const pts = core.arcgisRows(reps, [], { local: false, idOf: x => x.id }).rows;
+    assert.deepEqual(pts.map(p => p.time_utc), ['2026-10-24T04:12:00Z', '', '', '']);
+    const moved = report({ id: 'm', location: '38SMB4500082000', time: 'garbled', history: [{ location: '38SMB4000082000', time: null, lastModified: 1 }] });
+    const tr = core.arcgisTrackRows([moved], { local: false, idOf: x => x.id });
+    assert.deepEqual(tr.map(t => [t.start_utc, t.end_utc]), [['', '']]);
+    const all = core.arcgisRows([moved], [], { local: false, idOf: x => x.id, all: true }).rows;
+    assert.deepEqual(all.map(p => p.time_utc), ['', '']);
+});
+
 test('the MTI export counts what is left of the current version', () => {
     const r = report({ size: '6x tracked', bda: [dest('2x tracked')], history: [{ size: '5x tracked', lastModified: 1, time: '2026-10-24T01:00:00Z' }] });
     const mti = core.mtiCsvs([r], { local: false, idOf: x => x.fullId });
@@ -2623,6 +2648,121 @@ test('the map: a picked report shows its lines of sight and the rings of its rea
     assert.equal(core.losBetween(a, b).state, 'off');
     assert.equal(core.losBetween(a, b, { on: true, heights: new Map() }).state, 'waiting');
     assert.equal(core.losBetween(a, { lon: a.lon + 0.3, lat: a.lat }, { on: true, heights: new Map() }).state, 'far');
+});
+
+test('line of sight: no height from the source at an end is final, not waiting; one along the way hides nothing', () => {
+    const a = { lon: ll('38SMB4600082000')[0], lat: ll('38SMB4600082000')[1] }, b = { lon: ll('38SMB4900082000')[0], lat: ll('38SMB4900082000')[1] };
+    const pts = core.losBetween(a, b).points, key = ([lon, lat]) => core.terrainKey(lon, lat);
+    // The page keeps null for "the source has none here" and nothing for a height still being asked.
+    const with_ = (h) => core.losBetween(a, b, { on: true, note: '', heights: new Map(pts.map((p, i) => [key(p), h(i)]).filter(([, v]) => v !== undefined)) });
+    assert.equal(with_(() => 200).state, 'seen');
+    assert.equal(with_(i => (i === 1 ? null : 200)).state, 'nodata', 'none at the far end');
+    assert.equal(with_(i => (i === 0 ? null : 200)).state, 'nodata', 'none at the eye');
+    assert.equal(with_(i => (i === 0 ? null : i === 5 ? undefined : 200)).state, 'nodata', 'none at an end, whatever is still to come');
+    assert.equal(with_(i => (i === 5 ? null : 200)).state, 'seen', 'none along the way: skipped');
+    assert.equal(with_(i => (i === 1 ? undefined : 200)).state, 'waiting');
+    // An observer looking into NAI 2, which is all water: final, and said so.
+    const obs = report({ id: 'O1', displayId: 'O1', size: '2x BRDM-2', activity: 'observing', location: '38SMB4600082000', time: '2026-10-25T20:00:00Z' });
+    const [olon] = ll('38SMB4600082000'), km = (lon) => (lon - olon) * 111320 * Math.cos(33.27 * Math.PI / 180) / 1000;
+    const wet = groundFor([obs], (lon) => (km(lon) > 3.9 ? null : 200));
+    const pic = core.sightPicture(obs, OVERLAYS, null, wet);
+    assert.deepEqual(pic.lines.map(l => l.state), ['nodata', 'nodata']);
+    assert.equal(pic.sight, 'in NAI 1; NAI 2 not known: no height here from the elevation source');
+    const t = core.summaryReport('narrative', [obs], OVERLAYS, { ...SUMMARY_OPTS, terrain: wet }).replace(/\s+/g, ' ');
+    assert.ok(t.includes('(2x BRDM-2, 200 m): in NAI 1; NAI 2 not known: no height here from the elevation source.'), t);
+    assert.ok(t.includes('- Line of sight into 1 area not known: no height from the elevation source at one end of the line.'), t);
+    assert.ok(!t.includes('not known yet'), t);
+    // A direct-fire weapon's reach into it says the same.
+    const kornet = core.sightPicture({ ...obs, size: '1x Kornet' }, OVERLAYS, null, groundFor([{ ...obs, size: '1x Kornet' }], (lon) => (km(lon) > 3.9 ? null : 200)));
+    assert.ok(kornet.reach.includes('NAI 2 in range, line of sight not known: no height here from the elevation source'), kornet.reach);
+    // Heights still to come while the source fails: the gap gives its reason.
+    const part = groundFor([obs], () => 200);
+    pic.points.forEach(p => { if (km(p[0]) > 3.9) part.heights.delete(key(p)); });
+    part.note = 'the tile service answered 502.';
+    const failing = core.summaryReport('narrative', [obs], OVERLAYS, { ...SUMMARY_OPTS, terrain: part }).replace(/\s+/g, ' ');
+    assert.ok(failing.includes('- Line of sight into 1 area not known yet (the source: the tile service answered 502).'), failing);
+});
+
+test('what is kept of the overlays gives what reading them afresh gives, and a list changed in place is read again', () => {
+    const at = (id, size, activity, location, min, extra = {}) => report({ id, displayId: id, size, activity, location, user: { initials: 'AB' },
+        time: new Date(Date.parse('2026-10-25T20:00:00Z') + min * 60000).toISOString(), ...extra });
+    const reps = [at('K1', '1x Kornet', 'observing', '38SMB4600082000', 0), at('G1', '6x 2S19', 'emplacing', '38SMB4600070000', 10),
+        at('S1', '1x Buk-M2', 'halted', '38SMB3000075000', 20), at('T1', '2x T-72', 'halted', '38SMB4500082000, NAI 2', 40),
+        at('M1', '8x BTR-82A', 'moving N', '38SMB4500088000', 60, { history: [{ location: '38SMB4500082000', time: '2026-10-25T20:30:00Z', lastModified: 1 }] }),
+        at('O1', '2x BRDM-2', 'observing', '38SMB4400091000, PL BLUE', 80), at('N1', '3x trucks', 'halted', 'vic the bridge', 90)];
+    const copy = (ovs) => JSON.parse(JSON.stringify(ovs));   // new objects: nothing kept for them yet
+    const run = (ovs) => {
+        const terrain = { on: true, note: '', heights: new Map(core.terrainPoints(reps, ovs, null).map(([lon, lat], i) => [core.terrainKey(lon, lat), i % 7 ? 200 + (i % 5) * 10 : null])) };
+        return JSON.stringify([core.summaryDetail('narrative', reps, ovs, { ...SUMMARY_OPTS, terrain, screen: 60 }),
+            ...['rollup', 'trafficked', 'brief'].map(k => core.summaryReport(k, reps, ovs, SUMMARY_OPTS)), core.statsData(reps, ovs, { local: false }),
+            core.summaryPlaces(reps, ovs), reps.map(r => core.analyzeLocation(r.location, ovs)), reps.map(r => core.sightPicture(r, ovs, null, terrain))]);
+    };
+    const ovs = copy(OVERLAYS), cold = run(ovs);
+    assert.equal(run(ovs), cold, 'again, from what was kept');
+    assert.equal(run(copy(OVERLAYS)), cold, 'afresh');
+    // The narrow screen's report is the one asked for at that width; the other, the 100 columns.
+    const both = core.summaryDetail('narrative', reps, ovs, { ...SUMMARY_OPTS, screen: 60 });
+    assert.deepEqual(both.screen, core.summaryDetail('narrative', reps, ovs, { ...SUMMARY_OPTS, width: 60 }));
+    const { screen, ...wide } = both;
+    assert.deepEqual(wide, core.summaryDetail('narrative', reps, ovs, SUMMARY_OPTS));
+    assert.ok(screen.text !== wide.text && screen.text.split('\n').every(l => l.length <= 60), 'wrapped narrower');
+    // An overlay added to the same list in place: read again, as a new list is.
+    ovs.push({ type: 'NAI', name: '9', geometry: box('38SMB4400087000', '38SMB4800087000', '38SMB4800089500', '38SMB4400089500') });
+    assert.equal(run(ovs), run(copy(ovs)));
+    assert.notEqual(run(ovs), cold);
+    assert.deepEqual(core.analyzeLocation('38SMB4500088000', ovs).nai.keys, ['NAI 1', 'NAI 9']);
+});
+
+test('an area\'s box and a phase line\'s box change no answer, at the very edge either', () => {
+    // Ray casting as it is without a box.
+    const ray = (lon, lat, ring) => {
+        let inside = false;
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+            const [xi, yi] = ring[i], [xj, yj] = ring[j];
+            if ((yi > lat) !== (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside;
+        }
+        return inside;
+    };
+    // A five-sided area, so not every edge is its box's.
+    const g = { type: 'Polygon', coordinates: [[ll('38SMB4000080000'), ll('38SMB5000080500'), ll('38SMB5200086000'), ll('38SMB4500090000'), ll('38SMB3900085000'), ll('38SMB4000080000')]] };
+    const ring = g.coordinates[0], xs = ring.map(c => c[0]), ys = ring.map(c => c[1]);
+    const near = (v) => [v - 1e-6, v - 1e-9, v - 1e-12, v, v + 1e-12, v + 1e-9, v + 1e-6];
+    const lons = [...near(Math.min(...xs)), ...near(Math.max(...xs)), ...xs, (Math.min(...xs) + Math.max(...xs)) / 2];
+    const lats = [...near(Math.min(...ys)), ...near(Math.max(...ys)), ...ys, (Math.min(...ys) + Math.max(...ys)) / 2];
+    lons.forEach(lon => lats.forEach(lat => assert.equal(core.geometryContains(g, lon, lat), ray(lon, lat, ring), `${lon}, ${lat}`)));
+    // The nearest phase line: the same as measuring every one.
+    const pls = [0, 1, 2, 3, 4, 5].map(i => ({ type: 'PL', name: `P${i}`, geometry: { type: 'LineString',
+        coordinates: [ll(`38SMB${40 + i * 3}00080000`), ll(`38SMB${41 + i * 3}00085000`), ll(`38SMB${40 + i * 3}00090000`)] } }));
+    for (let e = 38000; e <= 60000; e += 1700) {
+        for (let n = 78000; n <= 92000; n += 2300) {
+            const grid = `38SMB${e}${n}`, [lon, lat] = ll(grid);
+            let best = null;
+            pls.forEach(o => { const d = core.metersToGeometry(o.geometry, lon, lat); if (!best || d < best.meters) best = { key: core.overlayKey(o), meters: d }; });
+            assert.deepEqual(core.analyzeLocation(grid, pls).nearestPl, best, grid);
+        }
+    }
+});
+
+test('line of sight: the earth curves away over a long line, with refraction', () => {
+    // Flat ground, both ends 2 m up: the curve rises x (d - x) / 2R' above
+    // the chord, R' the earth's radius times 4/3, highest at the middle
+    // (d^2 / 8R'). Past about 16.5 km that is more than the 2 m.
+    const R = 6371000 * 4 / 3;
+    const line = (to) => {
+        const a = { lon: ll('38SMB4000082000')[0], lat: ll('38SMB4000082000')[1] }, b = { lon: ll(to)[0], lat: ll(to)[1] };
+        const pts = core.losBetween(a, b).points;
+        return { d: core.metersBetween(a, b), c: core.losBetween(a, b, { on: true, heights: new Map(pts.map(([lon, lat]) => [core.terrainKey(lon, lat), 200])) }) };
+    };
+    const long = line('38SMB5860082000');
+    assert.ok(Math.abs(long.d - 18600) < 50, `${long.d} m`);
+    assert.equal(long.c.state, 'hidden');
+    // Heights are read every 200 m past 2 km: the highest is the sample nearest the middle.
+    assert.ok(Math.abs(long.c.x - long.d / 2) <= 200, `${long.c.x} of ${long.d}`);
+    assert.ok(Math.abs(long.c.over - (long.c.x * (long.d - long.c.x) / (2 * R) - 2)) < 1e-6, String(long.c.over));
+    assert.ok(Math.abs(long.c.over - (long.d * long.d / (8 * R) - 2)) < 0.01, String(long.c.over));
+    assert.ok(long.c.over > 3 && long.c.over < 3.2, String(long.c.over));
+    // 10 km: the curve rises 1.5 m, under the eye and the target.
+    assert.equal(line('38SMB5000082000').c.state, 'seen');
 });
 
 test('the tempo, and what is new against the period before', () => {

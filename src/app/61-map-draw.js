@@ -499,7 +499,8 @@ const selectionLayer = (tracks, px) => {
 
 // A line of sight drawn from a to b ({ state, block }, SaltCore.losCheck's):
 // green where it sees; where ground hides it, green to the ground that does,
-// an X there, red past it; gray and dashed while not known.
+// an X there, red past it; gray and dashed while not known (heights still
+// to come, or none from the source at an end: the card and the tool say which).
 const sightStroke = (a, b, c, px) => {
     const f = v => v.toFixed(1), [x1, y1] = px(a.lon, a.lat), [x2, y2] = px(b.lon, b.lat);
     const seg = (p, q, color, dash = '') => `<path d="M${f(p[0])},${f(p[1])}L${f(q[0])},${f(q[1])}" fill="none" stroke="${MAP_COLORS.core}" stroke-width="5" stroke-linecap="round" stroke-opacity="0.85"/>`
