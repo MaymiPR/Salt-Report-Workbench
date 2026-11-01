@@ -3664,10 +3664,10 @@ class BrowserTests(unittest.TestCase):
             "#mapCard:has-text('Direct fire to 5.5 km (Kornet): covers NAI 1 (in it) and NAI 2')"
         )
         self.assertIn("In NAI 1; sees into NAI 2.", page.inner_text("#mapCard"))
-        strokes = page.evaluate(
-            "[...document.querySelectorAll('#mapSvg .map-sight path')].map(p => p.getAttribute('stroke'))"
-        )
-        self.assertEqual(strokes.count("#30d158"), 2, "two lines, seen")
+        # The map is drawn a frame after the card: wait for the lines.
+        strokes = "[...document.querySelectorAll('#mapSvg .map-sight path')].map(p => p.getAttribute('stroke'))"
+        page.wait_for_function(f"{strokes}.filter(s => s === '#30d158').length === 2")
+        strokes = page.evaluate(strokes)
         self.assertEqual(strokes.count("#ff9f0a"), 1, "a ring, direct fire")
         self.assertIn("Kornet 5.50 km", page.text_content("#mapSvg .map-sight"))
         # Closed: they go.
@@ -3683,7 +3683,9 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#mapMeasureOut:has-text('click what it looks at')")
         page.mouse.click(x + 120, y - 60)
         page.wait_for_selector("#mapMeasureOut:has-text('Seen: 38S MB')")
-        self.assertIn("#30d158", page.inner_html("#mapSvg .map-measure"))
+        page.wait_for_function(
+            "document.querySelector('#mapSvg .map-measure path[stroke=\"#30d158\"]')"
+        )
 
     def test_a_wms_found_through_the_server_in_latitude_longitude(self):
         import http.server as hs
