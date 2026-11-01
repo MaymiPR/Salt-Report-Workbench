@@ -544,6 +544,14 @@ class ValidatorTests(unittest.TestCase):
             {"narrative": {"equipment": [{"type": "X", "role": "mech", "origin": "US"}]}},
             "origin",
         )
+        # How it moves: one of the running gears, or not said.
+        self.assertRejects(
+            v, {"narrative": {"equipment": [{"type": "X", "role": "mech", "gear": "legs"}]}}, "gear"
+        )
+        for gear in ("tracked", "wheeled", "towed", "portable", "foot", "air", "static", ""):
+            self.assertIsNone(
+                v({"narrative": {"equipment": [{"type": "X", "role": "mech", "gear": gear}]}}), gear
+            )
         self.assertRejects(
             v,
             {
@@ -2585,7 +2593,11 @@ class HttpApiTests(unittest.TestCase):
                     "x": 1,
                 }
             ],
-            "equipment": [{"type": " BTR-4 ", "role": "mech", "origin": ""}],
+            "equipment": [
+                {"type": " BTR-4 ", "role": "mech", "origin": ""},
+                {"type": "BMP-X", "role": "mech", "origin": "RU", "gear": "tracked"},
+                {"type": "Y-1", "role": "fires", "origin": "", "gear": ""},
+            ],
             "off": ["logistics", "logistics"],
             "custom": [
                 {
@@ -2603,7 +2615,12 @@ class HttpApiTests(unittest.TestCase):
             "units": [
                 {"name": "1-60 GMRB", "places": ["NAI 1", "NAI 2"], "kinds": ["armor", "mech"]}
             ],
-            "equipment": [{"type": "BTR-4", "role": "mech", "origin": ""}],
+            # The gear only when said: an entry without one is as it was.
+            "equipment": [
+                {"type": "BTR-4", "role": "mech", "origin": ""},
+                {"type": "BMP-X", "role": "mech", "origin": "RU", "gear": "tracked"},
+                {"type": "Y-1", "role": "fires", "origin": ""},
+            ],
             "off": ["logistics"],
             "custom": [
                 {

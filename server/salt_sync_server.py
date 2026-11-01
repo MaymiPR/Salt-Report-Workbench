@@ -686,6 +686,9 @@ _EQUIPMENT_ROLES = frozenset(
     }
 )
 _EQUIPMENT_ORIGINS = frozenset({'RU', 'CN', ''})
+# How a type the team adds moves (core.js RUNNING_GEARS, added in 2.37), or
+# '' for not said.
+_RUNNING_GEARS = frozenset({'tracked', 'wheeled', 'towed', 'portable', 'foot', 'air', 'static', ''})
 # The way the enemy moves in the AO (the narrative's `toward`, added in 2.32):
 # a compass point (core.js HEADINGS_8), or '' for none.
 _MARCH_DIRECTIONS = frozenset({'', 'N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'})
@@ -1308,6 +1311,11 @@ def _v_save_narrative(data: dict) -> str | None:
             return f'narrative.equipment[{i}].role must be a kind of equipment'
         if e.get('origin', '') not in _EQUIPMENT_ORIGINS:
             return f'narrative.equipment[{i}].origin must be RU, CN or empty'
+        if e.get('gear', '') not in _RUNNING_GEARS:
+            return (
+                f'narrative.equipment[{i}].gear must be tracked, wheeled, towed, portable, '
+                'foot, air, static or empty'
+            )
     off = n.get('off', [])
     if not isinstance(off, list) or not all(r in _NARRATIVE_RULES for r in off):
         return 'narrative.off must list built-in rules'
@@ -1566,7 +1574,13 @@ def clean_narrative(n: dict) -> dict:
             for u in n.get('units', [])
         ],
         'equipment': [
-            {'type': e['type'].strip(), 'role': e['role'], 'origin': e.get('origin', '')}
+            {
+                'type': e['type'].strip(),
+                'role': e['role'],
+                'origin': e.get('origin', ''),
+                # Only when said, so entries without one are as they were.
+                **({'gear': e['gear']} if e.get('gear') else {}),
+            }
             for e in n.get('equipment', [])
         ],
         'off': sorted(set(n.get('off', []))),

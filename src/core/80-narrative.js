@@ -1033,7 +1033,7 @@ const narrativeSettings = (s) => {
     return {
         enemy: text(s.enemy) || 'enemy forces',
         units: list(s.units).filter(u => u && text(u.name)).map(u => ({ name: text(u.name), places: list(u.places).map(text).filter(Boolean), kinds: list(u.kinds).map(text).filter(Boolean) })),
-        team: teamEquipment(list(s.equipment).filter(e => e && text(e.type) && text(e.role)).map(e => ({ type: text(e.type), role: text(e.role), origin: text(e.origin) }))),
+        team: teamEquipment(list(s.equipment).filter(e => e && text(e.type) && text(e.role)).map(e => ({ type: text(e.type), role: text(e.role), origin: text(e.origin), gear: text(e.gear) }))),
         off: new Set(list(s.off)),
         // The AO's way of march: the direction the enemy moves toward, or '' for none.
         toward: HEADINGS_8.includes(text(s.toward).toUpperCase()) ? text(s.toward).toUpperCase() : '',

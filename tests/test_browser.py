@@ -5565,15 +5565,24 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(page.locator("[data-narr-tab='equipment'] .narr-dot").is_visible())
         page.click("[data-narr-tab='equipment']")
         page.fill("#narrEqFind", "T-72B3")
-        self.assertEqual(page.text_content("#narrEqFindSays"), "Built in: armor (T-72, Russian).")
+        self.assertEqual(
+            page.text_content("#narrEqFindSays"), "Built in: armor (T-72, Russian), tracked."
+        )
         page.click("[data-narr-fill='XYZ-9']")
         self.assertEqual(page.input_value("#narrEqType"), "XYZ-9")
         self.assertEqual(page.text_content("#narrEqSays"), "Not in the catalogue.")
         page.click("[data-narr-save]")
         page.wait_for_selector("#toastNotification:has-text('Pick what XYZ-9 is')")
         page.click("[data-narr-role='engineer']")
+        # How it moves: not said unless picked.
+        self.assertEqual(page.get_attribute("[data-narr-gear='']", "aria-checked"), "true")
+        page.click("[data-narr-gear='wheeled']")
         page.click("[data-narr-save]")
         page.wait_for_selector("#toastNotification:has-text('XYZ-9 saved')")
+        self.wait_for_server(
+            page, "s => s.narrative.equipment.some(e => e.type === 'XYZ-9' && e.gear === 'wheeled')"
+        )
+        self.assertIn("engineers · Any army · Wheeled", page.inner_text("#narrSettings"))
         self.assertIn("engineers (1x PMP, 1x XYZ-9)", flat())
         self.assertNotIn("Not in the equipment catalogue", flat())
         self.assertEqual(page.locator("[data-narr-tab='equipment'] .narr-dot").count(), 0)

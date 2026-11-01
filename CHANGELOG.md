@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The equipment catalogue knows how each type moves:** tracked, wheeled,
+  towed, carried, on foot, flying or fixed, for every Russian and Chinese
+  system and plain word in it (a type made both ways, such as Pantsir, or a
+  word that doesn't say, such as APC, is left unsaid rather than guessed).
+  *Look up a type* in the Narrative settings says it, and the team's own
+  types have a *Moves on* choice.
+
 ## [2.36.0] - 2026-10-31
 
 ### Changed
