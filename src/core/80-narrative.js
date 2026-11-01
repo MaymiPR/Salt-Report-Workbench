@@ -59,7 +59,8 @@ const groundPoints = (pt, aheadDeg = null) => [pt, ...[0, 90, 180, 270].map(d =>
     ...(aheadDeg === null ? [] : [offsetPoint(pt, TERRAIN_AHEAD_METERS, aheadDeg)])];
 // Every point the narrative may read the height of for some reports, once
 // each, as [lon, lat] rounded as terrainKey rounds them: the ground at each,
-// and for an observer, its lines of sight (losTargets, losSamples).
+// and for an observer or a direct-fire weapon in position, its lines of
+// sight (losTargets, losSamples; a weapon's as far as it reaches).
 const terrainPoints = (reps, overlays = [], settings = null) => {
     const set = narrativeSettings(settings), axes = axesOf(overlays), seen = new Map();
     const add = (p) => {
@@ -71,8 +72,11 @@ const terrainPoints = (reps, overlays = [], settings = null) => {
         if (!g) return;
         const way = set.toward || axes.length ? wayOfMarchAt(g, axes, set.toward) : null;
         groundPoints(g, way ? way.deg : null).forEach(add);
-        if (!observes(narrativeFacts(reportFacts(r, overlays, set.team), set.team, null))) return;
-        losTargets(g, overlays).forEach(t => t.ends.forEach(e => { add(e); losSamples(g, e).forEach(add); }));
+        const f = narrativeFacts(reportFacts(r, overlays, set.team), set.team, null);
+        const lines = (max) => losTargets(g, overlays, max).forEach(t => t.ends.forEach(e => { add(e); losSamples(g, e).forEach(add); }));
+        if (observes(f)) lines(LOS_MAX_METERS);
+        const direct = directReach(f);
+        if (direct) lines(direct);
     });
     return [...seen.values()];
 };
@@ -268,10 +272,10 @@ const middleOf = (g) => {
     const pts = ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1] ? ring.slice(0, -1) : ring;
     return pts.length ? { lon: pts.reduce((n, c) => n + c[0], 0) / pts.length, lat: pts.reduce((n, c) => n + c[1], 0) / pts.length } : null;
 };
-const losTargets = (pt, overlays) => (overlays || []).filter(o => overlayOk(o) && (o.type === 'NAI' || o.type === 'OBJ'))
+const losTargets = (pt, overlays, max = LOS_MAX_METERS) => (overlays || []).filter(o => overlayOk(o) && (o.type === 'NAI' || o.type === 'OBJ'))
     .map(o => ({ key: overlayKey(o), g: asArea(o.geometry), d: metersToOverlay(o.geometry, pt) }))
-    .filter(t => t.d <= LOS_MAX_METERS).sort((x, y) => x.d - y.d || x.key.localeCompare(y.key)).slice(0, LOS_AREAS)
-    .map(t => ({ key: t.key, inside: t.d === 0, ends: t.d === 0 ? [] : [nearestOn(t.g, pt), middleOf(t.g)].filter(Boolean) }));
+    .filter(t => t.d <= max).sort((x, y) => x.d - y.d || x.key.localeCompare(y.key)).slice(0, LOS_AREAS)
+    .map(t => ({ key: t.key, d: t.d, inside: t.d === 0, ends: t.d === 0 ? [] : [nearestOn(t.g, pt), middleOf(t.g)].filter(Boolean) }));
 // The points along a line whose heights are read, each with how far along it is.
 const losSamples = (a, b) => {
     const d = metersBetween(a, b), out = [];
@@ -294,20 +298,90 @@ const losCheck = (a, b, heights) => {
     });
     return worst ? { state: 'hidden', ...worst } : { state: 'seen' };
 };
-// An observer's sight of each area near it: in it, seen (along either
-// line), hidden (along both: the edge line's ground said), or waiting.
-const sightOf = (pt, overlays, heights) => losTargets(pt, overlays).map(t => {
-    if (t.inside) return { key: t.key, state: 'in' };
+// An observer's sight of each area near it (within `max`): in it, seen
+// (along either line), hidden (along both: the edge line's ground said), or
+// waiting; with `d`, how far it is to the area's edge.
+const sightOf = (pt, overlays, heights, max = LOS_MAX_METERS) => losTargets(pt, overlays, max).map(t => {
+    if (t.inside) return { key: t.key, d: 0, state: 'in' };
     const r = t.ends.map(e => losCheck(pt, e, heights));
-    if (r.some(x => x.state === 'seen')) return { key: t.key, state: 'seen' };
-    if (r.some(x => x.state === 'waiting')) return { key: t.key, state: 'waiting' };
-    return { key: t.key, ...r[0] };
+    if (r.some(x => x.state === 'seen')) return { key: t.key, d: t.d, state: 'seen' };
+    if (r.some(x => x.state === 'waiting')) return { key: t.key, d: t.d, state: 'waiting' };
+    return { key: t.key, d: t.d, ...r[0] };
 });
 const sightText = (sight) => {
     const inIt = sight.filter(s => s.state === 'in').map(s => s.key), seen = sight.filter(s => s.state === 'seen').map(s => s.key);
     return [inIt.length && `in ${andList(inIt)}`, seen.length && `sees into ${andList(seen)}`,
         ...sight.filter(s => s.state === 'hidden').map(s => `${s.key} hidden by ground at ${distText(s.x)}, ${Math.round(s.over)} m above the sightline`),
         ...sight.filter(s => s.state === 'waiting').map(s => `${s.key} not known yet`)].filter(Boolean).join('; ');
+};
+// --- Reach ---
+// What a report's weapons reach: the furthest of each kind among its types
+// (lookupEquipment's reach, the catalogue's or the team's), with the name
+// the figure is for. Direct fire counts into an NAI or OBJ only from a
+// position (halted, observing or emplacing) and with line of sight, which
+// is checked to REACH_LOS_MAX_METERS at most; indirect fire and air defense
+// count by range alone, from anywhere but on the move (air defense's height
+// and masking aren't known, so they aren't counted).
+const REACH_LOS_MAX_METERS = 8000;
+const reachesOf = (f) => {
+    const out = {};
+    f.els.forEach(e => { const r = e.kit && e.kit.reach; if (r && r.m > 0 && (!out[r.kind] || r.m > out[r.kind].m)) out[r.kind] = r; });
+    return out;
+};
+const inPosition = (f) => has(f, 'Stationary', 'Observing', 'Emplacing');
+// How far a report's lines of sight for direct fire go, or 0 for none.
+const directReach = (f) => {
+    const r = reachesOf(f).direct;
+    return r && inPosition(f) ? Math.min(r.m, REACH_LOS_MAX_METERS) : 0;
+};
+// The NAIs and OBJs within `m` of a point, nearest first, with how far each is.
+const areasWithin = (pt, overlays, m) => (overlays || []).filter(o => overlayOk(o) && (o.type === 'NAI' || o.type === 'OBJ'))
+    .map(o => ({ key: overlayKey(o), d: metersToOverlay(o.geometry, pt) })).filter(t => t.d <= m)
+    .sort((x, y) => x.d - y.d || x.key.localeCompare(y.key));
+// A report's reach into the areas: { direct, indirect, ad }, each the reach
+// ({ m, kind, by }) with its `areas` (for direct fire, sightOf's, or each
+// with state 'unknown' without heights), or null when it reaches none.
+const reachRead = (f, overlays, heights) => {
+    const pt = f.a.points[0], rs = reachesOf(f), out = {};
+    if (!pt) return null;
+    const direct = directReach(f);
+    if (direct) {
+        out.direct = { ...rs.direct, areas: heights ? sightOf(pt, overlays, heights, direct)
+            : losTargets(pt, overlays, direct).map(t => ({ key: t.key, d: t.d, state: t.inside ? 'in' : 'unknown' })) };
+    }
+    ['indirect', 'ad'].forEach(k => { if (rs[k] && !has(f, 'Moving')) out[k] = { ...rs[k], areas: areasWithin(pt, overlays, rs[k].m) }; });
+    return Object.values(out).some(x => x.areas.length) ? out : null;
+};
+// A reach in words: 5 km, 5.5 km, 24.7 km, 250 km.
+const rangeText = (m) => (m < 1000 ? `${m} m` : `${+(m / 1000).toFixed(m < 100000 ? 1 : 0)} km`);
+const REACH_WORD = { direct: 'direct fire', indirect: 'indirect fire', ad: 'air defense' };
+const areaCount = (keys, max = 4) => andList(keys.length > max ? [...keys.slice(0, max), `${keys.length - max} more`] : keys);
+const reachText = (reach) => ['direct', 'indirect', 'ad'].filter(k => reach[k] && reach[k].areas.length).map(k => {
+    const r = reach[k], head = `${REACH_WORD[k]} to ${rangeText(r.m)} (${r.by})`;
+    if (k === 'indirect') return `${head} reaches ${areaCount(r.areas.map(a => a.key))}`;
+    if (k === 'ad') return `${head} covers the air over ${areaCount(r.areas.map(a => a.key))} (by range alone)`;
+    const of = (st) => r.areas.filter(a => a.state === st);
+    const hit = r.areas.filter(a => a.state === 'in' || a.state === 'seen');
+    return `${head}: ${[hit.length && `covers ${andList(hit.map(a => (a.state === 'in' ? `${a.key} (in it)` : `${a.key} (${distText(a.d)})`)))}`,
+        of('hidden').length && `${andList(of('hidden').map(a => a.key))} in range but hidden by ground`,
+        of('waiting').length && `${andList(of('waiting').map(a => a.key))} in range, line of sight not known yet`,
+        of('unknown').length && `${andList(of('unknown').map(a => a.key))} in range, line of sight not known without an elevation source`]
+        .filter(Boolean).join('; ')}`;
+}).join('; ');
+// The areas under threat, most first: for each, the reports whose direct
+// fire covers it (seen or in it), and those whose indirect fire or air
+// defense reaches it.
+const threatsOf = (facts) => {
+    const by = new Map();
+    const add = (key, kind) => {
+        if (!by.has(key)) by.set(key, { key, direct: 0, indirect: 0, ad: 0 });
+        by.get(key)[kind]++;
+    };
+    facts.filter(f => f.reach).forEach(f => {
+        if (f.reach.direct) new Set(f.reach.direct.areas.filter(a => a.state === 'in' || a.state === 'seen').map(a => a.key)).forEach(k => add(k, 'direct'));
+        ['indirect', 'ad'].forEach(kind => f.reach[kind] && f.reach[kind].areas.forEach(a => add(a.key, kind)));
+    });
+    return [...by.values()].sort((x, y) => (y.direct + y.indirect + y.ad) - (x.direct + x.indirect + x.ad) || x.key.localeCompare(y.key));
 };
 const TEMPO_HOURS = 3;
 const tempoOf = (facts, end) => {
@@ -1313,7 +1387,8 @@ const narrativeSettings = (s) => {
     return {
         enemy: text(s.enemy) || 'enemy forces',
         units: list(s.units).filter(u => u && text(u.name)).map(u => ({ name: text(u.name), places: list(u.places).map(text).filter(Boolean), kinds: list(u.kinds).map(text).filter(Boolean) })),
-        team: teamEquipment(list(s.equipment).filter(e => e && text(e.type) && text(e.role)).map(e => ({ type: text(e.type), role: text(e.role), origin: text(e.origin), gear: text(e.gear) }))),
+        team: teamEquipment(list(s.equipment).filter(e => e && text(e.type) && text(e.role))
+            .map(e => ({ type: text(e.type), role: text(e.role), origin: text(e.origin), gear: text(e.gear), reach: Number(e.reach) }))),
         off: new Set(list(s.off)),
         // The AO's way of march: the direction the enemy moves toward, or '' for none.
         toward: HEADINGS_8.includes(text(s.toward).toUpperCase()) ? text(s.toward).toUpperCase() : '',
@@ -1379,6 +1454,8 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
         f.overlooks = o ? o[0] : '';
     });
     facts.forEach(f => { f.sight = f.ground && observes(f) ? sightOf(f.a.points[0], overlays, heights) : null; });
+    facts.forEach(f => { f.reach = reachRead(f, overlays, heights); });
+    const reaching = facts.filter(f => f.reach), threats = threatsOf(facts);
     const observers = facts.filter(f => f.sight && f.sight.length);
     const seeing = observers.filter(f => f.sight.some(s => s.state === 'seen' || s.state === 'in'));
     const out = [], shown = [];
@@ -1485,9 +1562,26 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
     const blufGap = gaps[0];
     const withGrid = facts.filter(f => f.a.points.length);
     if (!heights) gaps.push('Terrain: no elevation source, so no heights or slopes; pick one in the Narrative settings, under Terrain.');
-    else if (facts.some(f => f.sight && f.sight.some(s => s.state === 'waiting'))) {
-        const n = facts.reduce((k, f) => k + (f.sight || []).filter(s => s.state === 'waiting').length, 0);
-        gaps.push(`Line of sight into ${plural(n, 'area')} not known yet: the heights along the way are still being asked.`);
+    else {
+        const waits = (f) => [...(f.sight || []), ...(f.reach && f.reach.direct ? f.reach.direct.areas : [])].filter(s => s.state === 'waiting').length;
+        const n = facts.reduce((k, f) => k + waits(f), 0);
+        if (n) gaps.push(`Line of sight into ${plural(n, 'area')} not known yet: the heights along the way are still being asked.`);
+    }
+    // Types that fight with a reach the catalogue doesn't give (deep strike
+    // and drones aside: their reach is past the areas), when there are areas.
+    const teamNames = new Set(set.team.map(k => k.name));
+    const noReach = new Map();
+    if (areasNear.length) {
+        facts.forEach(f => f.els.forEach(e => {
+            const k = e.kit;
+            if (!k || !REACH_KIND[k.role] || k.reach || !(k.origin || teamNames.has(k.name))) return;
+            if (['deep', 'loitering', 'uav'].some(c => CAPABILITIES[c].names.has(k.name))) return;
+            noReach.set(k.name, (noReach.get(k.name) || 0) + 1);
+        }));
+    }
+    if (noReach.size) {
+        gaps.push(`Reach not known for ${[...noReach].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).map(([t, n]) => `${t}${n > 1 ? ` (${n})` : ''}`).join(', ')}:`
+            + ' give it in the Narrative settings, under Equipment, if known.');
     }
     if (heights && withGrid.some(f => !f.ground)) {
         gaps.push(`Terrain: no height yet for ${plural(withGrid.filter(f => !f.ground).length, 'report')}`
@@ -1513,6 +1607,10 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
     else if (roleList.length) bluf(`Strength: no unit size from the reports; ${andList(roleList.map(r => label[r]))} reported.`);
     if (mobility) bluf(`Mobility: ${mobility} (${moving.tracked || 0} tracked, ${moving.wheeled || 0} wheeled).`);
     if (objectives.length) bluf(`Closest: ${objText(objectives[0])}.`);
+    if (threats.length) {
+        bluf(`Threat: ${threats.slice(0, 3).map(t => `${t.key}: ${['direct', 'indirect', 'ad'].filter(k => t[k]).map(k => `${REACH_WORD[k]} (${t[k]})`).join(', ')}`).join('; ')}`
+            + `${threats.length > 3 ? `; and ${plural(threats.length - 3, 'more area')}` : ''}.`);
+    }
     const grounded = facts.filter(f => f.ground), highUp = grounded.filter(f => f.high);
     const steep = facts.filter(f => has(f, 'Moving') && vehiclesIn(f.mob) >= 4 && slopeRead(f));
     const covered = facts.filter(f => f.ground && f.ground.rise !== null && f.ground.rise >= CREST_METERS && f.roles.has('fires') && has(f, 'Stationary', 'Emplacing', 'Firing'));
@@ -1628,6 +1726,9 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
     // Line of sight from each observer, the latest four.
     observers.slice(-4).reverse().forEach(f => item(`Line of sight, ${f.id} ${dayTime(f.ms, local)} (${f.shown || '-'}, ${Math.round(f.ground.h)} m): ${sightText(f.sight)}.`));
     if (observers.length > 4) item(`Line of sight: ${plural(observers.length - 4, 'more observer')} not shown.`);
+    // What each report's weapons reach, the latest four.
+    reaching.slice(-4).reverse().forEach(f => item(`Reach, ${f.id} ${dayTime(f.ms, local)} (${f.shown || '-'}): ${reachText(f.reach)}.`));
+    if (reaching.length > 4) item(`Reach: ${plural(reaching.length - 4, 'more report')} not shown.`);
     if (highUp.length) {
         item(`High ground: ${highUp.slice(-4).reverse().map(f => `${f.id} ${dayTime(f.ms, local)}${f.places.length ? `, ${f.places.join(', ')}` : ''}: ${f.shown || '-'}, `
             + `${Math.round(f.ground.h)} m${f.overlooks ? `, overlooking ${f.overlooks}` : ''}`).join('; ')}${highUp.length > 4 ? `; and ${highUp.length - 4} earlier` : ''}.`);

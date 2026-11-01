@@ -5649,7 +5649,8 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-narr-tab='equipment']")
         page.fill("#narrEqFind", "T-72B3")
         self.assertEqual(
-            page.text_content("#narrEqFindSays"), "Built in: armor (T-72, Russian), tracked."
+            page.text_content("#narrEqFindSays"),
+            "Built in: armor (T-72, Russian), tracked, reaches 5 km (T-72B3).",
         )
         page.click("[data-narr-fill='XYZ-9']")
         self.assertEqual(page.input_value("#narrEqType"), "XYZ-9")
@@ -5660,6 +5661,11 @@ class BrowserTests(unittest.TestCase):
         # How it moves: not said unless picked.
         self.assertEqual(page.get_attribute("[data-narr-gear='']", "aria-checked"), "true")
         page.click("[data-narr-gear='wheeled']")
+        # A reach, when typed, is km above 0 and at most REACH_MAX_KM.
+        page.fill("#narrEqReach", "600")
+        page.click("[data-narr-save]")
+        page.wait_for_selector("#toastNotification:has-text('Reach: more than 0, up to 500 km')")
+        page.fill("#narrEqReach", "")
         page.click("[data-narr-save]")
         page.wait_for_selector("#toastNotification:has-text('XYZ-9 saved')")
         self.wait_for_server(

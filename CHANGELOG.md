@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Weapon reach.** The equipment catalogue now knows how far 117 types'
+  main weapons reach, and 28 variants that reach further (the published
+  maximum effective range: a tank's gun or the missile it fires through it,
+  a gun's standard shell, an air defense system's engagement range), and the
+  team can give its own under Equipment
+  (Reach, in km). The Narrative's Enemy forces says what each report's
+  weapons reach: direct fire (tanks, IFVs, antitank weapons) from a position
+  covers the NAIs and OBJs it is in or can see within its reach, using the
+  line of sight; indirect fire and air defense reach every area within range,
+  from anywhere but on the move. The bottom line gains Threat, the areas most
+  under the enemy's weapons; the gaps list types that fight whose reach isn't
+  known. No figure is guessed: a type without a trusted one has none.
+
 ## [2.39.0] - 2026-11-01
 
 ### Added

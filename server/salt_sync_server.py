@@ -711,6 +711,7 @@ MAX_UNIT_PLACES = 40
 MAX_PLACE = 40
 MAX_EQUIPMENT = 500  # types added to the catalogue
 MAX_EQUIPMENT_TYPE = 40
+MAX_EQUIPMENT_REACH_KM = 500  # a type's reach, as the page's REACH_MAX_KM
 MAX_CUSTOM_RULES = 30
 MAX_RULE_TEXT = 120
 MAX_RULE_WORDS = 300
@@ -1332,13 +1333,15 @@ def _check_terrain(t) -> str | None:
     return None
 
 
+def _is_number(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
 def _is_point(p) -> bool:
     return (
         isinstance(p, list)
         and len(p) == 2
-        and all(
-            isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in p
-        )
+        and all(_is_number(v) for v in p)
         and -180 <= p[0] <= 180
         and -85.06 <= p[1] <= 85.06
     )
@@ -1412,6 +1415,13 @@ def _v_save_narrative(data: dict) -> str | None:
             return (
                 f'narrative.equipment[{i}].gear must be tracked, wheeled, towed, portable, '
                 'foot, air, static or empty'
+            )
+        if 'reach' in e and not (
+            _is_number(e['reach']) and 0 < e['reach'] <= MAX_EQUIPMENT_REACH_KM
+        ):
+            return (
+                f'narrative.equipment[{i}].reach must be a number of km above 0 '
+                f'and at most {MAX_EQUIPMENT_REACH_KM}'
             )
     off = n.get('off', [])
     if not isinstance(off, list) or not all(r in _NARRATIVE_RULES for r in off):
@@ -1681,6 +1691,7 @@ def clean_narrative(n: dict) -> dict:
                 'origin': e.get('origin', ''),
                 # Only when said, so entries without one are as they were.
                 **({'gear': e['gear']} if e.get('gear') else {}),
+                **({'reach': e['reach']} if 'reach' in e else {}),
             }
             for e in n.get('equipment', [])
         ],
