@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.36.0] - 2026-10-31
+
 ### Changed
 
 - **The Narrative puts the bottom line first and reads simply.** It opens
@@ -1601,7 +1603,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.35.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.36.0...HEAD
+[2.36.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.35.0...v2.36.0
 [2.35.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.34.0...v2.35.0
 [2.34.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.33.1...v2.34.0
 [2.33.1]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.33.0...v2.33.1
