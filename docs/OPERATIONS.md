@@ -56,7 +56,8 @@ A script or a monitoring tool can poll it; it says nothing about the reports.
   retried until it works.`: the backup folder can't be written (a full disk, a
   file held open by antivirus or a sync tool, a pulled USB stick). Nothing is
   lost while the server runs. Fix the cause; `[+] Backups are being saved
-  again.` follows. Don't stop the server until it does.
+  again.` follows. Don't stop the server until it does: stopped before then,
+  it says `[!] Changes NOT saved` and the launcher's window stays open on it.
 - `[!] Skipped <file>: ...`: a backup file couldn't be read at start. It is
   left as it is, and the rest load.
 
@@ -75,7 +76,8 @@ A script or a monitoring tool can poll it; it says nothing about the reports.
 
 ## Backups
 
-Everything lives in `Auto Backups/` beside the server (or `--backup-dir`):
+The mission in progress lives in `Auto Backups/` beside the server (or
+`--backup-dir`):
 
 - one `{ATO}_{Title}.txt` per workspace and `Shared settings.json`, rewritten
   within half a second of every change;
@@ -84,15 +86,30 @@ Everything lives in `Auto Backups/` beside the server (or `--backup-dir`):
 - `audit.log`: every accepted change, who made it and when, in UTC;
 - `terrain.json`: the heights the narrative's elevation source gave, kept
   so it isn't asked twice (through Done with Mission; deleting it only
-  means asking again).
+  means asking again);
+- `change.json`: the number the server's changes have reached, so a restart
+  goes on from it even with the clock set back (through Done with Mission).
 
-Copy the whole `Auto Backups` folder somewhere safe at the end of each day, and
-at the end of the operation. It holds your actual reports: handle it according
-to your unit's data-handling rules.
+Beside it are two more folders:
+
+- `Mission Archives/`: Done with Mission moves each finished mission's
+  backups, `snapshots/` and `audit.log` into a folder of its own here;
+- `Server Logs/`: `server.log` (and up to three older ones, `server.log.1` to
+  `.3`), every line the console shows with its time in UTC, and the full
+  detail of any error.
+
+Copy `Auto Backups` and `Mission Archives` somewhere safe at the end of each
+day, and at the end of the operation. They hold your actual reports, and the
+server log names operators and workspaces: handle all three according to your
+unit's data-handling rules.
 
 ## Getting back an earlier state
 
 Each snapshot round is named by its time in UTC, such as `20261028_101500Z`.
+A round is never named before the newest one already there: if the server's
+clock was set back after rounds were named, the new ones are named a second
+after the newest, so the newest name is always the newest copy, for
+`--restore latest` and for pruning (those names then run ahead of the clock).
 
 1. Stop the server (**Ctrl+C** in its window).
 2. See the rounds:
@@ -122,15 +139,38 @@ are in the `before-restore` copy). With the launcher, pass the same flags:
 ## Upgrading mid-operation
 
 Stop the server, then follow [Upgrading](INSTALL.md#upgrading): copy
-`Auto Backups` into the new folder, or extract the new files over the old ones.
+`Auto Backups` and `Mission Archives` into the new folder, or extract the new
+files over the old ones.
 Start it, and have everyone reload: a page still open from before shows the
 version bar until they do.
 
 ## End of the operation
 
-Stop the server and copy `Auto Backups` to where your unit keeps records. A
-backup file can be read in any text editor, and imported into a later
+Stop the server and copy `Auto Backups` and `Mission Archives` to where your
+unit keeps records: after Done with Mission, that mission's reports, its
+`audit.log` and its snapshots are in `Mission Archives`, not `Auto Backups`.
+A backup file can be read in any text editor, and imported into a later
 workbench with **Import** in Manage.
+
+## Sending a problem report
+
+Gather, for whoever looks after the workbench:
+
+- the version: on the page (`v2.x.y` at the foot of the report panel), and
+  `version` at `/api/health`;
+- the server log, `Server Logs/server.log` beside `Auto Backups` (and
+  `server.log.1` if the problem began a while ago): it holds every console
+  line with its time, and each error in full;
+- `audit.log`, in `Auto Backups` (or the mission's folder in
+  `Mission Archives`);
+- a copy of the server console, if its window is still open;
+- the browser's console from a page that showed the problem: **F12**, then
+  **Console**, copy what is there;
+- what was being done when it happened, and when (in UTC).
+
+Backups, the audit log and the server log hold report content, initials and
+addresses: follow your unit's rules before sending any of them, and send only
+what is needed.
 
 See [Troubleshooting](INSTALL.md#troubleshooting) for the firewall prompt, a
 port already in use, the certificate warning, and "my reports are gone".
