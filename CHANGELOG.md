@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Line of sight over water.** Where the elevation source has no height at
+  an end of a line (water, or the edge of its coverage), the line no longer
+  waits for ever: the narrative, a picked report's card and the Line of sight
+  tool say "No height here from the elevation source". When heights aren't
+  coming at all (the source failing, or the page opened as a file), the map
+  says "Heights not available" and why, instead of asking.
+- **Reports with no time.** A report whose time is empty or can't be read
+  no longer counts as 1 January 1970 in Statistics (no more per-day chart
+  from 1970), the Excel workbook and the summaries, and no longer stops the
+  ArcGIS exports: it is a report with no time, as an empty one always was.
+- **Statistics, Summary Reports and the Narrative with many overlays.** With
+  2,000 reports and 2,000 overlays, each now draws in well under a second
+  (the Narrative about 0.15 to 0.4 s, where it took 3 to 6 s), and a sync
+  that changes nothing they show costs almost nothing. A date or time typed
+  in their windows draws once typing pauses, not on every key.
+- **The Narrative keeps its place.** A sync no longer closes the Details
+  that are open or loses the keyboard's place in the report; when the report
+  does change, they come back where the same judgment is.
+- **No dashes for "none".** The map's BDA assessed tile says None, and the
+  CSV import's column picker says (None).
+
 ## [2.41.0] - 2026-11-01
 
 ### Added
