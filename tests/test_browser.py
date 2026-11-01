@@ -5768,6 +5768,29 @@ class BrowserTests(unittest.TestCase):
         )
         self.assertEqual(shown, [])
 
+    def test_the_page_opened_as_a_file_works_offline_without_console_errors(self):
+        # Regression: it asked a server it doesn't have, and the browser
+        # logged each refused request as an error.
+        page = self.context.new_page()
+        page.on("pageerror", lambda exc: self.errors.append(str(exc)))
+        logged = []
+        page.on(
+            "console",
+            lambda m: m.type in ("warning", "error") and logged.append(f"{m.type}: {m.text}"),
+        )
+        self.goto(page, (self.tmp / "dist" / "index.html").as_uri())
+        page.wait_for_selector("body.local-mode #startupModal.show")
+        page.fill("#startupInitials", "AB")
+        page.fill("#startupAto", "FILEPAGE")
+        page.fill("#startupTitle", "Patrol")
+        page.click("#startupContinueBtn")
+        page.wait_for_selector("#startupModal.show", state="hidden")
+        self.log(page, "2x T-72", activity="moving N", location="38SMB4500082000")
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        page.wait_for_selector("#summaryText:has-text('BLUF: ')")
+        self.assertEqual(logged, [])
+
     def test_geojson_from_arcgis_in_web_mercator_is_converted(self):
         page = self.open_editor()
         result = page.evaluate(
