@@ -23,6 +23,8 @@ import http.client
 import http.server as server
 import ipaddress
 import json
+import logging
+import logging.handlers
 import math
 import os
 import re
@@ -35,6 +37,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -119,13 +122,25 @@ ACTIVITY_KEEP = 50
 # loader never takes it for a workspace backup. Workspace backups still carry
 # them too, for older versions.
 SHARED_SETTINGS_NAME = 'Shared settings.json'
+# The change numbers given out are kept below the one in CHANGE_NAME, beside
+# the backups, which is reserved CHANGE_RESERVE ahead (see _sync_version).
+CHANGE_NAME = 'change.json'
+CHANGE_RESERVE = 10_000_000
 # Done with Mission moves everything in BACKUP_DIR but the certificate (tls/)
 # into a folder of its own under MISSION_ARCHIVE_NAME, beside BACKUP_DIR, named
 # for when it finished and its title (``2026-10-30 1415Z Patrol``), with what
 # it held summed up in MISSION_INFO_NAME for the Previous Missions list.
 MISSION_ARCHIVE_NAME = 'Mission Archives'
 MISSION_INFO_NAME = 'mission.json'
-MISSION_KEEP = frozenset({'tls', 'terrain.json'})
+MISSION_KEEP = frozenset({'tls', 'terrain.json', CHANGE_NAME})
+# Every console line, with its UTC time, and the full traceback of every
+# error, in LOG_NAME under LOG_DIR_NAME beside BACKUP_DIR (as the mission
+# archive is: nothing that moves or reads the backup folder meets it, and
+# Windows can't move a file held open). Rotated at LOG_MAX_BYTES, LOG_KEEP kept.
+LOG_DIR_NAME = 'Server Logs'
+LOG_NAME = 'server.log'
+LOG_MAX_BYTES = 1024 * 1024
+LOG_KEEP = 3
 # How many finished missions' ids are kept, so a page still on one of them
 # knows the team has moved on (see `mission` under State).
 MISSION_FINISHED_KEEP = 50
@@ -161,8 +176,15 @@ TERRAIN_NAME = 'terrain.json'
 TERRAIN_MAX_ENTRIES = 200_000
 TERRAIN_SAVE_SECONDS = 2.0
 TERRAIN_RETRY_SECONDS = 60
+# The points whose fetch failed are remembered, the newest this many.
+TERRAIN_FAILED_KEPT = 10_000
+# A source that failed this recently isn't asked again for the points still
+# queued: they fail at once (as a failed point does), not one wait each.
+TERRAIN_DOWN_SECONDS = 5
 TERRAIN_TILE_ZOOM = 14
 TERRAIN_TILES_KEPT = 16
+# The largest elevation tile read, a side in pixels (tiles are 256 or 512).
+TERRAIN_TILE_MAX_SIDE = 1024
 ELEVATION_MAX_POINTS = 500
 ELEVATION_WORKERS = 4
 ELEVATION_WAIT_SECONDS = 8
@@ -243,9 +265,14 @@ sse_clients: list = []
 # pull it is already up to date for and drops an answer older than what it
 # has seen. Protected by _version_lock.
 # Numbers start at the boot time in milliseconds, so a restarted server's
-# are still higher than any a page heard from the one before.
+# are still higher than any a page heard from the one before; and, as the
+# clock may have been set back since, never below the number the last run
+# reserved in CHANGE_NAME (start_change_numbers).
 _sync_version = int(time.time() * 1000)
 _version_lock = threading.Lock()
+# The number every one given out stays below, as CHANGE_NAME holds it; None
+# until the boot reads it (and in tests). Protected by _version_lock.
+_change_reserved: int | None = None
 # Changes this close together go out as one notice: an import or a busy
 # minute sends each page one pull, not dozens.
 BROADCAST_BATCH_SECONDS: float = 0.15
@@ -341,12 +368,43 @@ def broadcast_update() -> int:
     with _version_lock:
         _sync_version += 1
         version = _sync_version
+        if _change_reserved is not None and version >= _change_reserved:
+            _reserve_changes()
     with _notice_lock:
         if _notice_timer is None:
             _notice_timer = threading.Timer(BROADCAST_BATCH_SECONDS, _send_notice)
             _notice_timer.daemon = True
             _notice_timer.start()
     return version
+
+
+def _change_path() -> str:
+    return os.path.join(BACKUP_DIR, CHANGE_NAME)
+
+
+def _reserve_changes() -> None:
+    """Keep in CHANGE_NAME a number CHANGE_RESERVE past the latest change's,
+    which every number given out stays below. Caller holds _version_lock."""
+    global _change_reserved
+    _change_reserved = _sync_version + CHANGE_RESERVE
+    try:
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        _write_atomically(_change_path(), json.dumps({'next': _change_reserved}) + '\n')
+    except OSError as exc:
+        safe_print(f'[!] Could not save {CHANGE_NAME}: {exc}')
+
+
+def start_change_numbers() -> None:
+    """At boot: number the changes on from the last run's, whatever the
+    clock says (it may have been set back since: pages skip a notice whose
+    number is no higher than one they have), and reserve the next ones."""
+    global _sync_version
+    kept = _read_json(_change_path())
+    saved = kept.get('next') if isinstance(kept, dict) else None
+    with _version_lock:
+        if _is_int(saved) and saved > _sync_version:
+            _sync_version = saved
+        _reserve_changes()
 
 
 # The host sees who is connected: a line on the console when a machine joins
@@ -423,6 +481,96 @@ def safe_print(msg: str) -> None:
         print(msg, flush=True)
     except UnicodeEncodeError:
         print(msg.encode('ascii', 'ignore').decode('ascii'), flush=True)
+    log_line(msg)
+
+
+class _QuietLog(logging.handlers.RotatingFileHandler):
+    """The server log's file. A line it can't write (a full disk, a log held
+    open while it rotates) is dropped without a word: the console has it."""
+
+    def handleError(self, record):
+        pass
+
+
+# The server log (see LOG_NAME): one logger, no handler until start_log.
+_log = logging.getLogger('salt_sync_server')
+_log.propagate = False
+_log.setLevel(logging.INFO)
+_log.addHandler(logging.NullHandler())
+_log_file: _QuietLog | None = None
+# The hooks start_log replaced, put back by stop_log.
+_log_hooks: tuple | None = None
+
+
+def log_line(msg: str) -> None:
+    """Add a line to the server log, if there is one; never raises."""
+    if _log_file is not None:
+        with contextlib.suppress(Exception):
+            _log.info(msg)
+
+
+def log_traceback(what: str, exc_info) -> None:
+    """Add ``what`` and the traceback of ``exc_info`` (type, value, tb) to the server log."""
+    if _log_file is not None:
+        with contextlib.suppress(Exception):
+            _log.info('%s\n%s', what, ''.join(traceback.format_exception(*exc_info)).rstrip())
+
+
+def server_log_path() -> str:
+    """Where the server log is: LOG_DIR_NAME beside BACKUP_DIR."""
+    return os.path.join(os.path.dirname(os.path.abspath(BACKUP_DIR)), LOG_DIR_NAME, LOG_NAME)
+
+
+def start_log(path: str | None = None) -> bool:
+    """Write the server log to ``path`` (default server_log_path): every
+    console line, and the traceback of an error in a thread or the main
+    program, as well as what the console shows of it. False, and the console
+    alone, when it can't be opened."""
+    global _log_file, _log_hooks
+    path = path or server_log_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        handler = _QuietLog(
+            path, maxBytes=LOG_MAX_BYTES, backupCount=LOG_KEEP, encoding='utf-8', errors='replace'
+        )
+    except Exception:
+        return False
+    stamp = logging.Formatter('%(asctime)s  %(message)s', '%Y-%m-%dT%H:%M:%SZ')
+    stamp.converter = time.gmtime
+    handler.setFormatter(stamp)
+    stop_log()
+    _log.addHandler(handler)
+    _log_file = handler
+    thread_hook, main_hook = threading.excepthook, sys.excepthook
+
+    def in_thread(args):
+        if args.exc_type is not SystemExit:
+            name = args.thread.name if args.thread is not None else 'a thread'
+            log_traceback(
+                f'[!] Error in {name}:', (args.exc_type, args.exc_value, args.exc_traceback)
+            )
+        thread_hook(args)
+
+    def in_main(exc_type, exc_value, tb):
+        log_traceback('[!] Error:', (exc_type, exc_value, tb))
+        main_hook(exc_type, exc_value, tb)
+
+    threading.excepthook, sys.excepthook = in_thread, in_main
+    _log_hooks = (thread_hook, main_hook)
+    return True
+
+
+def stop_log() -> None:
+    """Close the server log and put the hooks start_log replaced back."""
+    global _log_file, _log_hooks
+    if _log_hooks is not None:
+        threading.excepthook, sys.excepthook = _log_hooks
+        _log_hooks = None
+    if _log_file is not None:
+        _log.removeHandler(_log_file)
+        with contextlib.suppress(Exception):
+            _log_file.close()
+        _log_file = None
 
 
 def invalidate_sync_cache() -> None:
@@ -493,23 +641,27 @@ def audit(actor: str, what: str) -> None:
 
     Answers "who changed this, and when" after the fact. Operators are named
     by the initials the server knows for their address, else the address
-    alone. A log that can't be written is reported once and never stops a
-    request.
+    alone. A log that can't be written is reported once, and again when it
+    can be, and never stops a request.
     """
     global _audit_failed
-    stamp = f'{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}'
-    line = f'{stamp}  {actor:<20}  {" ".join(what.split())}\n'
     try:
+        stamp = f'{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}'
+        line = f'{stamp}  {actor:<20}  {" ".join(what.split())}\n'
         os.makedirs(BACKUP_DIR, exist_ok=True)
         log = os.path.join(BACKUP_DIR, AUDIT_LOG_NAME)
         # One line, unparenthesized: Python 3.8 can't parse a parenthesized
         # `with`, and must get as far as the version check at the top.
-        with _audit_lock, open(log, 'a', encoding='utf-8') as f:
+        with _audit_lock, open(log, 'a', encoding='utf-8', errors='replace') as f:
             f.write(line)
-    except OSError as exc:
+    except Exception as exc:
         if not _audit_failed:
             _audit_failed = True
             safe_print(f'[!] Could not write {AUDIT_LOG_NAME}: {exc}')
+        return
+    if _audit_failed:
+        _audit_failed = False
+        safe_print(f'[+] {AUDIT_LOG_NAME} is being written again.')
 
 
 def plural(n: int, word: str) -> str:
@@ -835,12 +987,70 @@ _ISO_TIME_RE = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$')
 _ID_RE = re.compile(rf'[A-Za-z0-9_.:-]{{1,{MAX_ID_LEN}}}')
 # Three- or six-digit hex colors — matches the swatch values the UI emits.
 _COLOR_RE = re.compile(r'^#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3})?$')
+# Half of a UTF-16 surrogate pair on its own ("\ud83d", an emoji cut in two):
+# valid JSON, but no UTF-8 file can hold it, so one in a report made every
+# later save of the backups fail. In a body's raw bytes it comes as an escape
+# (or as bytes that aren't UTF-8), so a body with neither has none.
+_SURROGATE_RE = re.compile('[\ud800-\udfff]')
+_SURROGATE_ESCAPE_RE = re.compile(rb'\\u[dD][89a-fA-F]')
 
 
 def _is_str(v, max_len: int | None = None) -> bool:
-    if not isinstance(v, str):
+    if not isinstance(v, str) or _SURROGATE_RE.search(v):
         return False
     return max_len is None or len(v) <= max_len
+
+
+def _check_text(raw: bytes, data) -> str | None:
+    """Every string in a request body (``raw``, parsed as ``data``), names
+    too, is one a backup file can hold: no half of a surrogate pair."""
+    try:
+        raw.decode('utf-8')
+        if not _SURROGATE_ESCAPE_RE.search(raw):
+            return None
+    except UnicodeDecodeError:
+        pass
+
+    def broken(what: str, m: re.Match) -> str:
+        return (
+            f'{what} holds a broken character (U+{ord(m.group()):04X}, '
+            'half of an emoji or other symbol)'
+        )
+
+    stack = [('', data)]
+    while stack:
+        where, v = stack.pop()
+        if isinstance(v, dict):
+            for k, x in v.items():
+                if m := _SURROGATE_RE.search(k):
+                    return broken(f'a name in {where or "the body"}', m)
+                stack.append((f'{where}.{k}' if where else k, x))
+        elif isinstance(v, list):
+            stack.extend((f'{where}[{i}]', x) for i, x in enumerate(v))
+        elif isinstance(v, str) and (m := _SURROGATE_RE.search(v)):
+            return broken(where or 'the body', m)
+    return None
+
+
+def _is_real_time(t: str) -> bool:
+    """Whether a report's time (as _ISO_TIME_RE matched it) is a date and
+    time there is: not 2026-13-40T25:00:00Z, which the page can't export."""
+    try:
+        # By its parts: what fromisoformat takes differs between versions (24:00).
+        datetime(*(int(t[a:b]) for a, b in ((0, 4), (5, 7), (8, 10), (11, 13), (14, 16), (17, 19))))
+    except ValueError:
+        return False
+    return True
+
+
+def _check_real_time(r: dict, prefix: str) -> str | None:
+    """A report's time, where it has one and isn't deleted, is a real one.
+    Only what is written now: backups, imports and earlier versions (history)
+    keep any time the pattern allows, as before."""
+    t = r.get('time')
+    if t and isinstance(t, str) and not r.get('deleted') and not _is_real_time(t):
+        return f'{prefix}.time must be a real date and time (e.g. 2024-01-15T14:30:00Z)'
+    return None
 
 
 def _is_int(v) -> bool:
@@ -993,6 +1203,11 @@ def _v_save_reports(data: dict) -> str | None:
         and not _is_str(data['source'], MAX_SOURCE_LEN)
     ):
         return f'source must be a string ≤{MAX_SOURCE_LEN} chars'
+    # An import brings what a file holds, as the boot loads it.
+    if (data.get('source') or '').strip().lower() not in ('backup', 'csv'):
+        for i, r in enumerate(reps):
+            if err := _check_real_time(r, f'reports[{i}]'):
+                return err
     return None
 
 
@@ -1010,7 +1225,7 @@ def _v_edit_report(data: dict) -> str | None:
     # Edit fields share the report shape (it's the same data model).
     if err := _check_report_identity(fields, 'fields'):
         return err
-    return _check_report_fields(fields, 'fields')
+    return _check_report_fields(fields, 'fields') or _check_real_time(fields, 'fields')
 
 
 def _v_delete_history(data: dict) -> str | None:
@@ -1879,6 +2094,8 @@ def wms_fetch(url: str) -> dict:
             return answer(e.code, e.headers.get('Content-Type', '') if e.headers else '', body)
     except (urllib.error.URLError, OSError, ValueError) as e:
         return {'error': str(getattr(e, 'reason', e)) or type(e).__name__}
+    except http.client.HTTPException as e:  # http:// to an https:// port, say
+        return {'error': f'the reply was not HTTP ({type(e).__name__})'}
 
 
 def basemap_proxy_allowed(url: str) -> bool:
@@ -1963,6 +2180,8 @@ _terrain_save_timer: threading.Timer | None = None
 _terrain_inflight: set[str] = set()
 _terrain_failed: dict[str, float] = {}
 _terrain_error: dict[str, str] = {}
+# When each source (by its sig) last failed a fetch, for TERRAIN_DOWN_SECONDS.
+_terrain_down: dict[str, float] = {}
 # The GetFeatureInfo format each source answered with a number, so the next
 # point asks for that one first.
 _terrain_format: dict[str, str] = {}
@@ -2069,6 +2288,8 @@ _HEIGHT_AFTER_NAME = re.compile(
 )
 _NUMBER = re.compile(r'(?<![\w.])-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?![\w.])')
 _INFO_FORMATS = ('text/plain', 'application/json', 'text/html', 'application/vnd.ogc.gml')
+# Why a point failed when the source answered but gave no number for it.
+_NO_HEIGHT = 'its reply holds no height'
 
 
 def _height_from_reply(text: str) -> float | None:
@@ -2168,9 +2389,12 @@ def _png_reader(data: bytes) -> tuple[int, int, Callable[[int, int], tuple]]:
     depth, color, interlace = head[8], head[9], head[12]
     if depth != 8 or color not in (2, 6) or interlace != 0:
         raise ValueError('the tile is not an 8-bit RGB PNG')
+    if not (0 < width <= TERRAIN_TILE_MAX_SIDE and 0 < height <= TERRAIN_TILE_MAX_SIDE):
+        raise ValueError(f'the tile is {width} by {height} pixels')
     bpp = 3 if color == 2 else 4
-    raw = zlib.decompress(b''.join(idat))
     stride = width * bpp
+    # No more than the rows hold, however much the data would unpack to.
+    raw = zlib.decompressobj().decompress(b''.join(idat), height * (stride + 1))
     rows: list[bytearray] = []
     prev = bytearray(stride)
     for y in range(height):
@@ -2260,7 +2484,7 @@ def elevation_at(
                 if h is not None:
                     _terrain_format[src['sig']] = fmt
                     break
-                said = 'its reply holds no height'
+                said = _NO_HEIGHT
             if h is None:
                 return None, said
         if h is not None and src['units'] == 'ft':
@@ -2273,17 +2497,43 @@ def elevation_at(
 
 
 def _terrain_fetch(src: dict, key: str, lon: float, lat: float) -> None:
-    h, why = elevation_at(src, lon, lat)
-    with terrain_lock:
-        _terrain_inflight.discard(key)
-        if why:
-            _terrain_failed[key] = time.time()
-            _terrain_error[src['sig']] = why
-            return
-        if len(TERRAIN_CACHE) < TERRAIN_MAX_ENTRIES:
-            TERRAIN_CACHE[key] = h
-            _terrain_save_soon()
-        _terrain_error.pop(src['sig'], None)
+    """Ask the source for one queued point and keep what it says. The point
+    leaves the ones in flight whatever happens: a failure (an error no reply
+    should raise, too) is kept as one, and asked again after TERRAIN_RETRY_SECONDS."""
+    h, why, asked = None, 'the height could not be read', False
+    try:
+        with terrain_lock:
+            down = time.time() - _terrain_down.get(src['sig'], 0) < TERRAIN_DOWN_SECONDS
+        if down:
+            why = _terrain_error.get(src['sig']) or 'the source failed just now'
+        else:
+            asked = True
+            h, why = elevation_at(src, lon, lat)
+    except Exception as exc:  # a reply too large or too deep to read, say
+        why = f'its reply could not be read ({type(exc).__name__})'
+    finally:
+        now = time.time()
+        with terrain_lock:
+            _terrain_inflight.discard(key)
+            if why:
+                # Newest last, so the oldest go first past TERRAIN_FAILED_KEPT.
+                _terrain_failed.pop(key, None)
+                _terrain_failed[key] = now
+                while len(_terrain_failed) > TERRAIN_FAILED_KEPT:
+                    _terrain_failed.pop(next(iter(_terrain_failed)))
+                if asked:
+                    # A point the source has no height for says nothing of the rest.
+                    if why != _NO_HEIGHT:
+                        _terrain_down[src['sig']] = now
+                    _terrain_error[src['sig']] = why
+            else:
+                # The oldest make way: a long operation's ground is all kept.
+                while len(TERRAIN_CACHE) >= TERRAIN_MAX_ENTRIES:
+                    TERRAIN_CACHE.pop(next(iter(TERRAIN_CACHE)))
+                TERRAIN_CACHE[key] = h
+                _terrain_save_soon()
+                _terrain_down.pop(src['sig'], None)
+                _terrain_error.pop(src['sig'], None)
 
 
 def elevations(points: list) -> dict:
@@ -2316,8 +2566,11 @@ def elevations(points: list) -> dict:
                 continue
             if now - _terrain_failed.get(key, 0) < TERRAIN_RETRY_SECONDS:
                 continue
+            try:
+                futures.append(_terrain_pool.submit(_terrain_fetch, src, key, lon, lat))
+            except RuntimeError:  # shutting down (stop_terrain)
+                break
             _terrain_inflight.add(key)
-            futures.append(_terrain_pool.submit(_terrain_fetch, src, key, lon, lat))
     concurrent.futures.wait(futures, timeout=ELEVATION_WAIT_SECONDS)
     with terrain_lock:
         heights = [TERRAIN_CACHE.get(k) for k in keys]
@@ -2333,6 +2586,15 @@ def elevations(points: list) -> dict:
         'unknown': unknown,
         'error': error,
     }
+
+
+def stop_terrain() -> None:
+    """At shutdown: drop the points still queued, so stopping waits for the
+    few being fetched at most, not for every one queued."""
+    with terrain_lock:
+        pool = _terrain_pool
+    if pool is not None:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 # =============================================================================
@@ -3076,6 +3338,9 @@ def write_snapshot(filename: str, content: str, now: datetime | None = None) -> 
     chronological. Every file of a round (one save) is named with the same
     time, and the newest SNAPSHOT_KEEP rounds are kept however many workspaces
     each holds. Returns the path written. Caller holds ``_disk_lock``.
+    Written whole or not at all, as a backup is, so a full disk can't leave
+    a cut-off copy for --restore to put back. The round just written is never
+    pruned, whatever the names on disk (see snapshot_stamp).
     """
     snap_dir = os.path.join(BACKUP_DIR, SNAPSHOT_DIR_NAME)
     os.makedirs(snap_dir, exist_ok=True)
@@ -3086,17 +3351,33 @@ def write_snapshot(filename: str, content: str, now: datetime | None = None) -> 
     while os.path.exists(path):  # several saves in one second
         n += 1
         path = f'{stem}_{n}{ext}'
-    with open(path, 'w', encoding='utf-8') as f:
-        f.write(content)
+    _write_atomically(path, content)
     rounds: dict = {}
     for f in os.listdir(snap_dir):
-        if m := _SNAPSHOT_NAME_RE.match(f):
+        if (m := _SNAPSHOT_NAME_RE.match(f)) and m.group(1) != stamp:
             rounds.setdefault(m.group(1), []).append(f)
-    for old in sorted(rounds)[: max(0, len(rounds) - SNAPSHOT_KEEP)]:
+    for old in sorted(rounds)[: max(0, len(rounds) + 1 - SNAPSHOT_KEEP)]:
         for f in rounds[old]:
             with contextlib.suppress(OSError):
                 os.unlink(os.path.join(snap_dir, f))
     return path
+
+
+def snapshot_stamp(now: datetime, last: datetime | None = None) -> datetime:
+    """The time a new round of snapshots is named with: ``now`` (to the
+    second), unless a round already in snapshots/ or ``last`` (this run's
+    last) is named that late or later, as when the clock was set back since:
+    then one second after the newest. The newest name is then always the
+    newest round, for --restore latest and for pruning."""
+    stamp = now.replace(microsecond=0)
+    newest = [last] if last is not None else []
+    for name in snapshot_rounds():
+        with contextlib.suppress(ValueError):
+            newest.append(datetime.strptime(name, '%Y%m%d_%H%M%SZ').replace(tzinfo=timezone.utc))
+    if newest and stamp <= max(newest):
+        with contextlib.suppress(OverflowError):
+            stamp = max(newest) + timedelta(seconds=1)
+    return stamp
 
 
 def _move_superseded(name: str) -> None:
@@ -3143,7 +3424,9 @@ def _write_atomically(dest: str, content: str) -> None:
     """Write ``content`` to ``dest`` via a temporary file, so readers never see a partial file."""
     tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(dest), suffix='.tmp')
     try:
-        with open(tmp_fd, 'w', encoding='utf-8') as tmp_f:
+        # 'replace': a character UTF-8 can't hold (the validators keep them
+        # out) costs that character, never the file.
+        with open(tmp_fd, 'w', encoding='utf-8', errors='replace') as tmp_f:
             tmp_f.write(content)
             # On the disk itself before it takes the old file's place, so a
             # power cut can't leave the new name on a file whose data never landed.
@@ -3160,18 +3443,21 @@ def _write_atomically(dest: str, content: str) -> None:
 _save_failures = 0
 # When the backups were last written without an error (time.time()), or None.
 _last_saved_at: float | None = None
+# What the last failed save said first, for the line at shutdown.
+_last_save_error = ''
 
 
 def _note_save_result(errors: list) -> None:
     """After a save: on failure, say why (once per run of failures) and try
     again with a growing wait; on the first success after that, say so."""
-    global _save_failures, _last_saved_at
+    global _save_failures, _last_saved_at, _last_save_error
     if not errors:
         if _save_failures:
             safe_print('[+] Backups are being saved again.')
-        _save_failures = 0
+        _save_failures, _last_save_error = 0, ''
         _last_saved_at = time.time()
         return
+    _last_save_error = errors[0]
     if not _save_failures:
         for e in errors:
             safe_print(f'[!] {e}')
@@ -3225,8 +3511,20 @@ def save_data_to_disk() -> None:
                 _dirty_atos, _shared_dirty = pending, shared_pending
                 files = []
                 errors.append(f'Could not prepare the backups: {exc!r}')
-        if files:
-            os.makedirs(BACKUP_DIR, exist_ok=True)
+        try:
+            if files:
+                os.makedirs(BACKUP_DIR, exist_ok=True)
+        except Exception as exc:
+            # No folder to write to (a pulled USB stick, say): as when every
+            # file fails, each stays unsaved and the save is tried again.
+            errors.append(f'Error saving to {BACKUP_DIR}: {exc}')
+            with data_lock:
+                for ato, _, _ in files:
+                    if ato is None:
+                        _shared_dirty = True
+                    else:
+                        mark_dirty(ato)
+            files = []
         written = []
         for ato, filename, content in files:
             try:
@@ -3253,11 +3551,9 @@ def save_data_to_disk() -> None:
                     safe_print(f'[!] Could not move the old {name} to {SNAPSHOT_DIR_NAME}: {exc}')
         _note_save_result(errors)
         if snapshot_due and written:
-            # One time for the whole round, later than the last round's.
-            stamp = datetime.now(timezone.utc).replace(microsecond=0)
-            if _last_snapshot_stamp is not None and stamp <= _last_snapshot_stamp:
-                stamp = _last_snapshot_stamp + timedelta(seconds=1)
             try:
+                # One time for the whole round, later than the last round's.
+                stamp = snapshot_stamp(datetime.now(timezone.utc), _last_snapshot_stamp)
                 for _, filename, content in written:
                     write_snapshot(filename, content, stamp)
                 _last_snapshot_at, _last_snapshot_stamp = now, stamp
@@ -3964,7 +4260,8 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             self._refuse(413, 'Payload too large.', length)
             return
         try:
-            data = json.loads(self.rfile.read(length))
+            raw = self.rfile.read(length)
+            data = json.loads(raw)
         except (ValueError, RecursionError):  # RecursionError: nesting too deep
             self._bad_request('Invalid JSON.')
             return
@@ -3990,8 +4287,11 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             )
             return
         # Schema check — bad shape never reaches DATA_STORE, and a route can
-        # take every field its validator checked as given.
-        if route.validator is not None and (err := route.validator(data)):
+        # take every field its validator checked as given. Text first: a
+        # field no validator knows is kept, and must be one a file can hold.
+        if (err := _check_text(raw, data)) or (
+            route.validator is not None and (err := route.validator(data))
+        ):
             self._bad_request(f'Validation failed: {err}.')
             return
         route.handler(self, data)
@@ -4859,12 +5159,14 @@ class SaltSyncServer(socketserver.ThreadingTCPServer):
     def handle_error(self, request, client_address):
         """Stay quiet when a client just goes away (closed tabs, dropped SSE
         streams); report anything else, which is a bug worth seeing."""
-        exc = sys.exc_info()[1]
+        info = sys.exc_info()
+        exc = info[1]
         if isinstance(exc, (ConnectionError, TimeoutError)) or (
             ssl is not None and isinstance(exc, ssl.SSLError)
         ):
             return
         safe_print(f'[!] Error handling a request from {client_address[0]}: {exc!r}')
+        log_traceback('    In full:', info)  # the server log only
 
 
 # =============================================================================
@@ -5081,8 +5383,15 @@ def restore_snapshot(which: str) -> int:
     return 0
 
 
-def graceful_drain() -> None:
-    """Notify SSE clients of shutdown, then flush pending disk write."""
+def unsaved_changes() -> bool:
+    """Whether a change is in memory that the backups don't hold."""
+    with data_lock:
+        return _dirty_atos is None or bool(_dirty_atos) or _shared_dirty
+
+
+def graceful_drain() -> bool:
+    """Notify SSE clients of shutdown, then flush pending disk write. False,
+    said plainly, when the changes could not be saved."""
     try:
         with sse_lock:
             snapshot = list(sse_clients)
@@ -5091,13 +5400,24 @@ def graceful_drain() -> None:
                 c.send(b'event: shutdown\ndata: server-stopping\n\n')
     except Exception:
         pass
+    with contextlib.suppress(Exception):
+        stop_terrain()
     try:
         flush_pending_save()
-        flush_terrain()
-        safe_print('[+] Pending changes flushed to disk.')
     except Exception as exc:
         safe_print(f'[!] Error flushing on shutdown: {exc}')
+    with contextlib.suppress(Exception):
+        flush_terrain()
+    saved = not _save_failures and not unsaved_changes()
+    if saved:
+        safe_print('[+] Pending changes flushed to disk.')
+    else:
+        safe_print(f'[!] Changes NOT saved: the backups could not be written to {BACKUP_DIR}.')
+        if _last_save_error:
+            safe_print(f'    {_last_save_error}')
+        safe_print('    What changed since the last good save is not on disk.')
     audit('server', 'stopped')
+    return saved
 
 
 if __name__ == '__main__':
@@ -5113,6 +5433,8 @@ if __name__ == '__main__':
         _access_code = args.access_code.strip().upper()
     else:
         _access_code = _generate_access_code()
+    # The console alone when the log can't be written: never a reason to stop.
+    start_log()
 
     if args.restore:
         sys.exit(restore_snapshot(args.restore.strip()))
@@ -5127,6 +5449,7 @@ if __name__ == '__main__':
 
     skipped = load_data_from_disk()
     ensure_mission()
+    start_change_numbers()
 
     # HTTPS unless --no-https: a certificate given with --cert, or the server's own.
     tls = None
@@ -5202,7 +5525,7 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         safe_print('\n[*] Shutting down gracefully...')
     finally:
-        graceful_drain()
+        saved = graceful_drain()
         httpd.server_close()
         if viewer_httpd is not None:
             try:
@@ -5210,3 +5533,6 @@ if __name__ == '__main__':
                 viewer_httpd.server_close()
             except Exception:
                 pass
+    # Not 0, so the launcher keeps its window open on the line that says so.
+    if not saved:
+        sys.exit(1)

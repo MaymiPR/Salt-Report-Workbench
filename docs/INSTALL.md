@@ -76,13 +76,16 @@ Only the file you downloaded needs to say OK; the other shows as not here.
 > `Auto Backups`. Started from there, the workbench shows no reports, and it
 > looks as if every report is lost. They aren't: they are still in the old
 > folder. **Copy the `Auto Backups` folder from your old folder into the new one
-> before starting** (or extract the new files over the old ones).
+> before starting**, and `Mission Archives` beside it if there is one (or
+> extract the new files over the old ones).
 
-Stop the server first. Then either copy `Auto Backups` across as above, or drop
-the new files over the old ones, or run the new `.txt` from the folder that
-holds `SALT Report Workbench` (it upgrades that folder in place and leaves
-`Auto Backups` alone). Reports, overlays, and settings load from `Auto Backups`
-as they are.
+Stop the server first. Then either copy `Auto Backups` and `Mission Archives`
+across as above, or drop the new files over the old ones, or run the new `.txt`
+from the folder that holds `SALT Report Workbench` (it upgrades that folder in
+place and leaves both alone). Reports, overlays, and settings load from
+`Auto Backups` as they are; the missions finished with Done with Mission are in
+`Mission Archives`, where Previous Missions finds them. `Server Logs` holds only
+the server's own messages and needn't be copied.
 
 The server's certificate lives in `Auto Backups/tls`, so copying the folder
 also keeps the same certificate, and browsers that already accepted it don't
@@ -247,4 +250,6 @@ workspace (ATO and title).
 **Where to look.** `Auto Backups/audit.log` lists every accepted change and
 every server start and stop, with times in UTC. `Auto Backups/snapshots/` holds
 dated copies of the backup files (see [Data and backups](#data-and-backups)),
-and the console window shows the server's own messages.
+and the console window shows the server's own messages; `Server Logs/server.log`,
+beside `Auto Backups`, keeps them with their times in UTC, and the full detail
+of any error (see [Sending a problem report](OPERATIONS.md#sending-a-problem-report)).
