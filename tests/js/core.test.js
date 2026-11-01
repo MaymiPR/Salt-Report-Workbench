@@ -1965,7 +1965,8 @@ const RULE_TABLE = {
     fortline: ['roughly even chance', [['6x PAX', 'digging in', NAI1, 0], ['6x PAX', 'digging in', NAI2, 60], ['6x PAX', 'digging in', OBJ1, 120], TRUCKS], [0, 1, 2],
         [['6x PAX', 'digging in', NAI1, 0], ['6x PAX', 'digging in', NAI2, 60]]],
     // Needs the ground: a hill 100 m up where T0 stands in NAI 1, the rest at 200 m.
-    highground: ['roughly even chance', [['2x BRDM-2', 'observing', NAI1, 0], ['3x trucks', 'halted', '38SMB4700082000', 30], ['3x trucks', 'halted', '38SMB4300082000', 60]], [0],
+    // In NAI 1, it sees into it: a step firmer than high ground alone.
+    highground: ['likely', [['2x BRDM-2', 'observing', NAI1, 0], ['3x trucks', 'halted', '38SMB4700082000', 30], ['3x trucks', 'halted', '38SMB4300082000', 60]], [0],
         [['2x BRDM-2', 'moving N', NAI1, 0], ['3x trucks', 'halted', '38SMB4700082000', 30], ['3x trucks', 'halted', '38SMB4300082000', 60]],
         (lon, lat) => (Math.abs(lon - ll(NAI1)[0]) < 0.0005 && Math.abs(lat - ll(NAI1)[1]) < 0.0005 ? 300 : 200)],
     screen: ['roughly even chance', [['2x BRDM-2', 'observing', NAI1, 0], ['3x PAX', 'observing', NAI2, 60], TRUCKS], [0, 1],
@@ -2476,7 +2477,8 @@ test('the ground: heights, slopes, high ground, a column on a steep slope, a gun
     };
     const settings = { toward: 'N' };
     const t = core.summaryReport('narrative', reps, OVERLAYS, { ...SUMMARY_OPTS, narrative: settings, terrain: groundFor(reps, height, settings) }).replace(/\s+/g, ' ');
-    assert.ok(t.includes('Terrain: reports at 200 to 300 m; 1 on high ground (NAI 1); 1 column on slopes too steep for it; 1 artillery behind a crest.'), t);
+    assert.ok(t.includes('Terrain: reports at 200 to 300 m; 1 on high ground (NAI 1); 1 column on slopes too steep for it; 1 artillery behind a crest; 1 observer can see into NAI 1 and NAI 2.'), t);
+    assert.ok(t.includes('- Line of sight, H1 252000Z (2x BRDM-2, 300 m): in NAI 1; sees into NAI 2.'), t);
     assert.ok(t.includes('C1 252130Z, NAI 1: 8 vehicles (8 wheeled), heading N, on a 40% slope: steep for wheeled vehicles, check the type or the grid'), t);
     assert.ok(t.includes('- Behind a crest: G1 252200Z, NAI 1: 3x 2S19, the ground 25 m higher 500 m ahead (N), a covered firing position.'), t);
     assert.ok(t.includes('- High ground: H1 252000Z, NAI 1: 2x BRDM-2, 300 m, overlooking NAI 1.'), t);
@@ -2493,6 +2495,30 @@ test('the ground: heights, slopes, high ground, a column on a steep slope, a gun
     part.note = 'the service answered 502.';
     const waiting = core.summaryReport('narrative', reps, OVERLAYS, { ...SUMMARY_OPTS, narrative: settings, terrain: part }).replace(/\s+/g, ' ');
     assert.ok(waiting.includes('- Terrain: no height yet for 1 report (the source: the service answered 502).'), waiting);
+});
+
+test('line of sight: an observer sees into the areas near it, a ridge hides one, and heights not in yet wait', () => {
+    // An observer 1 km inside NAI 1's east edge; NAI 2 begins 4 km east of it.
+    const obs = report({ id: 'O1', displayId: 'O1', size: '2x BRDM-2', activity: 'observing', location: '38SMB4600082000', time: '2026-10-25T20:00:00Z' });
+    const trucks = report({ id: 'T1', displayId: 'T1', size: '3x trucks', activity: 'halted', location: '38SMB4600082000', time: '2026-10-25T20:30:00Z' });
+    const [olon] = ll('38SMB4600082000'), km = (lon) => (lon - olon) * 111320 * Math.cos(33.27 * Math.PI / 180) / 1000;
+    const flat = () => 200, ridge = (lon) => (km(lon) > 1 && km(lon) < 1.5 ? 260 : 200);
+    const run = (height) => core.summaryReport('narrative', [obs, trucks], OVERLAYS, { ...SUMMARY_OPTS, terrain: groundFor([obs, trucks], height) }).replace(/\s+/g, ' ');
+    assert.ok(run(flat).includes('- Line of sight, O1 252000Z (2x BRDM-2, 200 m): in NAI 1; sees into NAI 2.'), run(flat));
+    const hidden = run(ridge);
+    assert.ok(/- Line of sight, O1 252000Z \(2x BRDM-2, 200 m\): in NAI 1; NAI 2 hidden by ground at 1\.\d km, 58 m above the sightline\./.test(hidden), hidden);
+    // The trucks observe nothing: no lines asked for them.
+    const onlyTrucks = core.terrainPoints([trucks], OVERLAYS, null), withObserver = core.terrainPoints([obs, trucks], OVERLAYS, null);
+    assert.equal(onlyTrucks.length, 5, 'the ground at the grid and around it');
+    assert.ok(withObserver.length > 45, `the lines to NAI 2's edge and middle: ${withObserver.length}`);
+    // A height along the way not in yet: waiting, and said under the gaps.
+    const part = groundFor([obs, trucks], flat), ground = new Set(onlyTrucks.map(([x, y]) => core.terrainKey(x, y)));
+    withObserver.forEach(([x, y]) => { if (!ground.has(core.terrainKey(x, y))) part.heights.delete(core.terrainKey(x, y)); });
+    const waiting = core.summaryReport('narrative', [obs, trucks], OVERLAYS, { ...SUMMARY_OPTS, terrain: part }).replace(/\s+/g, ' ');
+    assert.ok(waiting.includes('(2x BRDM-2, 200 m): in NAI 1; NAI 2 not known yet.'), waiting);
+    assert.ok(waiting.includes('- Line of sight into 1 area not known yet: the heights along the way are still being asked.'), waiting);
+    // Without an elevation source, no line of sight at all.
+    assert.ok(!said([obs, trucks]).includes('Line of sight,'));
 });
 
 test('the tempo, and what is new against the period before', () => {
