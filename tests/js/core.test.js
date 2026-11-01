@@ -2650,6 +2650,61 @@ test('the map: a picked report shows its lines of sight and the rings of its rea
     assert.equal(core.losBetween(a, { lon: a.lon + 0.3, lat: a.lat }, { on: true, heights: new Map() }).state, 'far');
 });
 
+test('line of sight: no height from the source at an end is final, not waiting; one along the way hides nothing', () => {
+    const a = { lon: ll('38SMB4600082000')[0], lat: ll('38SMB4600082000')[1] }, b = { lon: ll('38SMB4900082000')[0], lat: ll('38SMB4900082000')[1] };
+    const pts = core.losBetween(a, b).points, key = ([lon, lat]) => core.terrainKey(lon, lat);
+    // The page keeps null for "the source has none here" and nothing for a height still being asked.
+    const with_ = (h) => core.losBetween(a, b, { on: true, note: '', heights: new Map(pts.map((p, i) => [key(p), h(i)]).filter(([, v]) => v !== undefined)) });
+    assert.equal(with_(() => 200).state, 'seen');
+    assert.equal(with_(i => (i === 1 ? null : 200)).state, 'nodata', 'none at the far end');
+    assert.equal(with_(i => (i === 0 ? null : 200)).state, 'nodata', 'none at the eye');
+    assert.equal(with_(i => (i === 0 ? null : i === 5 ? undefined : 200)).state, 'nodata', 'none at an end, whatever is still to come');
+    assert.equal(with_(i => (i === 5 ? null : 200)).state, 'seen', 'none along the way: skipped');
+    assert.equal(with_(i => (i === 1 ? undefined : 200)).state, 'waiting');
+    // An observer looking into NAI 2, which is all water: final, and said so.
+    const obs = report({ id: 'O1', displayId: 'O1', size: '2x BRDM-2', activity: 'observing', location: '38SMB4600082000', time: '2026-10-25T20:00:00Z' });
+    const [olon] = ll('38SMB4600082000'), km = (lon) => (lon - olon) * 111320 * Math.cos(33.27 * Math.PI / 180) / 1000;
+    const wet = groundFor([obs], (lon) => (km(lon) > 3.9 ? null : 200));
+    const pic = core.sightPicture(obs, OVERLAYS, null, wet);
+    assert.deepEqual(pic.lines.map(l => l.state), ['nodata', 'nodata']);
+    assert.equal(pic.sight, 'in NAI 1; NAI 2 not known: no height here from the elevation source');
+    const t = core.summaryReport('narrative', [obs], OVERLAYS, { ...SUMMARY_OPTS, terrain: wet }).replace(/\s+/g, ' ');
+    assert.ok(t.includes('(2x BRDM-2, 200 m): in NAI 1; NAI 2 not known: no height here from the elevation source.'), t);
+    assert.ok(t.includes('- Line of sight into 1 area not known: no height from the elevation source at one end of the line.'), t);
+    assert.ok(!t.includes('not known yet'), t);
+    // A direct-fire weapon's reach into it says the same.
+    const kornet = core.sightPicture({ ...obs, size: '1x Kornet' }, OVERLAYS, null, groundFor([{ ...obs, size: '1x Kornet' }], (lon) => (km(lon) > 3.9 ? null : 200)));
+    assert.ok(kornet.reach.includes('NAI 2 in range, line of sight not known: no height here from the elevation source'), kornet.reach);
+    // Heights still to come while the source fails: the gap gives its reason.
+    const part = groundFor([obs], () => 200);
+    pic.points.forEach(p => { if (km(p[0]) > 3.9) part.heights.delete(key(p)); });
+    part.note = 'the tile service answered 502.';
+    const failing = core.summaryReport('narrative', [obs], OVERLAYS, { ...SUMMARY_OPTS, terrain: part }).replace(/\s+/g, ' ');
+    assert.ok(failing.includes('- Line of sight into 1 area not known yet (the source: the tile service answered 502).'), failing);
+});
+
+test('line of sight: the earth curves away over a long line, with refraction', () => {
+    // Flat ground, both ends 2 m up: the curve rises x (d - x) / 2R' above
+    // the chord, R' the earth's radius times 4/3, highest at the middle
+    // (d^2 / 8R'). Past about 16.5 km that is more than the 2 m.
+    const R = 6371000 * 4 / 3;
+    const line = (to) => {
+        const a = { lon: ll('38SMB4000082000')[0], lat: ll('38SMB4000082000')[1] }, b = { lon: ll(to)[0], lat: ll(to)[1] };
+        const pts = core.losBetween(a, b).points;
+        return { d: core.metersBetween(a, b), c: core.losBetween(a, b, { on: true, heights: new Map(pts.map(([lon, lat]) => [core.terrainKey(lon, lat), 200])) }) };
+    };
+    const long = line('38SMB5860082000');
+    assert.ok(Math.abs(long.d - 18600) < 50, `${long.d} m`);
+    assert.equal(long.c.state, 'hidden');
+    // Heights are read every 200 m past 2 km: the highest is the sample nearest the middle.
+    assert.ok(Math.abs(long.c.x - long.d / 2) <= 200, `${long.c.x} of ${long.d}`);
+    assert.ok(Math.abs(long.c.over - (long.c.x * (long.d - long.c.x) / (2 * R) - 2)) < 1e-6, String(long.c.over));
+    assert.ok(Math.abs(long.c.over - (long.d * long.d / (8 * R) - 2)) < 0.01, String(long.c.over));
+    assert.ok(long.c.over > 3 && long.c.over < 3.2, String(long.c.over));
+    // 10 km: the curve rises 1.5 m, under the eye and the target.
+    assert.equal(line('38SMB5000082000').c.state, 'seen');
+});
+
 test('the tempo, and what is new against the period before', () => {
     const at = (id, size, location, time) => report({ id, displayId: id, size, activity: 'halted', location, time, user: { initials: 'AB' } });
     // One report every 3 hrs, then four in the last 3: rising.

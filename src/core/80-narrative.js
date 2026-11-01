@@ -284,10 +284,13 @@ const losSamples = (a, b) => {
 };
 // Whether a can see b: { state: 'seen' }, { state: 'hidden', x, over } (the
 // ground that hides it most, how far along and how far above the
-// sightline), or { state: 'waiting' } while a height on the way isn't in.
+// sightline), { state: 'nodata' } when the source has no height at either
+// end (null: water, or past its coverage), or { state: 'waiting' } while a
+// height on the way isn't in (not in the map at all: still being asked).
 const losCheck = (a, b, heights) => {
     const at = (p) => heights.get(terrainKey(p.lon, p.lat));
     const ha = at(a), hb = at(b), samples = losSamples(a, b), hs = samples.map(at);
+    if (ha === null || hb === null) return { state: 'nodata' };
     if (typeof ha !== 'number' || typeof hb !== 'number' || hs.some(h => h === undefined)) return { state: 'waiting' };
     const d = metersBetween(a, b), eye = ha + LOS_EYE_METERS, tip = hb + LOS_TARGET_METERS;
     let worst = null;
@@ -299,20 +302,25 @@ const losCheck = (a, b, heights) => {
     return worst ? { state: 'hidden', ...worst } : { state: 'seen' };
 };
 // An observer's sight of each area near it (within `max`): in it, seen
-// (along either line), hidden (along both: the edge line's ground said), or
-// waiting; with `d`, how far it is to the area's edge.
+// (along either line), hidden (along both: the edge line's ground said),
+// waiting, or nodata (no height from the source at an end of a line, and
+// neither line seen); with `d`, how far it is to the area's edge.
+const NO_HEIGHT = 'no height here from the elevation source';
 const sightOf = (pt, overlays, heights, max = LOS_MAX_METERS) => losTargets(pt, overlays, max).map(t => {
     if (t.inside) return { key: t.key, d: 0, state: 'in' };
     const r = t.ends.map(e => losCheck(pt, e, heights));
     if (r.some(x => x.state === 'seen')) return { key: t.key, d: t.d, state: 'seen' };
     if (r.some(x => x.state === 'waiting')) return { key: t.key, d: t.d, state: 'waiting' };
+    if (r.some(x => x.state === 'nodata')) return { key: t.key, d: t.d, state: 'nodata' };
     return { key: t.key, d: t.d, ...r[0] };
 });
 const sightText = (sight) => {
     const inIt = sight.filter(s => s.state === 'in').map(s => s.key), seen = sight.filter(s => s.state === 'seen').map(s => s.key);
+    const none = sight.filter(s => s.state === 'nodata').map(s => s.key);
     return [inIt.length && `in ${andList(inIt)}`, seen.length && `sees into ${andList(seen)}`,
         ...sight.filter(s => s.state === 'hidden').map(s => `${s.key} hidden by ground at ${distText(s.x)}, ${Math.round(s.over)} m above the sightline`),
-        ...sight.filter(s => s.state === 'waiting').map(s => `${s.key} not known yet`)].filter(Boolean).join('; ');
+        ...sight.filter(s => s.state === 'waiting').map(s => `${s.key} not known yet`),
+        none.length && `${andList(none)} not known: ${NO_HEIGHT}`].filter(Boolean).join('; ');
 };
 // --- Reach ---
 // What a report's weapons reach: the furthest of each kind among its types
@@ -365,6 +373,7 @@ const reachText = (reach) => ['direct', 'indirect', 'ad'].filter(k => reach[k] &
     return `${head}: ${[hit.length && `covers ${andList(hit.map(a => (a.state === 'in' ? `${a.key} (in it)` : `${a.key} (${distText(a.d)})`)))}`,
         of('hidden').length && `${andList(of('hidden').map(a => a.key))} in range but hidden by ground`,
         of('waiting').length && `${andList(of('waiting').map(a => a.key))} in range, line of sight not known yet`,
+        of('nodata').length && `${andList(of('nodata').map(a => a.key))} in range, line of sight not known: ${NO_HEIGHT}`,
         of('unknown').length && `${andList(of('unknown').map(a => a.key))} in range, line of sight not known without an elevation source`]
         .filter(Boolean).join('; ')}`;
 }).join('; ');
@@ -424,7 +433,8 @@ const sightPicture = (r, overlays = [], settings = null, terrain = null) => {
 };
 // The line of sight from a to b, for the map's tool: { state, d, x, over,
 // block, points }: seen, hidden (where and by how much), waiting (heights
-// still to come), off (no elevation source) or far (past
+// still to come), nodata (the source has no height at an end), off (no
+// elevation source) or far (past
 // LOS_TOOL_MAX_METERS, not checked); `points` are the heights it reads.
 const LOS_TOOL_MAX_METERS = 20000;
 const losBetween = (a, b, terrain = null) => {
@@ -1615,9 +1625,15 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
     const withGrid = facts.filter(f => f.a.points.length);
     if (!heights) gaps.push('Terrain: no elevation source, so no heights or slopes; pick one in the Narrative settings, under Terrain.');
     else {
-        const waits = (f) => [...(f.sight || []), ...(f.reach && f.reach.direct ? f.reach.direct.areas : [])].filter(s => s.state === 'waiting').length;
-        const n = facts.reduce((k, f) => k + waits(f), 0);
-        if (n) gaps.push(`Line of sight into ${plural(n, 'area')} not known yet: the heights along the way are still being asked.`);
+        // Still being asked (or not coming: the source's note says why), and
+        // none to be had from the source.
+        const count = (state) => facts.reduce((k, f) => k + [...(f.sight || []), ...(f.reach && f.reach.direct ? f.reach.direct.areas : [])].filter(s => s.state === state).length, 0);
+        const n = count('waiting'), none = count('nodata');
+        if (n) {
+            gaps.push(`Line of sight into ${plural(n, 'area')} not known yet`
+                + `${terrain.note ? ` (the source: ${terrain.note.replace(/[.]$/, '')})` : ': the heights along the way are still being asked'}.`);
+        }
+        if (none) gaps.push(`Line of sight into ${plural(none, 'area')} not known: no height from the elevation source at one end of the line.`);
     }
     // Types that fight with a reach the catalogue doesn't give (deep strike
     // and drones aside: their reach is past the areas), when there are areas.

@@ -396,7 +396,8 @@ or OBJs nearest it within `LOS_MAX_METERS` (`losTargets`), along a line to
 each one's nearest edge and to its middle, its heights read every 100 m
 (200 m past 2 km, `losSamples`); `losCheck` puts the eye and the target 2 m
 up, allows for the earth's curve with refraction, and says seen, hidden (by
-how much, where) or waiting. `terrainPoints` asks the heights of those lines
+how much, where), no data (the source has no height at an end: the page
+keeps `null` for that) or waiting (a height not in yet). `terrainPoints` asks the heights of those lines
 for observers, and for direct-fire weapons in position out to their reach
 (at most `REACH_LOS_MAX_METERS`), and the page works the list out again only
 when the reports, overlays or settings change.

@@ -590,7 +590,8 @@ const showMeasure = () => {
             : !c ? `From ${grid(pts[0])}: click what it looks at.`
             : c.state === 'far' ? `${measureText(pts)}: longer than ${far}, not checked.`
             : c.state === 'off' ? 'Line of sight needs an elevation source: pick one in the Narrative settings, under Terrain.'
-            : c.state === 'waiting' ? `${measureText(pts)}: asking the heights along the line...`
+            : c.state === 'waiting' ? terrainUnavailable() || `${measureText(pts)}: asking the heights along the line...`
+            : c.state === 'nodata' ? `No height here from the elevation source: line of sight from ${grid(pts[0])} to ${grid(pts[1])} can't be checked (${measureText(pts)}).`
             : c.state === 'seen' ? `Seen: ${grid(pts[1])} can be seen from ${grid(pts[0])}, ${measureText(pts)}.`
             : `Hidden by ground ${dist(c.x)} from ${grid(pts[0])}, ${Math.round(c.over)} m above the sightline: ${grid(pts[1])} can't be seen from it (${measureText(pts)}).`;
     } else if (tool === 'ring') {
