@@ -6080,6 +6080,44 @@ class LineOfSightAndSummaryTests(BrowserTests):
             timeout=30000,
         )
 
+    def test_a_sync_keeps_the_narratives_open_details_and_the_keyboards_place(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        # Digging in and obstacles in NAI 1: a defense, with its Details.
+        self.log(page, "6x PAX", activity="digging in", location="38SMB4500082000")
+        self.log(page, "4x PAX", activity="emplacing obstacles", location="38SMB4600082000")
+        self.synced(page)
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        page.wait_for_selector("#summaryText [data-summary-detail]")
+        details = page.locator("#summaryText [data-summary-detail]").first
+        judgment = details.get_attribute("data-summary-judgment")
+        details.click()
+        details.focus()
+        state = """() => { const b = document.activeElement;
+            return [b.dataset.summaryJudgment, 'summaryDetail' in b.dataset, b.getAttribute('aria-expanded'),
+                    b.nextElementSibling.firstElementChild.hidden]; }"""
+        self.assertEqual(page.evaluate(state), [judgment, True, "true", False])
+        # A sync that changes nothing here: nothing is built again.
+        page.evaluate("document.getElementById('summaryText').lastChild.mark = 'same'")
+        page.evaluate("renderSummary()")
+        self.assertEqual(
+            page.evaluate("document.getElementById('summaryText').lastChild.mark"), "same"
+        )
+        self.assertEqual(page.evaluate(state), [judgment, True, "true", False])
+        # One that changes the report (a report elsewhere): built again, the
+        # Details open and the keyboard on its button, as they were.
+        page.evaluate(
+            """() => { localReports.push({ ...localReports[0], id: 'elsewhere', displayId: 'ZZ999',
+                size: '1x truck', activity: 'parked', location: '38SMB3000060000' }); renderSummary(); }"""
+        )
+        self.assertIsNone(page.evaluate("document.getElementById('summaryText').lastChild.mark"))
+        self.assertIn("Activity: 3 reports", " ".join(page.evaluate("summaryText").split()))
+        self.assertEqual(page.evaluate(state), [judgment, True, "true", False])
+        self.assertEqual(
+            page.locator("#summaryText [data-summary-detail][aria-expanded='true']").count(), 1
+        )
+
 
 # Only its own tests: BrowserTests' run once, on their own class.
 for _name in [n for n in vars(BrowserTests) if n.startswith("test_")]:
