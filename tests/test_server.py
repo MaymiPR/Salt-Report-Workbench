@@ -4527,6 +4527,66 @@ class HttpApiTests(unittest.TestCase):
                 conn.close()
         spy.assert_not_called()
 
+    def gzipped_sync(self, base):
+        """GET /api/sync from ``base``'s port asking for gzip: the body as sent."""
+        port = int(base.rsplit(":", 1)[1])
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        try:
+            conn.request(
+                "GET",
+                "/api/sync",
+                headers={"Cookie": f"salt_access={CODE}", "Accept-Encoding": "gzip"},
+            )
+            resp = conn.getresponse()
+            self.assertEqual(resp.getheader("Content-Encoding"), "gzip")
+            return resp.read()
+        finally:
+            conn.close()
+
+    def test_editors_and_viewers_each_reuse_their_own_compressed_sync(self):
+        # Regression: one cached body for both, and the two differ (read_only),
+        # so editors and viewers pulling in turn compressed it every time.
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        _, plain_editor = self.request("/api/sync")
+        _, plain_viewer = self.request("/api/sync", base=self.viewer_base, code=None)
+        with mock.patch.object(srv.gzip, "compress", wraps=srv.gzip.compress) as spy:
+            got = [self.gzipped_sync(b) for b in (self.base, self.viewer_base) * 3]
+        self.assertEqual(spy.call_count, 2, "one compression for each view")
+        for packed, plain, read_only in zip(
+            got, (plain_editor, plain_viewer) * 3, (False, True) * 3, strict=True
+        ):
+            self.assertEqual(gzip.decompress(packed), plain)
+            self.assertIs(json.loads(gzip.decompress(packed))["read_only"], read_only)
+        # A change is compressed again, once for each view.
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report(rid="r2")]})
+        with mock.patch.object(srv.gzip, "compress", wraps=srv.gzip.compress) as spy:
+            got = [self.gzipped_sync(b) for b in (self.base, self.viewer_base) * 2]
+        self.assertEqual(spy.call_count, 2)
+        self.assertEqual(len(json.loads(gzip.decompress(got[3]))["workspaces"]["ALPHA"]), 2)
+
+    def test_clients_that_miss_the_compressed_sync_at_once_share_one_compression(self):
+        compress = srv.gzip.compress
+        calls = []
+
+        def slow(data, **kw):
+            calls.append(len(data))
+            time.sleep(0.2)  # long enough for the others to arrive meanwhile
+            return compress(data, **kw)
+
+        body = b'{"workspaces":{},"n":"%d"}' % time.monotonic_ns()
+        with mock.patch.object(srv.gzip, "compress", slow):
+            got = []
+            threads = [
+                threading.Thread(target=lambda: got.append(srv._gzip_sync_body(body)))
+                for _ in range(5)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(5)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual([gzip.decompress(p) for p in got], [body] * 5)
+
 
 if __name__ == "__main__":
     unittest.main()

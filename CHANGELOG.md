@@ -95,6 +95,11 @@ All notable changes to this project are documented here. The format follows
   server sent (asleep, or on a failing network) held the update for every
   page after it, and they stopped showing changes live. Its connection is
   now closed after 10 seconds, and the others are told as before.
+- **A sync is compressed once for editors and once for viewers.** The two
+  differ, and only one was kept, so with both pulling after a change the
+  server compressed it again for nearly every machine, and machines asking
+  at the same moment each compressed it. Each is now kept, and compressed
+  once.
 
 ## [2.41.0] - 2026-11-01
 

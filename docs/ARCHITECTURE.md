@@ -470,8 +470,10 @@ The server is the meeting point, not the authority over content.
   change number and the server's release) is appended each time. Any mutation
   clears the cache. A client that accepts gzip (every browser) gets
   the body compressed, five to eight times smaller; since every client pulls
-  the same state after a change, the compressed form is cached too and one
-  compression serves them all.
+  the same state after a change, the compressed form is cached too, one for
+  editors and one for viewers (their bodies differ in the read-only flag),
+  and one compression of each serves them all; clients that ask at once wait
+  for that one rather than each compressing it.
 
 ## Persistence
 
@@ -641,7 +643,7 @@ against.
 | Lock | Guards |
 | --- | --- |
 | `data_lock` | `DATA_STORE`, `workspace_sources`, `unloaded_workspaces`, the sync cache |
-| `_sync_gz_lock` | the last `/api/sync` body and its gzip form |
+| `_sync_gz_locks` | one per view (editor, viewer): its last `/api/sync` body and gzip form |
 | `sse_lock` | `sse_clients`, `client_initials`, `client_workspace` |
 | `SSEClient._lock` | one per SSE connection: whole writes to that client's stream |
 | `_disk_lock` | ordering of backup writes |

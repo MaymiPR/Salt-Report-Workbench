@@ -218,10 +218,14 @@ data_lock = threading.Lock()
 
 # Cached /api/sync prefix — all but the closing brace and connected_users count. Invalidated on every mutation.
 _sync_cache_prefix: bytes | None = None  # protected by data_lock
-# The last /api/sync body and its gzip form. Every client pulls the same state
-# after a change, so one compression serves them all. Protected by _sync_gz_lock.
-_sync_gz_cache: tuple[bytes, bytes] | None = None
-_sync_gz_lock = threading.Lock()
+# The last /api/sync body and its gzip form for each view, editor (False) and
+# viewer (True): the two bodies differ only in read_only, the rest of the tail
+# being the same for every client at a time. Every client pulls the same state
+# after a change, so one compression per view serves them all. Each view's
+# entry is protected by its own lock in _sync_gz_locks, held while it
+# compresses, so clients that miss at once wait for that one compression.
+_sync_gz_cache: dict = {}
+_sync_gz_locks = {False: threading.Lock(), True: threading.Lock()}
 # Seconds between SSE heartbeats; each one also detects a client that left without a FIN.
 SSE_HEARTBEAT_SECONDS: float = 15.0
 # Seconds a write to an event stream may wait. A machine that holds the
@@ -771,15 +775,15 @@ def _access_code_ok(headers, view_only: bool, client_ip: str) -> bool:
     return secrets.compare_digest(submitted.encode(), _access_code.encode())
 
 
-def _gzip_sync_body(body: bytes) -> bytes:
-    """gzip a /api/sync body, reusing the last result when the body is unchanged."""
-    global _sync_gz_cache
-    with _sync_gz_lock:
-        if _sync_gz_cache is not None and _sync_gz_cache[0] == body:
-            return _sync_gz_cache[1]
-    packed = gzip.compress(body, compresslevel=5)
-    with _sync_gz_lock:
-        _sync_gz_cache = (body, packed)
+def _gzip_sync_body(body: bytes, view_only: bool = False) -> bytes:
+    """gzip a /api/sync body, reusing the last result for its view (the
+    editor's or the viewer's) when the body is unchanged."""
+    with _sync_gz_locks[view_only]:
+        cached = _sync_gz_cache.get(view_only)
+        if cached is not None and cached[0] == body:
+            return cached[1]
+        packed = gzip.compress(body, compresslevel=5)
+        _sync_gz_cache[view_only] = (body, packed)
     return packed
 
 
@@ -4131,7 +4135,8 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         where_json = json.dumps(where, ensure_ascii=False).encode('utf-8')
         activity_json = json.dumps(activity(), ensure_ascii=False).encode('utf-8')
         # `read_only` is per-listener — lives in the dynamic tail, not the shared prefix.
-        ro = b'true' if getattr(self.server, 'view_only', False) else b'false'
+        view_only = bool(getattr(self.server, 'view_only', False))
+        ro = b'true' if view_only else b'false'
         body = (
             prefix
             + b',"connected_users":'
@@ -4154,7 +4159,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         # after every change; it compresses five to eight times.
         if 'gzip' in self.headers.get('Accept-Encoding', ''):
             self._send_body(
-                _gzip_sync_body(body),
+                _gzip_sync_body(body, view_only),
                 'application/json',
                 headers=(('Content-Encoding', 'gzip'), ('Vary', 'Accept-Encoding')),
             )
