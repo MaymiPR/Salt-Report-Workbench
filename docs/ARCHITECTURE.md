@@ -193,7 +193,7 @@ outside `/api`) gets the standard library's HTML `404`.
 | `/api/save_basemaps` | POST | Replace the map's basemap services: `[{name, kind: wms \| tiles, url, layers?, version?, crs?, format?}]` (at most 20, names unique, http/https only; the last three are what a WMS's capabilities said to ask for). Shared like the overlays and kept in every backup file; each browser picks which to show. |
 | `/api/save_drones` | POST | Replace the drones on the map: `[{name, grid, at, look?, range?, offStation?}]` (at most 10, names unique, `grid` and `look` MGRS grids as the page writes them, `at` when it was put there, in ms, `range` in km, more than 0 and at most 1,000, `offStation` true when it is off station, kept only then). Shared like the basemaps and kept in every backup file; each browser chooses whether they and their view show. |
 | `/api/save_fmv` | POST | Turn FMV mode on or off for everyone: `{fmv: {on: true \| false}}`. Kept in every backup file. Until it is first saved the server holds `{}`, and the page takes that as on when there are drones, else off (a file that never had it, or `{}`, leaves it unsaved at boot). |
-| `/api/save_narrative` | POST | Replace the narrative's settings: `{enemy, units: [{name, places, kinds}], equipment: [{type, role, origin}], off: [rule ids], custom: [{what, words, min, hours}], toward?}` (at most 50 units, 500 equipment entries, 30 rules; unit names and equipment types unique; roles and rule ids from the fixed lists, origin `RU`, `CN` or empty; a rule's `min` 1-20 reports within `hours` 1-168; `toward`, the AO's way of march, N, NE, E, SE, S, SW, W, NW or empty, kept only when set). Shared like the basemaps and kept in every backup file. |
+| `/api/save_narrative` | POST | Replace the narrative's settings: `{enemy, units: [{name, places, kinds}], equipment: [{type, role, origin, gear?}], off: [rule ids], custom: [{what, words, min, hours}], toward?}` (at most 50 units, 500 equipment entries, 30 rules; unit names and equipment types unique; roles and rule ids from the fixed lists, origin `RU`, `CN` or empty; an entry's `gear`, how it moves, `tracked`, `wheeled`, `towed`, `portable`, `foot`, `air` or `static`, kept only when set; a rule's `min` 1-20 reports within `hours` 1-168; `toward`, the AO's way of march, N, NE, E, SE, S, SW, W, NW or empty, kept only when set). Shared like the basemaps and kept in every backup file. |
 | `/api/refresh` | POST | Refresh: read the backups in the folder the server hasn't read or written as they are now (by size and modification time), and merge their workspaces in; their shared settings are left. `{files, skipped, workspaces: {ATO: {added, changes}}}`. Not on the viewer port. |
 | `/api/finish_mission` | POST | Done with Mission: `{confirm: "DONE"}`. Everything in the backup folder but `tls/` goes to `Mission Archives/<when> <title>/`, and the next mission starts with only the basemaps; `{archive, mission}`. A 500 resets nothing. Not on the viewer port. |
 | `/api/missions` | GET | The finished missions, newest first: `{name, finished, by, title, workspaces: {ATO: reports}, settings: {overlays, tags, drones, profiles, format, narrative, fmv}}`. Not on the viewer port. |
@@ -328,8 +328,11 @@ Each report's Size (after destroyed BDA, `sizeAfterBda`) is split into elements 
 start of a type, T-72 matching T-72B3 but not T-720; a word matches a whole
 word, and the helicopter letters AH, UH, CH and OH only alone or with a model
 number, never as a grid's 100 km square; the longest name wins), which gives each element a role (armor,
-artillery, air defense, engineers and so on) and an origin (Russian, Chinese,
-or any army). `ECHELONS` turns a count into an approximate unit size.
+artillery, air defense, engineers and so on), an origin (Russian, Chinese,
+or any army) and how it moves (`gear`, from `CATALOGUE_GEAR` by the type's
+first name: tracked, wheeled, towed, portable, foot, air or static; aviation
+and people go by their role, and a type made both ways has none).
+`ECHELONS` turns a count into an approximate unit size.
 `narrativeJudgments` runs the fixed rules (`NARRATIVE_RULES`) over those facts
 per place and across the period; each judgment carries an ICD 203 likelihood
 (never past *very likely*), the reports behind it, and what would make it

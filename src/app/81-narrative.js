@@ -27,6 +27,8 @@ const ROLE_NAMES = Object.fromEntries(SaltCore.EQUIPMENT_ROLES);
 const NARR_TOWARD = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const narrToward = () => (NARR_TOWARD.includes(sharedNarrative.toward) ? sharedNarrative.toward : '');
 const ORIGIN_NAMES = { '': 'Any army', RU: 'Russian', CN: 'Chinese' };
+// How a type moves (SaltCore.RUNNING_GEARS), as the form and lists say it.
+const GEAR_NAMES = { '': 'Not said', tracked: 'Tracked', wheeled: 'Wheeled', towed: 'Towed', portable: 'Carried', foot: 'On foot', air: 'Flies', static: 'Fixed' };
 const CHEVRON = '<svg class="narr-chevron" viewBox="0 0 8 14" width="7" height="12" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 // Shown here at once; refused by the server, the settings go back to what
@@ -160,10 +162,10 @@ const unitsTab = () => {
 // What the catalogue makes of a name now: the team's entry, the built-in one, or nothing.
 const lookupSays = (type) => {
     if (!type.trim()) return '';
-    const said = k => `${ROLE_NAMES[k.role]} (${k.name}${k.origin ? `, ${ORIGIN_NAMES[k.origin]}` : ''})`;
+    const said = k => `${ROLE_NAMES[k.role]} (${k.name}${k.origin ? `, ${ORIGIN_NAMES[k.origin]}` : ''})${k.gear ? `, ${GEAR_NAMES[k.gear].toLowerCase()}` : ''}`;
     const own = SaltCore.lookupEquipment(type, SaltCore.teamEquipment(narrList('equipment')));
     const built = SaltCore.lookupEquipment(type);
-    if (own && (!built || own.role !== built.role || own.name !== built.name)) return `Yours: ${said(own)}.`;
+    if (own && (!built || own.role !== built.role || own.name !== built.name || own.gear !== built.gear)) return `Yours: ${said(own)}.`;
     return built ? `Built in: ${said(built)}.` : 'Not in the catalogue.';
 };
 const equipmentForm = (e) => `<div class="narr-form">
@@ -173,6 +175,8 @@ const equipmentForm = (e) => `<div class="narr-form">
         ${radios('data-narr-role', 'What it is', SaltCore.EQUIPMENT_ROLES, e.role)}
         <div class="narr-label">Army</div>
         ${radios('data-narr-origin', 'Army', Object.entries(ORIGIN_NAMES), e.origin || '')}
+        <div class="narr-label">Moves on</div>
+        ${radios('data-narr-gear', 'Moves on', Object.entries(GEAR_NAMES), e.gear || '')}
         ${formFoot(narrOpen.id !== null)}
     </div>`;
 const equipmentTab = () => {
@@ -198,7 +202,7 @@ const equipmentTab = () => {
             <div class="narr-says" id="narrEqFindSays"></div>
         </div>
         <div class="narr-label">Yours</div>
-        <div class="narr-list">${narrList('equipment').map((e, i) => row(i, e.type, `${ROLE_NAMES[e.role] || e.role} · ${ORIGIN_NAMES[e.origin || '']}`, narrId('equipment', e))).join('')
+        <div class="narr-list">${narrList('equipment').map((e, i) => row(i, e.type, `${ROLE_NAMES[e.role] || e.role} · ${ORIGIN_NAMES[e.origin || '']}${e.gear ? ` · ${GEAR_NAMES[e.gear] || e.gear}` : ''}`, narrId('equipment', e))).join('')
             || '<div class="narr-empty">None yet: the built-in catalogue only.</div>'}</div>
         ${addRow('Add a type')}
         <details class="narr-builtin"><summary>Built-in catalogue</summary>${builtIn}</details>`;
@@ -294,7 +298,8 @@ const readNarrForm = () => {
         const type = val('narrEqType').trim(), role = picked('data-narr-role')[0];
         if (!type) { showToast('Type the equipment name.', true); return null; }
         if (!role) { showToast(`Pick what ${type} is.`, true); return null; }
-        return { type, role, origin: picked('data-narr-origin')[0] || '' };
+        const gear = picked('data-narr-gear')[0] || '';
+        return { type, role, origin: picked('data-narr-origin')[0] || '', ...(gear ? { gear } : {}) };
     }
     const what = val('narrRuleWhat').trim(), words = val('narrRuleWords').trim();
     const min = Math.round(+val('narrRuleMin')), hours = Math.round(+val('narrRuleHours'));

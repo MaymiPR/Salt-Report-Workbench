@@ -222,6 +222,81 @@ const EQUIPMENT_CATALOGUE = [
     // logistics; a vic, tracked or wheeled, with nothing more, comes here.
     ...eqp('vehicle', '', [['vehicle', 'VIC', 'VEHICLE', 'VEH'], ['tracked vehicle', 'TRACKED'], ['wheeled vehicle', 'WHEELED']]),
 ];
+// How each type moves, its running gear: tracked, wheeled, towed (pulled by
+// another vehicle), portable (carried by people), foot (people themselves),
+// air (it flies) or static (emplaced, not a vehicle). By the type's first
+// name in the catalogue. A type made both ways (Pantsir: the S1 on wheels,
+// the SA on tracks), or a word that doesn't say (APC, SPG), has none, and is
+// counted neither way. Roles that say it themselves (aviation flies, people
+// walk) come from ROLE_GEAR.
+const RUNNING_GEARS = ['tracked', 'wheeled', 'towed', 'portable', 'foot', 'air', 'static'];
+const gearTable = (lists) => new Map(Object.entries(lists).flatMap(([gear, names]) => names.map(n => [n, gear])));
+const CATALOGUE_GEAR = gearTable({
+    tracked: [
+        'T-54', 'T-55', 'T-62', 'T-64', 'T-72', 'T-80', 'T-90', 'T-14', 'PT-76', '2S25', 'BMPT', 'BMP-1', 'BMP-2', 'BMP-3', 'BMD-1',
+        'BMD-2', 'BMD-3', 'BMD-4', 'BTR-D', 'BTR-MD', 'BTR-50', 'BTR-MDM', 'BTR-T', 'Kurganets-25', 'T-15', 'MT-LB', 'BRM-1K', 'BRM-3K',
+        'PRP-3', 'PRP-4', '1L219', 'SNAR-10', 'ARK-1', 'Uran-9', 'Nerekhta', 'Kurier', '2S1', '2S3', '2S4', '2S5', '2S7', '2S9', '2S19',
+        '2S31', '2S33', '2S34', '2S35', '2S42', 'TOS-1', 'TOS-3', 'BMO-T', 'TZM-T', 'ZSU-23-4', 'ZSU-57-2', '2S6', '2S38', 'BTR-ZD',
+        'Strela-10', 'Tor', 'Buk', 'Kub', 'Krug', 'Sosna', '9S18', 'Shturm', 'Khrizantema', 'BTR-RD', 'MTU-20', 'MTU-72', 'MTU-90',
+        'MT-55', 'PMM-2', 'GSP', 'K-61', 'PTS', 'IMR-2', 'IMR-3', 'IRM', 'BAT-2', 'BAT-M', 'MDK-3', 'BTM-3', 'BMR-3', 'KMT-7', 'KMT-8',
+        'UR-77', 'UR-07', 'GMZ-3', 'Uran-6', 'Prokhod-1', 'GAZ-3351', 'GAZ-3344', 'DT-30', 'DT-10', 'BREM', 'BREM-L', 'BREM-D', 'BREM-80U',
+        'BTS-2', 'BTS-4', 'BMP-1KSh', 'BMP-2K', 'BMD-1KSh', 'BMD-2K', '1V13', '1V119', '1V12', '1V14', '1V15', '1V16', 'Barnaul-T',
+        '9S737', 'PPRU-1', 'Borisoglebsk-2', 'Type 59', 'Type 62', 'Type 63A', 'Type 69', 'Type 79', 'Type 80', 'Type 85', 'Type 88',
+        'Type 96', 'Type 98', 'Type 99', 'Type 100', 'Type 15', 'VT4', 'ZTD-05', 'ZBD-04', 'ZBD-05', 'ZBD-03', 'ZBD-86', 'ZSD-05',
+        'ZSD-89', 'ZSD-63', 'YW531H', 'VN11', 'VN12', 'ZRY-222', 'PLZ-05', 'PLZ-07', 'PLZ-83', 'PLZ-89', 'PLZ-10', 'PLZ-45', 'WZ-302',
+        'PHZ-11', 'PHZ-89', 'WZ-303', 'PGZ-04', 'PGZ-07', 'PGZ-09', 'PGZ-88', 'PGZ-95', 'WZ-305', 'CLC-1', 'PTZ-89', 'GQL-410', 'GZM-003',
+        'GCZ-110', 'GCZ-112', 'GSL-130', 'GSL-132', 'GSL-133', 'WZ-653', 'Type 90-II ARV', 'tank', 'tracked vehicle'
+    ],
+    wheeled: [
+        'BTR-60', 'BTR-70', 'BTR-80', 'BTR-82', 'BTR-90', 'BTR-22', 'Typhoon', 'SBA-60K2', 'BPM-97', 'Ural-VV', 'BRDM-1', 'BRDM-2', '1B75',
+        'AZK-7', '2S23', '2S40', '2S43', '2S41', 'BM-21', '2B26', 'BM-27', '9K512', 'BM-30', 'Tornado-G', 'Tornado-S', 'Tornado', '9K59',
+        'TOS-2', '9T452', '9T234-2', 'Iskander', 'Tochka', 'Luna-M', 'K-300P', '3K60', 'Osa', 'Strela-1', 'S-350', 'S-400', 'S-500',
+        'Gibka-S', '96L6', 'P-18', 'P-19', 'Kasta', '48Ya6', 'TMM', 'PMP', 'PP-91', 'PP-2005', 'PPS-84', 'PZM-2', 'PZM-3', 'UR-67',
+        'Zemledeliye', 'EOV-4421', 'EOV-3521', 'EOV-3523', 'PBU-100', 'KS-3574', 'RKhM-4', 'RKhM-6', 'BRDM-2RKh', 'TMS-65', 'ARS-14',
+        'UTM-80M', 'TDA-2K', 'TDA-3', 'Ural', 'KamAZ', 'GAZ-66', 'GAZ-3308', 'GAZ-33097', 'ZIL-131', 'KrAZ', 'MAZ-537', 'MZKT-7930',
+        'BAZ-6403', 'ATZ', 'BREM-K', 'REM-KL', 'REM-KS', 'MTO-UB', 'PARM-1AM1', 'BMM-80', 'Linza', 'R-149', 'BTR-80K', 'R-145BM', 'R-142',
+        'R-166', 'R-439', 'R-419', 'R-416', 'P-260', '1V152', 'PU-12', 'Polyana-D4', 'Krasukha', 'Leer-3', 'Leer-2', 'Zhitel', 'Moskva-1',
+        'Palantin', 'Murmansk-BN', 'Infauna', 'Rtut-BM', 'Tirada-2', 'Bylina', 'Shipovnik-Aero', 'Repellent-1', '1L222', 'RB-636',
+        'R-330M1P', 'ZS-82', 'ZS-88', 'SPN-2', 'SPN-3', 'SPN-4', 'SPN-30', 'Divnomorye', 'UAZ-469', 'UAZ-452', 'Tigr', 'Vodnik',
+        'Iveco LMV', 'KamAZ-435029', 'Z-STS', 'AMN-590951', 'Sarmat-3', 'Sarmat-2', 'Chaborz M-3', 'Desertcross 1000-3', 'ZTL-11', 'ST-3',
+        'ZSL-92', 'ZBL-08', 'ZBL', 'ZBL-19', 'ZSL-10', 'ZSL-93', 'ZFB-91', 'ZFB-05', 'VN22', 'VN23', 'CS/VN4', 'VS27', 'SLC-2', 'Type 704',
+        'PCL-09', 'PCL-161', 'PCL-171', 'PCL-181', 'PLL-05', 'PLL-09', 'PCP-001', 'SH-1', 'SH-2', 'SH-5', 'SH-9', 'SH-11', 'CS/SH4',
+        'CS/SM4', 'PHL-03', 'PHL-16', 'PHL-11', 'PHL-81', 'PHL-90', 'PHL-20', 'AR-1', 'AR-2', 'AR-3', 'SR-5', 'WS-1', 'WS-2', 'WS-3',
+        'WS-22', 'WS-32', 'WS-33', 'WS-600L', 'SY-300', 'SY-400', 'A-200', 'A-300', 'WM-80', 'DF-11', 'DF-12', 'DF-15', 'DF-16', 'DF-17',
+        'DF-21', 'DF-26', 'DF-27', 'DF-31', 'DF-41', 'DF-61', 'CJ-10', 'CJ-100', 'CJ-1000', 'CM-501XA', 'CM-501GA', 'WS-43', 'PGL-625',
+        'PGL-12', 'SWS3', 'WZ-554', 'LD-2000', 'FK-3000', 'CS/SA1', 'CS/SA5', 'HQ-6', 'HQ-7', 'HQ-9', 'HQ-11', 'HQ-12', 'HQ-16', 'HQ-19',
+        'HQ-20', 'HQ-22', 'HQ-29', 'HQ-61', 'HQ-64', 'Yitian', 'FB-10', 'OW5', 'LY-1', 'Hurricane 3000', 'JY-11', 'JY-27', 'YLC-6',
+        'YLC-8', 'YLC-15', 'YLC-18', 'HT-233', 'AFT-9', 'PTL-02', 'GQL-110', 'GQL-111', 'GQL-120', 'GQL-321', 'ZRZ-100', 'GBL-130',
+        'GBL-132', 'GDG-130', 'Shacman', 'Sinotruk', 'EQ2100', 'EQ2081', 'EQ1108', 'FAW MV3', 'Taian', 'Wanshan', 'HY472', 'CA-141',
+        'CA-30', 'CA-10', 'NJ-130', 'NJ-230', 'CSZ-181', 'DWL-002', 'CTL-181A EW', 'Mengshi', 'CSK-141', 'CSK-181', 'CTL-181A', 'BJ2022',
+        'BJ2020', 'BJ212', 'BJ80', 'NJ2045', 'Lynx ATV', 'CS/VP4', 'CS/VP11', 'CS/VP15', 'CS/VP3', 'VP11', 'VP22', 'VN3', 'VN4', 'truck',
+        'ambulance', 'light vehicle', 'wheeled vehicle'
+    ],
+    towed: [
+        'D-20', 'D-30', 'D-1', 'M-30', 'BS-3', 'M-46', '2A36', '2A65', '2B16', '2B9', '2S12', 'PM-43', 'ZU-23-2', 'ZPU-4', 'S-60', 'S-125',
+        'S-75', '64N6', '67N6', '59N6', '36D6', '2A45', 'MT-12', 'PMZ-4', 'AH-2', 'AH-4', 'PL-66', 'PL-96', 'Type 59-1', 'PL-54',
+        'PL-54-1', 'PL-83', 'W86', 'PH-63', 'PG-87', 'PG-99', 'PG-74', 'LD-3000', 'HQ-2'
+    ],
+    portable: [
+        '1L271', '1L227', '2B14', '2B24', 'BM-37', 'Strela-2', 'Strela-3', 'Igla', 'Igla-S', 'Verba', 'Malyutka', 'Fagot', 'Metis',
+        'Metis-M', 'Kornet', 'RPG-7', 'RPG-18', 'RPG-22', 'RPG-26', 'RPG-27', 'RPG-28', 'RPG-29', 'RPG-30', 'RPG-32', 'RPO-A', 'MRO-A',
+        'RShG-1', 'RShG-2', 'SPG-9', 'Stupor', 'RP-377', 'Pishchal', 'PP-87', 'PP-89', 'PP-93', 'PBP-201', 'W84', 'QLT-89', 'QW-1', 'QW-2',
+        'QW-3', 'QW-4', 'QW-18', 'FN-6', 'FN-16', 'HN-5', 'HN-6', 'QN-202', 'HJ-73', 'HJ-8', 'HJ-12', 'PF-89', 'PF-98', 'PF-11', 'PF-97',
+        'DZJ-08', 'FHJ-01', 'FHJ-84', 'PF-78', 'PF-65', 'PF-56', 'FPH-01', 'FPH-02'
+    ],
+    air: [
+        'Orlan-10', 'Zala', 'Eleron-3', 'Forpost', 'Granat', 'Takhion', 'Supercam', 'Merlin-VR', 'Lancet', 'Geran-2', 'Kub-BLA', 'Gerbera',
+        'Garpiya', 'Italmas', 'Molniya', 'KVN', 'VT-40', 'Skalpel', 'Mi-8MTPR-1', 'Khibiny', 'ASN-206', 'ASN-207', 'ASN-209', 'BZK-005',
+        'BZK-006', 'BZK-007', 'BZK-008', 'BZK-009', 'WZ-7', 'TB-001', 'CH-3', 'CH-901', 'ASN-301', 'J-16D', 'J-15D', 'Y-8CA', 'Y-8CB',
+        'Y-8DZ', 'Y-8GX1', 'Y-8GX3', 'Y-8GX7', 'Y-8JB', 'Y-8EW', 'Y-9DZ', 'Y-9LG', 'FPV'
+    ],
+    static: [
+        'Pole-21', 'Tobol', 'Samarkand', 'DF-5', 'JLG-43'
+    ],
+});
+const ROLE_GEAR = { air: 'air', infantry: 'foot' };
+const builtInGear = (name, role) => CATALOGUE_GEAR.get(name) || ROLE_GEAR[role] || '';
+
 const normType = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
 // AH, UH, CH and OH are short enough to turn up elsewhere: CH and AH are
 // 100 km squares too ("11S CH 12345 67890"). So one is read only as a word
@@ -233,14 +308,15 @@ const shortHeloTest = (words) => {
     const re = new RegExp(`(?<!\\b\\d{1,2}[C-HJ-NP-X] )\\b${words}(?: ?\\d{1,3}[A-Z]{0,2})?(?![A-Z0-9])(?! \\d)`);
     return (w) => re.test(w);
 };
-// Names to match, longest first so the most specific one wins.
-const equipmentKeysOf = (entries) => entries.flatMap(([role, origin, name, ...more]) =>
+// Names to match, longest first so the most specific one wins. `gearOf`
+// gives an entry's running gear from its first name and role.
+const equipmentKeysOf = (entries, gearOf = builtInGear) => entries.flatMap(([role, origin, name, ...more]) =>
     [...new Set([name, ...more])].map(k => {
         const words = normType(k), compact = words.replace(/ /g, '');
         const test = /\d/.test(compact)
             ? (w, c) => c.startsWith(compact) && !/\d/.test(c[compact.length] || '')
             : SHORT_HELOS.has(words) ? shortHeloTest(words) : (w) => ` ${w} `.includes(` ${words} `);
-        return { role, origin, name, len: compact.length, test };
+        return { role, origin, name, gear: gearOf(name, role), len: compact.length, test };
     // The general vehicle words (vic, tracked, wheeled) come last, whatever
     // their length: "wheeled APC" is an APC, and only a bare vic is just a vehicle.
     })).filter(k => k.len).sort((a, b) => (a.role === 'vehicle') - (b.role === 'vehicle') || b.len - a.len);
@@ -249,7 +325,7 @@ const equipmentKeys = () => equipmentIndex || (equipmentIndex = equipmentKeysOf(
 const equipmentSeen = new Map();
 const findKey = (keys, w) => {
     const hit = keys.find(k => k.test(w, w.replace(/ /g, '')));
-    return hit ? { role: hit.role, origin: hit.origin, name: hit.name } : null;
+    return hit ? { role: hit.role, origin: hit.origin, name: hit.name, gear: hit.gear } : null;
 };
 // How much of a type as written the catalogue (and the team's entries,
 // `team`, when given) knows: the length of the name it matches (TANK,
@@ -264,7 +340,8 @@ const knownType = (text, team = null) => {
     const own = team && team.length ? team.find(k => k.test(w, w.replace(/ /g, ''))) : null;
     return Math.max(typesKnown.get(w), own ? own.len : 0);
 };
-// { role, origin, name } for a type (T-72B3, 2S19 MSTA-S, trucks), or null.
+// { role, origin, name, gear } for a type (T-72B3, 2S19 MSTA-S, trucks), or
+// null; `gear` is its running gear (RUNNING_GEARS), or '' when not known.
 // `team` is the team's own entries (teamEquipment), which win over the
 // built-in ones: a type added, or a built-in one put right.
 const lookupEquipment = (type, team = null) => {
@@ -280,5 +357,12 @@ const lookupEquipment = (type, team = null) => {
     if (!equipmentSeen.has(w)) equipmentSeen.set(w, find(equipmentKeys(), bareBy(null)));
     return equipmentSeen.get(w);
 };
-// The team's entries ({ type, role, origin }), ready for lookupEquipment.
-const teamEquipment = (list) => equipmentKeysOf((list || []).map(e => [e.role, e.origin || '', e.type]));
+// The team's entries ({ type, role, origin, gear }), ready for
+// lookupEquipment. An entry that doesn't say how it moves keeps what the
+// catalogue says of its type (a T-72 put right stays tracked), else goes by
+// its role.
+const teamEquipment = (list) => {
+    const gear = new Map((list || []).map(e => [e.type, RUNNING_GEARS.includes(e.gear) ? e.gear : '']));
+    return equipmentKeysOf((list || []).map(e => [e.role, e.origin || '', e.type]),
+        (name, role) => gear.get(name) || (lookupEquipment(name) || {}).gear || ROLE_GEAR[role] || '');
+};

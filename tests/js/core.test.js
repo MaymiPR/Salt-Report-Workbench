@@ -1568,6 +1568,34 @@ test('the equipment catalogue knows Russian and Chinese systems, and plain words
     });
 });
 
+test('the catalogue says how each type moves, and leaves unsaid what is made both ways', () => {
+    const gear = t => core.lookupEquipment(t).gear;
+    const cases = {
+        'T-72B3': 'tracked', 'BMP-2': 'tracked', 'BTR-D': 'tracked', '2S19': 'tracked', 'Tor-M2': 'tracked', 'Type 99A': 'tracked', 'ZBD-04A': 'tracked',
+        'BTR-82A': 'wheeled', 'BM-21': 'wheeled', 'Iskander-M': 'wheeled', 'Osa': 'wheeled', 'ZBL-08': 'wheeled', 'PCL-181': 'wheeled', 'TRUCK': 'wheeled',
+        'D-30': 'towed', 'ZU-23-2': 'towed', Kornet: 'portable', 'Igla-S': 'portable', 'Orlan-10': 'air', Lancet: 'air', 'Mi-8': 'air', PAX: 'foot',
+        TANK: 'tracked', tracked: 'tracked', 'wheeled vics': 'wheeled', 'Pantsir-S1': '', APC: '', 'S-300': '', Kalibr: '',
+    };
+    Object.entries(cases).forEach(([t, want]) => assert.equal(gear(t), want, t));
+    // Every name in the table is a type's first name, and every gear one of the known ones.
+    const firsts = new Set(core.EQUIPMENT_CATALOGUE.map(e => e[2]));
+    core.CATALOGUE_GEAR.forEach((g, name) => {
+        assert.ok(firsts.has(name), `${name}: not a type's first name`);
+        assert.ok(core.RUNNING_GEARS.includes(g), `${name}: ${g}`);
+    });
+    // Most ground types say it; aviation and people go by their role.
+    const ground = core.EQUIPMENT_CATALOGUE.filter(([role]) => !['air', 'infantry'].includes(role));
+    assert.ok(ground.filter(e => core.CATALOGUE_GEAR.has(e[2])).length / ground.length > 0.85);
+    core.EQUIPMENT_CATALOGUE.filter(([role]) => role === 'air').forEach(([, , name]) => assert.equal(gear(name), 'air', name));
+    // The team's own: as they say, else by the role; a gear not known is not said.
+    const team = core.teamEquipment([{ type: 'BTR-4', role: 'mech', gear: 'wheeled' }, { type: 'Gizmo', role: 'air' },
+        { type: 'Widget', role: 'mech', gear: 'legs' }, { type: 'T-72', role: 'armor', origin: 'RU' }]);
+    assert.equal(core.lookupEquipment('BTR-4', team).gear, 'wheeled');
+    assert.equal(core.lookupEquipment('Gizmo', team).gear, 'air');
+    assert.equal(core.lookupEquipment('Widget', team).gear, '');
+    assert.equal(core.lookupEquipment('T-72B3', team).gear, 'tracked', 'put right by the team without a gear: the catalogue says');
+});
+
 test('a count suggests a unit size, approximately', () => {
     assert.equal(core.echelonOf('maneuver', 2), 'section');
     assert.equal(core.echelonOf('maneuver', 3), 'platoon');
