@@ -161,7 +161,7 @@ const distText = (m) => (m < 1000 ? `${Math.max(100, Math.round(m / 100) * 100)}
 // Meters from a point to an overlay: 0 inside an area, else to its edge;
 // to a line, the line; to a point, the point.
 const metersToOverlay = (g, pt) => {
-    const a = asArea(g);
+    const a = areaOf(g);
     if (!a) return Infinity;
     if (geometryContains(a, pt.lon, pt.lat)) return 0;
     const at = ([lon, lat]) => metersBetween(pt, { lon, lat });
@@ -171,6 +171,30 @@ const metersToOverlay = (g, pt) => {
     if (a.type === 'MultiPolygon') return Math.min(...a.coordinates.flat().map(r => metersToLine(pt.lon, pt.lat, r)));
     return metersToGeometry(a, pt.lon, pt.lat);
 };
+// No more than metersToOverlay gives (its box's distance, from boxOf), and
+// quick: an overlay further than this from a point needn't be measured.
+// 0 for points, which are measured on the sphere.
+const metersAtLeast = (g, pt) => {
+    const a = areaOf(g);
+    return a && /LineString|Polygon/.test(a.type) ? metersToBox(boxOf(a.coordinates), pt.lon, pt.lat) : 0;
+};
+// The NAIs and OBJs that may be within `m` of a point (overlayIndex's
+// places, in order): those whose box is further are not.
+const placesWithin = (pt, overlays, m) => {
+    const kx = 111320 * Math.cos(pt.lat * Math.PI / 180);
+    return overlayIndex(overlays).places.filter(p => metersToBox(p.box, pt.lon, pt.lat, kx) <= m);
+};
+// What `of(pt, overlays, m)` gives, kept with the overlays' index by what
+// it is, the point and the distance: the same each time (so not to be
+// changed), and every report is read again on every drawing.
+const nearKept = (what, of) => (pt, overlays, m) => {
+    const kept = overlayIndex(overlays).near, k = `${what}|${m}|${pt.lon}|${pt.lat}`;
+    if (!kept.has(k)) {
+        if (kept.size >= LOCATIONS_KEPT) kept.clear();
+        kept.set(k, of(pt, overlays, m));
+    }
+    return kept.get(k);
+};
 // Each OBJ, nearest first: the report nearest it at its latest grid, how
 // far, and, when its track has moved, whether it closed on it (at least
 // CLOSE_MIN_METERS from its first grid to its last: km/h) or drew away.
@@ -179,7 +203,10 @@ const objectivesOf = (facts, overlays) => overlays.filter(o => overlayOk(o) && o
     let best = null;
     facts.forEach(f => {
         if (!f.track) return;
-        const d = metersToOverlay(o.geometry, f.track.points[f.track.points.length - 1]);
+        const pt = f.track.points[f.track.points.length - 1];
+        // Further than the nearest so far: not nearer, so not measured.
+        if (best && metersAtLeast(o.geometry, pt) > best.d) return;
+        const d = metersToOverlay(o.geometry, pt);
         if (isFinite(d) && (!best || d < best.d || (d === best.d && f.ms > best.f.ms))) best = { f, d };
     });
     if (!best) return null;
@@ -272,10 +299,10 @@ const middleOf = (g) => {
     const pts = ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1] ? ring.slice(0, -1) : ring;
     return pts.length ? { lon: pts.reduce((n, c) => n + c[0], 0) / pts.length, lat: pts.reduce((n, c) => n + c[1], 0) / pts.length } : null;
 };
-const losTargets = (pt, overlays, max = LOS_MAX_METERS) => (overlays || []).filter(o => overlayOk(o) && (o.type === 'NAI' || o.type === 'OBJ'))
-    .map(o => ({ key: overlayKey(o), g: asArea(o.geometry), d: metersToOverlay(o.geometry, pt) }))
+const losTargets = nearKept('los', (pt, overlays, max = LOS_MAX_METERS) => placesWithin(pt, overlays, max)
+    .map(p => ({ key: p.key, g: p.g, d: metersToOverlay(p.o.geometry, pt) }))
     .filter(t => t.d <= max).sort((x, y) => x.d - y.d || x.key.localeCompare(y.key)).slice(0, LOS_AREAS)
-    .map(t => ({ key: t.key, d: t.d, inside: t.d === 0, ends: t.d === 0 ? [] : [nearestOn(t.g, pt), middleOf(t.g)].filter(Boolean) }));
+    .map(t => ({ key: t.key, d: t.d, inside: t.d === 0, ends: t.d === 0 ? [] : [nearestOn(t.g, pt), middleOf(t.g)].filter(Boolean) })));
 // The points along a line whose heights are read, each with how far along it is.
 const losSamples = (a, b) => {
     const d = metersBetween(a, b), out = [];
@@ -284,10 +311,13 @@ const losSamples = (a, b) => {
 };
 // Whether a can see b: { state: 'seen' }, { state: 'hidden', x, over } (the
 // ground that hides it most, how far along and how far above the
-// sightline), or { state: 'waiting' } while a height on the way isn't in.
+// sightline), { state: 'nodata' } when the source has no height at either
+// end (null: water, or past its coverage), or { state: 'waiting' } while a
+// height on the way isn't in (not in the map at all: still being asked).
 const losCheck = (a, b, heights) => {
     const at = (p) => heights.get(terrainKey(p.lon, p.lat));
     const ha = at(a), hb = at(b), samples = losSamples(a, b), hs = samples.map(at);
+    if (ha === null || hb === null) return { state: 'nodata' };
     if (typeof ha !== 'number' || typeof hb !== 'number' || hs.some(h => h === undefined)) return { state: 'waiting' };
     const d = metersBetween(a, b), eye = ha + LOS_EYE_METERS, tip = hb + LOS_TARGET_METERS;
     let worst = null;
@@ -299,20 +329,25 @@ const losCheck = (a, b, heights) => {
     return worst ? { state: 'hidden', ...worst } : { state: 'seen' };
 };
 // An observer's sight of each area near it (within `max`): in it, seen
-// (along either line), hidden (along both: the edge line's ground said), or
-// waiting; with `d`, how far it is to the area's edge.
+// (along either line), hidden (along both: the edge line's ground said),
+// waiting, or nodata (no height from the source at an end of a line, and
+// neither line seen); with `d`, how far it is to the area's edge.
+const NO_HEIGHT = 'no height here from the elevation source';
 const sightOf = (pt, overlays, heights, max = LOS_MAX_METERS) => losTargets(pt, overlays, max).map(t => {
     if (t.inside) return { key: t.key, d: 0, state: 'in' };
     const r = t.ends.map(e => losCheck(pt, e, heights));
     if (r.some(x => x.state === 'seen')) return { key: t.key, d: t.d, state: 'seen' };
     if (r.some(x => x.state === 'waiting')) return { key: t.key, d: t.d, state: 'waiting' };
+    if (r.some(x => x.state === 'nodata')) return { key: t.key, d: t.d, state: 'nodata' };
     return { key: t.key, d: t.d, ...r[0] };
 });
 const sightText = (sight) => {
     const inIt = sight.filter(s => s.state === 'in').map(s => s.key), seen = sight.filter(s => s.state === 'seen').map(s => s.key);
+    const none = sight.filter(s => s.state === 'nodata').map(s => s.key);
     return [inIt.length && `in ${andList(inIt)}`, seen.length && `sees into ${andList(seen)}`,
         ...sight.filter(s => s.state === 'hidden').map(s => `${s.key} hidden by ground at ${distText(s.x)}, ${Math.round(s.over)} m above the sightline`),
-        ...sight.filter(s => s.state === 'waiting').map(s => `${s.key} not known yet`)].filter(Boolean).join('; ');
+        ...sight.filter(s => s.state === 'waiting').map(s => `${s.key} not known yet`),
+        none.length && `${andList(none)} not known: ${NO_HEIGHT}`].filter(Boolean).join('; ');
 };
 // --- Reach ---
 // What a report's weapons reach: the furthest of each kind among its types
@@ -335,9 +370,9 @@ const directReach = (f) => {
     return r && inPosition(f) ? Math.min(r.m, REACH_LOS_MAX_METERS) : 0;
 };
 // The NAIs and OBJs within `m` of a point, nearest first, with how far each is.
-const areasWithin = (pt, overlays, m) => (overlays || []).filter(o => overlayOk(o) && (o.type === 'NAI' || o.type === 'OBJ'))
-    .map(o => ({ key: overlayKey(o), d: metersToOverlay(o.geometry, pt) })).filter(t => t.d <= m)
-    .sort((x, y) => x.d - y.d || x.key.localeCompare(y.key));
+const areasWithin = nearKept('areas', (pt, overlays, m) => placesWithin(pt, overlays, m)
+    .map(p => ({ key: p.key, d: metersToOverlay(p.o.geometry, pt) })).filter(t => t.d <= m)
+    .sort((x, y) => x.d - y.d || x.key.localeCompare(y.key)));
 // A report's reach into the areas: { direct, indirect, ad }, each the reach
 // ({ m, kind, by }) with its `areas` (for direct fire, sightOf's, or each
 // with state 'unknown' without heights), or null when it reaches none.
@@ -365,6 +400,7 @@ const reachText = (reach) => ['direct', 'indirect', 'ad'].filter(k => reach[k] &
     return `${head}: ${[hit.length && `covers ${andList(hit.map(a => (a.state === 'in' ? `${a.key} (in it)` : `${a.key} (${distText(a.d)})`)))}`,
         of('hidden').length && `${andList(of('hidden').map(a => a.key))} in range but hidden by ground`,
         of('waiting').length && `${andList(of('waiting').map(a => a.key))} in range, line of sight not known yet`,
+        of('nodata').length && `${andList(of('nodata').map(a => a.key))} in range, line of sight not known: ${NO_HEIGHT}`,
         of('unknown').length && `${andList(of('unknown').map(a => a.key))} in range, line of sight not known without an elevation source`]
         .filter(Boolean).join('; ')}`;
 }).join('; ');
@@ -424,7 +460,8 @@ const sightPicture = (r, overlays = [], settings = null, terrain = null) => {
 };
 // The line of sight from a to b, for the map's tool: { state, d, x, over,
 // block, points }: seen, hidden (where and by how much), waiting (heights
-// still to come), off (no elevation source) or far (past
+// still to come), nodata (the source has no height at an end), off (no
+// elevation source) or far (past
 // LOS_TOOL_MAX_METERS, not checked); `points` are the heights it reads.
 const LOS_TOOL_MAX_METERS = 20000;
 const losBetween = (a, b, terrain = null) => {
@@ -1485,7 +1522,7 @@ const SUPPORT_WORD = { recon: 'recon', fires: 'artillery', ad: 'air defense', at
 // (what was seen, by kind), the assessment (one line a judgment, grouped),
 // what to watch for, the gaps and the collection they call for, and an
 // annex with each judgment's basis, doctrine, unit and confidence.
-const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays = [], width = 100, terrain = null }) => {
+const narrativeLayout = (cur, prev, { local, hrs, end, places, settings, overlays = [], terrain = null }) => {
     const set = narrativeSettings(settings);
     const axes = axesOf(overlays);
     const march = set.toward || axes.length ? { axes, toward: set.toward } : null;
@@ -1510,10 +1547,13 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
     const reaching = facts.filter(f => f.reach), threats = threatsOf(facts);
     const observers = facts.filter(f => f.sight && f.sight.length);
     const seeing = observers.filter(f => f.sight.some(s => s.state === 'seen' || s.state === 'in'));
-    const out = [], shown = [];
-    const say = (text, first = '   ', rest = first) => out.push(...wrapText(text, first, rest, width));
-    const item = (text) => say(text, '   - ', '     ');
-    const bluf = (text) => say(text, '      ', '      ');
+    // The page the lines go on, at a width: the lines, and how text is
+    // written on it (said, as an item, in the bottom line).
+    const sheet = (width) => {
+        const out = [];
+        const say = (text, first = '   ', rest = first) => out.push(...wrapText(text, first, rest, width));
+        return { out, say, item: (text) => say(text, '   - ', '     '), bluf: (text) => say(text, '      ', '      ') };
+    };
     const cite = (list, max = 4) => {
         const l = byTime(list);
         return l.slice(0, max).map(f => `${f.hedged ? `${f.hedged} ` : ''}${f.id} ${dayTime(f.ms, local)}`).join(', ') + (l.length > max ? ` and ${l.length - max} more` : '');
@@ -1521,11 +1561,14 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
     const prevNote = prev ? ` (previous ${hrs} hrs: ${prev.length})` : '';
 
     if (!facts.length) {
-        say(`No reports in this period${prevNote}.`, 'BLUF: ', '      ');
-        out.push('', '1. SITUATION');
-        say(`No reports in this period${prevNote}.`);
-        out.push('', '2. ENEMY FORCES', '   None reported.', '', '3. ASSESSMENT', '   None: no reports to assess.', '');
-        return { lines: out, judgments: shown, annex: null };
+        return (width) => {
+            const { out, say } = sheet(width), shown = [];
+            say(`No reports in this period${prevNote}.`, 'BLUF: ', '      ');
+            out.push('', '1. SITUATION');
+            say(`No reports in this period${prevNote}.`);
+            out.push('', '2. ENEMY FORCES', '   None reported.', '', '3. ASSESSMENT', '   None: no reports to assess.', '');
+            return { lines: out, judgments: shown, annex: null };
+        };
     }
 
     // --- What the reports say, worked out first: the bottom line needs it ---
@@ -1615,9 +1658,15 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
     const withGrid = facts.filter(f => f.a.points.length);
     if (!heights) gaps.push('Terrain: no elevation source, so no heights or slopes; pick one in the Narrative settings, under Terrain.');
     else {
-        const waits = (f) => [...(f.sight || []), ...(f.reach && f.reach.direct ? f.reach.direct.areas : [])].filter(s => s.state === 'waiting').length;
-        const n = facts.reduce((k, f) => k + waits(f), 0);
-        if (n) gaps.push(`Line of sight into ${plural(n, 'area')} not known yet: the heights along the way are still being asked.`);
+        // Still being asked (or not coming: the source's note says why), and
+        // none to be had from the source.
+        const count = (state) => facts.reduce((k, f) => k + [...(f.sight || []), ...(f.reach && f.reach.direct ? f.reach.direct.areas : [])].filter(s => s.state === state).length, 0);
+        const n = count('waiting'), none = count('nodata');
+        if (n) {
+            gaps.push(`Line of sight into ${plural(n, 'area')} not known yet`
+                + `${terrain.note ? ` (the source: ${terrain.note.replace(/[.]$/, '')})` : ': the heights along the way are still being asked'}.`);
+        }
+        if (none) gaps.push(`Line of sight into ${plural(none, 'area')} not known: no height from the elevation source at one end of the line.`);
     }
     // Types that fight with a reach the catalogue doesn't give (deep strike
     // and drones aside: their reach is past the areas), when there are areas.
@@ -1640,210 +1689,216 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
             + `${terrain.note ? ` (the source: ${terrain.note.replace(/[.]$/, '')})` : ' (still being asked, or the source has none there)'}.`);
     }
 
-    // --- BLUF ---
-    // The strongest judgment, and the strongest of another group (a defense
-    // beside an attack), no more than a step weaker and at least likely.
-    const lead = judged[0];
-    if (lead) {
-        const also = judged.slice(1).find(x => x.group !== lead.group && x.j.level >= Math.max(LIKELY, lead.j.level - 1));
-        say(`${lead.term.toUpperCase()} that ${lead.whom} ${lead.what} (${lead.letter}). Confidence: ${lead.sure}.`
-            + (also ? ` At the same time, ${also.term.toUpperCase()} that ${also.whom === lead.whom ? 'they' : also.whom} ${also.what} (${also.letter}). Confidence: ${also.sure}.` : ''),
-        'BLUF: ', '      ');
-    } else {
-        say(`No pattern this tool looks for in ${plural(facts.length, 'report')}; the situation is below.`, 'BLUF: ', '      ');
-    }
-    // The force: its largest sighting (armor first), and the combat support seen with it.
-    const main = largest.find(l => l.kind === 'maneuver') || largest[0];
-    const support = roleList.filter(r => r in SUPPORT_WORD).map(r => SUPPORT_WORD[r]);
-    if (main) bluf(`Strength: largest single sighting ${main.text}${support.length ? `; with ${andList(support)}` : ''}.`);
-    else if (roleList.length) bluf(`Strength: no unit size from the reports; ${andList(roleList.map(r => label[r]))} reported.`);
-    if (mobility) bluf(`Mobility: ${mobility} (${moving.tracked || 0} tracked, ${moving.wheeled || 0} wheeled).`);
-    if (objectives.length) bluf(`Closest: ${objText(objectives[0])}.`);
-    if (threats.length) {
-        bluf(`Threat: ${threats.slice(0, 3).map(t => `${t.key}: ${['direct', 'indirect', 'ad'].filter(k => t[k]).map(k => `${REACH_WORD[k]} (${t[k]})`).join(', ')}`).join('; ')}`
-            + `${threats.length > 3 ? `; and ${plural(threats.length - 3, 'more area')}` : ''}.`);
-    }
-    const grounded = facts.filter(f => f.ground), highUp = grounded.filter(f => f.high);
-    const steep = facts.filter(f => has(f, 'Moving') && vehiclesIn(f.mob) >= 4 && slopeRead(f));
-    const covered = facts.filter(f => f.ground && f.ground.rise !== null && f.ground.rise >= CREST_METERS && f.roles.has('fires') && has(f, 'Stationary', 'Emplacing', 'Firing'));
-    if (grounded.length) {
-        const hs = grounded.map(f => f.ground.h);
-        bluf(`Terrain: reports at ${Math.round(Math.min(...hs))} to ${Math.round(Math.max(...hs))} m`
-            + `${highUp.length ? `; ${highUp.length} on high ground${highUp.some(f => f.places.length) ? ` (${andList([...new Set(highUp.flatMap(f => f.places))].slice(0, 3))})` : ''}` : ''}`
-            + `${steep.length ? `; ${plural(steep.length, 'column')} on slopes too steep for ${steep.length === 1 ? 'it' : 'them'}` : ''}`
-            + `${covered.length ? `; ${covered.length} artillery behind a crest` : ''}`
-            + `${seeing.length ? `; ${plural(seeing.length, 'observer')} can see into ${andList([...new Set(seeing.flatMap(f => f.sight.filter(s => s.state === 'seen' || s.state === 'in').map(s => s.key)))].slice(0, 3))}` : ''}.`);
-    }
-    const trend = prev ? `, ${facts.length > prev.length ? 'up from' : facts.length < prev.length ? 'down from' : 'the same as'} ${prev.length} in the previous ${hrs} hrs` : '';
-    bluf(`Activity: ${plural(facts.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''}${trend}`
-        + `${places.length ? `; busiest ${places.slice(0, 2).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}${tempo ? `; tempo ${tempo.word}` : ''}.`);
-    const last = facts[facts.length - 1];
-    const where = last.places.length ? last.places.join(', ') : last.a.points.length ? last.a.points[0].mgrs : (last.r.location || 'no location');
-    bluf(`Latest: ${last.id} ${dayTime(last.ms, local)}, ${where}: ${last.shown || '-'}, ${last.r.activity || '-'}.`);
-    if (watchList.length) bluf(`Watch for: ${watchList.slice(0, 3).join('; ')}.`);
-    if (blufGap) bluf(`Gap: ${quietBrief || blufGap}`);
+    // The layout, at any width: the same reading each time.
+    return (width) => {
+        const { out, say, item, bluf } = sheet(width), shown = [];
 
-    // --- 1. SITUATION: what the reports say ---
-    out.push('', '1. SITUATION');
-    item(`${plural(facts.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''}, ${dayTime(facts[0].ms, local)} to ${dayTime(last.ms, local)}`
-        + `${prevNote}; ${placed} in an NAI or OBJ`
-        + `${places.length ? `, most in ${places.slice(0, 3).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}.`);
-    if (tempo) {
-        const avg = tempo.avg < 10 ? Math.round(tempo.avg * 10) / 10 : Math.round(tempo.avg);
-        item(`Tempo: ${tempo.last ? plural(tempo.last, 'report') : 'none'} in the last ${TEMPO_HOURS} hrs, against about ${avg} per ${TEMPO_HOURS} hrs before: `
-            + `${tempo.word}${!tempo.last ? ', or a gap in coverage' : ''}.`);
-    }
-    // Where they headed.
-    const heads = new Map();
-    facts.forEach(f => { if (f.act.heading) { const h = HEADINGS_8[Math.round(f.act.headingDeg / 45) % 8]; heads.set(h, (heads.get(h) || 0) + 1); } });
-    if (heads.size) item(`Movement: headed ${[...heads].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).slice(0, 3).map(([h, n]) => `${h} (${n})`).join(', ')}.`);
-    // The way of march, when there is one, and how the reports moving moved against it.
-    if (march) {
-        const ways = [set.toward && `toward ${set.toward} in the AO`,
-            axes.length && `along ${andList(axes.map(a => a.key))} within ${AXIS_NEAR_METERS / 1000} km of ${axes.length === 1 ? 'it' : 'them'}`].filter(Boolean);
-        const moved = facts.filter(f => f.sense);
-        const n = (s) => moved.filter(f => f.sense === s).length;
-        item(`Way of march: ${ways.join('; ')}.${moved.length ? ` Of ${plural(moved.length, 'report')} moving there: ${n('along')} along it, ${n('back')} back along it, ${n('across')} across it.` : ''}`);
-    }
-    // Phase lines crossed (from tracks) and reported at; the objectives, nearest first.
-    const atPl = new Map();
-    facts.forEach(f => f.pls.forEach(p => { if (!atPl.has(p)) atPl.set(p, []); atPl.get(p).push(f); }));
-    if (crossings.length || atPl.size) {
-        const crossed = crossings.slice(0, 4).map(c => `${c.f.id} crossed ${c.key} by ${dayTime(Date.parse(c.time), local)}, moving ${c.dir}`);
-        const near = [...atPl].sort((x, y) => y[1].length - x[1].length || x[0].localeCompare(y[0])).slice(0, 3)
-            .map(([p, l]) => `at ${p}: ${plural(l.length, 'report')}, the last ${l[l.length - 1].id} ${dayTime(l[l.length - 1].ms, local)}`);
-        item(`Phase lines: ${[...crossed, ...near].join('; ')}${crossings.length > 4 ? `; and ${crossings.length - 4} earlier crossings` : ''}.`);
-    }
-    if (objectives.length) item(`Objectives: ${objectives.slice(0, 4).map(objText).join('; ')}.`);
-    if (newKit.length || newPlaces.length) {
-        item(`New this period: ${[newKit.length && `first sightings of ${andList(newKit.slice(0, 6))}${newKit.length > 6 ? ` and ${newKit.length - 6} more` : ''}`,
-            newPlaces.length && `activity in ${andList(newPlaces.slice(0, 4))} for the first time`].filter(Boolean).join('; ')}.`);
-    }
-    // Any firing, the latest three.
-    const shots = facts.filter(f => f.act.tags.includes('Firing'));
-    if (shots.length) {
-        item(`Firing: ${plural(shots.length, 'report')}: ${shots.slice(-3).reverse().map(f => `${f.id} ${dayTime(f.ms, local)} ${f.shown || '-'}, ${f.r.activity || '-'}`).join('; ')}`
-            + `${shots.length > 3 ? `; and ${shots.length - 3} earlier` : ''}.`);
-    }
-    // Each busy place as last seen: when, what, doing what, and how what
-    // was there moves.
-    if (places.length) {
-        item('Latest by place:');
-        places.slice(0, 6).forEach(p => {
-            const list = at(p.label), last = list[list.length - 1], mix = mixText(addCounts(list));
-            const ground = list.filter(f => f.ground), hs = ground.map(f => f.ground.h), slopes = ground.map(f => f.ground.slope).filter(v => v !== null);
-            const lie = hs.length ? `; ground ${Math.round(Math.min(...hs))}${Math.max(...hs) - Math.min(...hs) >= 1 ? ` to ${Math.round(Math.max(...hs))}` : ''} m`
-                + `${slopes.length ? `, steepest ${Math.round(Math.max(...slopes))}%` : ''}` : '';
-            // Whose area it is, from the unit list (not from the reports).
-            const whose = set.units.filter(u => u.places.some(q => q.toUpperCase() === p.label.toUpperCase())).map(u => u.name);
-            say(`${p.label}${whose.length ? ` (area of ${andList(whose)})` : ''}: ${plural(list.length, 'report')}, the last ${last.id} ${dayTime(last.ms, local)}: `
-                + `${last.shown || '-'}, ${last.r.activity || '-'}${mix ? `; in all ${mix}` : ''}${lie}.`, '       ', '         ');
+        // --- BLUF ---
+        // The strongest judgment, and the strongest of another group (a defense
+        // beside an attack), no more than a step weaker and at least likely.
+        const lead = judged[0];
+        if (lead) {
+            const also = judged.slice(1).find(x => x.group !== lead.group && x.j.level >= Math.max(LIKELY, lead.j.level - 1));
+            say(`${lead.term.toUpperCase()} that ${lead.whom} ${lead.what} (${lead.letter}). Confidence: ${lead.sure}.`
+                + (also ? ` At the same time, ${also.term.toUpperCase()} that ${also.whom === lead.whom ? 'they' : also.whom} ${also.what} (${also.letter}). Confidence: ${also.sure}.` : ''),
+            'BLUF: ', '      ');
+        } else {
+            say(`No pattern this tool looks for in ${plural(facts.length, 'report')}; the situation is below.`, 'BLUF: ', '      ');
+        }
+        // The force: its largest sighting (armor first), and the combat support seen with it.
+        const main = largest.find(l => l.kind === 'maneuver') || largest[0];
+        const support = roleList.filter(r => r in SUPPORT_WORD).map(r => SUPPORT_WORD[r]);
+        if (main) bluf(`Strength: largest single sighting ${main.text}${support.length ? `; with ${andList(support)}` : ''}.`);
+        else if (roleList.length) bluf(`Strength: no unit size from the reports; ${andList(roleList.map(r => label[r]))} reported.`);
+        if (mobility) bluf(`Mobility: ${mobility} (${moving.tracked || 0} tracked, ${moving.wheeled || 0} wheeled).`);
+        if (objectives.length) bluf(`Closest: ${objText(objectives[0])}.`);
+        if (threats.length) {
+            bluf(`Threat: ${threats.slice(0, 3).map(t => `${t.key}: ${['direct', 'indirect', 'ad'].filter(k => t[k]).map(k => `${REACH_WORD[k]} (${t[k]})`).join(', ')}`).join('; ')}`
+                + `${threats.length > 3 ? `; and ${plural(threats.length - 3, 'more area')}` : ''}.`);
+        }
+        const grounded = facts.filter(f => f.ground), highUp = grounded.filter(f => f.high);
+        const steep = facts.filter(f => has(f, 'Moving') && vehiclesIn(f.mob) >= 4 && slopeRead(f));
+        const covered = facts.filter(f => f.ground && f.ground.rise !== null && f.ground.rise >= CREST_METERS && f.roles.has('fires') && has(f, 'Stationary', 'Emplacing', 'Firing'));
+        if (grounded.length) {
+            const hs = grounded.map(f => f.ground.h);
+            bluf(`Terrain: reports at ${Math.round(Math.min(...hs))} to ${Math.round(Math.max(...hs))} m`
+                + `${highUp.length ? `; ${highUp.length} on high ground${highUp.some(f => f.places.length) ? ` (${andList([...new Set(highUp.flatMap(f => f.places))].slice(0, 3))})` : ''}` : ''}`
+                + `${steep.length ? `; ${plural(steep.length, 'column')} on slopes too steep for ${steep.length === 1 ? 'it' : 'them'}` : ''}`
+                + `${covered.length ? `; ${covered.length} artillery behind a crest` : ''}`
+                + `${seeing.length ? `; ${plural(seeing.length, 'observer')} can see into ${andList([...new Set(seeing.flatMap(f => f.sight.filter(s => s.state === 'seen' || s.state === 'in').map(s => s.key)))].slice(0, 3))}` : ''}.`);
+        }
+        const trend = prev ? `, ${facts.length > prev.length ? 'up from' : facts.length < prev.length ? 'down from' : 'the same as'} ${prev.length} in the previous ${hrs} hrs` : '';
+        bluf(`Activity: ${plural(facts.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''}${trend}`
+            + `${places.length ? `; busiest ${places.slice(0, 2).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}${tempo ? `; tempo ${tempo.word}` : ''}.`);
+        const last = facts[facts.length - 1];
+        const where = last.places.length ? last.places.join(', ') : last.a.points.length ? last.a.points[0].mgrs : (last.r.location || 'no location');
+        bluf(`Latest: ${last.id} ${dayTime(last.ms, local)}, ${where}: ${last.shown || '-'}, ${last.r.activity || '-'}.`);
+        if (watchList.length) bluf(`Watch for: ${watchList.slice(0, 3).join('; ')}.`);
+        if (blufGap) bluf(`Gap: ${quietBrief || blufGap}`);
+
+        // --- 1. SITUATION: what the reports say ---
+        out.push('', '1. SITUATION');
+        item(`${plural(facts.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''}, ${dayTime(facts[0].ms, local)} to ${dayTime(last.ms, local)}`
+            + `${prevNote}; ${placed} in an NAI or OBJ`
+            + `${places.length ? `, most in ${places.slice(0, 3).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}.`);
+        if (tempo) {
+            const avg = tempo.avg < 10 ? Math.round(tempo.avg * 10) / 10 : Math.round(tempo.avg);
+            item(`Tempo: ${tempo.last ? plural(tempo.last, 'report') : 'none'} in the last ${TEMPO_HOURS} hrs, against about ${avg} per ${TEMPO_HOURS} hrs before: `
+                + `${tempo.word}${!tempo.last ? ', or a gap in coverage' : ''}.`);
+        }
+        // Where they headed.
+        const heads = new Map();
+        facts.forEach(f => { if (f.act.heading) { const h = HEADINGS_8[Math.round(f.act.headingDeg / 45) % 8]; heads.set(h, (heads.get(h) || 0) + 1); } });
+        if (heads.size) item(`Movement: headed ${[...heads].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).slice(0, 3).map(([h, n]) => `${h} (${n})`).join(', ')}.`);
+        // The way of march, when there is one, and how the reports moving moved against it.
+        if (march) {
+            const ways = [set.toward && `toward ${set.toward} in the AO`,
+                axes.length && `along ${andList(axes.map(a => a.key))} within ${AXIS_NEAR_METERS / 1000} km of ${axes.length === 1 ? 'it' : 'them'}`].filter(Boolean);
+            const moved = facts.filter(f => f.sense);
+            const n = (s) => moved.filter(f => f.sense === s).length;
+            item(`Way of march: ${ways.join('; ')}.${moved.length ? ` Of ${plural(moved.length, 'report')} moving there: ${n('along')} along it, ${n('back')} back along it, ${n('across')} across it.` : ''}`);
+        }
+        // Phase lines crossed (from tracks) and reported at; the objectives, nearest first.
+        const atPl = new Map();
+        facts.forEach(f => f.pls.forEach(p => { if (!atPl.has(p)) atPl.set(p, []); atPl.get(p).push(f); }));
+        if (crossings.length || atPl.size) {
+            const crossed = crossings.slice(0, 4).map(c => `${c.f.id} crossed ${c.key} by ${dayTime(Date.parse(c.time), local)}, moving ${c.dir}`);
+            const near = [...atPl].sort((x, y) => y[1].length - x[1].length || x[0].localeCompare(y[0])).slice(0, 3)
+                .map(([p, l]) => `at ${p}: ${plural(l.length, 'report')}, the last ${l[l.length - 1].id} ${dayTime(l[l.length - 1].ms, local)}`);
+            item(`Phase lines: ${[...crossed, ...near].join('; ')}${crossings.length > 4 ? `; and ${crossings.length - 4} earlier crossings` : ''}.`);
+        }
+        if (objectives.length) item(`Objectives: ${objectives.slice(0, 4).map(objText).join('; ')}.`);
+        if (newKit.length || newPlaces.length) {
+            item(`New this period: ${[newKit.length && `first sightings of ${andList(newKit.slice(0, 6))}${newKit.length > 6 ? ` and ${newKit.length - 6} more` : ''}`,
+                newPlaces.length && `activity in ${andList(newPlaces.slice(0, 4))} for the first time`].filter(Boolean).join('; ')}.`);
+        }
+        // Any firing, the latest three.
+        const shots = facts.filter(f => f.act.tags.includes('Firing'));
+        if (shots.length) {
+            item(`Firing: ${plural(shots.length, 'report')}: ${shots.slice(-3).reverse().map(f => `${f.id} ${dayTime(f.ms, local)} ${f.shown || '-'}, ${f.r.activity || '-'}`).join('; ')}`
+                + `${shots.length > 3 ? `; and ${shots.length - 3} earlier` : ''}.`);
+        }
+        // Each busy place as last seen: when, what, doing what, and how what
+        // was there moves.
+        if (places.length) {
+            item('Latest by place:');
+            places.slice(0, 6).forEach(p => {
+                const list = at(p.label), last = list[list.length - 1], mix = mixText(addCounts(list));
+                const ground = list.filter(f => f.ground), hs = ground.map(f => f.ground.h), slopes = ground.map(f => f.ground.slope).filter(v => v !== null);
+                const lie = hs.length ? `; ground ${Math.round(Math.min(...hs))}${Math.max(...hs) - Math.min(...hs) >= 1 ? ` to ${Math.round(Math.max(...hs))}` : ''} m`
+                    + `${slopes.length ? `, steepest ${Math.round(Math.max(...slopes))}%` : ''}` : '';
+                // Whose area it is, from the unit list (not from the reports).
+                const whose = set.units.filter(u => u.places.some(q => q.toUpperCase() === p.label.toUpperCase())).map(u => u.name);
+                say(`${p.label}${whose.length ? ` (area of ${andList(whose)})` : ''}: ${plural(list.length, 'report')}, the last ${last.id} ${dayTime(last.ms, local)}: `
+                    + `${last.shown || '-'}, ${last.r.activity || '-'}${mix ? `; in all ${mix}` : ''}${lie}.`, '       ', '         ');
+            });
+        }
+
+        // --- 2. ENEMY FORCES: what was seen, by kind ---
+        out.push('', '2. ENEMY FORCES');
+        if (roleList.length) {
+            item(`Equipment reported: ${roleList.map(r => `${label[r]} (${[...roles.get(r)].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
+                .map(([t, n]) => typeCount(t, n, kitOf.get(t))).join(', ')})`).join('; ')}.`);
+        } else item('Equipment reported: none the catalogue knows.');
+        // Vehicles given only as tracked or wheeled, and how the rules read them.
+        const geared = facts.filter(f => f.gear);
+        if (geared.length) {
+            const tracked = geared.reduce((n, f) => n + f.gear.tracked, 0), wheeled = geared.reduce((n, f) => n + f.gear.wheeled, 0);
+            const read = !wheeled ? 'all tracked: read as armor or mechanized forces'
+                : !tracked ? 'all wheeled: read as supply vehicles or motorized columns'
+                    : { tracked: 'mostly tracked: read as armor or mechanized forces, the wheeled as their support',
+                        wheeled: 'mostly wheeled: read as supply or motorized columns, the tracked as their escort',
+                        mixed: 'a mix: read as mechanized forces with their supply vehicles' }[gearMix(tracked, wheeled)];
+            item(`Tracked and wheeled (type not given): ${tracked} tracked, ${wheeled} wheeled in ${plural(geared.length, 'report')}; ${read}.`);
+        }
+        // How it all moves, and the columns seen moving with their rates of march.
+        if (mixText(moving)) {
+            item(`Mobility: ${mixText(moving)}${mobility ? `; ${mobility}` : ''}${moving.towed ? '; towed guns are slow to move and to set up' : ''}.`);
+        }
+        const columns = facts.filter(f => has(f, 'Moving') && vehiclesIn(f.mob) >= 4);
+        if (columns.length) {
+            item(`Columns (4 or more vehicles moving): ${columns.slice(-4).reverse().map(f => {
+                const where = f.places.length ? `, ${f.places.join(', ')}` : '', speed = speedRead(f.rate, f.mob), mix = mixText(f.mob), slope = slopeRead(f);
+                return `${f.id} ${dayTime(f.ms, local)}${where}: ${vehiclesIn(f.mob)} vehicles${mix ? ` (${mix})` : ''}${f.act.heading ? `, heading ${f.act.heading}` : ''}`
+                    + `${f.rate ? `, ${kmhText(f.rate.kmh)}` : ''}${speed ? ` (${speed})` : ''}${slope ? `, ${slope}` : ''}`;
+            }).join('; ')}${columns.length > 4 ? `; and ${columns.length - 4} earlier` : ''}.`);
+        }
+        if (covered.length) {
+            item(`Behind a crest: ${covered.slice(-4).reverse().map(f => `${f.id} ${dayTime(f.ms, local)}${f.places.length ? `, ${f.places.join(', ')}` : ''}: ${f.shown}, `
+                + `the ground ${Math.round(f.ground.rise)} m higher ${TERRAIN_AHEAD_METERS} m ahead (${f.way.dir}), a covered firing position`).join('; ')}`
+                + `${covered.length > 4 ? `; and ${covered.length - 4} earlier` : ''}.`);
+        }
+        // Line of sight from each observer, the latest four.
+        observers.slice(-4).reverse().forEach(f => item(`Line of sight, ${f.id} ${dayTime(f.ms, local)} (${f.shown || '-'}, ${Math.round(f.ground.h)} m): ${sightText(f.sight)}.`));
+        if (observers.length > 4) item(`Line of sight: ${plural(observers.length - 4, 'more observer')} not shown.`);
+        // What each report's weapons reach, the latest four.
+        reaching.slice(-4).reverse().forEach(f => item(`Reach, ${f.id} ${dayTime(f.ms, local)} (${f.shown || '-'}): ${reachText(f.reach)}.`));
+        if (reaching.length > 4) item(`Reach: ${plural(reaching.length - 4, 'more report')} not shown.`);
+        if (highUp.length) {
+            item(`High ground: ${highUp.slice(-4).reverse().map(f => `${f.id} ${dayTime(f.ms, local)}${f.places.length ? `, ${f.places.join(', ')}` : ''}: ${f.shown || '-'}, `
+                + `${Math.round(f.ground.h)} m${f.overlooks ? `, overlooking ${f.overlooks}` : ''}`).join('; ')}${highUp.length > 4 ? `; and ${highUp.length - 4} earlier` : ''}.`);
+        }
+        if (army) {
+            item(origins.RU && origins.CN
+                ? `Equipment by design: Russian ${origins.RU}, Chinese ${origins.CN}; each judgment uses the doctrine of the equipment in its reports.`
+                : `Identified equipment is of ${ARMIES[army]} design (${origins[army]} ${origins[army] === 1 ? 'vehicle or system' : 'vehicles and systems'}), so the assessment uses ${army === 'RU' ? 'Russian' : 'PLA'} doctrine.`);
+        }
+        if (largest.length) item(`Largest single sightings: ${largest.map(l => l.text).join('; ')}.`);
+
+        // --- 3. ASSESSMENT: one line a judgment ---
+        out.push('', '3. ASSESSMENT');
+        if (!judged.length) say("No assessment: the reports in this period don't match any of the patterns this tool looks for.");
+        groups.forEach(g => {
+            out.push(`   ${g.toUpperCase()}`);
+            judged.filter(x => x.group === g).forEach(x => {
+                say(`${x.term.toUpperCase()} that ${x.whom} ${x.what}. Confidence: ${x.sure}.`, `   ${x.letter}. `, '      ');
+                shown.push({ rule: x.j.rule, level: x.j.level, line: out.length - 1, detail: null, sources: [...new Set(x.j.list.map(f => reportKey(f.r)))] });
+            });
         });
-    }
+        // How many more there were is said, not hidden.
+        if (all.length > top.length) {
+            say(`${plural(all.length - top.length, 'more judgment')} at ${ICD203[all[top.length].level][0]} or less not shown; a shorter window, or rules switched off in the settings, narrows them.`);
+        }
 
-    // --- 2. ENEMY FORCES: what was seen, by kind ---
-    out.push('', '2. ENEMY FORCES');
-    if (roleList.length) {
-        item(`Equipment reported: ${roleList.map(r => `${label[r]} (${[...roles.get(r)].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
-            .map(([t, n]) => typeCount(t, n, kitOf.get(t))).join(', ')})`).join('; ')}.`);
-    } else item('Equipment reported: none the catalogue knows.');
-    // Vehicles given only as tracked or wheeled, and how the rules read them.
-    const geared = facts.filter(f => f.gear);
-    if (geared.length) {
-        const tracked = geared.reduce((n, f) => n + f.gear.tracked, 0), wheeled = geared.reduce((n, f) => n + f.gear.wheeled, 0);
-        const read = !wheeled ? 'all tracked: read as armor or mechanized forces'
-            : !tracked ? 'all wheeled: read as supply vehicles or motorized columns'
-                : { tracked: 'mostly tracked: read as armor or mechanized forces, the wheeled as their support',
-                    wheeled: 'mostly wheeled: read as supply or motorized columns, the tracked as their escort',
-                    mixed: 'a mix: read as mechanized forces with their supply vehicles' }[gearMix(tracked, wheeled)];
-        item(`Tracked and wheeled (type not given): ${tracked} tracked, ${wheeled} wheeled in ${plural(geared.length, 'report')}; ${read}.`);
-    }
-    // How it all moves, and the columns seen moving with their rates of march.
-    if (mixText(moving)) {
-        item(`Mobility: ${mixText(moving)}${mobility ? `; ${mobility}` : ''}${moving.towed ? '; towed guns are slow to move and to set up' : ''}.`);
-    }
-    const columns = facts.filter(f => has(f, 'Moving') && vehiclesIn(f.mob) >= 4);
-    if (columns.length) {
-        item(`Columns (4 or more vehicles moving): ${columns.slice(-4).reverse().map(f => {
-            const where = f.places.length ? `, ${f.places.join(', ')}` : '', speed = speedRead(f.rate, f.mob), mix = mixText(f.mob), slope = slopeRead(f);
-            return `${f.id} ${dayTime(f.ms, local)}${where}: ${vehiclesIn(f.mob)} vehicles${mix ? ` (${mix})` : ''}${f.act.heading ? `, heading ${f.act.heading}` : ''}`
-                + `${f.rate ? `, ${kmhText(f.rate.kmh)}` : ''}${speed ? ` (${speed})` : ''}${slope ? `, ${slope}` : ''}`;
-        }).join('; ')}${columns.length > 4 ? `; and ${columns.length - 4} earlier` : ''}.`);
-    }
-    if (covered.length) {
-        item(`Behind a crest: ${covered.slice(-4).reverse().map(f => `${f.id} ${dayTime(f.ms, local)}${f.places.length ? `, ${f.places.join(', ')}` : ''}: ${f.shown}, `
-            + `the ground ${Math.round(f.ground.rise)} m higher ${TERRAIN_AHEAD_METERS} m ahead (${f.way.dir}), a covered firing position`).join('; ')}`
-            + `${covered.length > 4 ? `; and ${covered.length - 4} earlier` : ''}.`);
-    }
-    // Line of sight from each observer, the latest four.
-    observers.slice(-4).reverse().forEach(f => item(`Line of sight, ${f.id} ${dayTime(f.ms, local)} (${f.shown || '-'}, ${Math.round(f.ground.h)} m): ${sightText(f.sight)}.`));
-    if (observers.length > 4) item(`Line of sight: ${plural(observers.length - 4, 'more observer')} not shown.`);
-    // What each report's weapons reach, the latest four.
-    reaching.slice(-4).reverse().forEach(f => item(`Reach, ${f.id} ${dayTime(f.ms, local)} (${f.shown || '-'}): ${reachText(f.reach)}.`));
-    if (reaching.length > 4) item(`Reach: ${plural(reaching.length - 4, 'more report')} not shown.`);
-    if (highUp.length) {
-        item(`High ground: ${highUp.slice(-4).reverse().map(f => `${f.id} ${dayTime(f.ms, local)}${f.places.length ? `, ${f.places.join(', ')}` : ''}: ${f.shown || '-'}, `
-            + `${Math.round(f.ground.h)} m${f.overlooks ? `, overlooking ${f.overlooks}` : ''}`).join('; ')}${highUp.length > 4 ? `; and ${highUp.length - 4} earlier` : ''}.`);
-    }
-    if (army) {
-        item(origins.RU && origins.CN
-            ? `Equipment by design: Russian ${origins.RU}, Chinese ${origins.CN}; each judgment uses the doctrine of the equipment in its reports.`
-            : `Identified equipment is of ${ARMIES[army]} design (${origins[army]} ${origins[army] === 1 ? 'vehicle or system' : 'vehicles and systems'}), so the assessment uses ${army === 'RU' ? 'Russian' : 'PLA'} doctrine.`);
-    }
-    if (largest.length) item(`Largest single sightings: ${largest.map(l => l.text).join('; ')}.`);
+        // --- 4. WATCH FOR, 5. GAPS AND COLLECTION ---
+        out.push('', '4. WATCH FOR');
+        if (watchList.length) watchList.forEach(item);
+        else out.push('   Nothing more than the judgments already show.');
+        out.push('', '5. GAPS AND COLLECTION');
+        if (gaps.length) gaps.forEach(item);
+        else out.push('   None.');
 
-    // --- 3. ASSESSMENT: one line a judgment ---
-    out.push('', '3. ASSESSMENT');
-    if (!judged.length) say("No assessment: the reports in this period don't match any of the patterns this tool looks for.");
-    groups.forEach(g => {
-        out.push(`   ${g.toUpperCase()}`);
-        judged.filter(x => x.group === g).forEach(x => {
-            say(`${x.term.toUpperCase()} that ${x.whom} ${x.what}. Confidence: ${x.sure}.`, `   ${x.letter}. `, '      ');
-            shown.push({ rule: x.j.rule, level: x.j.level, line: out.length - 1, detail: null, sources: [...new Set(x.j.list.map(f => reportKey(f.r)))] });
-        });
-    });
-    // How many more there were is said, not hidden.
-    if (all.length > top.length) {
-        say(`${plural(all.length - top.length, 'more judgment')} at ${ICD203[all[top.length].level][0]} or less not shown; a shorter window, or rules switched off in the settings, narrows them.`);
-    }
+        // --- ANNEX A: each judgment in full ---
+        let annex = null;
+        if (judged.length) {
+            out.push('', 'ANNEX A. JUDGMENT DETAIL');
+            annex = [out.length - 1, 0];
+            judged.forEach((x, i) => {
+                say(`${x.term.toUpperCase()} (${x.pct}) that ${x.whom} ${x.what}.`, `   ${x.letter}. `, '      ');
+                const from = out.length;
+                say(`Basis: ${x.j.basis}.`, '      ', '      ');
+                const doctrine = DOCTRINE[x.j.rule] && DOCTRINE[x.j.rule][x.o];
+                if (doctrine) {
+                    const whose = x.mine ? `${ARMIES[x.o]} equipment in these reports${x.own.RU && x.own.CN ? `, ${x.own[x.o]} of ${x.own.RU + x.own.CN}` : ''}` : `${ARMIES[x.o]} equipment in the period`;
+                    say(`Doctrine (${whose}): ${doctrine}`, '      ', '      ');
+                }
+                if (x.whom !== set.enemy) {
+                    say(`Unit: from the unit list, ${x.units.map(u => `${u.name} (${[u.places.join(', ') || 'anywhere', u.kinds.map(k => label[k]).join(', ')].filter(Boolean).join('; ')})`).join('; ')}.`, '      ', '      ');
+                }
+                say(`Confidence: ${x.confidence}.`, '      ', '      ');
+                if (x.j.watch.length) say(`Watch for: ${x.j.watch.join('; ')}.`, '      ', '      ');
+                shown[i].detail = [from, out.length];
+            });
+            annex[1] = out.length;
+        }
 
-    // --- 4. WATCH FOR, 5. GAPS AND COLLECTION ---
-    out.push('', '4. WATCH FOR');
-    if (watchList.length) watchList.forEach(item);
-    else out.push('   Nothing more than the judgments already show.');
-    out.push('', '5. GAPS AND COLLECTION');
-    if (gaps.length) gaps.forEach(item);
-    else out.push('   None.');
-
-    // --- ANNEX A: each judgment in full ---
-    let annex = null;
-    if (judged.length) {
-        out.push('', 'ANNEX A. JUDGMENT DETAIL');
-        annex = [out.length - 1, 0];
-        judged.forEach((x, i) => {
-            say(`${x.term.toUpperCase()} (${x.pct}) that ${x.whom} ${x.what}.`, `   ${x.letter}. `, '      ');
-            const from = out.length;
-            say(`Basis: ${x.j.basis}.`, '      ', '      ');
-            const doctrine = DOCTRINE[x.j.rule] && DOCTRINE[x.j.rule][x.o];
-            if (doctrine) {
-                const whose = x.mine ? `${ARMIES[x.o]} equipment in these reports${x.own.RU && x.own.CN ? `, ${x.own[x.o]} of ${x.own.RU + x.own.CN}` : ''}` : `${ARMIES[x.o]} equipment in the period`;
-                say(`Doctrine (${whose}): ${doctrine}`, '      ', '      ');
-            }
-            if (x.whom !== set.enemy) {
-                say(`Unit: from the unit list, ${x.units.map(u => `${u.name} (${[u.places.join(', ') || 'anywhere', u.kinds.map(k => label[k]).join(', ')].filter(Boolean).join('; ')})`).join('; ')}.`, '      ', '      ');
-            }
-            say(`Confidence: ${x.confidence}.`, '      ', '      ');
-            if (x.j.watch.length) say(`Watch for: ${x.j.watch.join('; ')}.`, '      ', '      ');
-            shown[i].detail = [from, out.length];
-        });
-        annex[1] = out.length;
-    }
-
-    out.push('');
-    say('NOTE: SITUATION and ENEMY FORCES are what the reports say; counts are as reported, and the same vehicles may be in more than one report.'
-        + ' ASSESSMENT comes from fixed rules over the cited reports, in full in Annex A. Likelihood terms follow ICD 203: '
-        + `${ICD203.map(([t, p]) => `${t} ${p}`).join(', ')}. Confidence (high, moderate, low) rests on how many reports and observers support a judgment.`
-        + ' Doctrine follows the design of the equipment in each judgment\'s reports (Russian or Chinese), else the period\'s.'
-        + `${set.units.length ? ' Units are named from the unit list, not from the reports.' : ''}`, '', '');
-    return { lines: out, judgments: shown, annex };
+        out.push('');
+        say('NOTE: SITUATION and ENEMY FORCES are what the reports say; counts are as reported, and the same vehicles may be in more than one report.'
+            + ' ASSESSMENT comes from fixed rules over the cited reports, in full in Annex A. Likelihood terms follow ICD 203: '
+            + `${ICD203.map(([t, p]) => `${t} ${p}`).join(', ')}. Confidence (high, moderate, low) rests on how many reports and observers support a judgment.`
+            + ' Doctrine follows the design of the equipment in each judgment\'s reports (Russian or Chinese), else the period\'s.'
+            + `${set.units.length ? ' Units are named from the unit list, not from the reports.' : ''}`, '', '');
+        return { lines: out, judgments: shown, annex };
+    };
 };
+const narrativeLines = (cur, prev, { width = 100, ...opts }) => narrativeLayout(cur, prev, opts)(width);

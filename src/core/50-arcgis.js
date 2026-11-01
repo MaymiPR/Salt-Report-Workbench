@@ -16,6 +16,8 @@
 const arcgisRows = (reps, overlays, { local, customLabels = [], idOf, team = null, all = false }) => {
     const rows = []; let skipped = 0;
     const field = l => 'c_' + String(l).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    // A time that can't be read is none ('').
+    const iso = d => { const x = timeOf(d); return x ? x.toISOString().replace(/\.\d{3}Z$/, 'Z') : ''; };
     for (const r of reps) {
         if (r.deleted) continue;
         const versions = all
@@ -30,7 +32,7 @@ const arcgisRows = (reps, overlays, { local, customLabels = [], idOf, team = nul
                 const row = {
                     report_id: idOf(r), ato: r.ato || '', title: r.title || '',
                     ...(all ? { version: `${n + 1}/${versions.length}`, latest: v === r ? 'yes' : 'no' } : {}),
-                    time_utc: v.time ? new Date(v.time).toISOString().replace(/\.\d{3}Z$/, 'Z') : '',
+                    time_utc: iso(v.time),
                     time_disp: v.time ? toTimeString(v.time, local) : '',
                     size: v === r ? effectiveSize(r, team) : v.size || '', size_logged: v.size || '', activity: v.activity || '',
                     act_tags: act.tags.join('; '), heading: act.heading || '', heading_deg: act.headingDeg,
