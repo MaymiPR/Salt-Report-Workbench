@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.42.0] - 2026-11-01
+
 ### Fixed
 
 - **A broken character no longer stops the backups.** Half of an emoji (left
@@ -1814,7 +1816,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.41.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.42.0...HEAD
+[2.42.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.41.0...v2.42.0
 [2.41.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.40.0...v2.41.0
 [2.40.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.39.0...v2.40.0
 [2.39.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.38.0...v2.39.0
