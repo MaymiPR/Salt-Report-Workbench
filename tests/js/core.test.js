@@ -397,6 +397,31 @@ test('the copied text, the Statistics and the summaries read the Size after BDA'
     assert.equal(core.parseBackup(core.backupText('ALPHA', [r], 'Patrol', {}, {}, NOW)).data.workspaces.ALPHA[0].size, '20x T-72, 2x BMP-2');
 });
 
+test('a report with no time, or one that cannot be read, is in no hour or day, and the exports give it none', () => {
+    // null is not 1 January 1970: it is no time, as '' is.
+    const reps = [report({ id: 'a', displayId: 'ALPHA001', location: '38SMB4500082000' }), report({ id: 'b', displayId: 'ALPHA002', time: null, location: '38SMB4500082000' }),
+        report({ id: 'c', displayId: 'ALPHA003', time: 'not a time', location: '38SMB4500082000' }), report({ id: 'd', displayId: 'ALPHA004', time: '', location: '38SMB4500082000' })];
+    const d = core.statsData(reps, [], { local: false });
+    assert.equal(d.kpis.reports, 4, 'each still counts as a report');
+    assert.deepEqual(d.days, [{ label: '2026-10-24', value: 1 }]);
+    assert.deepEqual(d.hours.filter(h => h.value), [{ label: '04', value: 1 }]);
+    // The workbook: a date for the one with a time, an empty cell for the rest.
+    const wb = core.workbookReportRows(reps, [], { local: false, idOf: x => x.displayId });
+    const at = wb.header.indexOf('Time (Z)');
+    assert.deepEqual(wb.rows.map(row => row[at]), [{ date: core.excelSerial(Date.parse('2026-10-24T04:12:00Z'), false) }, '', '', '']);
+    // The summaries leave out all three alike.
+    const roll = core.summaryReport('rollup', reps, [], { local: false, now: NOW }).split('\n');
+    assert.ok(roll.includes('   1 report. 1 with a grid; 0 in an NAI or OBJ.'), roll.join('\n'));
+    // ArcGIS points and tracks: no time, rather than a throw.
+    const pts = core.arcgisRows(reps, [], { local: false, idOf: x => x.id }).rows;
+    assert.deepEqual(pts.map(p => p.time_utc), ['2026-10-24T04:12:00Z', '', '', '']);
+    const moved = report({ id: 'm', location: '38SMB4500082000', time: 'garbled', history: [{ location: '38SMB4000082000', time: null, lastModified: 1 }] });
+    const tr = core.arcgisTrackRows([moved], { local: false, idOf: x => x.id });
+    assert.deepEqual(tr.map(t => [t.start_utc, t.end_utc]), [['', '']]);
+    const all = core.arcgisRows([moved], [], { local: false, idOf: x => x.id, all: true }).rows;
+    assert.deepEqual(all.map(p => p.time_utc), ['', '']);
+});
+
 test('the MTI export counts what is left of the current version', () => {
     const r = report({ size: '6x tracked', bda: [dest('2x tracked')], history: [{ size: '5x tracked', lastModified: 1, time: '2026-10-24T01:00:00Z' }] });
     const mti = core.mtiCsvs([r], { local: false, idOf: x => x.fullId });

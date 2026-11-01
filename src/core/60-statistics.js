@@ -132,8 +132,9 @@ const statsData = (reps, overlays, { local, squareDigits = 1, team = null } = {}
         (act.tags.length ? act.tags : ['Untagged']).forEach(t => add(tags, t));
         if (act.headingDeg !== null) headings[Math.round(act.headingDeg / 45) % 8]++;
         sizeElements(effectiveSize(r, team), team).forEach(e => add(equipment, e.type, e.count));
-        const d = new Date(r.time);
-        if (!isNaN(d.getTime())) {
+        // No time (null, '') or one that can't be read counts in no hour or day.
+        const d = timeOf(r.time);
+        if (d) {
             const f = dateFields(d, local);
             hours[+f.h]++;
             add(days, `${f.y}-${f.mo}-${f.day}`);
@@ -190,10 +191,10 @@ const workbookReportRows = (reps, overlays, { local, idOf, customLabels = [], te
     const rows = live.map(r => {
         const a = analyzeLocation(r.location, overlays);
         const act = classifyActivity(r.activity);
-        const ms = new Date(r.time).getTime();
+        const t = timeOf(r.time);
         const b = bdaSummary(r);
         return [idOf(r), r.updated ? 'Updated' : 'Original', (r.user && r.user.initials) || '', sizes.get(r).size, r.activity || '',
-            r.location || '', isNaN(ms) ? '' : { date: excelSerial(ms, local) }, r.yourAnalysis || '',
+            r.location || '', t ? { date: excelSerial(t.getTime(), local) } : '', r.yourAnalysis || '',
             [...a.nai.keys, ...a.obj.keys, ...a.pls].join(', '), act.tags.join(', '), act.heading || '',
             b.done ? `${b.done} of ${b.total}` : '', ...(logged ? [r.size || ''] : []), (r.history || []).length,
             ...customLabels.map(c => (r.custom || {})[c] || '')];
@@ -445,12 +446,14 @@ const countList = (items) => items.map(i => `${i.label} ${i.value}`).join(', ');
 
 // What the summaries need about each report, worked out once. `size` is its
 // Size after BDA (sizeAfterBda; `shown` to print), what they count and quote.
+// `ms` is NaN for no time or one that can't be read, which the summaries leave out.
 const reportFacts = (r, overlays, team = null) => {
     const a = analyzeLocation(r.location, overlays);
     const act = classifyActivity(r.activity);
     const size = sizeAfterBda(r, team);
+    const t = timeOf(r.time);
     return {
-        r, a, act, ms: new Date(r.time).getTime(), size: size.size, shown: size.shown,
+        r, a, act, ms: t ? t.getTime() : NaN, size: size.size, shown: size.shown,
         places: [...a.nai.keys, ...a.obj.keys],
         pls: a.pls,
     };
