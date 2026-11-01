@@ -239,7 +239,12 @@ geographic, Web Mercator and UTM).
 Nothing derived is stored. Each Location box is read on the fly by
 `analyzeLocation` in `core/30-geography.js` (grids, typed names, the areas the grids fall
 in, the nearest phase line, and checks where the two disagree), cached in the
-page by text until the overlays change. MGRS uses Krüger's series for UTM and
+page by text until the overlays change. The core keeps its own answers too,
+with an index of each overlay list (`overlayIndex`: the areas, each ring's
+box, the phase lines' boxes), used only while the list holds the same
+overlays, one for one; a point outside a box is outside what is in it, and a
+phase line whose box is further than the nearest so far isn't measured, so
+the answers are the same as reading every overlay. MGRS uses Krüger's series for UTM and
 picks the northing that lands inside the latitude band, which also refuses
 typos; `tests/js/mgrs-vectors.json` holds reference points from the NGA's
 GeoTrans to check it against.
@@ -422,7 +427,11 @@ reports behind it by id; and the annex's lines. The page ends each entry with
 a *Details* button that opens that detail and *From* with those reports as
 buttons, and folds the annex into one line (`showSummaryText` in
 `app/80-summary.js`); the text it copies, saves and prints is
-`summaryReport`'s alone, the same bytes, the annex in full.
+`summaryReport`'s alone, the same bytes, the annex in full. The page asks
+once for both (`screen`, the width it shows, beside the 100 columns), so the
+narrative is read once (`narrativeLayout` gives its lines at any width), and
+builds it again only when what it is built from has changed, putting back
+the Details that were open and the keyboard's place.
 
 The team's settings (`{enemy, units, equipment, off, custom, toward}`) are one set per
 server, like the overlays: they arrive in `/api/sync` as `narrative`, are kept

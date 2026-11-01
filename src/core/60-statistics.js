@@ -102,6 +102,9 @@ const gridSquare = (mgrs, digits) => {
 };
 
 const HEADINGS_8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+// Names in number order ("NAI 2" before "NAI 10"): what localeCompare with
+// { numeric: true } gives, from one collator made once.
+const byNumber = new Intl.Collator(undefined, { numeric: true }).compare;
 
 // Everything the Statistics panel draws, for the live reports given (already
 // cut to the time window). Each report counts once per place, square, tag, or
@@ -141,7 +144,7 @@ const statsData = (reps, overlays, { local, squareDigits = 1, team = null } = {}
         }
     }
     const sorted = map => [...map].map(([label, value]) => ({ label, value }))
-        .sort((x, y) => y.value - x.value || x.label.localeCompare(y.label, undefined, { numeric: true }));
+        .sort((x, y) => y.value - x.value || byNumber(x.label, y.label));
     // Every day from the first to the last, so a quiet day shows as zero.
     const dayList = [];
     const keys = [...days.keys()].sort();
@@ -516,9 +519,11 @@ const summaryReport = (kind, reps, overlays, opts) => summaryDetail(kind, reps, 
 // its detail in the annex ([from, to), after its first sentence), and the
 // reports behind it by id (reportKey), in time order; and the annex's lines
 // ([from, to), its heading first), or null. Other kinds have no judgments
-// and no annex.
+// and no annex. With `opts.screen` (a width), it has `screen` as well: the
+// same report wrapped to that width (as with `width: screen`), the
+// narrative read once for both.
 const summaryDetail = (kind, reps, overlays, opts) => {
-    const { local, from = null, to = null, now = new Date(), ato = '', title = '', by = '', place = '', squareDigits = 2, narrative = null, width = 100 } = opts;
+    const { local, from = null, to = null, now = new Date(), ato = '', title = '', by = '', place = '', squareDigits = 2, narrative = null, width = 100, screen = null } = opts;
     if (!Object.prototype.hasOwnProperty.call(SUMMARY_KINDS, kind)) kind = 'rollup';
     const team = opts.team !== undefined ? opts.team : narrative ? narrativeSettings(narrative).team : null;
     const facts = (reps || []).filter(r => !r.deleted).map(r => reportFacts(r, overlays, team))
@@ -544,7 +549,7 @@ const summaryDetail = (kind, reps, overlays, opts) => {
     const prevCount = (key) => prev ? prev.filter(f => f.places.includes(key) || f.pls.includes(key)).length : null;
     const atPlace = (key) => cur.filter(f => f.places.includes(key) || f.pls.includes(key));
     const unassessed = d.kpis.bdaTotal - d.kpis.bdaDone;
-    let judgments = [], annex = null;
+    let judgments = [], annex = null, narrow = null;
 
     if (kind === 'rollup') {
         out.push('1. SUMMARY',
@@ -593,10 +598,16 @@ const summaryDetail = (kind, reps, overlays, opts) => {
             out.push(...(list.length ? list.map(f => reportLine(f, local)) : ['None in this period.']));
         }
     } else if (kind === 'narrative') {
-        const n = narrativeLines(cur, prev, { local, hrs, end: to === null ? now.getTime() : to, places: placesTop, settings: narrative, overlays, width, terrain: opts.terrain || null });
+        const lay = narrativeLayout(cur, prev, { local, hrs, end: to === null ? now.getTime() : to, places: placesTop, settings: narrative, overlays, terrain: opts.terrain || null });
         const at = out.length;
-        judgments = n.judgments.map(j => ({ ...j, line: at + j.line, detail: j.detail && j.detail.map(i => at + i) }));
-        annex = n.annex && n.annex.map(i => at + i);
+        const placed = (n) => ({ judgments: n.judgments.map(j => ({ ...j, line: at + j.line, detail: j.detail && j.detail.map(i => at + i) })),
+            annex: n.annex && n.annex.map(i => at + i) });
+        const n = lay(width);
+        ({ judgments, annex } = placed(n));
+        if (screen !== null && screen !== width) {
+            const s = lay(screen);
+            narrow = { text: [...out, ...s.lines].join('\n') + '\n', ...placed(s) };
+        }
         out.push(...n.lines);
     } else if (kind === 'brief') {
         const last = cur[cur.length - 1];
@@ -610,15 +621,26 @@ const summaryDetail = (kind, reps, overlays, opts) => {
             ...(cur.length ? cur.slice(-5).reverse().map(f => `  ${reportLine(f, local)}`) : ['  None.']),
         );
     }
-    return { text: out.join('\n') + '\n', judgments, annex };
+    const all = { text: out.join('\n') + '\n', judgments, annex };
+    return screen === null ? all : { ...all, screen: narrow || all };
 };
 
 // Every place the summaries can be about: overlays, and whatever is named.
+// The places reports are at come in statsData's order (most reports first),
+// counted here from their Locations alone.
 const summaryPlaces = (reps, overlays) => {
-    const d = statsData(reps, overlays, {});
+    const nai = new Map(), obj = new Map(), pl = new Map();
+    const add = (map, k) => map.set(k, (map.get(k) || 0) + 1);
+    (reps || []).filter(r => !r.deleted).forEach(r => {
+        const a = analyzeLocation(r.location, overlays);
+        a.nai.keys.forEach(k => add(nai, k));
+        a.obj.keys.forEach(k => add(obj, k));
+        a.pls.forEach(k => add(pl, k));
+    });
+    const sorted = map => [...map].sort((x, y) => y[1] - x[1] || byNumber(x[0], y[0])).map(([label]) => label);
     // NAI, OBJ and PL only: the team's own tags name places in Location, not here.
     const builtIn = (overlays || []).filter(o => overlayOk(o) && PLACE_TYPES.has(o.type));
-    const keys = new Set([...builtIn.map(overlayKey), ...d.nai, ...d.obj, ...d.pl].map(x => x.label || x));
+    const keys = new Set([...builtIn.map(overlayKey), ...sorted(nai), ...sorted(obj), ...sorted(pl)]);
     const order = { NAI: 0, OBJ: 1, PL: 2 };
-    return [...keys].sort((a, b) => order[a.split(' ')[0]] - order[b.split(' ')[0]] || a.localeCompare(b, undefined, { numeric: true }));
+    return [...keys].sort((a, b) => order[a.split(' ')[0]] - order[b.split(' ')[0]] || byNumber(a, b));
 };

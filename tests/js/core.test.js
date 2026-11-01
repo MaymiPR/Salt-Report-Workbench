@@ -2683,6 +2683,66 @@ test('line of sight: no height from the source at an end is final, not waiting; 
     assert.ok(failing.includes('- Line of sight into 1 area not known yet (the source: the tile service answered 502).'), failing);
 });
 
+test('what is kept of the overlays gives what reading them afresh gives, and a list changed in place is read again', () => {
+    const at = (id, size, activity, location, min, extra = {}) => report({ id, displayId: id, size, activity, location, user: { initials: 'AB' },
+        time: new Date(Date.parse('2026-10-25T20:00:00Z') + min * 60000).toISOString(), ...extra });
+    const reps = [at('K1', '1x Kornet', 'observing', '38SMB4600082000', 0), at('G1', '6x 2S19', 'emplacing', '38SMB4600070000', 10),
+        at('S1', '1x Buk-M2', 'halted', '38SMB3000075000', 20), at('T1', '2x T-72', 'halted', '38SMB4500082000, NAI 2', 40),
+        at('M1', '8x BTR-82A', 'moving N', '38SMB4500088000', 60, { history: [{ location: '38SMB4500082000', time: '2026-10-25T20:30:00Z', lastModified: 1 }] }),
+        at('O1', '2x BRDM-2', 'observing', '38SMB4400091000, PL BLUE', 80), at('N1', '3x trucks', 'halted', 'vic the bridge', 90)];
+    const copy = (ovs) => JSON.parse(JSON.stringify(ovs));   // new objects: nothing kept for them yet
+    const run = (ovs) => {
+        const terrain = { on: true, note: '', heights: new Map(core.terrainPoints(reps, ovs, null).map(([lon, lat], i) => [core.terrainKey(lon, lat), i % 7 ? 200 + (i % 5) * 10 : null])) };
+        return JSON.stringify([core.summaryDetail('narrative', reps, ovs, { ...SUMMARY_OPTS, terrain, screen: 60 }),
+            ...['rollup', 'trafficked', 'brief'].map(k => core.summaryReport(k, reps, ovs, SUMMARY_OPTS)), core.statsData(reps, ovs, { local: false }),
+            core.summaryPlaces(reps, ovs), reps.map(r => core.analyzeLocation(r.location, ovs)), reps.map(r => core.sightPicture(r, ovs, null, terrain))]);
+    };
+    const ovs = copy(OVERLAYS), cold = run(ovs);
+    assert.equal(run(ovs), cold, 'again, from what was kept');
+    assert.equal(run(copy(OVERLAYS)), cold, 'afresh');
+    // The narrow screen's report is the one asked for at that width; the other, the 100 columns.
+    const both = core.summaryDetail('narrative', reps, ovs, { ...SUMMARY_OPTS, screen: 60 });
+    assert.deepEqual(both.screen, core.summaryDetail('narrative', reps, ovs, { ...SUMMARY_OPTS, width: 60 }));
+    const { screen, ...wide } = both;
+    assert.deepEqual(wide, core.summaryDetail('narrative', reps, ovs, SUMMARY_OPTS));
+    assert.ok(screen.text !== wide.text && screen.text.split('\n').every(l => l.length <= 60), 'wrapped narrower');
+    // An overlay added to the same list in place: read again, as a new list is.
+    ovs.push({ type: 'NAI', name: '9', geometry: box('38SMB4400087000', '38SMB4800087000', '38SMB4800089500', '38SMB4400089500') });
+    assert.equal(run(ovs), run(copy(ovs)));
+    assert.notEqual(run(ovs), cold);
+    assert.deepEqual(core.analyzeLocation('38SMB4500088000', ovs).nai.keys, ['NAI 1', 'NAI 9']);
+});
+
+test('an area\'s box and a phase line\'s box change no answer, at the very edge either', () => {
+    // Ray casting as it is without a box.
+    const ray = (lon, lat, ring) => {
+        let inside = false;
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+            const [xi, yi] = ring[i], [xj, yj] = ring[j];
+            if ((yi > lat) !== (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside;
+        }
+        return inside;
+    };
+    // A five-sided area, so not every edge is its box's.
+    const g = { type: 'Polygon', coordinates: [[ll('38SMB4000080000'), ll('38SMB5000080500'), ll('38SMB5200086000'), ll('38SMB4500090000'), ll('38SMB3900085000'), ll('38SMB4000080000')]] };
+    const ring = g.coordinates[0], xs = ring.map(c => c[0]), ys = ring.map(c => c[1]);
+    const near = (v) => [v - 1e-6, v - 1e-9, v - 1e-12, v, v + 1e-12, v + 1e-9, v + 1e-6];
+    const lons = [...near(Math.min(...xs)), ...near(Math.max(...xs)), ...xs, (Math.min(...xs) + Math.max(...xs)) / 2];
+    const lats = [...near(Math.min(...ys)), ...near(Math.max(...ys)), ...ys, (Math.min(...ys) + Math.max(...ys)) / 2];
+    lons.forEach(lon => lats.forEach(lat => assert.equal(core.geometryContains(g, lon, lat), ray(lon, lat, ring), `${lon}, ${lat}`)));
+    // The nearest phase line: the same as measuring every one.
+    const pls = [0, 1, 2, 3, 4, 5].map(i => ({ type: 'PL', name: `P${i}`, geometry: { type: 'LineString',
+        coordinates: [ll(`38SMB${40 + i * 3}00080000`), ll(`38SMB${41 + i * 3}00085000`), ll(`38SMB${40 + i * 3}00090000`)] } }));
+    for (let e = 38000; e <= 60000; e += 1700) {
+        for (let n = 78000; n <= 92000; n += 2300) {
+            const grid = `38SMB${e}${n}`, [lon, lat] = ll(grid);
+            let best = null;
+            pls.forEach(o => { const d = core.metersToGeometry(o.geometry, lon, lat); if (!best || d < best.meters) best = { key: core.overlayKey(o), meters: d }; });
+            assert.deepEqual(core.analyzeLocation(grid, pls).nearestPl, best, grid);
+        }
+    }
+});
+
 test('line of sight: the earth curves away over a long line, with refraction', () => {
     // Flat ground, both ends 2 m up: the curve rises x (d - x) / 2R' above
     // the chord, R' the earth's radius times 4/3, highest at the middle
