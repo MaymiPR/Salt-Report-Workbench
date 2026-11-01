@@ -20,6 +20,7 @@ const SaltCore = {
     MOVEMENT_CLASSES, formatDistance, speedUnit, kmhPerSpeedUnit, formatSpeed, formatArea, formatDuration, formatBearing,
     pathMeters, areaMeters, ringPoints, movementClass, MARCH_MAX_KMH, marchRates,
     nearestSegment, AXIS_NEAR_METERS, wayOfMarchAt, axesOf, wayRelation,
+    TERRAIN_STEP_METERS, TERRAIN_AHEAD_METERS, terrainKey, terrainPoints,
 };
 
 if (typeof module === 'object' && module.exports) module.exports = SaltCore;

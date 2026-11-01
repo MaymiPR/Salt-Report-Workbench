@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Terrain: the Narrative settings take an elevation source.** A new
+  Terrain tab picks a saved basemap that holds heights: a WMS layer that
+  answers GetFeatureInfo with a number (a DEM), or elevation tiles in
+  Terrarium or Mapbox Terrain-RGB encoding, in meters or feet. *Test as
+  elevation* asks it the height at a grid and says what came back. The sync
+  server asks the source (`/api/elevation`), once a point, for everyone, and
+  keeps the heights in `terrain.json` beside the backups, through Done with
+  Mission.
+
 ## [2.37.0] - 2026-11-01
 
 ### Added

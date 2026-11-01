@@ -3533,6 +3533,89 @@ class BrowserTests(unittest.TestCase):
             page.evaluate(url, {"link": " https://x.test/wms ", "getMap": ""}), "https://x.test/wms"
         )
 
+    def test_the_narrative_reads_heights_from_an_elevation_source_the_team_picks(self):
+        import http.server as hs
+        import threading
+
+        asked = []
+
+        class Dem(hs.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                q = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(self.path).query))
+                if q.get("REQUEST") == "GetFeatureInfo" and q.get("INFO_FORMAT") == "text/plain":
+                    asked.append(q["BBOX"])
+                    body = b"Results for FeatureType 'dem':\nGRAY_INDEX = 512.4\n"
+                else:
+                    body = b"<ServiceException>unsupported</ServiceException>"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        fake = hs.ThreadingHTTPServer(("127.0.0.1", 0), Dem)
+        threading.Thread(target=fake.serve_forever, daemon=True).start()
+        self.addCleanup(fake.server_close)
+        self.addCleanup(fake.shutdown)
+
+        # The basemaps and narrative settings are every test's: leave none.
+        def tidy():
+            self.post_to_server("/api/save_narrative", {"narrative": {}})
+            self.post_to_server("/api/save_basemaps", {"basemaps": []})
+
+        self.addCleanup(tidy)
+        url = f"http://127.0.0.1:{fake.server_port}/wms"
+        dem = {
+            "name": "DEM",
+            "kind": "wms",
+            "url": url,
+            "layers": "dem,hillshade",
+            "version": "1.3.0",
+            "crs": "EPSG:4326",
+        }
+        self.post_to_server("/api/save_basemaps", {"basemaps": [dem]})
+        page = self.open_editor()
+        self.log(page, "2x T-72", activity="halted", location="38SMB4500082000")
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        page.click("[data-narr-tab='terrain']")
+        self.assertEqual(
+            page.get_attribute("[data-narr-tbase='']", "aria-checked"), "true", "none yet"
+        )
+        page.click("[data-narr-tbase='DEM']")
+        # A WMS of two layers: pick one; the units; then Test it at a grid.
+        self.assertEqual(page.get_attribute("[data-narr-tlayer='dem']", "aria-checked"), "true")
+        page.fill("#narrTerrainGrid", "38S MB 45000 82000")
+        page.click("[data-narr-ttest]")
+        page.wait_for_selector("#narrTerrainSays:has-text('512 m at 38S MB 45000 82000.')")
+        self.assertEqual(page.evaluate("terrainHeights.size"), 0, "a test keeps nothing")
+        page.click("[data-narr-tsave]")
+        page.wait_for_selector("#toastNotification:has-text('Heights from DEM, for everyone.')")
+        self.wait_for_server(
+            page, "s => s.narrative.terrain && s.narrative.terrain.layer === 'dem'"
+        )
+        # The heights the narrative reads come in: the grid and four around it.
+        page.wait_for_function("terrainHeights.size === 5")
+        self.assertEqual(page.evaluate("[...terrainHeights.values()]"), [512.4] * 5)
+        self.assertEqual(page.text_content("[data-narr-tab='terrain'] .narr-count"), "1")
+        # A viewer reads the same, from what the server kept: the source isn't asked again.
+        before = len(asked)
+        viewer = self.open_viewer()
+        viewer.click("#summaryViewToggleBtn")
+        viewer.click("[data-summary-kind='narrative']")
+        viewer.wait_for_function("terrainHeights.size === 5")
+        self.assertEqual(len(asked), before)
+        viewer.click("[data-narr-tab='terrain']")
+        self.assertIn("DEM, layer dem, in meters", viewer.inner_text("#narrSettings"))
+        # None: the narrative reads no ground.
+        page.click("[data-narr-tbase='']")
+        page.click("[data-narr-tsave]")
+        page.wait_for_selector("#toastNotification:has-text('No elevation source')")
+        self.wait_for_server(page, "s => !('terrain' in s.narrative)")
+
     def test_a_wms_found_through_the_server_in_latitude_longitude(self):
         import http.server as hs
         import threading

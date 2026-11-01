@@ -3,15 +3,19 @@
 // The narrative's settings, in a column beside the Narrative: what the enemy
 // is called, which way they move in the AO (its way of march, which an axis
 // of advance overrides near it), the units and where they operate, equipment the team adds to
-// the catalogue (or puts right), the built-in rules switched on or off, and
-// the team's own rules. Shared with everyone like the basemaps; editors
-// change them, viewers see them. The narrative itself is SaltCore's.
+// the catalogue (or puts right), the built-in rules switched on or off, the
+// team's own rules, and the elevation source the ground is read from. Shared
+// with everyone like the basemaps; editors change them, viewers see them.
+// The narrative itself is SaltCore's; the heights it reads come from the
+// sync server (askTerrain).
 // One of the ordered scripts that make up the page (see src/app/); they
 // share one top-level scope, so names declared earlier are visible here.
 
 let narrTab = 'units';
 let narrOpen = null;        // the item open in the panel: { id (null: a new one), entry (as opened), fill? }
 let narrBuilt = null;       // what the panel was last built from, so a sync doesn't rebuild it under the cursor
+let narrTerrain = null;     // the Terrain form as it is being filled in, else null (the saved source)
+let narrTerrainSays = '';   // what Test as elevation last said
 
 const narrList = (k) => (Array.isArray(sharedNarrative[k]) ? sharedNarrative[k] : []);
 // The team's own equipment, ready for SaltCore: Statistics, Summary and BDA
@@ -58,6 +62,57 @@ const narrUnknown = () => {
     return [...new Set(localReports.filter(r => !r.deleted).flatMap(r => SaltCore.sizeElements(r.size, team).map(e => e.type)))]
         .filter(t => !SaltCore.lookupEquipment(t, team)).sort().slice(0, 30);
 };
+
+// --- Heights ---
+
+// The heights the narrative reads (SaltCore.terrainPoints), from the sync
+// server's /api/elevation, which asks the elevation source once for everyone
+// and keeps the answers. Kept here by SaltCore.terrainKey (null: no data
+// there). A source changed starts afresh. Points the server is still asking
+// come with the next ask, a moment later; those its source failed on, a
+// minute later. Not on a page opened as a file: it has no server.
+const terrainHeights = new Map();
+let terrainFor = '';        // the source the heights are for (sharedNarrative.terrain, as JSON)
+let terrainAsking = false;
+let terrainRetry = null;
+let terrainNote = '';       // why the source last failed, or ''
+let terrainEmpty = 0;       // answers in a row that said the server has no source
+const TERRAIN_BATCH = 500, TERRAIN_SOON_MS = 2000, TERRAIN_LATER_MS = 60000;
+const terrainSet = () => !!(sharedNarrative.terrain && sharedNarrative.terrain.basemap);
+const askTerrain = async () => {
+    const source = JSON.stringify(sharedNarrative.terrain || null);
+    if (source !== terrainFor) { terrainHeights.clear(); terrainFor = source; terrainNote = ''; clearTimeout(terrainRetry); terrainRetry = null; }
+    if (isLocalFile || terrainAsking || terrainRetry || !terrainSet()) return;
+    const want = SaltCore.terrainPoints(localReports, currentOverlays(), sharedNarrative)
+        .filter(([lon, lat]) => !terrainHeights.has(SaltCore.terrainKey(lon, lat)));
+    if (!want.length) return;
+    const pts = want.slice(0, TERRAIN_BATCH);
+    terrainAsking = true;
+    const res = await apiPost('/api/elevation', { points: pts });
+    terrainAsking = false;
+    if (source !== JSON.stringify(sharedNarrative.terrain || null)) { askTerrain(); return; }
+    if (!res.ok) { terrainNote = res.message; return; }
+    const { source: on = '', heights = [], pending = [], unknown = [], error = '' } = res.body;
+    // The server knows no source yet (this page saved one a moment ago):
+    // nothing to keep, so ask again soon, then now and then.
+    if (!on) {
+        terrainEmpty++;
+        terrainRetry = setTimeout(() => { terrainRetry = null; askTerrain(); }, terrainEmpty <= 3 ? TERRAIN_SOON_MS : TERRAIN_LATER_MS);
+        return;
+    }
+    terrainEmpty = 0;
+    const open = new Set([...pending, ...unknown]);
+    let got = 0;
+    pts.forEach(([lon, lat], i) => { if (!open.has(i)) { terrainHeights.set(SaltCore.terrainKey(lon, lat), heights[i] ?? null); got++; } });
+    terrainNote = error;
+    if (pending.length || want.length > pts.length || unknown.length) {
+        terrainRetry = setTimeout(() => { terrainRetry = null; askTerrain(); }, pending.length || want.length > pts.length ? TERRAIN_SOON_MS : TERRAIN_LATER_MS);
+    }
+    if (got && isSummaryViewActive && summaryKind === 'narrative') renderSummary();
+};
+// What the narrative is given of the ground: whether there is a source, the
+// heights known, and why the source last failed.
+const terrainInput = () => ({ on: terrainSet(), heights: terrainHeights, note: terrainNote });
 
 // --- The parts ---
 
@@ -241,12 +296,68 @@ const rulesTab = () => {
                 <input type="checkbox" role="switch" class="narr-switch" data-narr-rule="${id}"${off.has(id) ? '' : ' checked'}${isReadOnly ? ' disabled' : ''} aria-label="${escapeHtml(name)}"></label>`).join('')}</div>`).join('')}`;
 };
 
+// --- Terrain ---
+
+const TERRAIN_ENCODINGS = [['terrarium', 'Terrarium'], ['terrain-rgb', 'Mapbox Terrain-RGB']];
+const TERRAIN_UNITS = [['m', 'Meters'], ['ft', 'Feet']];
+// The source as saved, or as being filled in.
+const terrainDraft = () => narrTerrain || { basemap: '', layer: '', encoding: '', units: 'm', ...(sharedNarrative.terrain || {}) };
+const terrainSaid = (t) => {
+    const b = sharedBasemaps.find(x => x.name === t.basemap);
+    if (!b) return t.basemap ? `${t.basemap} (no longer a saved basemap)` : 'None: the narrative reads no ground.';
+    return `${b.name}, ${b.kind === 'wms' ? `layer ${t.layer || String(b.layers || '').split(',')[0]}` : (TERRAIN_ENCODINGS.find(([e]) => e === t.encoding) || [, 'Terrarium'])[1]}, in ${t.units === 'ft' ? 'feet' : 'meters'}`;
+};
+const terrainTab = () => {
+    const t = terrainDraft();
+    const hint = '<div class="narr-hint">The server asks it the height at each report\'s grid and around it, once, for everyone. A picture of the ground (imagery, a scanned map) can\'t give heights: pick a layer that answers with a number, and Test it.</div>';
+    if (isReadOnly) return `<div class="narr-label">Heights from</div><div class="narr-says">${escapeHtml(terrainSaid(t))}</div>${hint}`;
+    const b = sharedBasemaps.find(x => x.name === t.basemap);
+    const layers = b && b.kind === 'wms' ? String(b.layers || '').split(',').map(l => l.trim()).filter(Boolean) : [];
+    return `<div class="narr-form">
+        <div class="narr-label">Heights from</div>
+        ${radios('data-narr-tbase', 'Heights from', [['', 'None'], ...sharedBasemaps.map(x => [x.name, `${x.name} (${x.kind === 'wms' ? 'WMS' : 'tiles'})`])], b ? t.basemap : '')}
+        ${!sharedBasemaps.length ? '<div class="narr-empty">No basemaps yet: add the elevation service in Manage > Map > Basemaps first.</div>' : ''}
+        ${layers.length > 1 ? `<div class="narr-label">Layer</div>${radios('data-narr-tlayer', 'Layer', layers.map(l => [l, l]), t.layer || layers[0])}` : ''}
+        ${b && b.kind !== 'wms' ? `<div class="narr-label">Tiles hold heights as</div>${radios('data-narr-tenc', 'Tiles hold heights as', TERRAIN_ENCODINGS, t.encoding || 'terrarium')}` : ''}
+        ${b ? `<div class="narr-label">Heights are in</div>${radios('data-narr-tunits', 'Heights are in', TERRAIN_UNITS, t.units || 'm')}
+        <div class="narr-label">Test as elevation</div>
+        <div class="narr-sentence"><input type="text" id="narrTerrainGrid" placeholder="A grid, e.g. 38S MB 45000 82000" maxlength="60" spellcheck="false" aria-label="A grid to test">
+            <button type="button" class="text-btn" data-narr-ttest>Test</button></div>
+        <div class="narr-says" id="narrTerrainSays" aria-live="polite">${escapeHtml(narrTerrainSays)}</div>` : ''}
+        <div class="narr-foot"><button type="button" class="set-btn" data-narr-tsave>Save</button></div>
+        ${hint}
+    </div>`;
+};
+// The form as it stands, from the picks on screen.
+const readTerrain = () => {
+    const picked = attr => (document.querySelector(`[${attr}][aria-checked="true"]`) || { getAttribute: () => '' }).getAttribute(attr);
+    const basemap = picked('data-narr-tbase') || '';
+    const b = sharedBasemaps.find(x => x.name === basemap);
+    if (!b) return null;
+    return { basemap, layer: b.kind === 'wms' ? picked('data-narr-tlayer') || String(b.layers || '').split(',')[0].trim() : '',
+        encoding: b.kind === 'wms' ? '' : picked('data-narr-tenc') || 'terrarium', units: picked('data-narr-tunits') || 'm' };
+};
+const testTerrain = async () => {
+    const t = readTerrain(), grid = SaltCore.findGrids((document.getElementById('narrTerrainGrid') || {}).value || '')[0];
+    const say = (text) => { narrTerrainSays = text; const n = document.getElementById('narrTerrainSays'); if (n) n.textContent = text; };
+    if (!t) { say('Pick a basemap first.'); return; }
+    if (!grid) { say('Type a grid to test, e.g. 38S MB 45000 82000.'); return; }
+    if (isLocalFile) { say('A page opened as a file has no server to ask.'); return; }
+    say('Asking...');
+    const res = await apiPost('/api/elevation_test', { terrain: t, point: [grid.lon, grid.lat] });
+    if (!res.ok) { say(res.message); return; }
+    const { height, error, reply } = res.body;
+    say(height !== null && height !== undefined ? `${Math.round(height)} m at ${grid.mgrs}${t.units === 'ft' ? ` (${Math.round(height / 0.3048)} ft as the service says it)` : ''}.`
+        : `No height at ${grid.mgrs}: ${error || 'the reply holds no number'}.${reply ? ` The reply began: ${reply}` : ''}`);
+};
+
 // --- The panel ---
 
 const narrCounts = () => ({
     units: narrList('units').length,
     equipment: narrList('equipment').length,
     rules: SaltCore.NARRATIVE_RULES.length - narrList('off').length + narrList('custom').length,
+    terrain: terrainSet() ? 1 : 0,
 });
 // Rebuilt only when what it shows has changed, and never under a form being
 // filled in or while you're typing (moving within the panel rebuilds it).
@@ -254,11 +365,11 @@ const renderNarrSettings = () => {
     const box = document.getElementById('narrSettings');
     if (!box || box.hidden) return;
     const typing = box.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
-    const key = JSON.stringify([sharedNarrative, narrTab, narrOpen, isReadOnly, narrPlaces(), narrUnknown()]);
+    const key = JSON.stringify([sharedNarrative, narrTab, narrOpen, isReadOnly, narrPlaces(), narrUnknown(), narrTerrain, sharedBasemaps]);
     if (key === narrBuilt || ((typing || narrOpen) && narrBuilt)) return;
     narrBuilt = key;
     const counts = narrCounts(), unknown = narrUnknown().length;
-    const tabs = [['units', 'Units'], ['equipment', 'Equipment'], ['rules', 'Rules']];
+    const tabs = [['units', 'Units'], ['equipment', 'Equipment'], ['rules', 'Rules'], ['terrain', 'Terrain']];
     box.innerHTML = `<div class="narr-head">Narrative settings</div>
         <label class="narr-call"><span>Call them</span>
             <input type="text" id="narrEnemy" value="${escapeHtml(sharedNarrative.enemy || '')}" placeholder="enemy forces" maxlength="60" spellcheck="false"${isReadOnly ? ' disabled' : ''}></label>
@@ -269,7 +380,7 @@ const renderNarrSettings = () => {
         <div class="narr-hint narr-call-hint">The way of march in the AO, for judging which way reports move. Within 10 km of an axis of advance on the map, the axis's way instead.</div>
         <div class="summary-kinds narr-tabs" role="group" aria-label="Narrative settings">${tabs.map(([t, n]) =>
             `<button type="button" class="ws-tab${t === narrTab ? ' active' : ''}" data-narr-tab="${t}">${n}<span class="narr-count">${counts[t]}</span>${t === 'equipment' && unknown && !isReadOnly ? '<span class="narr-dot" title="Types in your reports that the catalogue doesn\'t know" aria-hidden="true"></span><span class="visually-hidden">, with types in your reports that the catalogue doesn\'t know</span>' : ''}</button>`).join('')}</div>
-        <div class="narr-body">${{ units: unitsTab, equipment: equipmentTab, rules: rulesTab }[narrTab]()}</div>
+        <div class="narr-body">${{ units: unitsTab, equipment: equipmentTab, rules: rulesTab, terrain: terrainTab }[narrTab]()}</div>
         <div class="narr-hint narr-shared">Shared with everyone${isReadOnly ? '; editors change them' : ''}.</div>`;
 };
 // Shown with the Narrative, and only then.
@@ -389,9 +500,21 @@ const saveNarrForm = () => {
             }
             return;
         }
-        // One of a one-choice group: picked, and the others not.
+        // One of a one-choice group: picked, and the others not. On the
+        // Terrain form, a basemap picked shows what it asks of that kind.
         const c = e.target.closest('.narr-chip[role="radio"]');
-        if (c) { pickRadio(c); return; }
+        if (c) {
+            pickRadio(c);
+            if (c.hasAttribute('data-narr-tbase')) { narrTerrain = { ...terrainDraft(), basemap: c.dataset.narrTbase, layer: '', encoding: '' }; narrTerrainSays = ''; rerender(); }
+            return;
+        }
+        if (e.target.closest('[data-narr-ttest]')) { testTerrain(); return; }
+        if (e.target.closest('[data-narr-tsave]')) {
+            const t = readTerrain();
+            narrTerrain = null;
+            saveNarrative({ terrain: t }, t ? `Heights from ${t.basemap}, for everyone.` : 'No elevation source: the narrative reads no ground.');
+            return;
+        }
         if (e.target.closest('[data-narr-save]')) { saveNarrForm(); return; }
         if (e.target.closest('[data-narr-remove]')) {
             if (!askFirst(narrAskKey(), drawNarrRemove)) return;
@@ -454,6 +577,7 @@ const saveNarrForm = () => {
         e.preventDefault();
         if (e.target.id === 'narrEnemy') e.target.blur();
         else if (e.target.id === 'narrEqFind') box.querySelector('[data-narr-add]').click();
+        else if (e.target.id === 'narrTerrainGrid') testTerrain();
         else if (narrOpen) saveNarrForm();
     });
 })();
