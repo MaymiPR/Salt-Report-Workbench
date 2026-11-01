@@ -222,13 +222,17 @@ const unitsTab = () => {
 
 // --- Equipment ---
 
+// A reach (SaltCore's { m, by }) as the form and lists say it: 5.5 km.
+const reachKm = (r) => `${+(r.m / 1000).toFixed(1)} km`;
 // What the catalogue makes of a name now: the team's entry, the built-in one, or nothing.
 const lookupSays = (type) => {
     if (!type.trim()) return '';
-    const said = k => `${ROLE_NAMES[k.role]} (${k.name}${k.origin ? `, ${ORIGIN_NAMES[k.origin]}` : ''})${k.gear ? `, ${GEAR_NAMES[k.gear].toLowerCase()}` : ''}`;
+    const said = k => `${ROLE_NAMES[k.role]} (${k.name}${k.origin ? `, ${ORIGIN_NAMES[k.origin]}` : ''})${k.gear ? `, ${GEAR_NAMES[k.gear].toLowerCase()}` : ''}`
+        + `${k.reach && k.reach.m ? `, reaches ${reachKm(k.reach)}${k.reach.by !== k.name ? ` (${k.reach.by})` : ''}` : ''}`;
     const own = SaltCore.lookupEquipment(type, SaltCore.teamEquipment(narrList('equipment')));
     const built = SaltCore.lookupEquipment(type);
-    if (own && (!built || own.role !== built.role || own.name !== built.name || own.gear !== built.gear)) return `Yours: ${said(own)}.`;
+    const reachOf = (k) => (k.reach ? k.reach.m : -1);
+    if (own && (!built || own.role !== built.role || own.name !== built.name || own.gear !== built.gear || reachOf(own) !== reachOf(built))) return `Yours: ${said(own)}.`;
     return built ? `Built in: ${said(built)}.` : 'Not in the catalogue.';
 };
 const equipmentForm = (e) => `<div class="narr-form">
@@ -240,6 +244,10 @@ const equipmentForm = (e) => `<div class="narr-form">
         ${radios('data-narr-origin', 'Army', Object.entries(ORIGIN_NAMES), e.origin || '')}
         <div class="narr-label">Moves on</div>
         ${radios('data-narr-gear', 'Moves on', Object.entries(GEAR_NAMES), e.gear || '')}
+        <div class="narr-label">Reach</div>
+        <div class="narr-sentence">
+            <input type="number" id="narrEqReach" value="${escapeHtml(e.reach ? String(e.reach) : '')}" min="0.1" max="${SaltCore.REACH_MAX_KM}" step="any" inputmode="decimal" placeholder="km" aria-label="Reach in km"><span>km</span></div>
+        <div class="narr-hint">How far its main weapon reaches, for armor, mechanized infantry, antitank weapons, artillery and air defense. Empty keeps the catalogue's, if it has one.</div>
         ${formFoot(narrOpen.id !== null)}
     </div>`;
 const equipmentTab = () => {
@@ -265,7 +273,7 @@ const equipmentTab = () => {
             <div class="narr-says" id="narrEqFindSays"></div>
         </div>
         <div class="narr-label">Yours</div>
-        <div class="narr-list">${narrList('equipment').map((e, i) => row(i, e.type, `${ROLE_NAMES[e.role] || e.role} · ${ORIGIN_NAMES[e.origin || '']}${e.gear ? ` · ${GEAR_NAMES[e.gear] || e.gear}` : ''}`, narrId('equipment', e))).join('')
+        <div class="narr-list">${narrList('equipment').map((e, i) => row(i, e.type, `${ROLE_NAMES[e.role] || e.role} · ${ORIGIN_NAMES[e.origin || '']}${e.gear ? ` · ${GEAR_NAMES[e.gear] || e.gear}` : ''}${e.reach ? ` · ${e.reach} km` : ''}`, narrId('equipment', e))).join('')
             || '<div class="narr-empty">None yet: the built-in catalogue only.</div>'}</div>
         ${addRow('Add a type')}
         <details class="narr-builtin"><summary>Built-in catalogue</summary>${builtIn}</details>`;
@@ -417,8 +425,9 @@ const readNarrForm = () => {
         const type = val('narrEqType').trim(), role = picked('data-narr-role')[0];
         if (!type) { showToast('Type the equipment name.', true); return null; }
         if (!role) { showToast(`Pick what ${type} is.`, true); return null; }
-        const gear = picked('data-narr-gear')[0] || '';
-        return { type, role, origin: picked('data-narr-origin')[0] || '', ...(gear ? { gear } : {}) };
+        const gear = picked('data-narr-gear')[0] || '', typed = val('narrEqReach').trim(), reach = Number(typed);
+        if (typed && !(reach > 0 && reach <= SaltCore.REACH_MAX_KM)) { showToast(`Reach: more than 0, up to ${SaltCore.REACH_MAX_KM} km.`, true); return null; }
+        return { type, role, origin: picked('data-narr-origin')[0] || '', ...(gear ? { gear } : {}), ...(typed ? { reach } : {}) };
     }
     const what = val('narrRuleWhat').trim(), words = val('narrRuleWords').trim();
     const min = Math.round(+val('narrRuleMin')), hours = Math.round(+val('narrRuleHours'));

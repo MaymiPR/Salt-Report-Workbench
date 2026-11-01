@@ -2521,6 +2521,73 @@ test('line of sight: an observer sees into the areas near it, a ridge hides one,
     assert.ok(!said([obs, trucks]).includes('Line of sight,'));
 });
 
+test('reach: each figure is a catalogue name of a kind that fires, variants reach further, and the team can give its own', () => {
+    const roleOf = new Map(core.EQUIPMENT_CATALOGUE.flatMap(([role, , ...names]) => names.map(n => [n, role])));
+    [...core.CATALOGUE_REACH].forEach(([name, m]) => {
+        assert.ok(roleOf.has(name), `${name} is in the catalogue`);
+        assert.ok(core.REACH_KIND[roleOf.get(name)], `${name} is of a kind that fires`);
+        assert.ok(Number.isInteger(m) && m >= 0 && m <= 250000, `${name}: ${m} m`);
+    });
+    const reach = (t, team) => { const r = core.lookupEquipment(t, team).reach; return r && `${r.kind} ${r.m} ${r.by}`; };
+    assert.equal(reach('T-72B3'), 'direct 5000 T-72B3', 'a missile through the gun');
+    assert.equal(reach('T-72B1'), 'direct 2000 T-72', 'the B1 has no missile');
+    assert.equal(reach('Kornet-EM'), 'direct 8000 Kornet-EM');
+    assert.equal(reach('2S19 Msta-S'), 'indirect 24700 2S19');
+    assert.equal(reach('Buk-M2'), 'ad 45000 Buk-M2');
+    assert.equal(reach('9S18'), 'ad 0 9S18', 'a radar reaches nothing itself');
+    assert.equal(reach('T-14'), null, 'no figure to trust: none, never a guess');
+    assert.equal(reach('tank'), null);
+    assert.equal(reach('BRDM-2'), null, 'reconnaissance is not a kind that fires');
+    const team = core.teamEquipment([{ type: 'BTR-4', role: 'mech', reach: 2.5 }, { type: 'T-72B3', role: 'armor' },
+        { type: 'Kornet', role: 'fires' }, { type: 'T-14', role: 'armor', reach: 5 }, { type: 'Orlan-10', role: 'recon', reach: 120 }]);
+    assert.equal(reach('BTR-4', team), 'direct 2500 BTR-4');
+    assert.equal(reach('T-72B3', team), 'direct 5000 T-72B3', "an entry that doesn't say keeps the catalogue's");
+    assert.equal(reach('Kornet', team), null, 'made another kind: the catalogue figure no longer fits');
+    assert.equal(reach('T-14', team), 'direct 5000 T-14');
+    assert.equal(reach('Orlan-10', team), null, 'a kind that does not fire has no reach');
+});
+
+test('reach: direct fire covers what it can see from a position, indirect fire and air defense by range, and the threat to each area', () => {
+    // NAI 1 is 38SMB 40-50 / 80-90, NAI 2 east of it, OBJ BRIDGE north of NAI 1.
+    const kornet = report({ id: 'K1', displayId: 'K1', size: '1x Kornet', activity: 'observing', location: '38SMB4600082000', time: '2026-10-25T20:00:00Z' });
+    const guns = report({ id: 'G1', displayId: 'G1', size: '6x 2S19', activity: 'emplacing', location: '38SMB4600070000', time: '2026-10-25T20:10:00Z' });
+    const sam = report({ id: 'S1', displayId: 'S1', size: '1x Buk-M2', activity: 'halted', location: '38SMB3000075000', time: '2026-10-25T20:20:00Z' });
+    const tanks = report({ id: 'M1', displayId: 'M1', size: '3x T-72B3', activity: 'moving N', location: '38SMB4800081000', time: '2026-10-25T20:30:00Z' });
+    const reps = [kornet, guns, sam, tanks];
+    const [olon] = ll('38SMB4600082000'), km = (lon) => (lon - olon) * 111320 * Math.cos(33.27 * Math.PI / 180) / 1000;
+    const run = (height) => core.summaryReport('narrative', reps, OVERLAYS, { ...SUMMARY_OPTS, terrain: height && groundFor(reps, height) }).replace(/\s+/g, ' ');
+    const flat = run(() => 200);
+    assert.ok(flat.includes('- Reach, K1 252000Z (1x Kornet): direct fire to 5.5 km (Kornet): covers NAI 1 (in it) and NAI 2 (4.0 km).'), flat);
+    assert.ok(flat.includes('- Reach, G1 252010Z (6x 2S19): indirect fire to 24.7 km (2S19) reaches NAI 1, NAI 2 and OBJ BRIDGE.'), flat);
+    assert.ok(flat.includes('- Reach, S1 252020Z (1x Buk-M2): air defense to 45 km (Buk-M2) covers the air over NAI 1, OBJ BRIDGE and NAI 2 (by range alone).'), flat);
+    assert.ok(!flat.includes('Reach, M1'), 'tanks on the move cover nothing yet');
+    assert.ok(flat.includes('Threat: NAI 1: direct fire (1), indirect fire (1), air defense (1); NAI 2: direct fire (1), indirect fire (1), air defense (1); OBJ BRIDGE: indirect fire (1), air defense (1).'), flat);
+    // A ridge between the Kornet and NAI 2: in range, but not covered.
+    const ridge = run((lon) => (km(lon) > 1 && km(lon) < 1.5 ? 260 : 200));
+    assert.ok(ridge.includes('direct fire to 5.5 km (Kornet): covers NAI 1 (in it); NAI 2 in range but hidden by ground.'), ridge);
+    assert.ok(ridge.includes('NAI 2: indirect fire (1), air defense (1)'), ridge);
+    // Without an elevation source, direct fire is in range only: no threat counted.
+    const blind = run(null);
+    assert.ok(blind.includes('covers NAI 1 (in it); NAI 2 in range, line of sight not known without an elevation source.'), blind);
+    assert.ok(blind.includes('NAI 2: indirect fire (1), air defense (1)'), blind);
+    // Lines of sight are asked for a direct-fire weapon in position, not on the move.
+    assert.equal(core.terrainPoints([tanks], OVERLAYS, null).length, 5, 'on the move: the ground at the grid and around it only');
+    assert.equal(core.terrainPoints([guns], OVERLAYS, null).length, 5, 'indirect fire needs no line of sight');
+    assert.ok(core.terrainPoints([{ ...tanks, activity: 'halted' }], OVERLAYS, null).length > 45, 'halted, its lines to NAI 2 too');
+});
+
+test('reach: types that fight but whose reach is not known are a gap, deep strike and drones aside', () => {
+    const tanks = report({ id: 'T1', displayId: 'T1', size: '2x T-14', activity: 'halted', location: '38SMB4400083000', time: '2026-10-25T20:00:00Z' });
+    const deep = report({ id: 'D1', displayId: 'D1', size: '1x Iskander', activity: 'halted', location: '38SMB3000060000', time: '2026-10-25T20:10:00Z' });
+    const plain = report({ id: 'P1', displayId: 'P1', size: '2x tanks', activity: 'halted', location: '38SMB4400083000', time: '2026-10-25T20:20:00Z' });
+    const t = said([tanks, deep, plain]);
+    assert.ok(t.includes('Reach not known for T-14: give it in the Narrative settings, under Equipment, if known.'), t);
+    assert.ok(!/Reach not known for[^.]*(Iskander|tank\b)/.test(t), t);
+    const ours = core.summaryReport('narrative', [tanks], OVERLAYS, { ...SUMMARY_OPTS, narrative: { equipment: [{ type: 'T-14', role: 'armor', origin: 'RU', reach: 5 }] } }).replace(/\s+/g, ' ');
+    assert.ok(!ours.includes('Reach not known'), ours);
+    assert.ok(ours.includes('- Reach, T1 252000Z (2x T-14): direct fire to 5 km (T-14): covers NAI 1 (in it).'), ours);
+});
+
 test('the tempo, and what is new against the period before', () => {
     const at = (id, size, location, time) => report({ id, displayId: id, size, activity: 'halted', location, time, user: { initials: 'AB' } });
     // One report every 3 hrs, then four in the last 3: rising.

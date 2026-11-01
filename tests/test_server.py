@@ -568,6 +568,18 @@ class ValidatorTests(unittest.TestCase):
             self.assertIsNone(
                 v({"narrative": {"equipment": [{"type": "X", "role": "mech", "gear": gear}]}}), gear
             )
+        # How far it reaches: km above 0 and at most MAX_EQUIPMENT_REACH_KM, when said.
+        for reach in (0, -1, srv.MAX_EQUIPMENT_REACH_KM + 1, "5", True, None, float("nan")):
+            self.assertRejects(
+                v,
+                {"narrative": {"equipment": [{"type": "X", "role": "mech", "reach": reach}]}},
+                "reach",
+            )
+        for reach in (0.5, 5, srv.MAX_EQUIPMENT_REACH_KM):
+            self.assertIsNone(
+                v({"narrative": {"equipment": [{"type": "X", "role": "mech", "reach": reach}]}}),
+                reach,
+            )
         self.assertRejects(
             v,
             {
@@ -2809,7 +2821,7 @@ class HttpApiTests(unittest.TestCase):
             ],
             "equipment": [
                 {"type": " BTR-4 ", "role": "mech", "origin": ""},
-                {"type": "BMP-X", "role": "mech", "origin": "RU", "gear": "tracked"},
+                {"type": "BMP-X", "role": "mech", "origin": "RU", "gear": "tracked", "reach": 4},
                 {"type": "Y-1", "role": "fires", "origin": "", "gear": ""},
             ],
             "off": ["logistics", "logistics"],
@@ -2829,10 +2841,10 @@ class HttpApiTests(unittest.TestCase):
             "units": [
                 {"name": "1-60 GMRB", "places": ["NAI 1", "NAI 2"], "kinds": ["armor", "mech"]}
             ],
-            # The gear only when said: an entry without one is as it was.
+            # The gear and reach only when said: an entry without them is as it was.
             "equipment": [
                 {"type": "BTR-4", "role": "mech", "origin": ""},
-                {"type": "BMP-X", "role": "mech", "origin": "RU", "gear": "tracked"},
+                {"type": "BMP-X", "role": "mech", "origin": "RU", "gear": "tracked", "reach": 4},
                 {"type": "Y-1", "role": "fires", "origin": ""},
             ],
             "off": ["logistics"],

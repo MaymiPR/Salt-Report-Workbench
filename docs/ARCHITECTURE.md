@@ -397,8 +397,16 @@ each one's nearest edge and to its middle, its heights read every 100 m
 (200 m past 2 km, `losSamples`); `losCheck` puts the eye and the target 2 m
 up, allows for the earth's curve with refraction, and says seen, hidden (by
 how much, where) or waiting. `terrainPoints` asks the heights of those lines
-for observers only, and the page works the list out again only when the
-reports, overlays or settings change.
+for observers, and for direct-fire weapons in position out to their reach
+(at most `REACH_LOS_MAX_METERS`), and the page works the list out again only
+when the reports, overlays or settings change.
+Reach comes from the catalogue: `CATALOGUE_REACH` (70-catalogue.js) gives a
+type's meters by its first name or a variant's own, and `REACH_KIND` makes
+armor, mech and atgm direct, fires indirect and ad air defense; the team's
+entries may give their own in km (`REACH_MAX_KM`). `reachRead` gives each
+report's reach into the NAIs and OBJs (direct fire through `sightOf`, the
+rest by `areasWithin`), `threatsOf` the areas under threat for the bottom
+line.
 With no heights, none of it is said, and the narrative is what it was but
 for one line under Gaps and collection saying there is no elevation source.
 

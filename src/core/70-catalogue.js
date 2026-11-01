@@ -296,6 +296,63 @@ const CATALOGUE_GEAR = gearTable({
 });
 const ROLE_GEAR = { air: 'air', infantry: 'foot' };
 const builtInGear = (name, role) => CATALOGUE_GEAR.get(name) || ROLE_GEAR[role] || '';
+// How far a type's main weapon reaches, in meters: the published maximum
+// effective range of what it fights with (a tank's gun, or the missile it
+// fires through it; a gun's standard shell, not a rocket-assisted one; an air
+// defense system's engagement range). By the type's first name in the
+// catalogue, or by a variant's own name where the variant reaches further (the
+// T-72B3 fires a missile through its gun, the T-72B1 does not). Tanks, IFVs
+// and antitank weapons fire direct, so they must see what they hit; guns,
+// mortars and rockets fire indirect; air defense covers the air above. A
+// type with no figure to trust has none, and is never guessed. 0: a type of
+// those kinds that reaches nothing itself (a radar, a reloader).
+const REACH_KIND = { armor: 'direct', mech: 'direct', atgm: 'direct', fires: 'indirect', ad: 'ad' };
+const reachTable = (lists) => Object.entries(lists).flatMap(([m, names]) => names.map(n => [n, Number(m)]));
+const CATALOGUE_REACH = new Map([
+    ...reachTable({
+        1000: ['Metis'],
+        1500: ['T-54', 'T-55', 'Type 59', 'Type 69', 'Metis-M'],
+        1600: ['T-62'],
+        2000: ['T-64', 'T-72', 'T-80', 'Type 79', 'Type 80', 'Type 85', 'Type 88', 'Type 96', 'Type 98', 'Type 99', 'Type 15', 'VT4',
+            'ZTD-05', 'ZTL-11', 'BTR-60', 'BTR-70', 'BTR-80', 'BTR-82', 'Fagot'],
+        3000: ['BMP-1', 'BMD-1', 'Malyutka', 'ZBD-86', 'ZBD-03', 'ZBD-05', 'ZBL-08', 'HJ-73'],
+        4000: ['T-55AM', 'T-62M', 'T-64B', 'T-64BV', 'T-72B', 'T-72BA', 'T-80B', 'T-80BV', 'T-80BVK', 'BMP-2', 'BMP-3', 'BMD-2', 'BMD-3',
+            'BMD-4', 'ZBD-04', 'Konkurs', 'Kobra', 'HJ-8', 'HJ-12'],
+        5000: ['T-72B3', 'T-72B3M', 'T-80BVM', 'T-80U', 'T-80UD', 'T-80UK', 'T-80UM2', 'T-80UE-1', 'T-90', '2S25', 'Shturm', 'Refleks'],
+        5500: ['Kornet', 'BMP-3M', 'HJ-9', 'AFT-9'],
+        6000: ['Khrizantema', 'Ataka', 'BMPT'],
+        8000: ['Kornet-EM', 'Kornet-D'],
+        10000: ['HJ-10'],
+    }),
+    ...reachTable({
+        3040: ['BM-37'], 3500: ['TOS-1'], 3900: ['2B14'], 4270: ['2B9'], 5700: ['PM-43'], 6000: ['TOS-1A'], 7100: ['2S12'],
+        8800: ['2S9', '2S23', '2B16'], 9650: ['2S4'], 11800: ['M-30', 'PL-54'], 12400: ['D-1'], 15200: ['2S1'], 15400: ['D-30', 'PL-96'],
+        17200: ['PLZ-83'], 17400: ['D-20', 'PL-66'], 18500: ['2S3'], 20000: ['BS-3', 'PHL-81'], 20400: ['BM-21', '2B26'],
+        24700: ['2S19', '2A65'], 27150: ['M-46', 'Type 59-1'], 28400: ['2S5'], 35800: ['BM-27'], 37500: ['2S7'], 70000: ['BM-30'],
+    }),
+    ...reachTable({
+        1400: ['ZPU-4'], 2500: ['ZSU-23-4', 'ZU-23-2'], 3700: ['Strela-2'], 4200: ['Strela-1'], 4500: ['Strela-3'],
+        5000: ['Strela-10', 'QW-1'], 5200: ['Igla'], 6000: ['Igla-S', 'Gibka-S', 'QW-2'], 6400: ['Verba'], 8000: ['2S6'],
+        10000: ['Osa', 'Sosna'], 12000: ['Tor', 'HQ-7'], 15000: ['Tor-M2', 'Tor-M2DT', 'Tor-M2U', 'Tor-M2KM', 'HQ-17'],
+        20000: ['Pantsir'], 24000: ['Kub'], 25000: ['S-125'], 30000: ['Buk'], 35000: ['Buk-M1'], 40000: ['HQ-16'],
+        45000: ['S-75', 'Buk-M2'], 50000: ['Krug'], 70000: ['Buk-M3'], 75000: ['S-300'], 120000: ['S-350'], 125000: ['HQ-9'],
+        250000: ['S-400'],
+    }),
+    ...reachTable({
+        0: ['9S18', '96L6', '64N6', 'P-18', 'P-19', 'Nebo', 'Kasta', '1L122', '48Ya6', '67N6', '59N6', '36D6',
+            'JY-8', 'JY-9', 'JY-11', 'JY-14', 'JY-26', 'JY-27', 'JY-29', 'JYL-1', 'JLG-43', 'YLC-2', 'YLC-4', 'YLC-6', 'YLC-8', 'YLC-12',
+            'YLC-15', 'YLC-18', 'HT-233', 'H-200', 'SJ-231', 'SJ-202', 'LLQ120', 'CLC-1', 'CLC-2', 'TR-47',
+            'TZM-T', '9T452', '9T234-2', 'BMO-T'],
+    }),
+]);
+// A type's reach as { m, kind, by } (the meters; direct, indirect or ad; and
+// the name the figure is for), m 0 for one that reaches nothing itself, or
+// null when not known. `alias` is the name of it that matched.
+const builtInReach = (name, alias, role) => {
+    const kind = REACH_KIND[role];
+    const by = !kind ? '' : CATALOGUE_REACH.has(alias) ? alias : CATALOGUE_REACH.has(name) ? name : '';
+    return by ? { m: CATALOGUE_REACH.get(by), kind, by } : null;
+};
 
 const normType = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
 // AH, UH, CH and OH are short enough to turn up elsewhere: CH and AH are
@@ -309,14 +366,15 @@ const shortHeloTest = (words) => {
     return (w) => re.test(w);
 };
 // Names to match, longest first so the most specific one wins. `gearOf`
-// gives an entry's running gear from its first name and role.
-const equipmentKeysOf = (entries, gearOf = builtInGear) => entries.flatMap(([role, origin, name, ...more]) =>
+// gives an entry's running gear from its first name and role, `reachOf` its
+// reach (builtInReach) from those and the name that matched.
+const equipmentKeysOf = (entries, gearOf = builtInGear, reachOf = builtInReach) => entries.flatMap(([role, origin, name, ...more]) =>
     [...new Set([name, ...more])].map(k => {
         const words = normType(k), compact = words.replace(/ /g, '');
         const test = /\d/.test(compact)
             ? (w, c) => c.startsWith(compact) && !/\d/.test(c[compact.length] || '')
             : SHORT_HELOS.has(words) ? shortHeloTest(words) : (w) => ` ${w} `.includes(` ${words} `);
-        return { role, origin, name, gear: gearOf(name, role), len: compact.length, test };
+        return { role, origin, name, gear: gearOf(name, role), reach: reachOf(name, k, role), len: compact.length, test };
     // The general vehicle words (vic, tracked, wheeled) come last, whatever
     // their length: "wheeled APC" is an APC, and only a bare vic is just a vehicle.
     })).filter(k => k.len).sort((a, b) => (a.role === 'vehicle') - (b.role === 'vehicle') || b.len - a.len);
@@ -325,7 +383,7 @@ const equipmentKeys = () => equipmentIndex || (equipmentIndex = equipmentKeysOf(
 const equipmentSeen = new Map();
 const findKey = (keys, w) => {
     const hit = keys.find(k => k.test(w, w.replace(/ /g, '')));
-    return hit ? { role: hit.role, origin: hit.origin, name: hit.name, gear: hit.gear } : null;
+    return hit ? { role: hit.role, origin: hit.origin, name: hit.name, gear: hit.gear, reach: hit.reach } : null;
 };
 // How much of a type as written the catalogue (and the team's entries,
 // `team`, when given) knows: the length of the name it matches (TANK,
@@ -340,8 +398,9 @@ const knownType = (text, team = null) => {
     const own = team && team.length ? team.find(k => k.test(w, w.replace(/ /g, ''))) : null;
     return Math.max(typesKnown.get(w), own ? own.len : 0);
 };
-// { role, origin, name, gear } for a type (T-72B3, 2S19 MSTA-S, trucks), or
-// null; `gear` is its running gear (RUNNING_GEARS), or '' when not known.
+// { role, origin, name, gear, reach } for a type (T-72B3, 2S19 MSTA-S,
+// trucks), or null; `gear` is its running gear (RUNNING_GEARS), or '' when
+// not known; `reach` is builtInReach's, or the team's.
 // `team` is the team's own entries (teamEquipment), which win over the
 // built-in ones: a type added, or a built-in one put right.
 const lookupEquipment = (type, team = null) => {
@@ -357,12 +416,22 @@ const lookupEquipment = (type, team = null) => {
     if (!equipmentSeen.has(w)) equipmentSeen.set(w, find(equipmentKeys(), bareBy(null)));
     return equipmentSeen.get(w);
 };
-// The team's entries ({ type, role, origin, gear }), ready for
+// The team's entries ({ type, role, origin, gear, reach }), ready for
 // lookupEquipment. An entry that doesn't say how it moves keeps what the
 // catalogue says of its type (a T-72 put right stays tracked), else goes by
-// its role.
+// its role; one that doesn't say how far it reaches (`reach`, in km) keeps
+// the catalogue's reach when it is still of that kind.
+const REACH_MAX_KM = 500;
 const teamEquipment = (list) => {
     const gear = new Map((list || []).map(e => [e.type, RUNNING_GEARS.includes(e.gear) ? e.gear : '']));
+    const km = new Map((list || []).map(e => [e.type, Number(e.reach)]).filter(([, v]) => Number.isFinite(v) && v > 0 && v <= REACH_MAX_KM));
     return equipmentKeysOf((list || []).map(e => [e.role, e.origin || '', e.type]),
-        (name, role) => gear.get(name) || (lookupEquipment(name) || {}).gear || ROLE_GEAR[role] || '');
+        (name, role) => gear.get(name) || (lookupEquipment(name) || {}).gear || ROLE_GEAR[role] || '',
+        (name, alias, role) => {
+            const kind = REACH_KIND[role];
+            if (!kind) return null;
+            if (km.has(name)) return { m: Math.round(km.get(name) * 1000), kind, by: name };
+            const built = (lookupEquipment(name) || {}).reach;
+            return built && built.kind === kind ? built : null;
+        });
 };
