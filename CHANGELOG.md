@@ -8,6 +8,81 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **A broken character no longer stops the backups.** Half of an emoji (left
+  when one is cut in two) in any field was accepted, and from then on every
+  save of the backups failed; one in a title or workspace name also left that
+  change unsaved and unanswered. Now it is refused at once, saying which field
+  holds it, and a file is always written whatever it holds.
+- **A pulled USB stick keeps the changes.** With the backup folder gone, the
+  changes waiting to be saved were dropped without a word, and the health
+  check still said ok. Now it says `Error saving`, keeps them, and saves them
+  when the folder is back, as the manual promised.
+- **Stopping says when the changes weren't saved.** It said they were flushed
+  to disk even when the save had failed. Now it says `Changes NOT saved` and
+  why, and the launcher's window stays open on it.
+- **Pages keep updating after a restart with the clock set back.** Open pages
+  (viewers' especially) stopped showing changes until reloaded. The server now
+  numbers its changes on from the last run's, whatever the clock says.
+- **Snapshots with the clock set back.** With rounds already named later than
+  the clock (the clock put right backwards), each new round was pruned as soon
+  as it was written, and `--restore latest` brought back the old state. New
+  rounds are now named after the newest there, and a snapshot is written whole
+  or not at all, so a full disk can't leave a cut-off one to restore.
+- **Heights from an elevation source that is down.** Each point waited 15
+  seconds, so a long list took half an hour and stopping the server could
+  wait minutes; a reply that couldn't be read left its point waiting for good.
+  Now the points still queued fail at once while the source is down (and are
+  asked again later, as before), stopping drops them, a tile can't unpack past
+  its own size, the oldest heights make way past the limit instead of new
+  ones being asked again, and an `http://` address to an HTTPS port says the
+  reply was not HTTP.
+- **Impossible report times are refused.** A time such as
+  `2026-13-40T25:00:00Z` was taken and then broke the ArcGIS export. Backups,
+  imports and earlier versions keep the times they hold, as before.
+- **The audit log says when it works again**, after saying it couldn't be
+  written, and never stops a change being answered.
+- **Errors leave a record.** The server's messages were only in its minimized
+  window, without times, and an error showed one line. Every line the console
+  shows is now also kept, with its time in UTC, in `Server Logs/server.log`
+  beside `Auto Backups` (about 1 MB, then three older ones), with the full
+  detail of any error; Done with Mission leaves it alone. Running the server
+  has a new part, Sending a problem report, on what to send.
+- **The manual names every folder to copy.** After Done with Mission, the
+  reports, the audit log and the snapshots are in `Mission Archives`, so
+  upgrading and the end of the operation now say to copy it with
+  `Auto Backups`.
+- **Reports kept while the server couldn't take them now go on their own.**
+  Reports logged while the server was unreachable, or busy for a moment,
+  were sent only when someone else next saved something, so on a quiet
+  network they stayed on the one laptop while the bar said they would be
+  sent. They now go as soon as the connection is back, and are tried again
+  every few seconds until the server takes them.
+- **Restore, settling a Check tag, and deleting history rows now save
+  whatever syncs meanwhile.** A sync landing while one of these asked, or
+  while history rows were being deleted, made the change go nowhere, though
+  the page said it was done. Now it is saved, or, when someone changed the
+  report in the meantime so it no longer applies, the page says so and
+  changes nothing. Settling a Check tag says it is updated once it is saved.
+- **A fault drawing the screen after a sync no longer shows Offline.** The
+  dot turned red with nothing said, and the sync was not tried again. The
+  fault is now said, the dot stays green, and the next sync tries again.
+- **An empty workspace is no longer unloaded by a save.** A save from a
+  workspace with nothing logged yet asked the server to unload it, with
+  whatever others had logged there meanwhile.
+- **A request the server never answers now gives up.** A save stuck on a
+  dropped connection held back every update from the others with nothing
+  said. Requests now give up after 20 seconds (longer for large backups,
+  services asked through the server, and missions) and are treated as the
+  server being unreachable: the reports are kept and sent again.
+- **A save refused for a reason that isn't the reports is asked once.** The
+  page split the save to find the bad report whatever the refusal, so one
+  that wasn't about the reports (a wrong address, say) became a burst of
+  requests that ran into the server's rate limit. Now only a refusal of the
+  reports' content or size is split; any other marks the reports "Not
+  saved" with the server's reason, as before.
+- **Imported names are no longer cut in the middle of an emoji.** Names
+  shortened to fit (graphics from KML, GeoJSON or a shapefile, and basemaps)
+  could end on half of a character, which the server refuses.
 - **Line of sight over water.** Where the elevation source has no height at
   an end of a line (water, or the edge of its coverage), the line no longer
   waits for ever: the narrative, a picked report's card and the Line of sight

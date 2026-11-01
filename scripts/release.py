@@ -47,16 +47,18 @@ Field-ready SALT reporting with real-time LAN sync.
 REQUIREMENTS
   Python 3.11.8 or newer, and any modern browser. Nothing else to install.
 
-UPGRADING? COPY YOUR "Auto Backups" FOLDER FIRST
+UPGRADING? COPY "Auto Backups" AND "Mission Archives" FIRST
   A new release's zip extracts to a NEW folder named for its version,
   and a new folder starts with an empty "Auto Backups": started from
   there, the workbench shows none of your reports. They are still in the
   old folder. Copy the Auto Backups folder from your old folder into the
-  new one before starting (or extract the new files over the old ones).
+  new one before starting, and the Mission Archives folder beside it if
+  there is one (Done with Mission moves finished missions there), or
+  extract the new files over the old ones.
   The server's certificate is in the "tls" folder inside Auto Backups,
   so copying it keeps the same certificate and browsers don't warn again.
   (The one-file .txt download, run from the same place as before,
-  upgrades its folder in place and keeps Auto Backups.)
+  upgrades its folder in place and keeps both folders.)
 
 START THE SERVER
   On Windows, double-click "Start SALT Workbench.bat". No admin rights
@@ -87,8 +89,10 @@ WITHOUT A SERVER
 
 YOUR DATA
   Reports are saved continuously to the "Auto Backups" folder created next
-  to the server. They are plain text. Handle that folder according to your
-  data-handling rules.
+  to the server. They are plain text. Done with Mission moves a finished
+  mission's reports, change log and dated copies into "Mission Archives",
+  beside it. "Server Logs", beside them, holds the server's own messages.
+  Handle all three according to your data-handling rules.
 
 TROUBLESHOOTING
   Firewall prompt: allow Python on Private networks (on a managed laptop,
@@ -99,6 +103,7 @@ TROUBLESHOOTING
     Backups not copied). Check the fingerprint, then Proceed.
   Reports gone: copy your old Auto Backups folder here (see UPGRADING).
   Change log: Auto Backups/audit.log. Dated copies: Auto Backups/snapshots.
+  Server log: Server Logs/server.log. Send it with a problem report.
 
 SECURITY
   The server encrypts every connection (HTTPS), so the reports and the access

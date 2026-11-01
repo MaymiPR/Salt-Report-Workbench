@@ -196,14 +196,21 @@ const fixReportLocation = async (id) => {
     if (!r) return;
     const loc = await settleLocation(r.location);
     if (loc === null || loc === r.location) return;
-    const now = nextStamp(r);
-    const hist = [...(r.history || []), { size: r.size || '', activity: r.activity || '', location: r.location || '', time: r.time,
-        yourAnalysis: r.yourAnalysis || '', custom: r.custom || {}, ...observerOf(r), user: r.user, lastModified: r.lastModified }];
-    const next = { ...r, location: loc, history: hist, updated: true, lastModified: now, user: userProfile };
-    localReports = localReports.map(x => x === r ? next : x);
+    // Looked up again: a sync while the operator chose replaced the report
+    // objects, and someone may have changed or deleted it meanwhile.
+    const cur = localReports.find(x => x.id === id);
+    if (!cur || cur.deleted) { showToast(`${formatFullId(r)} was deleted meanwhile. Nothing was changed.`, true); return; }
+    if (cur.location !== r.location) { showToast(`${formatFullId(cur)}'s Location was changed meanwhile. Nothing was changed; check it again.`, true); return; }
+    const now = nextStamp(cur);
+    const hist = [...(cur.history || []), { size: cur.size || '', activity: cur.activity || '', location: cur.location || '', time: cur.time,
+        yourAnalysis: cur.yourAnalysis || '', custom: cur.custom || {}, ...observerOf(cur), user: cur.user, lastModified: cur.lastModified }];
+    const next = { ...cur, location: loc, history: hist, updated: true, lastModified: now, user: userProfile };
+    localReports = localReports.map(x => x === cur ? next : x);
     reportsByAto[activeAto] = localReports;
-    showToast(`${formatFullId(next)} updated: ${loc}`);
+    // Said once it is saved, unless the save said something (a refusal) first.
+    const toastsBefore = toastsShown;
     await saveLocalAndSync(reportsByAto);
+    if (toastsShown === toastsBefore) showToast(`${formatFullId(next)} updated: ${loc}`);
 };
 
 // The report in the form, as it was when loaded: { id, fields, at }, where
@@ -297,8 +304,9 @@ const discardUnsaved = (ids, { confirm = true } = {}) => {
         reps.forEach(r => {
             const k = SaltCore.reportKey(r);
             delete entries[k];
-            // Never saved: there's no server copy to come back, so remove it here.
-            if (!(serverVersions[activeAto] || {})[k]) localReports = localReports.filter(x => x !== r);
+            // Never saved: there's no server copy to come back, so remove it
+            // here (by key: a sync while asking replaced the report objects).
+            if (!(serverVersions[activeAto] || {})[k]) localReports = localReports.filter(x => SaltCore.reportKey(x) !== k);
         });
         saveUnsaved();
         reportsByAto[activeAto] = localReports;
@@ -404,6 +412,11 @@ const restoreHistoryVersion = (reportId, lastModified) => {
         ? ` This will discard the current version and ${plural(newerCount, 'newer update')}.`
         : ' This will discard the current version.';
     showConfirmation(`Restore this version as current for ${formatFullId(report)}?${dropMsg}`, async () => {
+        // Looked up again: a sync while the question was open replaced the
+        // report objects, and someone may have changed its history meanwhile.
+        const report = localReports.find(r => r.id === reportId);
+        const snapshot = report && (report.history || []).find(h => h.lastModified === lastModified);
+        if (!snapshot) { showToast('That version is no longer in the report\'s history: it was changed meanwhile. Nothing was restored.', true); return; }
         const ato = activeAto;
         const before = JSON.parse(JSON.stringify(report));
         const now = nextStamp(report);

@@ -5,6 +5,10 @@ Auto Backups/
 # `make run` keeps its backups, snapshots and TLS key here, outside dist/,
 # so `make clean` can't delete them.
 .dev-data/
+# Beside the backup folder, so with `--backup-dir .dev-data` these land in the
+# repo root: Done with Mission's finished missions, and the server's log.
+Mission Archives/
+Server Logs/
 # Local files for manual testing (field-test exports, overlays).
 test-data/
 

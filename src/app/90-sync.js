@@ -40,25 +40,28 @@ const markRefused = (ato, report, reason) => {
     saveUnsaved();
 };
 
-// POST a batch of reports. When the server refuses it, split the batch to
-// find exactly which reports it refuses, so one bad report can't hold back
-// the rest. Returns { queued, refused: [reasons] }.
+// POST a batch of reports. When the server refuses what is in it (400) or
+// its size (413), split the batch to find exactly which reports it refuses,
+// so one bad report can't hold back the rest. Any other refusal (403, 404,
+// 415...) is not about the reports: split, it would only be asked again many
+// times over, so the whole batch is refused with its reason.
+// Returns { queued, refused: [reasons] }, a reason for each report refused.
 async function sendBatch(ato, batch, source) {
     const res = await apiPost('/api/save_reports', source ? { ato, reports: batch, source } : { ato, reports: batch });
     if (res.ok) { markSaved(ato, batch); return { queued: false, refused: [] }; }
     // Unreachable, code rejected (apiPost re-prompts), rate limited, or a
     // server error: sent again later.
     if (res.status === 0 || res.status === 401 || res.status === 429 || res.status >= 500) return { queued: true, refused: [] };
-    if (batch.length === 1) {
-        // The batch index ("reports[0].size ...") means nothing to an operator.
-        const reason = res.message.replace(/^Validation failed: reports\[\d+\]\./, 'Validation failed: ');
-        markRefused(ato, batch[0], reason);
-        return { queued: false, refused: [reason] };
+    if (batch.length > 1 && (res.status === 400 || res.status === 413)) {
+        const mid = Math.ceil(batch.length / 2);
+        const a = await sendBatch(ato, batch.slice(0, mid), source);
+        const b = await sendBatch(ato, batch.slice(mid), source);
+        return { queued: a.queued || b.queued, refused: [...a.refused, ...b.refused] };
     }
-    const mid = Math.ceil(batch.length / 2);
-    const a = await sendBatch(ato, batch.slice(0, mid), source);
-    const b = await sendBatch(ato, batch.slice(mid), source);
-    return { queued: a.queued || b.queued, refused: [...a.refused, ...b.refused] };
+    // The batch index ("reports[0].size ...") means nothing to an operator.
+    const reason = res.message.replace(/^Validation failed: reports\[\d+\]\./, 'Validation failed: ');
+    batch.forEach(r => markRefused(ato, r, reason));
+    return { queued: false, refused: batch.map(() => reason) };
 }
 
 // Push one workspace: the reports the server doesn't have in their current
@@ -105,7 +108,9 @@ async function pushToServer(source) {
     pushesInFlight++;
     try {
         const ato = activeAto;
-        const result = await pushWorkspace(ato, localReports || [], source);
+        // Nothing logged in it yet: nothing to send (an empty list would
+        // unload it on the server, with whatever others have logged there).
+        const result = localReports && localReports.length ? await pushWorkspace(ato, localReports, source) : 'ok';
         offlinePendingPush = result === 'queued';
         writeStored('salt_offline_push', String(offlinePendingPush));
         markPending(ato, offlinePendingPush);
@@ -137,34 +142,46 @@ let pullsAsked = 0, pullApplied = 0;
 // restarted with its clock set back, say), rather than asking for ever.
 async function syncWithServer(again = false) {
     if (pushesInFlight > 0) { pullDeferred = true; return; }
+    let pull, state;
     try {
         // Never pull over local changes the server hasn't accepted yet: the
         // pull replaces local state, so they would be lost.
         if (offlinePendingPush && activeAto && !(await pushToServer())) return;
         if (!(await pushPending())) { setConnectionStatus(false); return; }
-        const pull = ++pullsAsked;
+        pull = ++pullsAsked;
         const res = await serverFetch('/api/sync');
         if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) throw new Error('Server unreachable');
-        const state = await res.json();
-        if (pull < pullApplied) return;
-        // Asked for before a push that is still on its way: from before it.
-        if (pushesInFlight > 0) { pullDeferred = true; return; }
-        // Asked for before a push that has since come back queued: from
-        // before it too, and taken it would drop that change for good. The
-        // next sync sends it first, as above.
-        if (changesWaiting()) return;
-        const v = typeof state.version === 'number' ? state.version : null;
-        // Older than a change this page has made or been told of (asked for
-        // before it, answered after): it would undo that change on screen.
-        if (v !== null && v < seenVersion && !again) { setConnectionStatus(true); syncWithServer(true); return; }
-        pullApplied = pull;
-        if (v !== null) { syncedVersion = v; seenVersion = Math.max(v, again ? v : seenVersion); }
-        applyServerUpdate(state);
-        setConnectionStatus(true);
+        state = await res.json();
     } catch (err) {
         setConnectionStatus(false);
+        return;
     }
+    if (pull < pullApplied) return;
+    // Asked for before a push that is still on its way: from before it.
+    if (pushesInFlight > 0) { pullDeferred = true; return; }
+    // Asked for before a push that has since come back queued: from
+    // before it too, and taken it would drop that change for good. The
+    // next sync sends it first, as above (the status bars' timer starts one).
+    if (changesWaiting()) return;
+    const v = typeof state.version === 'number' ? state.version : null;
+    // Older than a change this page has made or been told of (asked for
+    // before it, answered after): it would undo that change on screen.
+    if (v !== null && v < seenVersion && !again) { setConnectionStatus(true); syncWithServer(true); return; }
+    pullApplied = pull;
+    const was = syncedVersion;
+    if (v !== null) { syncedVersion = v; seenVersion = Math.max(v, again ? v : seenVersion); }
+    try {
+        applyServerUpdate(state);
+    } catch (err) {
+        // A fault drawing what came (the map, say), not the server: the dot
+        // stays online and the fault is said. The next notice pulls again,
+        // even one with this number.
+        syncedVersion = was;
+        console.error('Applying the sync failed:', err);
+        sayUnexpected(err && err.message ? err.message : String(err));
+    }
+    setConnectionStatus(true);
 }
 
 // `state` is the server's /api/sync answer.
@@ -375,7 +392,15 @@ function renderStatusBars() {
     if (other) el.bars.versionText.textContent = `This page is version ${APP_VERSION} and the server is ${serverRelease}. Reload to update the page.`;
     el.bars.version.hidden = !other;
 }
-setInterval(renderStatusBars, 5000);
+// Changes still waiting (the server refused them for the moment, 429 or 500,
+// or was unreachable while the event stream stayed up) are sent again from
+// here: no notice may come to start a sync. Not while a push is on its way,
+// nor while the startup window asks for the access code or the page is
+// leaving a finished mission.
+setInterval(() => {
+    renderStatusBars();
+    if (changesWaiting() && pushesInFlight === 0 && !missionLeaving && !el.startup.overlay.classList.contains('show')) syncWithServer();
+}, 5000);
 el.bars.reloadBtn.addEventListener('click', () => location.reload());
 
 // SSE with explicit reconnection backoff (1s → 30s capped, reset on success).
@@ -391,10 +416,13 @@ function initSSE() {
             backoff = 1000;
             let v = null;
             try { v = JSON.parse(e.data).v; } catch (err) { /* an older server's "update" */ }
-            if (typeof v === 'number') { noteChange(v); if (v <= syncedVersion) return; }
+            // Changes waiting go whatever the number: the server may be back
+            // with no one else having changed anything.
+            if (typeof v === 'number') { noteChange(v); if (v <= syncedVersion && !changesWaiting()) return; }
             syncWithServer();
         };
-        evtSource.onopen    = () => { backoff = 1000; setConnectionStatus(true); };
+        // Connected again: changes made while it couldn't be reached go now.
+        evtSource.onopen    = () => { backoff = 1000; setConnectionStatus(true); if (changesWaiting()) syncWithServer(); };
         // The server announces a Ctrl+C before it closes, so the dot turns
         // red now instead of at the next failed heartbeat.
         evtSource.addEventListener('shutdown', () => { setConnectionStatus(false); showToast('The server is stopping.', true); });

@@ -27,6 +27,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
@@ -291,6 +292,63 @@ class ValidatorTests(unittest.TestCase):
         self.assertRejects(e, {**edit, "fields": {"displayId": 1}}, "fields.displayId")
         self.assertRejects(e, {**edit, "fields": {"updated": "no"}}, "fields.updated")
         self.assertIsNone(e({**edit, "fields": {"title": "Patrol", "updated": False}}))
+
+    def test_half_of_a_surrogate_pair_is_refused_anywhere_in_a_body(self):
+        # Regression: "\ud83d" (an emoji cut in two) is valid JSON, was taken,
+        # and then every save of the backups failed on it, for good.
+        self.assertFalse(srv._is_str("BRIDGE \ud83d"))
+        self.assertTrue(srv._is_str("BRIDGE \U0001f600", 10), "a whole emoji is fine")
+        self.assertRejects(
+            srv._v_save_reports, {"ato": "A", "reports": [report(size="2x \ud83d")]}, "size"
+        )
+
+        def check(body):
+            raw = json.dumps(body).encode()  # as JSON.stringify sends it: "\ud83d"
+            self.assertIn(b"\\ud83d", raw)
+            return srv._check_text(raw, json.loads(raw))
+
+        # A field no validator knows is kept, so the whole body is looked at, names too.
+        self.assertEqual(
+            check({"ato": "A", "reports": [report(), report("r2", note="x\ud83d")]}),
+            "reports[1].note holds a broken character (U+D83D, half of an emoji or other symbol)",
+        )
+        self.assertIn(
+            "a name in reports[0].custom", check({"reports": [{"custom": {"\ud83d": ""}}]})
+        )
+        self.assertIsNone(check({"ato": "A", "reports": [report(size="\U0001f600")]}))
+        plain = json.dumps({"size": "\U0001f600 \\ud83d"}, ensure_ascii=False).encode()
+        self.assertIsNone(srv._check_text(plain, json.loads(plain)), "a whole one, sent as is")
+        # Sent as bytes that aren't UTF-8, json.loads takes it in as well.
+        odd = b'{"size": "\xed\xa0\xbd"}'
+        self.assertIn("size holds a broken character", srv._check_text(odd, json.loads(odd)))
+
+    def test_report_times_must_be_real_but_imports_keep_theirs(self):
+        # Regression: 2026-13-40T25:00:00Z matched the pattern, and the
+        # page's ArcGIS export then failed on it.
+        v = srv._v_save_reports
+        bad = report(time="2026-13-40T25:00:00Z")
+        self.assertRejects(
+            v, {"ato": "A", "reports": [report(), bad]}, "reports[1].time must be a real"
+        )
+        for t in ("2026-02-29T10:00:00Z", "2026-01-15T24:00:00Z", "2026-01-15T14:60:00"):
+            self.assertRejects(
+                v,
+                {"ato": "A", "reports": [report(time=t)]},
+                "real date",
+            )
+        for t in ("2028-02-29T23:59:59Z", "2026-01-15T14:30:00.123456789Z", "2026-01-15T14:30:00"):
+            self.assertIsNone(v({"ato": "A", "reports": [report(time=t)]}), t)
+        # What a file holds comes in as it is, as at boot: an import, an
+        # earlier version, and a report deleted.
+        for source in ("backup", "csv"):
+            self.assertIsNone(v({"ato": "A", "reports": [bad], "source": source}), source)
+        old = report(history=[{**report(), "time": "2026-13-40T25:00:00Z"}])
+        self.assertIsNone(v({"ato": "A", "reports": [old]}))
+        self.assertIsNone(v({"ato": "A", "reports": [{**bad, "deleted": True}]}))
+        e = srv._v_edit_report
+        edit = {"ato": "A", "reportId": "r1"}
+        self.assertRejects(e, {**edit, "fields": {"time": "2026-04-31T10:00:00Z"}}, "fields.time")
+        self.assertIsNone(e({**edit, "fields": {"time": "2026-04-30T10:00:00Z"}}))
 
     def test_booleans_are_not_accepted_as_timestamps(self):
         # isinstance(True, int) is True in Python; the validator must not be fooled.
@@ -1087,6 +1145,38 @@ class StartupTests(unittest.TestCase):
         self.assertIn(f"Could not listen on port {port}", result.stdout)
         self.assertNotIn("no ssl module", result.stdout)
 
+    def test_a_stop_that_could_not_save_says_so_and_exits_non_zero(self):
+        # Regression: it said "flushed to disk" and exited 0 when the save
+        # had failed, so the launcher closed its window on the news.
+        mine = Path(tempfile.mkdtemp(prefix="salt-stop-"))
+        self.addCleanup(shutil.rmtree, mine, True)
+        args = ("--host", "127.0.0.1", "--port", "0", "--viewer-port", "0", "--no-https")
+        args += ("--no-browser", "--no-minimize", "--backup-dir", str(mine / "Auto Backups"))
+        # Ctrl+C as soon as it serves.
+        stop = (
+            "import socketserver\n"
+            "def stop(self, *a, **k):\n"
+            "    raise KeyboardInterrupt\n"
+            "socketserver.BaseServer.serve_forever = stop\n"
+        )
+        result = self.run_server(*args, prelude=stop)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("[+] Pending changes flushed to disk.", result.stdout)
+        locked = (
+            "import os\n"
+            "def locked(*a, **k):\n"
+            "    raise PermissionError(13, 'The process cannot access the file')\n"
+            "os.replace = locked\n"
+        )
+        result = self.run_server(*args, prelude=stop + locked)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("[!] Changes NOT saved: the backups could not be written", result.stdout)
+        self.assertNotIn("flushed to disk", result.stdout)
+        # Both runs' console, with the time of each line, in the server log beside the backups.
+        log = (mine / srv.LOG_DIR_NAME / srv.LOG_NAME).read_text("utf-8")
+        self.assertEqual(log.count("[*] Starting S.A.L.T. Sync Server"), 2)
+        self.assertRegex(log, r"\d\d:\d\d:\d\dZ  \[!\] Changes NOT saved")
+
     def test_the_banner_shows_the_address_listened_on(self):
         # Regression: with --host 127.0.0.1 it showed (and opened) the LAN
         # address, where nothing was listening.
@@ -1189,6 +1279,367 @@ class RestoreTests(unittest.TestCase):
     def test_the_flag_runs_it_and_exits(self):
         with mock.patch.object(sys, "argv", ["salt_sync_server", "--restore", "list"]):
             self.assertEqual(srv.parse_cli_args().restore, "list")
+
+
+def own_folder(test) -> Path:
+    """An empty folder for ``test`` alone, removed after it."""
+    folder = Path(tempfile.mkdtemp(prefix="salt-own-"))
+    test.addCleanup(shutil.rmtree, folder, True)
+    return folder
+
+
+class SnapshotClockTests(unittest.TestCase):
+    STAMP = "%Y%m%d_%H%M%SZ"
+
+    def setUp(self):
+        reset_state()
+        self.addCleanup(reset_state)
+        self.addCleanup(cancel_pending_save)
+        self.tmp = own_folder(self)
+        for name, value in (
+            ("BACKUP_DIR", str(self.tmp)),
+            ("_last_snapshot_at", None),
+            ("_last_snapshot_stamp", None),
+        ):
+            patcher = mock.patch.object(srv, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.snaps = self.tmp / srv.SNAPSHOT_DIR_NAME
+        self.snaps.mkdir()
+
+    def test_rounds_named_ahead_of_a_clock_set_back_never_crowd_out_new_ones(self):
+        # Regression: with 48 rounds named in the future (the clock put right
+        # backwards since), each new round sorted first and was pruned as soon
+        # as it was written, and --restore latest put back the old state.
+        future = datetime(2030, 1, 1, tzinfo=timezone.utc)
+        for i in range(srv.SNAPSHOT_KEEP):
+            stamp = (future + timedelta(hours=i)).strftime(self.STAMP)
+            (self.snaps / f"{stamp}_ALPHA_Patrol.txt").write_text("old", encoding="utf-8")
+        srv.DATA_STORE["workspaces"]["ALPHA"] = [report()]
+        with mock.patch.object(srv, "safe_print") as printed:
+            srv.save_data_to_disk()
+        self.assertEqual(printed.call_args_list, [])
+        rounds = srv.snapshot_rounds()
+        self.assertEqual(len(rounds), srv.SNAPSHOT_KEEP)
+        newest = max(rounds)
+        last = future + timedelta(hours=srv.SNAPSHOT_KEEP - 1)
+        self.assertEqual(newest, (last + timedelta(seconds=1)).strftime(self.STAMP))
+        self.assertNotIn(future.strftime(self.STAMP), rounds, "the oldest went")
+        self.assertIn('"r1"', (self.snaps / f"{newest}_ALPHA_Patrol.txt").read_text("utf-8"))
+        with (
+            mock.patch.object(srv, "_server_answers", return_value=False),
+            mock.patch.object(srv, "safe_print"),
+        ):
+            self.assertEqual(srv.restore_snapshot("latest"), 0)
+        self.assertIn('"r1"', (self.tmp / "ALPHA_Patrol.txt").read_text("utf-8"))
+        # A clock that is right names it by the time, as before.
+        now = datetime(2031, 5, 1, 12, 0, 0, 500, tzinfo=timezone.utc)
+        self.assertEqual(srv.snapshot_stamp(now), now.replace(microsecond=0))
+
+    def test_the_round_just_written_is_never_pruned(self):
+        for i in range(srv.SNAPSHOT_KEEP):
+            stamp = (datetime(2030, 1, 1, tzinfo=timezone.utc) + timedelta(hours=i)).strftime(
+                self.STAMP
+            )
+            (self.snaps / f"{stamp}_ALPHA_Patrol.txt").write_text("old", encoding="utf-8")
+        path = srv.write_snapshot(
+            "ALPHA_Patrol.txt", "new", datetime(2026, 11, 1, tzinfo=timezone.utc)
+        )
+        self.assertEqual(Path(path).read_text("utf-8"), "new")
+        self.assertEqual(len(srv.snapshot_rounds()), srv.SNAPSHOT_KEEP)
+
+    def test_a_snapshot_is_written_whole_or_not_at_all(self):
+        # A full disk left a cut-off copy that --restore would have put back.
+        def full(fd):
+            raise OSError(28, "No space left on device")
+
+        with mock.patch.object(srv.os, "fsync", full), self.assertRaises(OSError):
+            srv.write_snapshot(
+                "ALPHA_Patrol.txt", "x" * 1000, datetime(2026, 11, 1, tzinfo=timezone.utc)
+            )
+        self.assertEqual(list(self.snaps.iterdir()), [], "no snapshot, and no temporary file")
+
+
+class ChangeNumberTests(unittest.TestCase):
+    def setUp(self):
+        reset_state()
+        self.addCleanup(reset_state)
+        self.tmp = own_folder(self)
+        self.backups = self.tmp / "Auto Backups"
+        for name, value in (
+            ("BACKUP_DIR", str(self.backups)),
+            ("_sync_version", 0),
+            ("_change_reserved", None),
+        ):
+            patcher = mock.patch.object(srv, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def boot(self, now_ms):
+        """Start numbering as a server started at ``now_ms`` by its clock does."""
+        srv._sync_version = now_ms
+        srv.start_change_numbers()
+        return srv.current_version()
+
+    def test_a_restart_with_the_clock_set_back_numbers_on_from_the_last_run(self):
+        # Regression: numbers started at the boot time, so after a restart with
+        # the clock set back every open page skipped the notices until reloaded.
+        now = int(time.time() * 1000)
+        self.assertEqual(self.boot(now), now, "no file yet: the boot time, as before")
+        heard = max(srv.broadcast_update() for _ in range(5))
+        day = 86_400_000
+        self.assertGreater(self.boot(now - day), heard)
+        self.assertGreater(srv.broadcast_update(), heard)
+        # A clock that is right, a day on: its own time again.
+        self.assertEqual(self.boot(now + day), now + day)
+        kept = json.loads((self.backups / srv.CHANGE_NAME).read_text("utf-8"))
+        self.assertEqual(kept, {"next": now + day + srv.CHANGE_RESERVE})
+
+    def test_numbers_past_the_reserve_are_reserved_before_they_are_given(self):
+        with mock.patch.object(srv, "CHANGE_RESERVE", 3):
+            start = self.boot(1_000)
+            given = [srv.broadcast_update() for _ in range(7)]
+            kept = json.loads((self.backups / srv.CHANGE_NAME).read_text("utf-8"))["next"]
+        self.assertEqual(given, list(range(start + 1, start + 8)))
+        self.assertGreater(kept, given[-1])
+
+    def test_the_number_is_kept_through_done_with_mission_and_a_restore(self):
+        self.boot(5_000)
+        srv.DATA_STORE["workspaces"]["ALPHA"] = [report()]
+        with mock.patch.object(srv, "safe_print"):
+            name, _ = srv.finish_mission("server")
+        self.assertTrue((self.backups / srv.CHANGE_NAME).is_file(), "left where it is")
+        archived = self.tmp / srv.MISSION_ARCHIVE_NAME / name
+        self.assertFalse((archived / srv.CHANGE_NAME).exists())
+        self.assertNotIn(
+            srv.CHANGE_NAME, [os.path.basename(p) for p in srv.backup_files(str(self.backups))]
+        )
+        self.assertEqual(srv.mission_archives()[0]["name"], name)
+
+
+class TerrainWorkerTests(unittest.TestCase):
+    def setUp(self):
+        self.src = {"sig": "dem1", "kind": "wms", "units": "m"}
+
+        def fresh():
+            with srv.terrain_lock:
+                for kept in (
+                    srv.TERRAIN_CACHE,
+                    srv._terrain_inflight,
+                    srv._terrain_failed,
+                    srv._terrain_error,
+                    srv._terrain_down,
+                ):
+                    kept.clear()
+
+        fresh()
+        self.addCleanup(fresh)
+        patcher = mock.patch.object(srv, "_terrain_save_soon")  # nothing written to disk
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def fetch(self, key, answer):
+        """Fetch one queued point, the source saying ``answer`` (or raising
+        it); how many times the source was asked."""
+        with srv.terrain_lock:
+            srv._terrain_inflight.add(key)
+        asked = (
+            mock.Mock(side_effect=answer)
+            if isinstance(answer, BaseException)
+            else mock.Mock(return_value=answer)
+        )
+        with mock.patch.object(srv, "elevation_at", asked):
+            srv._terrain_fetch(self.src, key, 44.0, 33.0)
+        self.assertNotIn(key, srv._terrain_inflight, "it always leaves the ones in flight")
+        return asked.call_count
+
+    def test_a_reply_that_cannot_be_read_still_ends_the_point(self):
+        # Regression: an error elevation_at doesn't catch (a zlib bomb's
+        # MemoryError, a deep reply's RecursionError) left the point pending for good.
+        for exc in (MemoryError(), RecursionError("too deep")):
+            self.fetch(f"dem1|{type(exc).__name__}", exc)
+            self.assertIn(f"dem1|{type(exc).__name__}", srv._terrain_failed)
+            self.assertIn(type(exc).__name__, srv._terrain_error["dem1"])
+            self.assertEqual(srv.TERRAIN_CACHE, {})
+            srv._terrain_down.clear()
+
+    def test_queued_points_fail_at_once_while_the_source_is_down(self):
+        # Regression: each point waited out the timeout, so 500 points on an
+        # unreachable source took half an hour, and a stop waited for them all.
+        down = (None, "the service answered 502")
+        self.assertEqual(self.fetch("dem1|a", down), 1)
+        self.assertEqual(self.fetch("dem1|b", down), 0, "not asked: failed at once")
+        self.assertIn("dem1|b", srv._terrain_failed)
+        self.assertEqual(srv._terrain_error["dem1"], "the service answered 502")
+        srv._terrain_down["dem1"] -= srv.TERRAIN_DOWN_SECONDS  # a while later
+        self.assertEqual(self.fetch("dem1|c", (612.5, "")), 1)
+        self.assertEqual(srv.TERRAIN_CACHE["dem1|c"], 612.5)
+        self.assertNotIn("dem1", srv._terrain_error)
+        # A point the source has no height for says nothing of the others.
+        self.assertEqual(self.fetch("dem1|d", (None, srv._NO_HEIGHT)), 1)
+        self.assertEqual(self.fetch("dem1|e", (None, srv._NO_HEIGHT)), 1)
+
+    def test_the_oldest_heights_and_failures_make_way(self):
+        # Regression: past the cap, new heights were fetched again on every
+        # ask, and failures were kept without end.
+        with (
+            mock.patch.object(srv, "TERRAIN_MAX_ENTRIES", 2),
+            mock.patch.object(srv, "TERRAIN_FAILED_KEPT", 2),
+        ):
+            for k in "abc":
+                self.fetch(f"dem1|{k}", (100.0, ""))
+            for k in "def":
+                self.fetch(f"dem1|{k}", (None, srv._NO_HEIGHT))
+        self.assertEqual(list(srv.TERRAIN_CACHE), ["dem1|b", "dem1|c"])
+        self.assertEqual(list(srv._terrain_failed), ["dem1|e", "dem1|f"])
+
+    def test_a_stop_drops_the_points_still_queued(self):
+        import concurrent.futures
+
+        pool = concurrent.futures.ThreadPoolExecutor(1)
+        gate = threading.Event()
+        pool.submit(gate.wait, 5)
+        queued = pool.submit(lambda: None)
+        with mock.patch.object(srv, "_terrain_pool", pool):
+            srv.stop_terrain()
+            gate.set()
+            self.assertTrue(queued.cancelled())
+            # An ask that comes in after it is answered, not refused.
+            with (
+                mock.patch.object(srv, "terrain_source", return_value=self.src),
+                mock.patch.object(srv, "_terrain_load"),
+            ):
+                body = srv.elevations([[44.0, 33.0]])
+        self.assertEqual((body["heights"], body["pending"], body["unknown"]), ([None], [], [0]))
+        pool.shutdown()
+
+    def test_a_tile_cannot_unpack_past_its_own_size(self):
+        import struct
+
+        def chunk(k, d):
+            return struct.pack(">I", len(d)) + k + d + struct.pack(">I", zlib.crc32(k + d))
+
+        def png(width, height, data):
+            return (
+                b"\x89PNG\r\n\x1a\n"
+                + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(data))
+                + chunk(b"IEND", b"")
+            )
+
+        # A 2x1 tile whose data would unpack to 20 MB: only its 9 bytes are.
+        bomb = png(2, 1, bytes([0, 1, 2, 3, 255, 0, 0, 0, 0]) + bytes(20_000_000))
+        self.assertLess(len(bomb), 100_000)
+        width, height, at = srv._png_reader(bomb)
+        self.assertEqual((width, height, at(0, 0)), (2, 1, (1, 2, 3, 255)))
+        with self.assertRaisesRegex(ValueError, "100000 by 100000 pixels"):
+            srv._png_reader(png(100_000, 100_000, b""))
+
+    def test_a_wms_reply_that_is_not_http_says_so(self):
+        # http:// to an https:// port: the reply isn't HTTP at all.
+        bad = http.client.BadStatusLine("\x15\x03\x01\x00\x02\x02")
+        with mock.patch.object(srv.urllib.request, "urlopen", side_effect=bad):
+            self.assertEqual(
+                srv.wms_fetch("http://10.0.0.5:443/wms"),
+                {"error": "the reply was not HTTP (BadStatusLine)"},
+            )
+
+
+class AuditLogTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = own_folder(self)
+        for name, value in (("BACKUP_DIR", str(self.tmp)), ("_audit_failed", False)):
+            patcher = mock.patch.object(srv, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_it_never_stops_a_request_and_says_when_it_works_again(self):
+        # Regression: anything but an OSError (a character a file can't
+        # hold) went up through the request, which was then never answered.
+        with (
+            mock.patch.object(srv.os, "makedirs", side_effect=ValueError("odd")),
+            mock.patch.object(srv, "safe_print") as printed,
+        ):
+            srv.audit("AB@10.0.0.12", "save_reports ALPHA: 1 report(s)")
+            srv.audit("AB@10.0.0.12", "save_reports ALPHA: 1 report(s)")
+        self.assertEqual(
+            [c.args[0] for c in printed.call_args_list],
+            [f"[!] Could not write {srv.AUDIT_LOG_NAME}: odd"],
+        )
+        with mock.patch.object(srv, "safe_print") as printed:
+            srv.audit("AB@10.0.0.12", "save_config ALPHA / Patrol \ud83d")
+            srv.audit("AB@10.0.0.12", "save_config ALPHA / Patrol")
+        self.assertEqual(
+            [c.args[0] for c in printed.call_args_list],
+            [f"[+] {srv.AUDIT_LOG_NAME} is being written again."],
+        )
+        lines = (self.tmp / srv.AUDIT_LOG_NAME).read_text("utf-8").splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(lines[0].endswith("save_config ALPHA / Patrol ?"), lines[0])
+
+
+class ServerLogTests(unittest.TestCase):
+    LINE = r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ  "
+
+    def setUp(self):
+        self.tmp = own_folder(self)
+        self.path = self.tmp / srv.LOG_DIR_NAME / srv.LOG_NAME
+        self.addCleanup(srv.stop_log)
+
+    def test_every_console_line_goes_to_the_log_with_its_utc_time(self):
+        self.assertTrue(srv.start_log(str(self.path)))
+        with mock.patch("builtins.print") as console:
+            srv.safe_print("[*] Connected (1): AB at this computer")
+        console.assert_called_once_with("[*] Connected (1): AB at this computer", flush=True)
+        srv.stop_log()
+        self.assertRegex(
+            self.path.read_text("utf-8"),
+            rf"^{self.LINE}\[\*\] Connected \(1\): AB at this computer\n$",
+        )
+
+    def test_errors_go_to_the_log_in_full(self):
+        hooks = (threading.excepthook, sys.excepthook)
+        self.assertTrue(srv.start_log(str(self.path)))
+        httpd = srv.SaltSyncServer(("127.0.0.1", 0), srv.SaltSyncHandler)
+        try:
+            with mock.patch("builtins.print") as console:
+                try:
+                    raise KeyError("boom")
+                except KeyError:
+                    httpd.handle_error(None, ("203.0.113.9", 1))
+        finally:
+            httpd.server_close()
+        self.assertEqual(len(console.call_args_list), 1, "the console as before: one line")
+        with mock.patch("sys.stderr", io.StringIO()) as stderr:
+            worker = threading.Thread(target=lambda: 1 / 0, name="Timer-7")
+            worker.start()
+            worker.join()
+        self.assertIn("ZeroDivisionError", stderr.getvalue(), "the console as before")
+        srv.stop_log()
+        self.assertEqual((threading.excepthook, sys.excepthook), hooks, "put back")
+        text = self.path.read_text("utf-8")
+        self.assertRegex(text, rf"{self.LINE}\[!\] Error handling a request from 203\.0\.113\.9")
+        self.assertIn("Traceback (most recent call last)", text)
+        self.assertIn("KeyError: 'boom'", text)
+        self.assertRegex(text, rf"{self.LINE}\[!\] Error in Timer-7:\nTraceback")
+        self.assertIn("ZeroDivisionError: division by zero", text)
+
+    def test_a_log_that_cannot_be_opened_leaves_the_console_alone(self):
+        (self.tmp / "E").write_text("not a folder", encoding="utf-8")
+        hooks = (threading.excepthook, sys.excepthook)
+        self.assertFalse(srv.start_log(str(self.tmp / "E" / srv.LOG_DIR_NAME / srv.LOG_NAME)))
+        self.assertEqual((threading.excepthook, sys.excepthook), hooks)
+        with mock.patch("builtins.print") as console:
+            srv.safe_print("[*] Still here.")
+        console.assert_called_once_with("[*] Still here.", flush=True)
+
+    def test_the_log_is_beside_the_backups_where_nothing_moves_it(self):
+        # Done with Mission moves what is in the backup folder, and Windows
+        # can't move a file held open.
+        with mock.patch.object(srv, "BACKUP_DIR", str(self.tmp / "Auto Backups")):
+            path = Path(srv.server_log_path())
+            self.assertEqual(path, self.tmp / srv.LOG_DIR_NAME / srv.LOG_NAME)
+            self.assertNotEqual(path.parent, Path(srv.mission_archive_dir()))
 
 
 # What the server wrote and served for every_setting_saved in 2.21.0, before
@@ -1529,6 +1980,7 @@ class HttpApiTests(unittest.TestCase):
             srv._terrain_loaded_from = None
             srv._terrain_failed.clear()
             srv._terrain_error.clear()
+            srv._terrain_down.clear()
             srv._terrain_tiles.clear()
         with contextlib.suppress(FileNotFoundError):
             os.remove(os.path.join(srv.BACKUP_DIR, srv.TERRAIN_NAME))
@@ -3348,6 +3800,97 @@ class HttpApiTests(unittest.TestCase):
         self.assertIsNone(self.pending_retry())
         self.assertEqual(srv._dirty_atos, set())
 
+    def test_a_backup_folder_that_is_gone_keeps_the_changes_and_is_retried(self):
+        # Regression: with the folder gone (a pulled USB stick) the pending
+        # changes were cleared, the error escaped the save's thread, nothing
+        # was said or retried, and /api/health still said ok.
+        self.addCleanup(cancel_pending_save)
+        folder = self.own_backup_dir()
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        cancel_pending_save()
+        (folder / "E").write_text("not a folder", encoding="utf-8")  # no drive E: now
+        with (
+            mock.patch.object(srv, "BACKUP_DIR", str(folder / "E" / "Auto Backups")),
+            mock.patch.object(srv, "safe_print") as printed,
+        ):
+            srv.save_data_to_disk()
+            self.assertEqual(self.pending_retry(), 1.0)
+            self.assertEqual(srv.health()["status"], "not saving")
+            with srv.data_lock:  # a change made meanwhile
+                srv.DATA_STORE["workspaces"]["BRAVO"] = [report("b1", "BRAVO001")]
+                srv.mark_dirty("BRAVO")
+            cancel_pending_save()
+            srv.save_data_to_disk()
+        self.assertEqual(srv._save_failures, 2)
+        self.assertEqual(srv._dirty_atos, {"ALPHA", "BRAVO"})
+        self.assertTrue(srv._shared_dirty)
+        lines = [c.args[0] for c in printed.call_args_list]
+        self.assertTrue(lines[0].startswith("[!] Error saving to "), lines[0])
+        self.assertIn("Auto Backups", lines[0])
+        self.assertIn("retried", lines[-1])
+        self.assertEqual(len(lines), 2, "said once for the whole run of failures")
+        cancel_pending_save()
+        with mock.patch.object(srv, "safe_print") as printed:
+            srv.save_data_to_disk()
+        self.assertEqual(printed.call_args_list[0].args[0], "[+] Backups are being saved again.")
+        self.assertIn('"r1"', (folder / "ALPHA_Patrol.txt").read_text("utf-8"))
+
+    def test_a_broken_character_is_refused_and_cannot_stop_saves(self):
+        folder = self.own_backup_dir()
+        message = self.refused(
+            400, "/api/save_reports", {"ato": "ALPHA", "reports": [report(note="x\ud83d")]}
+        )
+        self.assertEqual(
+            message,
+            "Validation failed: reports[0].note holds a broken character "
+            "(U+D83D, half of an emoji or other symbol).",
+        )
+        self.assertNotIn("ALPHA", self.sync()["workspaces"])
+        # Were one to get in all the same, the backups and the audit log still save.
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        cancel_pending_save()
+        with srv.data_lock:
+            srv.DATA_STORE["workspaces"]["ALPHA"][0]["size"] = "2x \ud83d"
+            srv.DATA_STORE["overlays"] = [{**NAI1, "label": "NAI \ud83d"}]
+            srv.mark_dirty()
+        with mock.patch.object(srv, "safe_print") as printed:
+            srv.save_data_to_disk()
+            srv.audit("AB@10.0.0.12", "save_config ALPHA / Patrol \ud83d")
+        self.assertEqual(printed.call_args_list, [])
+        self.assertEqual(srv._save_failures, 0)
+        self.assertIn('"2x ?"', (folder / "ALPHA_Patrol.txt").read_text("utf-8"))
+        self.assertIn('"NAI ?"', (folder / srv.SHARED_SETTINGS_NAME).read_text("utf-8"))
+        self.assertIn("Patrol ?", (folder / srv.AUDIT_LOG_NAME).read_text("utf-8"))
+
+    def test_shutdown_says_plainly_when_the_changes_were_not_saved(self):
+        # Regression: it said "flushed to disk" when the save had failed.
+        self.addCleanup(cancel_pending_save)
+        folder = self.own_backup_dir()
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        cancel_pending_save()
+        (folder / "E").write_text("not a folder", encoding="utf-8")
+        with (
+            mock.patch.object(srv, "BACKUP_DIR", str(folder / "E" / "Auto Backups")),
+            mock.patch.object(srv, "stop_terrain"),
+            mock.patch.object(srv, "safe_print") as printed,
+        ):
+            self.assertFalse(srv.graceful_drain())
+        lines = [c.args[0] for c in printed.call_args_list]
+        self.assertNotIn("[+] Pending changes flushed to disk.", lines)
+        said = lines.index(
+            f"[!] Changes NOT saved: the backups could not be written to {folder / 'E' / 'Auto Backups'}."
+        )
+        self.assertTrue(lines[said + 1].startswith("    Error saving to "), lines[said + 1])
+        cancel_pending_save()
+        with (
+            mock.patch.object(srv, "stop_terrain"),
+            mock.patch.object(srv, "safe_print") as printed,
+        ):
+            self.assertTrue(srv.graceful_drain())
+        lines = [c.args[0] for c in printed.call_args_list]
+        self.assertIn("[+] Pending changes flushed to disk.", lines)
+        self.assertIn(f"[+] {srv.AUDIT_LOG_NAME} is being written again.", lines)
+
     def own_backup_dir(self):
         """An empty backup folder for this test alone."""
         folder = Path(tempfile.mkdtemp(prefix="salt-own-"))
@@ -3859,7 +4402,11 @@ class HttpApiTests(unittest.TestCase):
             resp.readline()
             resp.readline()
             self.assertTrue(self.wait_until(lambda: len(srv.sse_clients) == 1))
-            with mock.patch.object(srv, "flush_pending_save") as flush:
+            with (
+                mock.patch.object(srv, "flush_pending_save") as flush,
+                mock.patch.object(srv, "stop_terrain"),  # the other tests' pool stays
+                mock.patch.object(srv, "safe_print"),
+            ):
                 srv.graceful_drain()
             flush.assert_called_once()
             self.assertEqual(resp.readline(), b"event: shutdown\n")

@@ -454,7 +454,10 @@ The server is the meeting point, not the authority over content.
 - **Notify, then pull.** SSE messages carry only a number: every change
   anyone can see (the data, or who is connected and where) takes the next one
   (`broadcast_update`), starting at the boot time in milliseconds so a
-  restarted server's are higher still. On `data: {"v": n}` a client fetches
+  restarted server's are higher still. With the clock set back they start
+  instead at the number kept in `change.json` beside the backups (left in
+  place by Done with Mission), which every number given out stays below,
+  reserved ahead (`start_change_numbers`). On `data: {"v": n}` a client fetches
   `/api/sync`, unless it already has change `n`. One message type keeps the
   protocol trivial, and a client that missed events catches up on its next
   pull. Changes within 150 ms of each other go out as one message.

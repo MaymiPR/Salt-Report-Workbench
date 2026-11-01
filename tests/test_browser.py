@@ -14,6 +14,7 @@ Without Playwright the whole module is skipped, so the plain
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import io
 import json
@@ -1133,6 +1134,196 @@ class BrowserTests(unittest.TestCase):
         self.wait_for_server(page, f"s => (s.workspaces['{self.ato}'] || []).length === 1")
         page.wait_for_function("!changesWaiting()")
         self.assertEqual(self.sizes(page), ["2x BTR"])
+
+    def test_a_change_the_server_put_off_is_sent_with_no_one_else_changing_anything(self):
+        # Regression: a change kept while the server refused it for the
+        # moment (or couldn't be reached) went only at the next notice of a
+        # newer change, so with no one else saving it stayed on this laptop.
+        page = self.open_editor()
+        self.synced(page)  # no notice of this page's own changes still to come
+        page.route("**/api/save_reports", self.refuse("Busy", status=503))
+        self.log(page, "2x BTR")
+        page.wait_for_function("changesWaiting() && pushesInFlight === 0")
+        page.unroute("**/api/save_reports")
+        # Nothing here asks for a sync: the page sends it again by itself.
+        self.wait_for_server(page, f"s => (s.workspaces['{self.ato}'] || []).length === 1")
+        page.wait_for_function("!changesWaiting()")
+
+    def test_a_save_that_never_answers_gives_up_as_unreachable(self):
+        # Regression: requests had no time limit, so a push hung on a half-open
+        # connection held back every pull and the screen went stale silently.
+        page = self.open_editor()
+        self.synced(page)
+        page.evaluate("REQUEST_MS_BY_PATH['/api/save_reports'] = 500")
+        held = []
+        page.route("**/api/save_reports", lambda route: held.append(route))
+        self.log(page, "2x BTR")
+        page.wait_for_function("changesWaiting() && pushesInFlight === 0")
+        self.assertIn("offline", page.get_attribute("#statusDot", "class"))
+        page.unroute("**/api/save_reports")
+        for route in held:
+            with contextlib.suppress(PlaywrightError):  # the page gave up on it already
+                route.abort()
+        page.evaluate("REQUEST_MS_BY_PATH['/api/save_reports'] = 60000")
+        self.wait_for_server(page, f"s => (s.workspaces['{self.ato}'] || []).length === 1")
+
+    def test_an_empty_workspace_is_never_unloaded_by_a_push(self):
+        # Regression: a push from a workspace with nothing logged yet sent an
+        # empty list, which the server takes as Unload.
+        page = self.open_editor()
+        self.synced(page)
+        asked = []
+        page.on(
+            "request", lambda req: asked.append(req.url) if "/api/unload_ato" in req.url else None
+        )
+        self.assertTrue(page.evaluate("() => pushToServer()"))
+        self.assertFalse(page.evaluate("changesWaiting()"))
+        self.assertEqual(asked, [])
+
+    def test_a_refusal_not_about_the_reports_is_asked_once(self):
+        # Regression: any refusal split the batch to find the bad report, so
+        # a 403 on a whole workspace became a burst of requests.
+        page = self.open_editor()
+        sent, forbid = [], []
+
+        def save(route):
+            # Unreachable while the reports are logged, then forbidden.
+            if not forbid:
+                route.abort()
+                return
+            sent.append(route.request.url)
+            self.refuse("Forbidden", status=403)(route)
+
+        page.route("**/api/save_reports", save)
+        for size in ("1x BTR", "2x BTR", "3x BTR"):
+            self.log(page, size)
+        page.wait_for_function("changesWaiting() && pushesInFlight === 0")
+        forbid.append(True)
+        page.evaluate("() => syncWithServer()")
+        page.wait_for_selector("#toastNotification:has-text('Not saved: Forbidden.')")
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(page.evaluate("Object.keys(unsaved[activeAto]).length"), 3)
+        page.unroute("**/api/save_reports")
+
+    def test_a_drawing_fault_after_a_pull_is_said_and_leaves_the_page_online(self):
+        # Regression: a fault drawing what a pull brought turned the dot red
+        # ("Offline") with nothing said, and the pull was never tried again.
+        page = self.open_editor()
+        self.synced(page)
+        page.evaluate(
+            """async () => {
+                const kept = renderWhoIsWhere;
+                renderWhoIsWhere = () => { renderWhoIsWhere = kept; throw new Error('drawing failed'); };
+                await syncWithServer();
+            }"""
+        )
+        page.wait_for_selector(
+            "#toastNotification.toast-error:has-text('Something went wrong: drawing failed')"
+        )
+        self.assertIn("online", page.get_attribute("#statusDot", "class"))
+        # The next pull is taken as ever.
+        self.log(page, "2x BTR")
+        page.evaluate("() => syncWithServer()")
+        self.synced(page)
+        self.assertEqual(self.sizes(page), ["2x BTR"])
+
+    def test_restore_saves_though_a_sync_lands_while_it_asks(self):
+        # Regression: Restore changed the report as it was when asked; a sync
+        # meanwhile had replaced it, so nothing was saved, yet it said "restored".
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        page.click("#reportLogBody .id-edit-btn")
+        page.fill("#size", "3x BTR")
+        page.click("#updateButton")
+        page.wait_for_selector("#reportLogBody .col-size:has-text('3x BTR')")
+        self.synced(page)
+        page.click("#reportLogBody .history-btn[data-history-id]")
+        replaced = """async () => { const was = localReports[0]; await syncWithServer(); return localReports[0] !== was; }"""
+        # Its version gone meanwhile: said, and nothing restored.
+        page.click("#reportLogBody .restore-btn")
+        page.wait_for_selector("#confirmationToast.show")
+        page.evaluate("localReports[0].history = []")
+        page.click("#confirmActionBtn")
+        page.wait_for_selector("#toastNotification:has-text('Nothing was restored.')")
+        # A sync while it asks: restored all the same. (The first brings the
+        # version back; its row stays open.)
+        self.assertTrue(page.evaluate(replaced))
+        page.click("#reportLogBody .restore-btn")
+        page.wait_for_selector("#confirmationToast.show")
+        self.assertTrue(page.evaluate(replaced))
+        page.click("#confirmActionBtn")
+        page.wait_for_selector("#toastNotification:not(.toast-error):has-text('restored.')")
+        self.wait_for_server(
+            page,
+            f"s => s.workspaces['{self.ato}'][0].size === '2x BTR' && !(s.workspaces['{self.ato}'][0].history || []).length",
+        )
+
+    def test_the_check_tag_saves_though_a_sync_lands_while_it_asks(self):
+        # Regression: settling a Check tag looked the report up by the object
+        # it had before asking; a sync meanwhile replaced it, and the fix was dropped.
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38S MB 55000 82000, NAI 1", choice="Keep NAI 1")
+        self.synced(page)
+        page.click("#reportLogBody button.loc-tag.warn")
+        page.wait_for_selector("#choiceToast.show")
+        self.assertTrue(
+            page.evaluate(
+                "async () => { const was = localReports[0]; await syncWithServer(); return localReports[0] !== was; }"
+            )
+        )
+        page.click("#choiceButtons button:text-is('Use NAI 2')")
+        page.wait_for_selector("#toastNotification:has-text('updated: 38S MB 55000 82000, NAI 2')")
+        self.wait_for_server(
+            page, f"s => s.workspaces['{self.ato}'][0].location === '38S MB 55000 82000, NAI 2'"
+        )
+
+    def test_deleting_with_history_rows_survives_a_sync_meanwhile(self):
+        # Regression: a pull answered while the history rows were being
+        # deleted put back the reports as they were, and the deletions made
+        # with them were never sent.
+        page = self.open_editor()
+        self.log(page, "2x BTR")
+        self.log(page, "1x truck")
+
+        def row(size):
+            return f"#reportLogBody tr[data-id]:has(.col-size:has-text('{size}'))"
+
+        page.click(f"{row('1x truck')} .id-edit-btn")
+        page.fill("#size", "2x truck")
+        page.click("#updateButton")
+        page.wait_for_selector(f"{row('2x truck')}")
+        self.synced(page)
+        page.click(f"{row('2x truck')} .history-btn[data-history-id]")
+        page.check("#reportLogBody .history-selector")
+        page.check(f"{row('2x BTR')} .row-selector")
+        held = []
+        page.route("**/api/delete_history", lambda route: held.append(route))
+        page.click("#deleteSelectedBtn")
+        page.click("#deleteSelectedBtn")
+        self.wait_until(lambda: held, "the history deletion never went out", page=page)
+        page.evaluate("() => { syncWithServer(); }")
+        self.assertTrue(page.evaluate("pullDeferred"), "the pull waits for the deletion")
+        held[0].continue_()
+        page.unroute("**/api/delete_history")
+        self.wait_for_server(
+            page,
+            f"s => s.workspaces['{self.ato}'].some(r => r.size === '2x BTR' && r.deleted)"
+            f" && s.workspaces['{self.ato}'].every(r => !(r.history || []).length)",
+        )
+        page.wait_for_selector("#toastNotification:has-text('2 item(s) deleted.')")
+
+    def test_names_are_cut_on_whole_characters(self):
+        # Regression: a name cut at a fixed length could end on half an emoji,
+        # which the server refuses.
+        page = self.open_editor()
+        self.assertEqual(
+            page.evaluate(
+                "[cutText('abc', 2), cutText('a\\u{1F600}b', 2), cutText('a\\u{1F600}b', 3),"
+                " freeBasemapName('x'.repeat(53) + '\\u{1F600}').length]"
+            ),
+            ["ab", "a", "a\U0001f600", 53],
+        )
 
     def test_an_unexpected_error_is_said(self):
         page = self.open_editor()
