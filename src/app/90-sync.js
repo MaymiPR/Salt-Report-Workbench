@@ -143,7 +143,7 @@ async function syncWithServer(again = false) {
         if (offlinePendingPush && activeAto && !(await pushToServer())) return;
         if (!(await pushPending())) { setConnectionStatus(false); return; }
         const pull = ++pullsAsked;
-        const res = await fetch('/api/sync');
+        const res = await serverFetch('/api/sync');
         if (res.status === 401) { handleUnauthorized(); return; }
         if (!res.ok) throw new Error('Server unreachable');
         const state = await res.json();
