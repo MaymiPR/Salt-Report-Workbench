@@ -82,7 +82,7 @@ const renderMapSide = (reps) => {
     const tile = (label, value) => `<div class="map-tile"><div class="map-tile-label">${label}</div><div class="map-tile-value">${value}</div></div>`;
     // Always three, so the row never changes shape.
     s.tiles.innerHTML = tile(mapOnlyInView ? 'On the map' : 'Reports', reps.length) + tile('In an NAI or OBJ', inPlace)
-        + tile('BDA assessed', roll.total ? `${roll.done} / ${roll.total}` : '&mdash;');
+        + tile('BDA assessed', roll.total ? `${roll.done} / ${roll.total}` : 'None');
     const places = top(tally, 12);
     const chip = (attr, key, label, n, on) => `<button type="button" class="map-chip map-side-place${on ? ' active' : ''}" ${attr}="${escapeHtml(key)}" aria-pressed="${on}"><span>${escapeHtml(label)}</span><strong>${n}</strong></button>`;
     s.side.innerHTML = `
