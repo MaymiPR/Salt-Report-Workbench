@@ -86,6 +86,10 @@ All notable changes to this project are documented here. The format follows
 - **Switching back to an unloaded workspace takes it off the unloaded list**
   however its name is typed. With spaces around it or in lower case, it
   stayed listed as unloaded after someone was working in it again.
+- **A number JSON can't carry is refused.** A request with `NaN`,
+  `Infinity` or a number too large (`1e999`) in a field nothing checks was
+  stored, and from then on no page could read a sync. It is now refused
+  with a plain message, and nothing is stored.
 
 ## [2.41.0] - 2026-11-01
 

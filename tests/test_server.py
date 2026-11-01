@@ -1925,6 +1925,24 @@ class HttpApiTests(unittest.TestCase):
         )
         self.assertEqual((status, body["message"]), (404, "Report not found."))
 
+    def test_numbers_json_cannot_carry_are_refused(self):
+        # Regression: Python reads NaN and Infinity (and 1e999 as Infinity) in
+        # a field no validator checks; stored, they went out in /api/sync as
+        # words JSON.parse refuses, so no page could pull again.
+        good = json.dumps({"ato": "ALPHA", "reports": [report(extra=1)]})
+        for word in ("NaN", "Infinity", "-Infinity", "1e999", "-1E400"):
+            raw = good.replace('"extra": 1', f'"extra": {word}').encode()
+            self.assertIn(word.encode(), raw)
+            message = self.refused(400, "/api/save_reports", raw=raw)
+            self.assertEqual(message, "Invalid JSON: a number is NaN, Infinity or too large.")
+        status, raw = self.request("/api/sync")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(raw)["workspaces"], {}, "nothing got through")
+        # Large but finite numbers, and the same body with an ordinary one, are fine.
+        raw = good.replace('"extra": 1', '"extra": 1.5e300').encode()
+        self.assertEqual(self.request("/api/save_reports", raw=raw)[0], 200)
+        self.assertEqual(self.sync()["workspaces"]["ALPHA"][0]["extra"], 1.5e300)
+
     # -- one refusal shape ---------------------------------------------------- #
     def test_every_refusal_of_a_request_is_the_one_json_shape(self):
         config = {"config": {"ato": "A", "title": "T"}}

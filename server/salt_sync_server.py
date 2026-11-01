@@ -1032,6 +1032,25 @@ def _check_text(raw: bytes, data) -> str | None:
     return None
 
 
+class _NotFinite(ValueError):
+    """A request body's number that JSON can't carry: NaN, Infinity, -Infinity,
+    or one too large for a float (1e999). Python reads them, but stored, they
+    would be sent back in /api/sync as words no browser can read."""
+
+
+def _not_finite(text: str):
+    """json.loads's parse_constant: NaN and the infinities are refused."""
+    raise _NotFinite(text)
+
+
+def _finite_float(text: str) -> float:
+    """json.loads's parse_float: a number too large for a float is refused."""
+    value = float(text)
+    if math.isinf(value):
+        raise _NotFinite(text)
+    return value
+
+
 def _is_real_time(t: str) -> bool:
     """Whether a report's time (as _ISO_TIME_RE matched it) is a date and
     time there is: not 2026-13-40T25:00:00Z, which the page can't export."""
@@ -4261,7 +4280,10 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             return
         try:
             raw = self.rfile.read(length)
-            data = json.loads(raw)
+            data = json.loads(raw, parse_constant=_not_finite, parse_float=_finite_float)
+        except _NotFinite:
+            self._bad_request('Invalid JSON: a number is NaN, Infinity or too large.')
+            return
         except (ValueError, RecursionError):  # RecursionError: nesting too deep
             self._bad_request('Invalid JSON.')
             return
