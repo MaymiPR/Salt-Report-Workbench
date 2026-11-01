@@ -354,11 +354,26 @@ of march anywhere no report has a sense and no rule adds such a sign, so
 the narrative is what it was without them: a random corpus of a thousand
 report sets, run through the core before and after, gave the same bytes.
 
+The text is laid out for the reader, the bottom line first: a BLUF (the
+strongest judgment, and the strongest of another group no more than a step
+weaker, so a defense here and an attack there read as one picture; the
+force's largest sighting, the activity and its trend, the latest report,
+what to watch for, the first gap), then 1. SITUATION and 2. ENEMY FORCES
+(what the reports say), 3. ASSESSMENT (one line a judgment, grouped as
+`NARRATIVE_RULES` groups the rules, a group where its strongest judgment
+is), 4. WATCH FOR, 5. GAPS AND COLLECTION, and ANNEX A. JUDGMENT DETAIL
+(each judgment's basis, doctrine, unit and confidence). The layout only
+arranges what `narrativeJudgments` gives: the judgments, their levels and
+the reports behind them are the same.
+
 `summaryDetail` (`core/60-statistics.js`) is `summaryReport` with what is
-behind the text: for each judgment shown, its rule, level, last line and the
-reports behind it by id. The page puts *From* and those reports as buttons
-under each judgment (`showSummaryText` in `app/80-summary.js`); the text it
-copies, saves and prints is `summaryReport`'s alone, the same bytes.
+behind the text: for each judgment shown, its rule, level, the last line of
+its entry in the assessment, the lines of its detail in the annex and the
+reports behind it by id; and the annex's lines. The page ends each entry with
+a *Details* button that opens that detail and *From* with those reports as
+buttons, and folds the annex into one line (`showSummaryText` in
+`app/80-summary.js`); the text it copies, saves and prints is
+`summaryReport`'s alone, the same bytes, the annex in full.
 
 The team's settings (`{enemy, units, equipment, off, custom, toward}`) are one set per
 server, like the overlays: they arrive in `/api/sync` as `narrative`, are kept

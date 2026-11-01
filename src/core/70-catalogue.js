@@ -3,8 +3,8 @@
 
 // --- Narrative ---
 
-// The narrative summary: what the reports say (OBSERVED), then what they
-// suggest (ASSESSMENT), from fixed rules that cite the reports behind each
+// The narrative summary: what the reports say (SITUATION, ENEMY FORCES), then
+// what they suggest (ASSESSMENT), from fixed rules that cite the reports behind each
 // judgment. The same reports always give the same words, nothing is put down
 // as seen that wasn't reported, and nothing leaves the page (no AI model).
 

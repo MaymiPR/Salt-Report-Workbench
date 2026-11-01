@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The Narrative puts the bottom line first and reads simply.** It opens
+  with a BLUF: the strongest judgment and, beside it, the strongest of another
+  kind (a defense in one place while they attack in another), each with its
+  confidence; the force's largest sighting with the support seen with it; the
+  activity and whether it is up or down on the period before; the latest
+  report; what to watch for; and the first gap. Then come 1. Situation and
+  2. Enemy forces as short items, 3. Assessment with one line a judgment
+  grouped as Maneuver, Defense, Fires and Support, 4. Watch for (each sign
+  once, with the judgments it would firm up), 5. Gaps and collection (places
+  gone quiet, in one line, to re-task collection to; judgments resting on low
+  confidence; reports without a grid; types to add to the catalogue), and
+  Annex A with each judgment in full. On screen, Details at the end of a
+  judgment opens its basis, doctrine, unit and reports, and the annex is one
+  line; Copy, Save .txt and Print have it all. The judgments themselves, their
+  levels and the reports behind them, are unchanged.
+
 ## [2.35.0] - 2026-10-31
 
 ### Changed

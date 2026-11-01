@@ -1052,36 +1052,58 @@ const confidenceOf = (list) => {
     return `${level} (${plural(list.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''})`;
 };
 
+// The groups the assessment shows judgments in, as the settings list the
+// rules (Maneuver, Defense, Fires, Support); the team's own rules apart.
+const RULE_GROUP = Object.fromEntries(NARRATIVE_RULES.map(([id, , , group]) => [id, group]));
+const groupOf = (rule) => RULE_GROUP[rule] || 'Team rules';
+const LETTER = (i) => String.fromCharCode(97 + i);
+// The combat support the bottom line names beside the force, in short words.
+const SUPPORT_WORD = { recon: 'recon', fires: 'artillery', ad: 'air defense', atgm: 'antitank weapons', engineer: 'engineers', c2: 'command vehicles', ew: 'EW', air: 'aviation' };
+
 // The narrative's sections, for the reports in the period (`cur`, in time
 // order) and the period before (`prev`, or null). `settings` are the team's
 // (what the enemy is called, units, equipment, rules: narrativeSettings).
-// `overlays` give the axes of advance. Gives { lines, judgments }: the lines,
-// and for each judgment shown its rule, the index of its last line, and the
-// reports behind it (summaryDetail).
+// `overlays` give the axes of advance. Gives { lines, judgments, annex }:
+// the lines; for each judgment shown its rule, the index of the last line
+// of its one-line entry in the assessment, the lines of its detail in the
+// annex ([from, to), after its first sentence) and the reports behind it
+// (summaryDetail); and the annex's lines ([from, to), its heading first),
+// or null.
+//
+// The order is the reader's: a bottom line up front (the strongest
+// judgment, and the strongest of another kind in other places, so a
+// defense here and an attack there read as one picture; the force's size,
+// the activity and its trend, the latest report, what to watch for, the
+// first gap), then the situation (what the reports say), the enemy forces
+// (what was seen, by kind), the assessment (one line a judgment, grouped),
+// what to watch for, the gaps and the collection they call for, and an
+// annex with each judgment's basis, doctrine, unit and confidence.
 const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays = [], width = 100 }) => {
     const set = narrativeSettings(settings);
     const axes = axesOf(overlays);
     const march = set.toward || axes.length ? { axes, toward: set.toward } : null;
     const facts = cur.map(f => narrativeFacts(f, set.team, march));
     const out = [], shown = [];
-    const say = (text, first = '   ', rest = '   ') => out.push(...wrapText(text, first, rest, width));
+    const say = (text, first = '   ', rest = first) => out.push(...wrapText(text, first, rest, width));
+    const item = (text) => say(text, '   - ', '     ');
+    const bluf = (text) => say(text, '      ', '      ');
     const cite = (list, max = 4) => {
         const l = byTime(list);
         return l.slice(0, max).map(f => `${f.hedged ? `${f.hedged} ` : ''}${f.id} ${dayTime(f.ms, local)}`).join(', ') + (l.length > max ? ` and ${l.length - max} more` : '');
     };
+    const prevNote = prev ? ` (previous ${hrs} hrs: ${prev.length})` : '';
 
-    out.push('1. OBSERVED');
     if (!facts.length) {
-        say(`No reports in this period${prev ? ` (previous ${hrs} hrs: ${prev.length})` : ''}.`);
-        out.push('', '2. ASSESSMENT', '   None: no reports to assess.', '');
-        return { lines: out, judgments: shown };
+        say(`No reports in this period${prevNote}.`, 'BLUF: ', '      ');
+        out.push('', '1. SITUATION');
+        say(`No reports in this period${prevNote}.`);
+        out.push('', '2. ENEMY FORCES', '   None reported.', '', '3. ASSESSMENT', '   None: no reports to assess.', '');
+        return { lines: out, judgments: shown, annex: null };
     }
+
+    // --- What the reports say, worked out first: the bottom line needs it ---
     const who = new Set(facts.map(f => f.who).filter(Boolean)).size;
     const placed = facts.filter(f => f.places.length).length;
-    say(`${plural(facts.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''}, ${dayTime(facts[0].ms, local)} to ${dayTime(facts[facts.length - 1].ms, local)}`
-        + `${prev ? ` (previous ${hrs} hrs: ${prev.length})` : ''}; ${placed} in an NAI or OBJ`
-        + `${places.length ? `, most in ${places.slice(0, 3).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}.`);
-
     // The equipment, by role, with the types reported and how many.
     const roles = new Map(), unknown = new Map(), kitOf = new Map();
     facts.forEach(f => f.els.forEach(e => {
@@ -1095,10 +1117,128 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
     }));
     const label = Object.fromEntries(EQUIPMENT_ROLES);
     const roleList = EQUIPMENT_ROLES.map(([r]) => r).filter(r => roles.has(r));
-    if (roleList.length) {
-        say(`Equipment reported: ${roleList.map(r => `${label[r]} (${[...roles.get(r)].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
-            .map(([t, n]) => typeCount(t, n, kitOf.get(t))).join(', ')})`).join('; ')}.`);
+    const origins = originCounts(facts), army = originOf(origins);
+    // The largest single sighting of each kind, and the unit size it suggests.
+    const largest = Object.keys(ECHELONS).map(kind => {
+        const top = facts.filter(f => f.groups[kind]).sort((x, y) => y.groups[kind] - x.groups[kind] || y.ms - x.ms)[0];
+        return top && { kind, text: `${ECHELON_LABEL[kind]} approximately ${echelonOf(kind, top.groups[kind])} size (${top.shown}; ${top.id} ${dayTime(top.ms, local)}${top.places.length ? `, ${top.places.join(', ')}` : ''})` };
+    }).filter(Boolean);
+    const at = (p) => facts.filter(f => f.places.includes(p));
+
+    // The ten strongest judgments, grouped as the settings list the rules;
+    // a group comes where its strongest judgment does, so the first is the
+    // strongest of all. Each is lettered in the order shown.
+    const all = narrativeJudgments(facts, cite, set), top = all.slice(0, 10);
+    const groups = [...new Set(top.map(j => groupOf(j.rule)))];
+    const judged = groups.flatMap(g => top.filter(j => groupOf(j.rule) === g)).map((j, i) => {
+        const [term, pct] = ICD203[j.level];
+        // Said of a unit when one to three in the unit list fit, else of the enemy.
+        const units = unitsFor(j, set.units);
+        const whom = units.length && units.length <= 3 ? `elements of ${orList(units.map(u => u.name))}` : set.enemy;
+        const own = originCounts(j.list), mine = originOf(own), o = mine || army;
+        const what = typeof j.what === 'string' ? j.what : j.what[o] || j.what[''];
+        const confidence = confidenceOf(j.list);
+        return { j, letter: LETTER(i), group: groupOf(j.rule), term, pct, units, whom, own, mine, o, what, confidence, sure: confidence.split(' ')[0] };
+    });
+    // What to watch for, once each, with the judgments it would firm up.
+    const watch = new Map();
+    judged.forEach(x => x.j.watch.forEach(w => { if (!watch.has(w)) watch.set(w, []); watch.get(w).push(x.letter); }));
+    const watchList = [...watch].map(([w, ls]) => `${w} (${ls.join(', ')})`);
+
+    // What the reports leave open, and the collection it calls for: places
+    // gone quiet (in a period of 12 hours or more), judgments resting on
+    // too little, reports without a grid, types the catalogue doesn't know.
+    // The places gone quiet are one gap, the quietest first; the bottom line
+    // names three of them.
+    const gaps = [];
+    let quietBrief = '';
+    const span = hrs !== null && hrs !== undefined ? hrs : (end - facts[0].ms) / HOUR;
+    if (span >= 12) {
+        const quiet = places.map(p => [p.label, at(p.label).pop()]).filter(([, f]) => f && end - f.ms >= 6 * HOUR)
+            .sort((x, y) => x[1].ms - y[1].ms || x[0].localeCompare(y[0])).map(([p, f]) => `${p} (since ${dayTime(f.ms, local)})`);
+        if (quiet.length) {
+            gaps.push(`No reports for 6 hrs or more: ${andList(quiet)}. Re-task collection there.`);
+            quietBrief = `No reports for 6 hrs or more: ${quiet.length > 3 ? `${quiet.slice(0, 3).join(', ')} and ${quiet.length - 3} more` : andList(quiet)}. Re-task collection there.`;
+        }
     }
+    judged.filter(x => x.j.level >= LIKELY && x.sure === 'low').slice(0, 3).forEach(x => {
+        gaps.push(`${x.letter}: low confidence (${plural(x.j.list.length, 'report')}); a report from another observer would firm it up.`);
+    });
+    const noGrid = facts.filter(f => !f.a.points.length);
+    if (noGrid.length) gaps.push(`${plural(noGrid.length, 'report')} without a grid: ${cite(noGrid, 6)}. A grid would place ${noGrid.length === 1 ? 'it' : 'them'}.`);
+    if (unknown.size) {
+        gaps.push(`Not in the equipment catalogue: ${[...unknown].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).map(([t, n]) => `${t}${n > 1 ? ` (${n})` : ''}`).join(', ')}.`
+            + ' Add them in the Narrative settings, under Equipment, so the rules can read them.');
+    }
+
+    // --- BLUF ---
+    // The strongest judgment, and the strongest of another group (a defense
+    // beside an attack), no more than a step weaker and at least likely.
+    const lead = judged[0];
+    if (lead) {
+        const also = judged.slice(1).find(x => x.group !== lead.group && x.j.level >= Math.max(LIKELY, lead.j.level - 1));
+        say(`${lead.term.toUpperCase()} that ${lead.whom} ${lead.what} (${lead.letter}). Confidence: ${lead.sure}.`
+            + (also ? ` At the same time, ${also.term.toUpperCase()} that ${also.whom === lead.whom ? 'they' : also.whom} ${also.what} (${also.letter}). Confidence: ${also.sure}.` : ''),
+        'BLUF: ', '      ');
+    } else {
+        say(`No pattern this tool looks for in ${plural(facts.length, 'report')}; the situation is below.`, 'BLUF: ', '      ');
+    }
+    // The force: its largest sighting (armor first), and the combat support seen with it.
+    const main = largest.find(l => l.kind === 'maneuver') || largest[0];
+    const support = roleList.filter(r => r in SUPPORT_WORD).map(r => SUPPORT_WORD[r]);
+    if (main) bluf(`Strength: largest single sighting ${main.text}${support.length ? `; with ${andList(support)}` : ''}.`);
+    else if (roleList.length) bluf(`Strength: no unit size from the reports; ${andList(roleList.map(r => label[r]))} reported.`);
+    const trend = prev ? `, ${facts.length > prev.length ? 'up from' : facts.length < prev.length ? 'down from' : 'the same as'} ${prev.length} in the previous ${hrs} hrs` : '';
+    bluf(`Activity: ${plural(facts.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''}${trend}`
+        + `${places.length ? `; busiest ${places.slice(0, 2).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}.`);
+    const last = facts[facts.length - 1];
+    const where = last.places.length ? last.places.join(', ') : last.a.points.length ? last.a.points[0].mgrs : (last.r.location || 'no location');
+    bluf(`Latest: ${last.id} ${dayTime(last.ms, local)}, ${where}: ${last.shown || '-'}, ${last.r.activity || '-'}.`);
+    if (watchList.length) bluf(`Watch for: ${watchList.slice(0, 3).join('; ')}.`);
+    if (gaps.length) bluf(`Gap: ${quietBrief || gaps[0]}`);
+
+    // --- 1. SITUATION: what the reports say ---
+    out.push('', '1. SITUATION');
+    item(`${plural(facts.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''}, ${dayTime(facts[0].ms, local)} to ${dayTime(last.ms, local)}`
+        + `${prevNote}; ${placed} in an NAI or OBJ`
+        + `${places.length ? `, most in ${places.slice(0, 3).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}.`);
+    // Where they headed.
+    const heads = new Map();
+    facts.forEach(f => { if (f.act.heading) { const h = HEADINGS_8[Math.round(f.act.headingDeg / 45) % 8]; heads.set(h, (heads.get(h) || 0) + 1); } });
+    if (heads.size) item(`Movement: headed ${[...heads].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).slice(0, 3).map(([h, n]) => `${h} (${n})`).join(', ')}.`);
+    // The way of march, when there is one, and how the reports moving moved against it.
+    if (march) {
+        const ways = [set.toward && `toward ${set.toward} in the AO`,
+            axes.length && `along ${andList(axes.map(a => a.key))} within ${AXIS_NEAR_METERS / 1000} km of ${axes.length === 1 ? 'it' : 'them'}`].filter(Boolean);
+        const moved = facts.filter(f => f.sense);
+        const n = (s) => moved.filter(f => f.sense === s).length;
+        item(`Way of march: ${ways.join('; ')}.${moved.length ? ` Of ${plural(moved.length, 'report')} moving there: ${n('along')} along it, ${n('back')} back along it, ${n('across')} across it.` : ''}`);
+    }
+    // Any firing, the latest three.
+    const shots = facts.filter(f => f.act.tags.includes('Firing'));
+    if (shots.length) {
+        item(`Firing: ${plural(shots.length, 'report')}: ${shots.slice(-3).reverse().map(f => `${f.id} ${dayTime(f.ms, local)} ${f.shown || '-'}, ${f.r.activity || '-'}`).join('; ')}`
+            + `${shots.length > 3 ? `; and ${shots.length - 3} earlier` : ''}.`);
+    }
+    // Each busy place in a sentence: when, what kinds, what they were doing.
+    if (places.length) {
+        item('By place:');
+        places.slice(0, 6).forEach(p => {
+            const list = at(p.label);
+            const kinds = EQUIPMENT_ROLES.map(([r]) => r).filter(r => list.some(f => f.els.some(e => e.kit && e.kit.role === r))).map(r => label[r]);
+            // Whose area it is, from the unit list (not from the reports).
+            const whose = set.units.filter(u => u.places.some(q => q.toUpperCase() === p.label.toUpperCase())).map(u => u.name);
+            say(`${p.label}${whose.length ? ` (area of ${andList(whose)})` : ''}: ${plural(list.length, 'report')}, ${dayTime(list[0].ms, local)} to ${dayTime(list[list.length - 1].ms, local)}`
+                + `${kinds.length ? `; ${kinds.join(', ')}` : ''}; ${activityLine(list)}.`, '       ', '         ');
+        });
+    }
+
+    // --- 2. ENEMY FORCES: what was seen, by kind ---
+    out.push('', '2. ENEMY FORCES');
+    if (roleList.length) {
+        item(`Equipment reported: ${roleList.map(r => `${label[r]} (${[...roles.get(r)].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
+            .map(([t, n]) => typeCount(t, n, kitOf.get(t))).join(', ')})`).join('; ')}.`);
+    } else item('Equipment reported: none the catalogue knows.');
     // Vehicles given only as tracked or wheeled, and how the rules read them.
     const geared = facts.filter(f => f.gear);
     if (geared.length) {
@@ -1108,100 +1248,67 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
                 : { tracked: 'mostly tracked: read as armor or mechanized forces, the wheeled as their support',
                     wheeled: 'mostly wheeled: read as supply or motorized columns, the tracked as their escort',
                     mixed: 'a mix: read as mechanized forces with their supply vehicles' }[gearMix(tracked, wheeled)];
-        say(`Tracked and wheeled (type not given): ${tracked} tracked, ${wheeled} wheeled in ${plural(geared.length, 'report')}; ${read}.`);
+        item(`Tracked and wheeled (type not given): ${tracked} tracked, ${wheeled} wheeled in ${plural(geared.length, 'report')}; ${read}.`);
     }
-    const origins = originCounts(facts), army = originOf(origins);
     if (army) {
-        say(origins.RU && origins.CN
+        item(origins.RU && origins.CN
             ? `Equipment by design: Russian ${origins.RU}, Chinese ${origins.CN}; each judgment uses the doctrine of the equipment in its reports.`
             : `Identified equipment is of ${ARMIES[army]} design (${origins[army]} ${origins[army] === 1 ? 'vehicle or system' : 'vehicles and systems'}), so the assessment uses ${army === 'RU' ? 'Russian' : 'PLA'} doctrine.`);
     }
-    // The largest single sighting of each kind, and the unit size it suggests.
-    const largest = Object.keys(ECHELONS).map(kind => {
-        const top = facts.filter(f => f.groups[kind]).sort((x, y) => y.groups[kind] - x.groups[kind] || y.ms - x.ms)[0];
-        return top && `${ECHELON_LABEL[kind]} approximately ${echelonOf(kind, top.groups[kind])} size (${top.shown}; ${top.id} ${dayTime(top.ms, local)}${top.places.length ? `, ${top.places.join(', ')}` : ''})`;
-    }).filter(Boolean);
-    if (largest.length) say(`Largest single sightings: ${largest.join('; ')}.`);
-    // Where they headed, and any firing.
-    const heads = new Map();
-    facts.forEach(f => { if (f.act.heading) { const h = HEADINGS_8[Math.round(f.act.headingDeg / 45) % 8]; heads.set(h, (heads.get(h) || 0) + 1); } });
-    if (heads.size) say(`Movement: headed ${[...heads].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).slice(0, 3).map(([h, n]) => `${h} (${n})`).join(', ')}.`);
-    // The way of march, when there is one, and how the reports moving moved against it.
-    if (march) {
-        const ways = [set.toward && `toward ${set.toward} in the AO`,
-            axes.length && `along ${andList(axes.map(a => a.key))} within ${AXIS_NEAR_METERS / 1000} km of ${axes.length === 1 ? 'it' : 'them'}`].filter(Boolean);
-        const moved = facts.filter(f => f.sense);
-        const n = (s) => moved.filter(f => f.sense === s).length;
-        say(`Way of march: ${ways.join('; ')}.${moved.length ? ` Of ${plural(moved.length, 'report')} moving there: ${n('along')} along it, ${n('back')} back along it, ${n('across')} across it.` : ''}`);
-    }
-    const shots = facts.filter(f => f.act.tags.includes('Firing'));
-    if (shots.length) {
-        say(`Firing: ${plural(shots.length, 'report')}: ${shots.slice(0, 5).map(f => `${f.id} ${dayTime(f.ms, local)} ${f.shown || '-'}, ${f.r.activity || '-'}`).join('; ')}`
-            + `${shots.length > 5 ? `; and ${shots.length - 5} more` : ''}.`);
-    }
-    // Each busy place in a sentence: when, what kinds, what they were doing.
-    const at = (p) => facts.filter(f => f.places.includes(p));
-    if (places.length) {
-        out.push('   By place:');
-        places.slice(0, 6).forEach(p => {
-            const list = at(p.label);
-            const kinds = EQUIPMENT_ROLES.map(([r]) => r).filter(r => list.some(f => f.els.some(e => e.kit && e.kit.role === r))).map(r => label[r]);
-            // Whose area it is, from the unit list (not from the reports).
-            const whose = set.units.filter(u => u.places.some(q => q.toUpperCase() === p.label.toUpperCase())).map(u => u.name);
-            say(`${p.label}${whose.length ? ` (area of ${andList(whose)})` : ''}: ${plural(list.length, 'report')}, ${dayTime(list[0].ms, local)} to ${dayTime(list[list.length - 1].ms, local)}`
-                + `${kinds.length ? `; ${kinds.join(', ')}` : ''}; ${activityLine(list)}.`, '     ', '       ');
-        });
-    }
+    if (largest.length) item(`Largest single sightings: ${largest.map(l => l.text).join('; ')}.`);
 
-    out.push('', '2. ASSESSMENT');
-    // The ten strongest; how many more there were is said, not hidden.
-    const all = narrativeJudgments(facts, cite, set), judgments = all.slice(0, 10);
-    if (!judgments.length) say("No assessment: the reports in this period don't match any of the patterns this tool looks for.");
-    judgments.forEach((j, i) => {
-        const [term, pct] = ICD203[j.level];
-        // Said of a unit when one to three in the unit list fit, else of the enemy.
-        const units = unitsFor(j, set.units);
-        const who = units.length && units.length <= 3 ? `elements of ${orList(units.map(u => u.name))}` : set.enemy;
-        const own = originCounts(j.list), mine = originOf(own), o = mine || army;
-        const what = typeof j.what === 'string' ? j.what : j.what[o] || j.what[''];
-        say(`${term.toUpperCase()} (${pct}) that ${who} ${what}.`, `   ${String.fromCharCode(97 + i)}. `, '      ');
-        say(`Basis: ${j.basis}.`, '      ', '      ');
-        const doctrine = DOCTRINE[j.rule] && DOCTRINE[j.rule][o];
-        if (doctrine) {
-            const from = mine ? `${ARMIES[o]} equipment in these reports${own.RU && own.CN ? `, ${own[o]} of ${own.RU + own.CN}` : ''}` : `${ARMIES[o]} equipment in the period`;
-            say(`Doctrine (${from}): ${doctrine}`, '      ', '      ');
-        }
-        if (who !== set.enemy) {
-            say(`Unit: from the unit list, ${units.map(u => `${u.name} (${[u.places.join(', ') || 'anywhere', u.kinds.map(k => label[k]).join(', ')].filter(Boolean).join('; ')})`).join('; ')}.`, '      ', '      ');
-        }
-        say(`Confidence: ${confidenceOf(j.list)}.`, '      ', '      ');
-        if (j.watch.length) say(`Watch for: ${j.watch.join('; ')}.`, '      ', '      ');
-        shown.push({ rule: j.rule, level: j.level, line: out.length - 1, sources: [...new Set(j.list.map(f => reportKey(f.r)))] });
+    // --- 3. ASSESSMENT: one line a judgment ---
+    out.push('', '3. ASSESSMENT');
+    if (!judged.length) say("No assessment: the reports in this period don't match any of the patterns this tool looks for.");
+    groups.forEach(g => {
+        out.push(`   ${g.toUpperCase()}`);
+        judged.filter(x => x.group === g).forEach(x => {
+            say(`${x.term.toUpperCase()} that ${x.whom} ${x.what}. Confidence: ${x.sure}.`, `   ${x.letter}. `, '      ');
+            shown.push({ rule: x.j.rule, level: x.j.level, line: out.length - 1, detail: null, sources: [...new Set(x.j.list.map(f => reportKey(f.r)))] });
+        });
     });
-    if (all.length > judgments.length) {
-        say(`${plural(all.length - judgments.length, 'more judgment')} at ${ICD203[all[judgments.length].level][0]} or less not shown; a shorter window, or rules switched off in the settings, narrows them.`);
+    // How many more there were is said, not hidden.
+    if (all.length > top.length) {
+        say(`${plural(all.length - top.length, 'more judgment')} at ${ICD203[all[top.length].level][0]} or less not shown; a shorter window, or rules switched off in the settings, narrows them.`);
     }
 
-    // What the reports leave open.
-    out.push('', '3. GAPS');
-    const gaps = [];
-    const noGrid = facts.filter(f => !f.a.points.length);
-    if (noGrid.length) gaps.push(`${plural(noGrid.length, 'report')} without a grid: ${cite(noGrid, 6)}.`);
-    if (unknown.size) gaps.push(`Not in the equipment catalogue: ${[...unknown].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).map(([t, n]) => `${t}${n > 1 ? ` (${n})` : ''}`).join(', ')}.`);
-    if (hrs >= 12) {
-        places.forEach(p => {
-            const last = at(p.label).pop();
-            if (last && end - last.ms >= 6 * HOUR) gaps.push(`${p.label}: no reports since ${dayTime(last.ms, local)}.`);
+    // --- 4. WATCH FOR, 5. GAPS AND COLLECTION ---
+    out.push('', '4. WATCH FOR');
+    if (watchList.length) watchList.forEach(item);
+    else out.push('   Nothing more than the judgments already show.');
+    out.push('', '5. GAPS AND COLLECTION');
+    if (gaps.length) gaps.forEach(item);
+    else out.push('   None.');
+
+    // --- ANNEX A: each judgment in full ---
+    let annex = null;
+    if (judged.length) {
+        out.push('', 'ANNEX A. JUDGMENT DETAIL');
+        annex = [out.length - 1, 0];
+        judged.forEach((x, i) => {
+            say(`${x.term.toUpperCase()} (${x.pct}) that ${x.whom} ${x.what}.`, `   ${x.letter}. `, '      ');
+            const from = out.length;
+            say(`Basis: ${x.j.basis}.`, '      ', '      ');
+            const doctrine = DOCTRINE[x.j.rule] && DOCTRINE[x.j.rule][x.o];
+            if (doctrine) {
+                const whose = x.mine ? `${ARMIES[x.o]} equipment in these reports${x.own.RU && x.own.CN ? `, ${x.own[x.o]} of ${x.own.RU + x.own.CN}` : ''}` : `${ARMIES[x.o]} equipment in the period`;
+                say(`Doctrine (${whose}): ${doctrine}`, '      ', '      ');
+            }
+            if (x.whom !== set.enemy) {
+                say(`Unit: from the unit list, ${x.units.map(u => `${u.name} (${[u.places.join(', ') || 'anywhere', u.kinds.map(k => label[k]).join(', ')].filter(Boolean).join('; ')})`).join('; ')}.`, '      ', '      ');
+            }
+            say(`Confidence: ${x.confidence}.`, '      ', '      ');
+            if (x.j.watch.length) say(`Watch for: ${x.j.watch.join('; ')}.`, '      ', '      ');
+            shown[i].detail = [from, out.length];
         });
+        annex[1] = out.length;
     }
-    if (!gaps.length) gaps.push('None.');
-    gaps.forEach(g => say(g));
 
     out.push('');
-    say(`NOTE: OBSERVED is what the reports say; counts are as reported, and the same vehicles may be in more than one report.`
-        + ` ASSESSMENT comes from fixed rules over the cited reports. Likelihood terms follow ICD 203: `
+    say('NOTE: SITUATION and ENEMY FORCES are what the reports say; counts are as reported, and the same vehicles may be in more than one report.'
+        + ' ASSESSMENT comes from fixed rules over the cited reports, in full in Annex A. Likelihood terms follow ICD 203: '
         + `${ICD203.map(([t, p]) => `${t} ${p}`).join(', ')}. Confidence (high, moderate, low) rests on how many reports and observers support a judgment.`
         + ' Doctrine follows the design of the equipment in each judgment\'s reports (Russian or Chinese), else the period\'s.'
         + `${set.units.length ? ' Units are named from the unit list, not from the reports.' : ''}`, '', '');
-    return { lines: out, judgments: shown };
+    return { lines: out, judgments: shown, annex };
 };

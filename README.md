@@ -74,15 +74,18 @@ editable charts.
 ### Summary reports
 
 One click writes a Rollup, Most Trafficked, Place Activity, Shift Brief, or
-Narrative for any time window. The Narrative lists what was observed, then
-assessments from 56 rules based on open-source Russian and Chinese tactics, in
-ICD 203 terms, each citing the reports behind it. It recognizes about 790 Russian
+Narrative for any time window. The Narrative opens with a bottom line up
+front (the strongest judgments, the force's size, the activity, the latest
+report, what to watch for and the first gap), then the situation, the enemy
+forces, one line a judgment from 56 rules based on open-source Russian and
+Chinese tactics in ICD 203 terms, what to watch for, and the collection the
+gaps call for; each judgment's basis and reports open under it. It recognizes about 790 Russian
 and Chinese equipment types and general terms such as vic, tracked, wheeled and
 support, and counts a total with its breakdown once. Everything comes from
 fixed rules and templates, not AI, so nothing is made up. Reword any report
 before you copy, save, or print it.
 
-![The Narrative summary report with its Observed and Assessment sections, and its settings column on the right](docs/screenshots/narrative.png)
+![The Narrative summary report, and its settings column on the right](docs/screenshots/narrative.png)
 
 ### Battle damage assessment
 

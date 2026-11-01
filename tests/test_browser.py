@@ -2282,8 +2282,9 @@ class BrowserTests(unittest.TestCase):
         # The narrative: moving east, back along the axis, is withdrawing.
         page.click("#summaryViewToggleBtn")
         page.click("[data-summary-kind='narrative']")
-        page.wait_for_selector("#summaryText:has-text('2. ASSESSMENT')")
-        flat = lambda: " ".join(page.inner_text("#summaryText").split())  # noqa: E731
+        page.wait_for_selector("#summaryText:has-text('3. ASSESSMENT')")
+        # The report as copied: each judgment's basis is in its Details on screen.
+        flat = lambda: " ".join(page.evaluate("summaryText").split())  # noqa: E731
         self.assertIn("that enemy forces are withdrawing.", flat())
         self.assertIn("Basis: moving back along the way of march (W)", flat())
         self.assertIn("Way of march: along AXIS GOLD within 10 km of it.", flat())
@@ -5315,9 +5316,18 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-summary-kind='narrative']")
         page.wait_for_selector("#summaryText:has-text('NARRATIVE - ')")
         text = page.inner_text("#summaryText")
-        for part in ("1. OBSERVED", "2. ASSESSMENT", "3. GAPS", "armor (2x T-72)", "ICD 203"):
-            self.assertIn(part, text)
-        self.assertLess(text.index("1. OBSERVED"), text.index("2. ASSESSMENT"))
+        parts = (
+            "BLUF: ",
+            "1. SITUATION",
+            "2. ENEMY FORCES",
+            "3. ASSESSMENT",
+            "4. WATCH FOR",
+            "5. GAPS AND COLLECTION",
+            "ANNEX A. JUDGMENT DETAIL",
+        )
+        for part in (*parts, "armor (2x T-72)", "ICD 203"):
+            self.assertIn(part, " ".join(text.split()))
+        self.assertEqual([text.index(p) for p in parts], sorted(text.index(p) for p in parts))
         self.assertEqual(page.evaluate("summaryCharts().map(c => c.id)"), ["nai", "tags"])
 
     def test_each_judgment_lists_its_reports_and_opens_them_in_the_log(self):
@@ -5334,23 +5344,36 @@ class BrowserTests(unittest.TestCase):
         )
         page.click("#summaryViewToggleBtn")
         page.click("[data-summary-kind='narrative']")
-        page.wait_for_selector("#summaryText:has-text('2. ASSESSMENT')")
+        page.wait_for_selector("#summaryText:has-text('3. ASSESSMENT')")
+        # Each judgment's line ends with Details, which opens its basis and
+        # the reports behind it; the annex itself is one line on screen.
+        details = page.locator("#summaryText [data-summary-detail]").first
         sources = page.locator("#summaryText .summary-sources").first
+        self.assertFalse(sources.is_visible())
+        self.assertEqual(details.get_attribute("aria-expanded"), "false")
+        details.click()
+        self.assertEqual(
+            [details.inner_text(), details.get_attribute("aria-expanded")], ["Hide", "true"]
+        )
         self.assertTrue(sources.inner_text().startswith("From "))
         self.assertEqual(
             sources.locator("[data-summary-source]").all_text_contents(),
             [by_size["6x PAX"][1], by_size["4x PAX"][1]],
         )
-        # Under the judgment, after its last line: the next judgment or the
-        # blank line before GAPS follows it.
         self.assertEqual(
             page.evaluate("""() => {
-                const s = document.querySelector('#summaryText .summary-sources');
-                return [/^ {6}\\S/.test(s.previousSibling.textContent.split('\\n').pop()),
-                        /^(\\n|   [b-j]\\. )/.test(s.nextSibling.textContent)];
+                const b = document.querySelector('#summaryText [data-summary-detail]'), box = b.nextElementSibling;
+                return [/Confidence: (high|moderate|low)\\.$/.test(b.previousSibling.previousSibling.textContent),
+                        box.firstElementChild.firstChild.textContent.startsWith('      Basis: '),
+                        /^(\\n|   [b-j]\\. |   [A-Z]+\\n)/.test(box.nextSibling.textContent),
+                        document.querySelector('#summaryText .summary-annex-note').textContent.startsWith("ANNEX A. JUDGMENT DETAIL: each judgment's Details above.")];
             }"""),
-            [True, True],
+            [True, True, True, True],
         )
+        self.assertNotIn("      Basis: ", page.inner_text("#summaryText").split("ANNEX A.")[1])
+        details.click()
+        self.assertFalse(sources.is_visible())
+        self.assertEqual(details.inner_text(), "Details")
         # Copy has the text alone.
         page.click("#summaryCopyBtn")
         page.wait_for_selector("#toastNotification:has-text('Report copied.')")
@@ -5365,7 +5388,7 @@ class BrowserTests(unittest.TestCase):
         page.click("#summaryEditBtn")
         self.assertEqual(page.locator("#summaryText .summary-sources").count(), 0)
         page.click("#summaryRevertBtn")
-        page.wait_for_selector("#summaryText .summary-sources")
+        page.wait_for_selector("#summaryText .summary-sources", state="attached")
         # More than eight: the rest behind "and N more", which shows them.
         self.assertEqual(
             page.evaluate("""() => {
@@ -5389,7 +5412,8 @@ class BrowserTests(unittest.TestCase):
             "document.querySelectorAll('#reportLogBody tr[data-id]').length === 1"
         )
         page.click("#summaryViewToggleBtn")
-        page.wait_for_selector("#summaryText .summary-sources")
+        page.wait_for_selector("#summaryText .summary-sources", state="attached")
+        page.locator("#summaryText [data-summary-detail]").first.click()
         page.locator("#summaryText [data-summary-source]").nth(1).click()
         page.wait_for_selector("#summaryPanel", state="hidden")
         flashing = page.wait_for_selector("#reportLogBody tr.flash")
@@ -5454,13 +5478,9 @@ class BrowserTests(unittest.TestCase):
         # Edit on the Narrative starts from its paragraphs unwrapped: the box
         # wraps them to its width, so no line breaks twice.
         page.click("[data-summary-kind='narrative']")
-        page.wait_for_selector("#summaryText:has-text('2. ASSESSMENT')")
-        # The text shown, without the lists of reports under the judgments.
-        shown = page.evaluate("""() => {
-            const pre = document.getElementById('summaryText').cloneNode(true);
-            pre.querySelectorAll('.summary-sources').forEach(n => n.remove());
-            return pre.textContent;
-        }""")
+        page.wait_for_selector("#summaryText:has-text('3. ASSESSMENT')")
+        # The text as copied (the annex in full, no Details or lists).
+        shown = page.evaluate("summaryText")
         page.click("#summaryEditBtn")
         edited = page.input_value("#summaryEditor")
         self.assertEqual(" ".join(edited.split()), " ".join(shown.split()))
@@ -5479,8 +5499,9 @@ class BrowserTests(unittest.TestCase):
         self.log(page, "2x trucks", activity="at the ferry site", location="38SMB4500083000")
         page.click("#summaryViewToggleBtn")
         page.click("[data-summary-kind='narrative']")
-        page.wait_for_selector("#summaryText:has-text('2. ASSESSMENT')")
-        flat = lambda: " ".join(page.inner_text("#summaryText").split())  # noqa: E731
+        page.wait_for_selector("#summaryText:has-text('3. ASSESSMENT')")
+        # The report as copied: each judgment's unit line is in its Details on screen.
+        flat = lambda: " ".join(page.evaluate("summaryText").split())  # noqa: E731
         self.assertIn("that enemy forces are preparing a defense in NAI 1.", flat())
         self.assertIn("logistics and support (2x trucks)", flat())
         # The settings: always there on the Narrative, a column beside the
@@ -5609,7 +5630,7 @@ class BrowserTests(unittest.TestCase):
         page.click("[data-summary-kind='narrative']")
         self.assertEqual(page.inner_text("#summaryText"), "MY OWN WORDING", "kept per report")
         page.click("#summaryRevertBtn")
-        self.assertIn("2. ASSESSMENT", page.inner_text("#summaryText"))
+        self.assertIn("3. ASSESSMENT", page.inner_text("#summaryText"))
         self.assertFalse(page.locator("#summaryEdited").is_visible())
         page.evaluate("saveNarrative({ enemy: '', units: [], equipment: [], off: [], custom: [] })")
 

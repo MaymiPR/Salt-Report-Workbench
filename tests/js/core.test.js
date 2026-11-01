@@ -1591,20 +1591,27 @@ const narrative = (reps = NARRATIVE_REPS, extra = {}) => core.summaryReport('nar
 test('the narrative says what was observed, apart from what is assessed', () => {
     const text = narrative();
     assert.equal(text[0], 'NARRATIVE - ALPHA (Patrol)');
-    const obs = text.indexOf('1. OBSERVED'), ass = text.indexOf('2. ASSESSMENT'), gaps = text.indexOf('3. GAPS');
-    assert.ok(obs > 0 && ass > obs && gaps > ass, text.join('\n'));
+    const heads = ['1. SITUATION', '2. ENEMY FORCES', '3. ASSESSMENT', '4. WATCH FOR', '5. GAPS AND COLLECTION', 'ANNEX A. JUDGMENT DETAIL'].map(h => text.indexOf(h));
+    assert.ok(text[4].startsWith('BLUF: ') && heads.every((h, i) => h > (heads[i - 1] ?? 4)), text.join('\n'));
+    const [obs, , ass] = heads;
     const observed = text.slice(obs, ass).join(' ').replace(/\s+/g, ' ');
     assert.ok(observed.includes('5 reports from 2 observers, 252000Z to 260200Z (previous 12 hrs: 0); 4 in an NAI or OBJ, most in NAI 1 (4).'), observed);
     assert.ok(observed.includes('Equipment reported: armor (2x T-72); mechanized infantry (3x BMP-2); reconnaissance (2x BRDM-2); engineers (1x MTU-20); dismounted personnel (6x PAX).'), observed);
     assert.ok(observed.includes('armor and mechanized approximately platoon size (2x T-72, 3x BMP-2; ALPHA012 252200Z, NAI 1)'), observed);
     assert.ok(observed.includes('dismounted approximately squad size (6x PAX; ALPHA013 252300Z, NAI 1)'), observed);
-    assert.ok(!/\b(likely|unlikely|roughly even|almost certain|chance)\b/i.test(observed), 'no judgment in OBSERVED');
+    assert.ok(!/\b(likely|unlikely|roughly even|almost certain|chance)\b/i.test(observed), 'no judgment in SITUATION or ENEMY FORCES');
     assert.ok(observed.includes('Identified equipment is of Russian design (8 vehicles and systems), so the assessment uses Russian doctrine.'), observed);
 });
 
 test('each judgment has an ICD 203 term, the reports behind it, and its confidence apart', () => {
     const text = narrative();
-    const lines = text.slice(text.indexOf('2. ASSESSMENT'), text.indexOf('3. GAPS'));
+    // In the assessment, a line each, grouped as the settings list the rules.
+    const short = text.slice(text.indexOf('3. ASSESSMENT'), text.indexOf('4. WATCH FOR')).join(' ').replace(/\s+/g, ' ');
+    assert.ok(short.includes('MANEUVER a. LIKELY that enemy forces are scouting a route through NAI 1 for armor or mechanized forces. Confidence: moderate.'), short);
+    assert.ok(short.includes('DEFENSE b. LIKELY that enemy forces are preparing a defense in NAI 1. Confidence: moderate.'), short);
+    assert.ok(!short.includes('Basis:'), 'the basis is in the annex');
+    // In the annex, each in full.
+    const lines = text.slice(text.indexOf('ANNEX A. JUDGMENT DETAIL'), text.findIndex(l => l.startsWith('NOTE: ')));
     const assessed = lines.join(' ').replace(/\s+/g, ' ');   // as read, across the wrapped lines
     // Recon then armor in NAI 1, with engineers there too.
     assert.ok(assessed.includes('a. LIKELY (55-80%) that enemy forces are scouting a route through NAI 1 for armor or mechanized forces.'), assessed);
@@ -1622,14 +1629,38 @@ test('each judgment has an ICD 203 term, the reports behind it, and its confiden
 
 test('the gaps: reports without a grid, and types not in the catalogue', () => {
     const text = narrative();
-    const gaps = text.slice(text.indexOf('3. GAPS')).join('\n');
-    assert.ok(gaps.includes('   1 report without a grid: ALPHA015 260200Z.'), gaps);
-    assert.ok(gaps.includes('   Not in the equipment catalogue: XYZ-9.'), gaps);
-    assert.ok(gaps.replace(/\s+/g, ' ').includes('Likelihood terms follow ICD 203: almost no chance 1-5%'), gaps);
+    const gaps = text.slice(text.indexOf('5. GAPS AND COLLECTION'), text.indexOf('ANNEX A. JUDGMENT DETAIL')).join('\n');
+    assert.ok(gaps.includes('   - 1 report without a grid: ALPHA015 260200Z. A grid would place it.'), gaps);
+    assert.ok(gaps.replace(/\s+/g, ' ').includes('- Not in the equipment catalogue: XYZ-9. Add them in the Narrative settings, under Equipment'), gaps);
+    assert.ok(text.join(' ').replace(/\s+/g, ' ').includes('Likelihood terms follow ICD 203: almost no chance 1-5%'));
+    // A place gone quiet for 6 hrs in a period of 12 or more, the quietest first.
+    const quiet = narrative([NARRATIVE_REPS[0]], { from: Date.parse('2026-10-25T18:00:00Z'), to: Date.parse('2026-10-26T06:00:00Z') }).join(' ').replace(/\s+/g, ' ');
+    assert.ok(quiet.includes('- No reports for 6 hrs or more: NAI 1 (since 252000Z). Re-task collection there.'), quiet);
+    assert.ok(quiet.includes('Gap: No reports for 6 hrs or more: NAI 1 (since 252000Z).'), 'and in the bottom line');
+});
+
+test('the bottom line comes first: the strongest judgment, another kind beside it, the force, activity, latest, watch, gap', () => {
+    const text = narrative();
+    const bluf = text.slice(4, text.indexOf('1. SITUATION')).join(' ').replace(/\s+/g, ' ');
+    assert.equal(bluf, 'BLUF: LIKELY that enemy forces are scouting a route through NAI 1 for armor or mechanized forces (a).'
+        + ' Confidence: moderate. At the same time, LIKELY that they are preparing a defense in NAI 1 (b). Confidence: moderate.'
+        + ' Strength: largest single sighting armor and mechanized approximately platoon size (2x T-72, 3x BMP-2; ALPHA012 252200Z, NAI 1); with recon and engineers.'
+        + ' Activity: 5 reports from 2 observers, up from 0 in the previous 12 hrs; busiest NAI 1 (4).'
+        + ' Latest: ALPHA015 260200Z, vic hill 220: 1x XYZ-9, stationary.'
+        + ' Watch for: antitank weapons in position (b); combat vehicles halted in position (b); smoke (c).'
+        + ' Gap: 1 report without a grid: ALPHA015 260200Z. A grid would place it. ');
+    // Each thing to watch for once, with the judgments it would firm up.
+    const watch = text.slice(text.indexOf('4. WATCH FOR'), text.indexOf('5. GAPS AND COLLECTION'));
+    assert.deepEqual(watch.slice(1, 3), ['   - antitank weapons in position (b)', '   - combat vehicles halted in position (b)']);
+    // Nothing judged: the bottom line says so.
+    const none = narrative([report({ id: 'q', displayId: 'Q1', size: '1x XYZ-9', activity: 'stationary', location: '38SMB4500082000', time: '2026-10-25T20:00:00Z' })]);
+    assert.equal(none[4], "BLUF: No pattern this tool looks for in 1 report; the situation is below.");
+    assert.ok(none.includes('   - Equipment reported: none the catalogue knows.'), none.join('\n'));
 });
 
 test('with no reports, the narrative says so and assesses nothing', () => {
     const text = narrative([]);
+    assert.equal(text[4], 'BLUF: No reports in this period (previous 12 hrs: 0).');
     assert.ok(text.includes('   No reports in this period (previous 12 hrs: 0).'), text.join('\n'));
     assert.ok(text.includes('   None: no reports to assess.'));
 });
@@ -2106,7 +2137,7 @@ test('moving back along the way of march is withdrawing, not advancing; a track 
     assert.deepEqual(wayJudged([['3x trucks', 'moving E', NAI1, 0]], TOWARD('W')).judgments.map(j => j.rule), []);
 });
 
-test('the way of march is said under OBSERVED, and a sign not yet seen is one to watch for', () => {
+test('the way of march is said under SITUATION, and a sign not yet seen is one to watch for', () => {
     const d = wayJudged([...RULE_TABLE.offense[1], ['2x T-72', 'moving E', NAI2, 90]], { narrative: { toward: 'W' }, overlays: [...OVERLAYS, AXIS_W] });
     const t = d.text.replace(/\s+/g, ' ');
     assert.ok(t.includes('Way of march: toward W in the AO; along AXIS GOLD within 10 km of it. Of 2 reports moving there: 0 along it, 1 back along it, 1 across it.'), t);
@@ -2131,15 +2162,29 @@ test("each judgment's detail points at its last line, and the text is summaryRep
         assert.equal(d.text, core.summaryReport('narrative', reps, OVERLAYS, { ...TABLE_OPTS, width }));
         const lines = d.text.split('\n');
         assert.ok(d.judgments.length >= 2);
+        const [annexFrom, annexTo] = d.annex;
+        assert.equal(lines[annexFrom], 'ANNEX A. JUDGMENT DETAIL');
+        assert.equal(lines[annexTo], '', 'the annex ends before the note');
         d.judgments.forEach((j, i) => {
-            assert.ok(/^ {6}\S/.test(lines[j.line]), lines[j.line]);
-            // The next line opens the next judgment, or ends the section.
-            assert.ok(lines[j.line + 1] === '' || lines[j.line + 1].startsWith(`   ${String.fromCharCode(98 + i)}. `), `${j.rule}: ${lines[j.line + 1]}`);
+            const letter = String.fromCharCode(97 + i), next = String.fromCharCode(98 + i);
+            // Its entry in the assessment: one sentence, then its confidence.
+            const start = lines.findIndex(l => l.startsWith(`   ${letter}. `));
+            assert.ok(start >= 0 && start <= j.line && j.line < annexFrom, `${j.rule}: ${start} ${j.line}`);
+            assert.ok(/ Confidence: (high|moderate|low)\.$/.test(lines.slice(start, j.line + 1).join(' ').replace(/\s+/g, ' ')), lines[j.line]);
+            // The next line opens the next judgment or group, or ends the section.
+            assert.ok(lines[j.line + 1] === '' || /^ {3}[A-Z]+$/.test(lines[j.line + 1]) || lines[j.line + 1].startsWith(`   ${next}. `), `${j.rule}: ${lines[j.line + 1]}`);
+            // Its detail in the annex: from its basis to the next judgment, or the annex's end.
+            const [from, to] = j.detail;
+            assert.ok(from > annexFrom && to <= annexTo && lines[from].startsWith('      Basis: '), lines[from]);
+            assert.ok(lines[from - 1].startsWith(`   ${letter}. `) || lines[from - 1].startsWith('      '), lines[from - 1]);
+            assert.ok(to === annexTo || lines[to].startsWith(`   ${next}. `), `${j.rule}: ${lines[to]}`);
         });
     });
     // Other kinds have none; with no reports, none either.
     assert.deepEqual(core.summaryDetail('rollup', reps, OVERLAYS, TABLE_OPTS).judgments, []);
+    assert.equal(core.summaryDetail('rollup', reps, OVERLAYS, TABLE_OPTS).annex, null);
     assert.deepEqual(core.summaryDetail('narrative', [], OVERLAYS, TABLE_OPTS).judgments, []);
+    assert.equal(core.summaryDetail('narrative', [], OVERLAYS, TABLE_OPTS).annex, null);
     // A team rule is 'custom'; a report without an id is known by its number.
     const own = core.summaryDetail('narrative', tableReps([['2x trucks', 'carrying water', NAI1, 0]]).map(r => ({ ...r, id: '' })), OVERLAYS,
         { ...TABLE_OPTS, narrative: { custom: [{ what: 'are moving water', words: 'water', min: 1, hours: 12 }] } });
