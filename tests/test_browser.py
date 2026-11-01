@@ -3616,6 +3616,75 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#toastNotification:has-text('No elevation source')")
         self.wait_for_server(page, "s => !('terrain' in s.narrative)")
 
+    def test_the_map_draws_a_picked_reports_line_of_sight_and_its_reach_and_checks_two_points(self):
+        import http.server as hs
+        import threading
+
+        class Dem(hs.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                body = b"Results for FeatureType 'dem':\nGRAY_INDEX = 512.4\n"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        fake = hs.ThreadingHTTPServer(("127.0.0.1", 0), Dem)
+        threading.Thread(target=fake.serve_forever, daemon=True).start()
+        self.addCleanup(fake.server_close)
+        self.addCleanup(fake.shutdown)
+
+        def tidy():
+            self.post_to_server("/api/save_narrative", {"narrative": {}})
+            self.post_to_server("/api/save_basemaps", {"basemaps": []})
+
+        self.addCleanup(tidy)
+        url = f"http://127.0.0.1:{fake.server_port}/wms"
+        dem = {
+            "name": "DEM",
+            "kind": "wms",
+            "url": url,
+            "layers": "dem",
+            "version": "1.3.0",
+            "crs": "EPSG:4326",
+        }
+        self.post_to_server("/api/save_basemaps", {"basemaps": [dem]})
+        self.post_to_server("/api/save_narrative", {"narrative": {"terrain": {"basemap": "DEM"}}})
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "1x Kornet", activity="observing", location="38SMB4600082000")
+        self.open_map(page)
+        # Picked: its lines of sight to NAI 2 (the edge and the middle), seen
+        # once the heights are in, and the ring of its reach.
+        page.evaluate("selectMapReport(localReports[0].id, [200, 200])")
+        page.wait_for_selector(
+            "#mapCard:has-text('Direct fire to 5.5 km (Kornet): covers NAI 1 (in it) and NAI 2')"
+        )
+        self.assertIn("In NAI 1; sees into NAI 2.", page.inner_text("#mapCard"))
+        strokes = page.evaluate(
+            "[...document.querySelectorAll('#mapSvg .map-sight path')].map(p => p.getAttribute('stroke'))"
+        )
+        self.assertEqual(strokes.count("#30d158"), 2, "two lines, seen")
+        self.assertEqual(strokes.count("#ff9f0a"), 1, "a ring, direct fire")
+        self.assertIn("Kornet 5.50 km", page.text_content("#mapSvg .map-sight"))
+        # Closed: they go.
+        page.click("[data-card-act='close']")
+        page.wait_for_function("!document.querySelector('#mapSvg .map-sight')")
+        # The tool: two points, and whether the first sees the second.
+        page.click("#mapMeasureBtn")
+        page.click("[data-measure-tool='sight']")
+        page.wait_for_selector("#mapMeasureOut:has-text('click where the eye is')")
+        box = page.locator("#mapBox").bounding_box()
+        x, y = box["x"] + box["width"] * 0.4, box["y"] + box["height"] * 0.6
+        page.mouse.click(x, y)
+        page.wait_for_selector("#mapMeasureOut:has-text('click what it looks at')")
+        page.mouse.click(x + 120, y - 60)
+        page.wait_for_selector("#mapMeasureOut:has-text('Seen: 38S MB')")
+        self.assertIn("#30d158", page.inner_html("#mapSvg .map-measure"))
+
     def test_a_wms_found_through_the_server_in_latitude_longitude(self):
         import http.server as hs
         import threading

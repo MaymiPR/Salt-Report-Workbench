@@ -161,13 +161,20 @@ const renderMapCard = () => {
         ${sizeRow}${row('Activity', r.activity)}${row('Location', r.location)}
         ${row(local ? 'Time (L)' : 'Time (Z)', mapTimeFmt(r.time))}${row('Observer', r.observer)}${row('Analysis', r.yourAnalysis)}
         ${b.total && (r.bda || []).length ? row('BDA', `${b.done} of ${b.total} assessed`) : ''}
-        ${(r.history || []).length ? row('Updates', String(r.history.length)) : ''}${marchRows}
+        ${(r.history || []).length ? row('Updates', String(r.history.length)) : ''}${marchRows}${sightRows(r)}
         <div class="map-card-actions">
             <button type="button" class="text-btn" data-card-act="table">Show in Table</button>
             <button type="button" class="text-btn editor-only" data-card-act="edit">Edit</button>
         </div>`;
     card.hidden = false;
     positionMapCard();
+};
+// What the report can see and its weapons reach (SaltCore.sightPicture),
+// as the narrative says them; with no elevation source, its reach only.
+const sightRows = (r) => {
+    const pic = SaltCore.sightPicture(r, currentOverlays(), sharedNarrative, terrainInput());
+    const row = (label, value) => (value ? `<div class="map-card-row"><span>${label}</span><div>${escapeHtml(value)}</div></div>` : '');
+    return pic ? row('Sight', pic.sight && `${pic.sight[0].toUpperCase()}${pic.sight.slice(1)}.`) + row('Reach', pic.reach && `${pic.reach[0].toUpperCase()}${pic.reach.slice(1)}.`) : '';
 };
 // Beside the report, kept inside the map (and clear of the sidebar, when
 // it's there: full screen leaves it behind).

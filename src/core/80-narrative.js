@@ -383,6 +383,58 @@ const threatsOf = (facts) => {
     });
     return [...by.values()].sort((x, y) => (y.direct + y.indirect + y.ad) - (x.direct + x.indirect + x.ad) || x.key.localeCompare(y.key));
 };
+// --- Line of sight on the map ---
+
+// What the map draws for one report picked on it: from its grid (`at`), its
+// lines of sight, as an observer and as a direct-fire weapon in position
+// (each to an area's nearest edge and to its middle, with losCheck's
+// answer, and where ground hides it, the point it does: `block`); a ring for
+// each kind of reach it has; the heights all that reads (`points`, to ask
+// for); and the narrative's words for its sight and reach. Null without a grid.
+const pointAlong = (a, b, x) => {
+    const d = metersBetween(a, b);
+    return { lon: a.lon + (b.lon - a.lon) * x / d, lat: a.lat + (b.lat - a.lat) * x / d };
+};
+const sightPicture = (r, overlays = [], settings = null, terrain = null) => {
+    const set = narrativeSettings(settings);
+    const f = narrativeFacts(reportFacts(r, overlays, set.team), set.team, null);
+    const at = f.a.points[0];
+    if (!at) return null;
+    const heights = terrain && terrain.on ? terrain.heights : null;
+    const max = Math.max(observes(f) ? LOS_MAX_METERS : 0, directReach(f));
+    const lines = [], points = new Map();
+    const ask = (p) => points.set(terrainKey(p.lon, p.lat), [Number(p.lon.toFixed(5)), Number(p.lat.toFixed(5))]);
+    ask(at);
+    if (max) {
+        losTargets(at, overlays, max).forEach(t => t.ends.forEach(e => {
+            ask(e);
+            losSamples(at, e).forEach(ask);
+            const c = heights ? losCheck(at, e, heights) : { state: 'unknown' };
+            lines.push({ key: t.key, from: at, to: e, ...c, ...(c.state === 'hidden' ? { block: pointAlong(at, e, c.x) } : {}) });
+        }));
+    }
+    const sight = observes(f) && heights ? sightOf(at, overlays, heights) : [];
+    const reach = reachRead(f, overlays, heights);
+    return {
+        at, lines, points: [...points.values()],
+        rings: Object.values(reachesOf(f)).map(x => ({ kind: x.kind, m: x.m, by: x.by })),
+        sight: sight.length ? sightText(sight) : '',
+        reach: reach ? reachText(reach) : '',
+    };
+};
+// The line of sight from a to b, for the map's tool: { state, d, x, over,
+// block, points }: seen, hidden (where and by how much), waiting (heights
+// still to come), off (no elevation source) or far (past
+// LOS_TOOL_MAX_METERS, not checked); `points` are the heights it reads.
+const LOS_TOOL_MAX_METERS = 20000;
+const losBetween = (a, b, terrain = null) => {
+    const d = metersBetween(a, b);
+    if (d > LOS_TOOL_MAX_METERS) return { state: 'far', d, points: [] };
+    const points = [a, b, ...losSamples(a, b)].map(p => [Number(p.lon.toFixed(5)), Number(p.lat.toFixed(5))]);
+    if (!terrain || !terrain.on) return { state: 'off', d, points };
+    const c = losCheck(a, b, terrain.heights);
+    return { ...c, d, points, ...(c.state === 'hidden' ? { block: pointAlong(a, b, c.x) } : {}) };
+};
 const TEMPO_HOURS = 3;
 const tempoOf = (facts, end) => {
     const span = end - facts[0].ms;

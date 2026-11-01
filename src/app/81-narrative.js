@@ -82,6 +82,9 @@ const terrainSet = () => !!(sharedNarrative.terrain && sharedNarrative.terrain.b
 // The points to ask, worked out again only when the reports, overlays or
 // settings have changed: an observer's lines of sight are many points.
 let terrainPointsFor = '', terrainPointsWere = [];
+// And the map's (askTerrainFor), by what wants them: the picked report's
+// lines ('pick'), the line of sight tool's ('tool').
+const terrainExtra = { pick: [], tool: [] };
 const terrainPointsNow = () => {
     const live = localReports.filter(r => !r.deleted), overlays = currentOverlays();
     const key = JSON.stringify([live.length, live.reduce((n, r) => Math.max(n, r.lastModified || 0), 0), overlays.length, sharedNarrative]);
@@ -92,7 +95,7 @@ const askTerrain = async () => {
     const source = JSON.stringify(sharedNarrative.terrain || null);
     if (source !== terrainFor) { terrainHeights.clear(); terrainFor = source; terrainNote = ''; clearTimeout(terrainRetry); terrainRetry = null; }
     if (isLocalFile || terrainAsking || terrainRetry || !terrainSet()) return;
-    const want = terrainPointsNow().filter(([lon, lat]) => !terrainHeights.has(SaltCore.terrainKey(lon, lat)));
+    const want = [...terrainPointsNow(), ...terrainExtra.pick, ...terrainExtra.tool].filter(([lon, lat]) => !terrainHeights.has(SaltCore.terrainKey(lon, lat)));
     if (!want.length) return;
     const pts = want.slice(0, TERRAIN_BATCH);
     terrainAsking = true;
@@ -117,6 +120,15 @@ const askTerrain = async () => {
         terrainRetry = setTimeout(() => { terrainRetry = null; askTerrain(); }, pending.length || want.length > pts.length ? TERRAIN_SOON_MS : TERRAIN_LATER_MS);
     }
     if (got && isSummaryViewActive && summaryKind === 'narrative') renderSummary();
+    if (got && isMapViewActive) { redrawMap(); renderMapCard(); showMeasure(); }
+};
+// Heights the map wants as well (`what`: 'pick' or 'tool'), asked for once
+// each; nothing new, nothing asked.
+const askTerrainFor = (points, what) => {
+    if (!terrainSet() || points.every(([lon, lat]) => terrainHeights.has(SaltCore.terrainKey(lon, lat)))) return;
+    if (JSON.stringify(points) === JSON.stringify(terrainExtra[what])) return;
+    terrainExtra[what] = points;
+    askTerrain();
 };
 // What the narrative is given of the ground: whether there is a source, the
 // heights known, and why the source last failed.

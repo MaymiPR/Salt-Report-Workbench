@@ -47,6 +47,7 @@ const drawMap = () => {
     if (mapState.layers.tracks) out.push(trackLayer(tracks, px, labels));
     if (mapState.layers.reports) out.push(reportLayer(positions, tracks, px));
     out.push(selectionLayer(tracks, px));
+    out.push(sightLayer(reps, px, labels));
     out.push(drones.marks);
     out.push(gotoLayer(px, labels));
     out.push(measureLayer(px, labels));
@@ -443,9 +444,10 @@ const measureLayer = (px, labels) => {
         const open = !mapState.measureDone && hover && (tool !== 'distance' || pts.length === 1);
         if (open) out.push(`<path d="${d(tool === 'area' && pts.length > 1 ? [pts[pts.length - 1], hover, pts[0]] : [pts[pts.length - 1], hover])}" class="map-measure-line map-measure-preview" fill="none"/>`);
         if (tool === 'area' && pts.length > 2) out.push(`<path d="${d(pts, true)}" class="map-measure-area"/>`);
-        if (pts.length > 1) out.push(stroke(d(pts, tool === 'area' && pts.length > 2)));
+        if (tool === 'sight' && pts.length > 1) out.push(sightStroke(pts[0], pts[1], SaltCore.losBetween(pts[0], pts[1], terrainInput()), px));
+        else if (pts.length > 1) out.push(stroke(d(pts, tool === 'area' && pts.length > 2)));
         out.push(ends);
-        if (tool === 'distance' && pts.length > 1) out.push(label(mid(pts[0], pts[1]), measureText(pts)));
+        if ((tool === 'distance' || tool === 'sight') && pts.length > 1) out.push(label(mid(pts[0], pts[1]), measureText(pts)));
         else if (tool === 'area' && pts.length > 2) {
             const c = pts.map(xy).reduce((s, [x, y]) => [s[0] + x / pts.length, s[1] + y / pts.length], [0, 0]);
             out.push(label(c, SaltCore.formatArea(SaltCore.areaMeters(pts), unitSystem)));
@@ -493,6 +495,37 @@ const selectionLayer = (tracks, px) => {
     const p = t.points[t.points.length - 1], [x, y] = px(p.lon, p.lat);
     return `<g class="map-selected${Date.now() < mapState.flashUntil ? ' flash' : ''}" pointer-events="none"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="none" stroke="#fff" stroke-width="4"/>`
         + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="none" stroke="${MAP_COLORS.OBJ}" stroke-width="2.5"/></g>`;
+};
+
+// A line of sight drawn from a to b ({ state, block }, SaltCore.losCheck's):
+// green where it sees; where ground hides it, green to the ground that does,
+// an X there, red past it; gray and dashed while not known.
+const sightStroke = (a, b, c, px) => {
+    const f = v => v.toFixed(1), [x1, y1] = px(a.lon, a.lat), [x2, y2] = px(b.lon, b.lat);
+    const seg = (p, q, color, dash = '') => `<path d="M${f(p[0])},${f(p[1])}L${f(q[0])},${f(q[1])}" fill="none" stroke="${MAP_COLORS.core}" stroke-width="5" stroke-linecap="round" stroke-opacity="0.85"/>`
+        + `<path d="M${f(p[0])},${f(p[1])}L${f(q[0])},${f(q[1])}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round"${dash ? ` stroke-dasharray="${dash}"` : ''}/>`;
+    if (c.state === 'seen') return seg([x1, y1], [x2, y2], MAP_COLORS.seen);
+    if (c.state !== 'hidden' || !c.block) return seg([x1, y1], [x2, y2], MAP_COLORS.waiting, '5 4');
+    const [bx, by] = px(c.block.lon, c.block.lat), s = 5;
+    return seg([x1, y1], [bx, by], MAP_COLORS.seen) + seg([bx, by], [x2, y2], MAP_COLORS.hidden, '6 4')
+        + `<path d="M${f(bx - s)},${f(by - s)}L${f(bx + s)},${f(by + s)}M${f(bx + s)},${f(by - s)}L${f(bx - s)},${f(by + s)}" fill="none" stroke="${MAP_COLORS.hidden}" stroke-width="2.5" stroke-linecap="round"/>`;
+};
+// The picked report's lines of sight to the NAIs and OBJs near it, and the
+// rings of its weapons' reach, each named (SaltCore.sightPicture). The
+// heights they read are asked for here, once a report is picked.
+const sightLayer = (reps, px, labels) => {
+    const r = mapState.selected && reps.find(x => x.id === mapState.selected);
+    const pic = r && SaltCore.sightPicture(r, currentOverlays(), sharedNarrative, terrainInput());
+    if (!pic) return '';
+    askTerrainFor(pic.points, 'pick');
+    const xy = (p) => px(p.lon, p.lat), f = v => v.toFixed(1);
+    const rings = pic.rings.map((g, i) => {
+        const round = SaltCore.ringPoints(pic.at, g.m), d = round.map((p, j) => { const [x, y] = xy(p); return `${j ? 'L' : 'M'}${f(x)},${f(y)}`; }).join('') + 'Z';
+        const [x, y] = xy(round[0]);
+        return `<path d="${d}" fill="none" stroke="${MAP_COLORS.core}" stroke-width="4" stroke-opacity="0.7"/><path d="${d}" fill="none" stroke="${MAP_COLORS[g.kind]}" stroke-width="2" stroke-dasharray="8 5"/>`
+            + mapLabel(labels, [x, y - 6], `${g.by} ${SaltCore.formatDistance(g.m, unitSystem)}`, { prio: 'picked', rank: 10 + i });
+    }).join('');
+    return `<g class="map-sight" pointer-events="none">${rings}${pic.lines.map(l => sightStroke(l.from, l.to, l, px)).join('')}</g>`;
 };
 
 // The key's switches for the graphics: one for each tag, built in or the
