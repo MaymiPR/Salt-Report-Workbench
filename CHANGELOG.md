@@ -6,6 +6,52 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A broken character no longer stops the backups.** Half of an emoji (left
+  when one is cut in two) in any field was accepted, and from then on every
+  save of the backups failed; one in a title or workspace name also left that
+  change unsaved and unanswered. Now it is refused at once, saying which field
+  holds it, and a file is always written whatever it holds.
+- **A pulled USB stick keeps the changes.** With the backup folder gone, the
+  changes waiting to be saved were dropped without a word, and the health
+  check still said ok. Now it says `Error saving`, keeps them, and saves them
+  when the folder is back, as the manual promised.
+- **Stopping says when the changes weren't saved.** It said they were flushed
+  to disk even when the save had failed. Now it says `Changes NOT saved` and
+  why, and the launcher's window stays open on it.
+- **Pages keep updating after a restart with the clock set back.** Open pages
+  (viewers' especially) stopped showing changes until reloaded. The server now
+  numbers its changes on from the last run's, whatever the clock says.
+- **Snapshots with the clock set back.** With rounds already named later than
+  the clock (the clock put right backwards), each new round was pruned as soon
+  as it was written, and `--restore latest` brought back the old state. New
+  rounds are now named after the newest there, and a snapshot is written whole
+  or not at all, so a full disk can't leave a cut-off one to restore.
+- **Heights from an elevation source that is down.** Each point waited 15
+  seconds, so a long list took half an hour and stopping the server could
+  wait minutes; a reply that couldn't be read left its point waiting for good.
+  Now the points still queued fail at once while the source is down (and are
+  asked again later, as before), stopping drops them, a tile can't unpack past
+  its own size, the oldest heights make way past the limit instead of new
+  ones being asked again, and an `http://` address to an HTTPS port says the
+  reply was not HTTP.
+- **Impossible report times are refused.** A time such as
+  `2026-13-40T25:00:00Z` was taken and then broke the ArcGIS export. Backups,
+  imports and earlier versions keep the times they hold, as before.
+- **The audit log says when it works again**, after saying it couldn't be
+  written, and never stops a change being answered.
+- **Errors leave a record.** The server's messages were only in its minimized
+  window, without times, and an error showed one line. Every line the console
+  shows is now also kept, with its time in UTC, in `Server Logs/server.log`
+  beside `Auto Backups` (about 1 MB, then three older ones), with the full
+  detail of any error; Done with Mission leaves it alone. Running the server
+  has a new part, Sending a problem report, on what to send.
+- **The manual names every folder to copy.** After Done with Mission, the
+  reports, the audit log and the snapshots are in `Mission Archives`, so
+  upgrading and the end of the operation now say to copy it with
+  `Auto Backups`.
+
 ## [2.41.0] - 2026-11-01
 
 ### Added
