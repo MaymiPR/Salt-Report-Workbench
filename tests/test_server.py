@@ -1328,19 +1328,77 @@ class RestoreTests(unittest.TestCase):
         # Rounds are pruned by name; the kept copies never are.
         self.assertEqual(sorted(srv.snapshot_rounds()), ["20261027_090000Z", "20261028_090000Z"])
 
-    def test_latest_list_unknown_and_a_running_server(self):
-        code, _ = self.restore("latest")
-        self.assertEqual(code, 0)
-        self.assertEqual((self.tmp / "ALPHA_Patrol.txt").read_text(encoding="utf-8"), "newer")
+    def live(self):
+        """The backup folder's files (not the snapshots), name -> text."""
+        return {p.name: p.read_text(encoding="utf-8") for p in self.tmp.iterdir() if p.is_file()}
+
+    def kept(self):
+        """The before-restore copies made so far."""
+        return sorted((self.tmp / "snapshots").glob("before-restore-*"))
+
+    def test_latest_puts_back_the_newest_round(self):
+        code, out = self.restore("latest")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(
+            self.live(),
+            {"ALPHA_Patrol.txt": "newer", "Shared settings.json": "newer", "audit.log": mock.ANY},
+        )
+        self.assertIn("[+] Restored snapshot 20261028_090000Z: 2 file(s).", out)
+        self.assertIn("[+] The 2 file(s) it replaced are in ", out)
+
+    def test_list_shows_the_rounds_newest_first_and_changes_nothing(self):
+        before = self.live()
         code, out = self.restore("list")
         self.assertEqual(code, 0)
-        self.assertLess(out.index("20261028_090000Z"), out.index("20261027_090000Z"))
+        self.assertEqual(
+            out.splitlines()[1:],
+            ["    20261028_090000Z  (2 file(s))", "    20261027_090000Z  (2 file(s))"],
+        )
+        self.assertEqual(self.live(), before)
+        self.assertEqual(self.kept(), [], "nothing to keep a copy of")
+
+    def test_a_round_that_isnt_there_is_said_and_changes_nothing(self):
+        before = self.live()
         code, out = self.restore("20250101_000000Z")
         self.assertEqual(code, 1)
-        self.assertIn("No snapshot round named", out)
+        self.assertIn("[!] No snapshot round named 20250101_000000Z. The newest:", out)
+        self.assertIn("    20261028_090000Z", out)
+        self.assertIn("--restore list shows them all.", out)
+        self.assertEqual(self.live(), before)
+        self.assertEqual(self.kept(), [])
+
+    def test_no_snapshots_at_all_is_said_and_changes_nothing(self):
+        shutil.rmtree(self.tmp / "snapshots")
+        before = self.live()
+        for which in ("latest", "list", "20261027_090000Z"):
+            code, out = self.restore(which)
+            self.assertEqual(code, 1, which)
+            self.assertIn("[!] No snapshots in ", out)
+        self.assertEqual(self.live(), before)
+
+    def test_a_running_server_is_left_alone(self):
+        before = self.live()
         code, out = self.restore("latest", running=True)
         self.assertEqual(code, 1)
         self.assertIn("A server is running", out)
+        self.assertEqual(self.live(), before)
+        self.assertEqual(self.kept(), [])
+
+    def test_the_backups_it_replaces_are_kept_whole(self):
+        (self.tmp / "Shared settings.json").write_text("live settings", encoding="utf-8")
+        before = self.live()
+        code, _ = self.restore("20261027_090000Z")
+        self.assertEqual(code, 0)
+        (kept,) = self.kept()
+        self.assertRegex(kept.name, r"^before-restore-\d{8}_\d{6}Z$")
+        copied = {p.name: p.read_text(encoding="utf-8") for p in kept.iterdir()}
+        # The backups, as they were; the audit log is not a backup and stays.
+        self.assertEqual(copied, {k: v for k, v in before.items() if k != "audit.log"})
+        self.assertIn("audit.log", self.live())
+        # Not a round: a later restore doesn't offer it, or prune it.
+        self.assertNotIn(kept.name, str(srv.snapshot_rounds()))
+        self.assertEqual(self.restore("latest")[0], 0)
+        self.assertTrue(kept.is_dir())
 
     def test_the_flag_runs_it_and_exits(self):
         with mock.patch.object(sys, "argv", ["salt_sync_server", "--restore", "list"]):
