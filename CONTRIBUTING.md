@@ -36,9 +36,8 @@ python -m playwright install chromium
 
 `make setup` and `make setup-browser` do the same on macOS and Linux. Without
 Playwright the browser tests are skipped; CI runs them, on Linux and Windows.
-`requirements-browser.txt` is locked on Python 3.15 and its pyee 14 needs 3.12
-or newer; to run the browser tests on 3.11 instead, use
-`pip install playwright==1.64.1 pyee==13.0.0 greenlet==3.5.6`.
+`requirements-browser.txt` installs on 3.11.8 as well as on 3.15:
+`requirements-browser.in` holds pyee below 14, which needs 3.12.
 
 The development tools are pinned to exact versions and their hashes, in
 `requirements-dev.txt` and `requirements-browser.txt`, so everyone (and CI)
