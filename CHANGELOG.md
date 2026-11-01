@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.38.0] - 2026-11-01
+
 ### Added
 
 - **Terrain: the Narrative settings take an elevation source.** A new
@@ -1663,7 +1665,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.37.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.38.0...HEAD
+[2.38.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.37.0...v2.38.0
 [2.37.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.36.0...v2.37.0
 [2.36.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.35.0...v2.36.0
 [2.35.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.34.0...v2.35.0
