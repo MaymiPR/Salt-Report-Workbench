@@ -391,6 +391,14 @@ reports within 5 km (`HIGH_GROUND_METERS`, `HIGH_NEAR_METERS`), overlooking
 the nearest NAI or OBJ within 3 km. The bottom line's Terrain, the places'
 ground, columns on steep slopes (`slopeRead`, `STEEP_PCT`), artillery behind
 a crest (`CREST_METERS`), high ground, and the rule `highground` read them.
+Line of sight runs from each observer (`observes`) to the `LOS_AREAS` NAIs
+or OBJs nearest it within `LOS_MAX_METERS` (`losTargets`), along a line to
+each one's nearest edge and to its middle, its heights read every 100 m
+(200 m past 2 km, `losSamples`); `losCheck` puts the eye and the target 2 m
+up, allows for the earth's curve with refraction, and says seen, hidden (by
+how much, where) or waiting. `terrainPoints` asks the heights of those lines
+for observers only, and the page works the list out again only when the
+reports, overlays or settings change.
 With no heights, none of it is said, and the narrative is what it was but
 for one line under Gaps and collection saying there is no elevation source.
 

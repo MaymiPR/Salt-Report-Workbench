@@ -181,7 +181,7 @@ const EQUIPMENT_CATALOGUE = [
         ['EQ2100', 'EQ2102', 'EQ245'], ['EQ2081', 'EQ240'], 'EQ1108', ['FAW MV3', 'MV3'], ['Taian', 'TA5450', 'TA4410', 'TA4360', 'TA5380'],
         ['Wanshan', 'WS580', 'WS2300', 'WS2400', 'WS2500', 'WS2600'], 'HY472', ['CA-141', 'CA141'], ['CA-30', 'CA30'], ['CA-10', 'CA10'],
         ['NJ-130', 'NJ130'], ['NJ-230', 'NJ230'], 'JY813', ['CWB-221', 'CWB221'], 'CSZ-181',
-        'ZJX-93', ['WZ-653', 'WZ653', 'WZ653A'], 'VME-203', 'VME-102-40', 'Type 90-II ARV']),
+        'ZJX-93', ['WZ-653', 'WZ653', 'WZ653A'], 'Type 90-II ARV']),
     ...eqp('ew', 'CN', ['J-16D', 'J-15D', 'Y-8CA', 'Y-8CB', 'Y-8DZ', 'Y-8GX1', 'Y-8GX3', 'Y-8GX7', 'Y-8JB', 'Y-8EW', 'Y-9DZ', 'Y-9LG',
         ['DWL-002', 'DWL002'], 'CTL-181A EW']),
     ...eqp('air', 'CN', [['Z-8', 'Z-8L'], ['Z-9', 'Z-9W', 'Z-9WA', 'Z-9C'], ['Z-10', 'WZ-10', 'Z-10ME'], 'Z-11', 'Z-18', ['Z-19', 'WZ-19'],

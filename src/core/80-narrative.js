@@ -58,17 +58,21 @@ const offsetPoint = (pt, meters, deg) => {
 const groundPoints = (pt, aheadDeg = null) => [pt, ...[0, 90, 180, 270].map(d => offsetPoint(pt, TERRAIN_STEP_METERS, d)),
     ...(aheadDeg === null ? [] : [offsetPoint(pt, TERRAIN_AHEAD_METERS, aheadDeg)])];
 // Every point the narrative may read the height of for some reports, once
-// each, as [lon, lat] rounded as terrainKey rounds them.
+// each, as [lon, lat] rounded as terrainKey rounds them: the ground at each,
+// and for an observer, its lines of sight (losTargets, losSamples).
 const terrainPoints = (reps, overlays = [], settings = null) => {
     const set = narrativeSettings(settings), axes = axesOf(overlays), seen = new Map();
+    const add = (p) => {
+        const k = terrainKey(p.lon, p.lat);
+        if (!seen.has(k)) seen.set(k, [Number(p.lon.toFixed(5)), Number(p.lat.toFixed(5))]);
+    };
     (reps || []).filter(r => r && !r.deleted).forEach(r => {
         const g = findGrids(r.location)[0];
         if (!g) return;
         const way = set.toward || axes.length ? wayOfMarchAt(g, axes, set.toward) : null;
-        groundPoints(g, way ? way.deg : null).forEach(p => {
-            const k = terrainKey(p.lon, p.lat);
-            if (!seen.has(k)) seen.set(k, [Number(p.lon.toFixed(5)), Number(p.lat.toFixed(5))]);
-        });
+        groundPoints(g, way ? way.deg : null).forEach(add);
+        if (!observes(narrativeFacts(reportFacts(r, overlays, set.team), set.team, null))) return;
+        losTargets(g, overlays).forEach(t => t.ends.forEach(e => { add(e); losSamples(g, e).forEach(add); }));
     });
     return [...seen.values()];
 };
@@ -232,6 +236,79 @@ const slopeRead = (f) => {
     if (mix === 'tracked' && f.ground.slope > STEEP_PCT.tracked) return `on a ${Math.round(f.ground.slope)}% slope: steep even for tracked vehicles, check the type or the grid`;
     return '';
 };
+// Line of sight, from an observer to the NAIs and OBJs near it: the
+// LOS_AREAS nearest within LOS_MAX_METERS, each checked along two lines, to
+// its nearest edge and to its middle (none when the observer is in it).
+// Heights are read along a line every 100 m, every 200 m past 2 km; the eye
+// is LOS_EYE_METERS above the ground, the target LOS_TARGET_METERS, and the
+// earth curves away (with refraction, a radius 4/3 of its own). Ground above
+// the sightline anywhere hides it; ground with no data there hides nothing.
+const LOS_MAX_METERS = 5000, LOS_AREAS = 3, LOS_EYE_METERS = 2, LOS_TARGET_METERS = 2;
+const LOS_EARTH_METERS = 6371000 * 4 / 3;
+// The point of an area (or line, or point) nearest `pt`, and its middle (the
+// mean of its outer ring's corners).
+const ringsOf = (g) => (g.type === 'Polygon' ? g.coordinates : g.type === 'MultiPolygon' ? g.coordinates.flat()
+    : g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates
+        : g.type === 'Point' ? [[g.coordinates]] : g.type === 'MultiPoint' ? g.coordinates.map(c => [c]) : []);
+const nearestOn = (g, pt) => {
+    const kx = 111320 * Math.cos(pt.lat * Math.PI / 180), ky = 110574;
+    let best = null;
+    ringsOf(g).forEach(line => line.forEach((c, i) => {
+        const a = line[i === 0 ? 0 : i - 1];
+        const ax = (a[0] - pt.lon) * kx, ay = (a[1] - pt.lat) * ky, bx = (c[0] - pt.lon) * kx, by = (c[1] - pt.lat) * ky;
+        const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+        const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+        const m = Math.hypot(ax + t * dx, ay + t * dy);
+        if (!best || m < best.m) best = { m, lon: pt.lon + (ax + t * dx) / kx, lat: pt.lat + (ay + t * dy) / ky };
+    }));
+    return best && { lon: best.lon, lat: best.lat };
+};
+const middleOf = (g) => {
+    const ring = ringsOf(g)[0] || [];
+    const pts = ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1] ? ring.slice(0, -1) : ring;
+    return pts.length ? { lon: pts.reduce((n, c) => n + c[0], 0) / pts.length, lat: pts.reduce((n, c) => n + c[1], 0) / pts.length } : null;
+};
+const losTargets = (pt, overlays) => (overlays || []).filter(o => overlayOk(o) && (o.type === 'NAI' || o.type === 'OBJ'))
+    .map(o => ({ key: overlayKey(o), g: asArea(o.geometry), d: metersToOverlay(o.geometry, pt) }))
+    .filter(t => t.d <= LOS_MAX_METERS).sort((x, y) => x.d - y.d || x.key.localeCompare(y.key)).slice(0, LOS_AREAS)
+    .map(t => ({ key: t.key, inside: t.d === 0, ends: t.d === 0 ? [] : [nearestOn(t.g, pt), middleOf(t.g)].filter(Boolean) }));
+// The points along a line whose heights are read, each with how far along it is.
+const losSamples = (a, b) => {
+    const d = metersBetween(a, b), out = [];
+    for (let x = 100; x < d; x += x < 2000 ? 100 : 200) out.push({ lon: a.lon + (b.lon - a.lon) * x / d, lat: a.lat + (b.lat - a.lat) * x / d, x });
+    return out;
+};
+// Whether a can see b: { state: 'seen' }, { state: 'hidden', x, over } (the
+// ground that hides it most, how far along and how far above the
+// sightline), or { state: 'waiting' } while a height on the way isn't in.
+const losCheck = (a, b, heights) => {
+    const at = (p) => heights.get(terrainKey(p.lon, p.lat));
+    const ha = at(a), hb = at(b), samples = losSamples(a, b), hs = samples.map(at);
+    if (typeof ha !== 'number' || typeof hb !== 'number' || hs.some(h => h === undefined)) return { state: 'waiting' };
+    const d = metersBetween(a, b), eye = ha + LOS_EYE_METERS, tip = hb + LOS_TARGET_METERS;
+    let worst = null;
+    samples.forEach((s, i) => {
+        if (typeof hs[i] !== 'number') return;
+        const over = hs[i] + s.x * (d - s.x) / (2 * LOS_EARTH_METERS) - (eye + (tip - eye) * s.x / d);
+        if (over > 0 && (!worst || over > worst.over)) worst = { over, x: s.x };
+    });
+    return worst ? { state: 'hidden', ...worst } : { state: 'seen' };
+};
+// An observer's sight of each area near it: in it, seen (along either
+// line), hidden (along both: the edge line's ground said), or waiting.
+const sightOf = (pt, overlays, heights) => losTargets(pt, overlays).map(t => {
+    if (t.inside) return { key: t.key, state: 'in' };
+    const r = t.ends.map(e => losCheck(pt, e, heights));
+    if (r.some(x => x.state === 'seen')) return { key: t.key, state: 'seen' };
+    if (r.some(x => x.state === 'waiting')) return { key: t.key, state: 'waiting' };
+    return { key: t.key, ...r[0] };
+});
+const sightText = (sight) => {
+    const inIt = sight.filter(s => s.state === 'in').map(s => s.key), seen = sight.filter(s => s.state === 'seen').map(s => s.key);
+    return [inIt.length && `in ${andList(inIt)}`, seen.length && `sees into ${andList(seen)}`,
+        ...sight.filter(s => s.state === 'hidden').map(s => `${s.key} hidden by ground at ${distText(s.x)}, ${Math.round(s.over)} m above the sightline`),
+        ...sight.filter(s => s.state === 'waiting').map(s => `${s.key} not known yet`)].filter(Boolean).join('; ');
+};
 const TEMPO_HOURS = 3;
 const tempoOf = (facts, end) => {
     const span = end - facts[0].ms;
@@ -353,8 +430,8 @@ const CAPABILITIES = {
         /\b(rkhbz|chemical (defen[cs]e|troops|recon\w*)|decontaminat\w*|decon|cbrn|nbc|smoke (generators?|screens?|pots?))\b/i),
     sead: capability(['ASN-301', 'Kh-31', 'Kh-58'], /\b(anti-?radiation|sead|(radars?|sams?|air defen[cs]e) (struck|hit|destroyed))\b/i),
     glideBomb: capability(['UMPK', 'FAB-500', 'KAB-500', 'LS-6'], /\b(glide bombs?|guided bombs?|kabs?|fabs?|umpk|aerial bombs?)\b/i),
-    recovery: capability(['BREM', 'BREM-L', 'BREM-K', 'BREM-D', 'BREM-80U', 'REM-KL', 'REM-KS', 'BTS-2', 'BTS-4', 'ZJX-93', 'WZ-653', 'VME-203',
-        'VME-102-40', 'Type 90-II ARV'], /\b(recover(y|ing|ed)|tow(ed|ing)|arvs?|wrecker)\b/i),
+    recovery: capability(['BREM', 'BREM-L', 'BREM-K', 'BREM-D', 'BREM-80U', 'REM-KL', 'REM-KS', 'BTS-2', 'BTS-4', 'ZJX-93', 'WZ-653',
+        'Type 90-II ARV'], /\b(recover(y|ing|ed)|tow(ed|ing)|arvs?|wrecker)\b/i),
     medevac: capability(['BMM-80', 'Linza', 'CSZ-181', 'ambulance'],
         /\b(casevac|medevac|ambulances?|stretchers?|wounded|casualt(y|ies)|evacuat\w* (the )?(wounded|casualties|injured))\b/i),
     c2: capability([], /\b(command posts?|headquarters|antennas?|radio masts?|generators?)\b/i),
@@ -388,6 +465,10 @@ const SQUARE = /^(\d{1,2}[C-X] [A-Z]{2}) (\d)(\d)$/;
 const SHELLING = /\b(shelling|shelled|barrage|fire missions?|impacts?|incoming|artillery fire|rocket fire|indirect fire)\b/i;
 const has = (f, ...tags) => tags.some(t => f.act.tags.includes(t));
 const levelBy = (n, likely, veryLikely) => (n >= veryLikely ? VERY_LIKELY : n >= likely ? LIKELY : EVEN);
+// An observer: reconnaissance, air defense (its radar), a command post or a
+// UAV team, halted or observing; or anyone reported observing.
+const observes = (f) => has(f, 'Stationary', 'Observing', 'Emplacing')
+    && (f.roles.has('recon') || f.roles.has('ad') || f.roles.has('c2') || has(f, 'Observing') || can(f, 'uav'));
 const kindsOf = (signs) => signs.filter(([, l]) => l.length).length;
 // The place most of some reports are in.
 const mostIn = (list) => {
@@ -564,13 +645,13 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
         }
         // High ground held: observers, air defense, radars or command posts
         // halted (or observing) on high ground, overlooking an NAI or OBJ.
-        const watchers = at(f => f.high && has(f, 'Stationary', 'Observing', 'Emplacing')
-            && (f.roles.has('recon') || f.roles.has('ad') || f.roles.has('c2') || has(f, 'Observing') || can(f, 'uav')));
+        const watchers = at(f => f.high && observes(f));
         const over = watchers.filter(f => f.overlooks);
         if (on('highground') && over.length) {
             const held = watchers.length >= 2 && watchers[watchers.length - 1].ms - watchers[0].ms >= 12 * HOUR ? watchers : [];
             const key = over[over.length - 1].overlooks;
             const signs = [['on high ground, halted or observing', watchers], [`overlooking ${key} within ${OVERLOOK_METERS / 1000} km`, over],
+                ['with line of sight into it', over.filter(f => (f.sight || []).some(s => s.key === f.overlooks && (s.state === 'seen' || s.state === 'in')))],
                 ['air defense or radars among them', watchers.filter(f => f.roles.has('ad'))], ['there 12 hrs or more', held]];
             judge('highground', levelBy(kindsOf(signs), 3, 4),
                 key === area ? `are holding high ground in ${area}, likely for observation` : `are holding high ground at ${area}, likely for observation over ${key}`, signs, [area]);
@@ -1297,6 +1378,9 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
             .sort((x, y) => x[1] - y[1] || x[0].localeCompare(y[0]))[0];
         f.overlooks = o ? o[0] : '';
     });
+    facts.forEach(f => { f.sight = f.ground && observes(f) ? sightOf(f.a.points[0], overlays, heights) : null; });
+    const observers = facts.filter(f => f.sight && f.sight.length);
+    const seeing = observers.filter(f => f.sight.some(s => s.state === 'seen' || s.state === 'in'));
     const out = [], shown = [];
     const say = (text, first = '   ', rest = first) => out.push(...wrapText(text, first, rest, width));
     const item = (text) => say(text, '   - ', '     ');
@@ -1401,7 +1485,11 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
     const blufGap = gaps[0];
     const withGrid = facts.filter(f => f.a.points.length);
     if (!heights) gaps.push('Terrain: no elevation source, so no heights or slopes; pick one in the Narrative settings, under Terrain.');
-    else if (withGrid.some(f => !f.ground)) {
+    else if (facts.some(f => f.sight && f.sight.some(s => s.state === 'waiting'))) {
+        const n = facts.reduce((k, f) => k + (f.sight || []).filter(s => s.state === 'waiting').length, 0);
+        gaps.push(`Line of sight into ${plural(n, 'area')} not known yet: the heights along the way are still being asked.`);
+    }
+    if (heights && withGrid.some(f => !f.ground)) {
         gaps.push(`Terrain: no height yet for ${plural(withGrid.filter(f => !f.ground).length, 'report')}`
             + `${terrain.note ? ` (the source: ${terrain.note.replace(/[.]$/, '')})` : ' (still being asked, or the source has none there)'}.`);
     }
@@ -1433,7 +1521,8 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
         bluf(`Terrain: reports at ${Math.round(Math.min(...hs))} to ${Math.round(Math.max(...hs))} m`
             + `${highUp.length ? `; ${highUp.length} on high ground${highUp.some(f => f.places.length) ? ` (${andList([...new Set(highUp.flatMap(f => f.places))].slice(0, 3))})` : ''}` : ''}`
             + `${steep.length ? `; ${plural(steep.length, 'column')} on slopes too steep for ${steep.length === 1 ? 'it' : 'them'}` : ''}`
-            + `${covered.length ? `; ${covered.length} artillery behind a crest` : ''}.`);
+            + `${covered.length ? `; ${covered.length} artillery behind a crest` : ''}`
+            + `${seeing.length ? `; ${plural(seeing.length, 'observer')} can see into ${andList([...new Set(seeing.flatMap(f => f.sight.filter(s => s.state === 'seen' || s.state === 'in').map(s => s.key)))].slice(0, 3))}` : ''}.`);
     }
     const trend = prev ? `, ${facts.length > prev.length ? 'up from' : facts.length < prev.length ? 'down from' : 'the same as'} ${prev.length} in the previous ${hrs} hrs` : '';
     bluf(`Activity: ${plural(facts.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''}${trend}`
@@ -1536,6 +1625,9 @@ const narrativeLines = (cur, prev, { local, hrs, end, places, settings, overlays
             + `the ground ${Math.round(f.ground.rise)} m higher ${TERRAIN_AHEAD_METERS} m ahead (${f.way.dir}), a covered firing position`).join('; ')}`
             + `${covered.length > 4 ? `; and ${covered.length - 4} earlier` : ''}.`);
     }
+    // Line of sight from each observer, the latest four.
+    observers.slice(-4).reverse().forEach(f => item(`Line of sight, ${f.id} ${dayTime(f.ms, local)} (${f.shown || '-'}, ${Math.round(f.ground.h)} m): ${sightText(f.sight)}.`));
+    if (observers.length > 4) item(`Line of sight: ${plural(observers.length - 4, 'more observer')} not shown.`);
     if (highUp.length) {
         item(`High ground: ${highUp.slice(-4).reverse().map(f => `${f.id} ${dayTime(f.ms, local)}${f.places.length ? `, ${f.places.join(', ')}` : ''}: ${f.shown || '-'}, `
             + `${Math.round(f.ground.h)} m${f.overlooks ? `, overlooking ${f.overlooks}` : ''}`).join('; ')}${highUp.length > 4 ? `; and ${highUp.length - 4} earlier` : ''}.`);

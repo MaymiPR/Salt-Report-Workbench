@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Line of sight.** With an elevation source, the Narrative works out what
+  each enemy observer (reconnaissance, air defense, a command post or a UAV
+  team, halted or observing) can see: into the three NAIs or OBJs nearest it
+  within 5 km, along a line to each one's nearest edge and to its middle,
+  with the eye and the target 2 m up and the earth's curve allowed for. Enemy
+  forces says, per observer, what it is in, sees into, or what is hidden by
+  ground (where, and how far above the sightline); the bottom line's Terrain
+  says how many observers can see into which areas; High ground held is a
+  step firmer when the observer can see into the area. The heights along the
+  lines come through the server like the rest, kept once asked.
+
+### Removed
+
+- VME-203 and VME-102-40 from the equipment catalogue (and the recovery
+  vehicles the narrative knows): no real source knows them; the only trace
+  found was a video-game mod. A report naming them now lists them as not in
+  the catalogue, and the team can add them under Equipment if they are real.
+
 ## [2.38.0] - 2026-11-01
 
 ### Added

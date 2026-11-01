@@ -79,12 +79,20 @@ let terrainNote = '';       // why the source last failed, or ''
 let terrainEmpty = 0;       // answers in a row that said the server has no source
 const TERRAIN_BATCH = 500, TERRAIN_SOON_MS = 2000, TERRAIN_LATER_MS = 60000;
 const terrainSet = () => !!(sharedNarrative.terrain && sharedNarrative.terrain.basemap);
+// The points to ask, worked out again only when the reports, overlays or
+// settings have changed: an observer's lines of sight are many points.
+let terrainPointsFor = '', terrainPointsWere = [];
+const terrainPointsNow = () => {
+    const live = localReports.filter(r => !r.deleted), overlays = currentOverlays();
+    const key = JSON.stringify([live.length, live.reduce((n, r) => Math.max(n, r.lastModified || 0), 0), overlays.length, sharedNarrative]);
+    if (key !== terrainPointsFor) { terrainPointsFor = key; terrainPointsWere = SaltCore.terrainPoints(live, overlays, sharedNarrative); }
+    return terrainPointsWere;
+};
 const askTerrain = async () => {
     const source = JSON.stringify(sharedNarrative.terrain || null);
     if (source !== terrainFor) { terrainHeights.clear(); terrainFor = source; terrainNote = ''; clearTimeout(terrainRetry); terrainRetry = null; }
     if (isLocalFile || terrainAsking || terrainRetry || !terrainSet()) return;
-    const want = SaltCore.terrainPoints(localReports, currentOverlays(), sharedNarrative)
-        .filter(([lon, lat]) => !terrainHeights.has(SaltCore.terrainKey(lon, lat)));
+    const want = terrainPointsNow().filter(([lon, lat]) => !terrainHeights.has(SaltCore.terrainKey(lon, lat)));
     if (!want.length) return;
     const pts = want.slice(0, TERRAIN_BATCH);
     terrainAsking = true;
