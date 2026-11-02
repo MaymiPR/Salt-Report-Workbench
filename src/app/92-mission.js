@@ -80,7 +80,7 @@ async function leaveFinishedMission(id) {
     if (waiting !== 0) {
         const pick = await askChoice('The team has finished the mission.',
             `This browser has ${waiting === null ? 'reports' : plural(waiting, 'report')} the server ${waiting === null ? 'may never have got' : 'never got'}. Save them to a file before the new mission starts? Import can read it.`,
-            [{ label: 'Save to a file', value: 'save', primary: true }, { label: "Don't save them", value: 'drop' }]);
+            [{ label: 'Save to a File', value: 'save', primary: true }, { label: "Don't Save Them", value: 'drop' }]);
         // Cancel keeps them too: they go nowhere else.
         if (pick !== 'drop') saved = downloadEverything('Unsent');
     }
@@ -134,7 +134,7 @@ const finishMission = async () => {
     </ul>
     <label class="mission-type"><span>Type <strong>DONE</strong> to go ahead</span> <input type="text" autocomplete="off" spellcheck="false" maxlength="10"></label>`;
     const input = body.querySelector('input');
-    const answer = askChoice('Done with Mission?', '', [{ label: 'Back up and start a new mission', value: 'go', primary: true, disabled: true }], body);
+    const answer = askChoice('Done with Mission?', '', [{ label: 'Back Up and Start a New Mission', value: 'go', primary: true, disabled: true }], body);
     const go = document.querySelector('#choiceButtons .choice-primary');
     input.addEventListener('input', () => { go.disabled = input.value.trim().toUpperCase() !== 'DONE'; });
     input.addEventListener('keydown', e => { if (e.key === 'Enter' && !go.disabled) { e.preventDefault(); go.click(); } });

@@ -1637,7 +1637,7 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector(
             "#choiceToast.show:has-text('CD changed this report since you opened it')"
         )
-        page.click("#choiceButtons button:text-is('Keep theirs')")
+        page.click("#choiceButtons button:text-is('Keep Theirs')")
         self.assertEqual(
             (page.input_value("#size"), page.input_value("#activity")), ("3x BTR", "Moving N")
         )
@@ -1658,7 +1658,7 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector(
             "#choiceToast.show:has-text('changed this report since you opened it')"
         )
-        page.click("#choiceButtons button:text-is('Overwrite theirs')")
+        page.click("#choiceButtons button:text-is('Overwrite Theirs')")
         self.wait_for_server(
             page, f"s => s.workspaces['{self.ato}'].some(r => r.size === '4x BTR')"
         )
@@ -1807,7 +1807,7 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(self.sizes(page), [])
         self.assertEqual(page.input_value("#location"), "38S MB 55000 82000, NAI 1")
         page.click("#logButton")
-        page.click("#choiceButtons button:text-is('Keep both')")
+        page.click("#choiceButtons button:text-is('Keep Both')")
         page.wait_for_selector("#reportLogBody .col-size:has-text('9x PAX')")
         self.assertEqual(
             page.locator("#reportLogBody .col-location").first.evaluate(
@@ -5445,7 +5445,7 @@ class BrowserTests(unittest.TestCase):
         for text in ("Hill 205", "vic the bridge, 205", "45000 82000"):
             page.fill("#location", text)
             self.assertEqual(page.locator(chip).count(), 0, text)
-        # Log asks: Fix it goes back to the box, logging nothing.
+        # Log asks: Fix It goes back to the box, logging nothing.
         page.fill("#size", "1x BRDM")
         page.fill("#activity", "observing")
         page.fill("#location", "4500 820")
@@ -5453,12 +5453,12 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#choiceToast.show")
         self.assertEqual(page.text_content("#choiceMessage"), "Not a grid: 4500 820")
         self.assertIn("has two numbers of different lengths", page.text_content("#choiceDetail"))
-        page.click("#choiceButtons button:text-is('Fix it')")
+        page.click("#choiceButtons button:text-is('Fix It')")
         self.assertEqual(page.evaluate("document.activeElement.id"), "location")
         self.assertEqual(self.sizes(page), [])
-        # Log as typed: logged as it is, without the zone and square.
+        # Log as Typed: logged as it is, without the zone and square.
         page.click("#logButton")
-        page.click("#choiceButtons button:text-is('Log as typed')")
+        page.click("#choiceButtons button:text-is('Log as Typed')")
         page.wait_for_selector("#reportLogBody .col-size:has-text('1x BRDM')")
         self.assertTrue(
             page.evaluate("localReports.find(r => r.size === '1x BRDM').location").startswith(
@@ -6476,7 +6476,7 @@ class MissionsAndSyncedPageTests(BrowserTests):
         page.wait_for_selector("#choiceToast.show:has-text('The team has finished the mission.')")
         self.assertIn("reports the server may never have got", page.text_content("#choiceDetail"))
         with page.expect_navigation():
-            page.click("#choiceButtons button:text-is(\"Don't save them\")")
+            page.click("#choiceButtons button:text-is(\"Don't Save Them\")")
 
     def test_a_sync_that_changes_nothing_leaves_the_log_and_the_dropdowns(self):
         page = self.open_editor("AB")

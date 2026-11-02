@@ -174,8 +174,8 @@ const settleLocation = async (text) => {
     const replace = {}, add = addNearby ? [...plan.add] : [];
     for (const c of plan.conflicts) {
         const opts = c.found.length
-            ? [{ label: `Use ${c.found.join(', ')}`, value: 'grid', primary: true }, { label: `Keep ${c.typed}`, value: 'typed' }, { label: 'Keep both', value: 'both' }]
-            : [{ label: `Keep ${c.typed}`, value: 'typed', primary: true }, { label: `Take out ${c.typed}`, value: 'grid' }];
+            ? [{ label: `Use ${c.found.join(', ')}`, value: 'grid', primary: true }, { label: `Keep ${c.typed}`, value: 'typed' }, { label: 'Keep Both', value: 'both' }]
+            : [{ label: `Keep ${c.typed}`, value: 'typed', primary: true }, { label: `Take Out ${c.typed}`, value: 'grid' }];
         const pick = await askChoice(`The grid and ${c.typed} disagree`, c.message + '.', opts);
         if (pick === null) return null;
         if (pick === 'grid') replace[c.typed] = c.found.join(', ');
