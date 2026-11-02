@@ -8,6 +8,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **CI tries the downloads the way operators use them.** A new job builds the
+  release zip and the one-file .txt from each change, extracts the zip on
+  Windows, checks that the .txt unpacks to the same files, and starts the
+  server through its launcher with Python 3.11.8 until `/api/health` answers
+  with the version. The browser tests now also run on 3.11.8, on Linux.
+- **The browser tests' lockfile installs on Python 3.11.8.** It held pyee 14,
+  which needs 3.12, so on 3.11 the browser tests took an unhashed install by
+  hand. `requirements-browser.in` now keeps pyee below 14 (13.0.1, with
+  hashes), and Dependabot leaves it there.
+- **The launcher is tested passing over an older Python** first on PATH, and
+  the docs say what CI runs on 3.11.8 and where.
 - **Text and buttons are easier to read.** Blue and red text (on a field or
   a tinted chip), white on blue buttons (Log New Report, Set, Copy, Save .txt,
   Print, the pressed Latest Grids, a picked chip), a tag switched off in the
@@ -21,6 +32,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **`make clean` keeps the data in `dist/`.** It deleted the whole folder,
+  with any `Auto Backups`, `Mission Archives` and `Server Logs` a run had
+  left there. It now removes only the three built files and the caches. The
+  README's From source steps start the server with `--backup-dir .dev-data`,
+  as `make run` does, so the data stays out of `dist/`.
 - **The keyboard keeps its place in panels drawn again.** After a basemap's
   Check, Layers or Edit in Manage > Map, and after the Narrative settings'
   tabs, + Add, Back or opening a row, it was left at the top of the page. Now

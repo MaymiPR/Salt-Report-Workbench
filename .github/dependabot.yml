@@ -15,6 +15,12 @@ updates:
     groups:
       dev-tools:
         patterns: ["*"]
+    # pyee 14 needs Python 3.12, and the browser tests run on 3.11.8 too (see
+    # requirements-browser.in); without this, Dependabot could raise the
+    # pyee<14 bound there.
+    ignore:
+      - dependency-name: pyee
+        versions: [">=14"]
   - package-ecosystem: github-actions
     directory: /
     schedule:

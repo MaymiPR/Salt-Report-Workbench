@@ -37,13 +37,16 @@ format:  ## Auto-format Python
 	ruff format .
 	ruff check --fix .
 
-check: lint test build  ## Most of what CI runs (not the built-server smoke test)
+check: lint test build  ## Most of what CI runs (not the smoke tests of the built server and release)
 
 release:  ## Set the version everywhere for a release: make release VERSION=2.24.0
 	@test -n "$(VERSION)" || { echo "usage: make release VERSION=X.Y.Z"; exit 1; }
 	$(PY) scripts/bump.py $(VERSION)
 	$(PY) -m unittest tests.test_docs
 
-clean:  ## Remove build output and caches (never .dev-data/)
-	rm -rf dist .ruff_cache
+# Only the three built files, never dist/ itself: a dist/ that has been run
+# holds Auto Backups, Mission Archives and Server Logs, which are live data.
+clean:  ## Remove the built files and caches (never data folders)
+	rm -f dist/index.html dist/salt_sync_server.py "dist/Start SALT Workbench.bat"
+	rm -rf .ruff_cache
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +
