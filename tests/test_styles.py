@@ -42,6 +42,27 @@ class StylesTests(unittest.TestCase):
         defined = set(DEFINED.findall(CSS)).union(*(SET_FROM_JS.findall(text) for text in PAGE))
         self.assertEqual(sorted(USED_ANYWHERE - defined), [], "var() of a property defined nowhere")
 
+    def test_font_sizes_come_only_from_the_type_scale(self):
+        # A size is a token from :root (--text-*, or the map's names'
+        # --map-label*), or the parent's own (1em, inherit), so sizes can't
+        # compound or drift again. The font shorthand's size the same.
+        token = r"var\(--(?:text|map-label)[\w-]*\)"
+        size_ok = re.compile(rf"^(?:{token}|1em|inherit)(?:\s*!important)?$")
+        shorthand_ok = re.compile(rf"^(?:inherit|.*\b{token}\s)")
+        body = ROOT_BLOCK.sub("", CSS)
+        sizes = re.findall(r"(?<![\w-])font-size\s*:\s*([^;}]+)", body)
+        fonts = re.findall(r"(?<![\w-])font\s*:\s*([^;}]+)", body)
+        self.assertEqual(
+            [v.strip() for v in sizes if not size_ok.match(v.strip())],
+            [],
+            "font-size off the scale",
+        )
+        self.assertEqual(
+            [v.strip() for v in fonts if not shorthand_ok.match(v.strip())],
+            [],
+            "font off the scale",
+        )
+
     def test_the_map_draws_only_in_map_colors(self):
         # Every color the map's scripts draw with is a MAP_COLORS entry, so
         # the map, its key and the saved map can't drift apart. A stylesheet

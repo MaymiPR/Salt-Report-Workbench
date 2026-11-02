@@ -50,6 +50,14 @@ All notable changes to this project are documented here. The format follows
 - **Red buttons are easier to read.** White on the red of Confirm, Delete
   and Clear Workspace (pointed at) was 3.4:1; they now use the darker red
   of the error bars, 5.9:1 (5.3:1 pointed at).
+- **Text comes in six sizes.** The page had about 50 sizes on screen, many
+  a fraction of a pixel apart, because each was a share of the one around
+  it. Every size is now one of six steps (10, 11.5, 13, 15, 20 and 24 px),
+  each set to the step nearest what it was, so the page looks the same:
+  nearly all text moved by less than a pixel. The welcome and manual
+  titles are now the size of the other titles, the sort arrows and a few
+  small BDA marks are a pixel or two larger, and a tag's remove button is
+  the size of the others.
 
 ### Fixed
 
