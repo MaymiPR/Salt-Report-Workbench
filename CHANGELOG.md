@@ -28,13 +28,6 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- **An IPv6 `--host` is told plainly.** `--host ::` (or any IPv6 address)
-  stopped with "Is the server already running?", which it wasn't. The server
-  listens on IPv4 only, and now says so, with 0.0.0.0 or 127.0.0.1 to use
-  instead.
-
-### Fixed
-
 - **A report id such as `constructor` or `__proto__`** (which the server
   takes) no longer breaks the page's record of what the server holds.
 - **Summaries read the same whatever order the reports came in.** Two
@@ -61,6 +54,10 @@ All notable changes to this project are documented here. The format follows
   "Дозор" lost its accented or Cyrillic letters to underscores, and an emoji
   became two. A title with nothing left to keep now leaves that part of the
   name empty, as the server does, instead of X.
+- **An IPv6 `--host` is told plainly.** `--host ::` (or any IPv6 address)
+  stopped with "Is the server already running?", which it wasn't. The server
+  listens on IPv4 only, and now says so, with 0.0.0.0 or 127.0.0.1 to use
+  instead.
 
 ## [2.43.0] - 2026-11-01
 
