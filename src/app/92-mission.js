@@ -88,6 +88,40 @@ async function leaveFinishedMission(id) {
         + `${isReadOnly ? '' : ' Previous Missions, in Manage > Workspaces, brings back settings and workspaces.'}`);
 }
 
+// --- Working ---
+// What is under way: 'finish', 'refresh', or 'recall|' / 'load|' and a
+// mission's name. Its button is disabled and says so ("Finishing...") until
+// the answer comes, refused or timed out (serverFetch) included, so a slow
+// server is seen to be working and the button isn't pressed twice.
+const missionsWorking = new Set();
+const WORKING_WORDS = { finish: 'Finishing...', refresh: 'Refreshing...', recall: 'Recalling...', load: 'Loading...' };
+const MISSION_HEAD_BTNS = { finish: 'finishMissionBtn', refresh: 'refreshBackupsBtn' };
+const drawMissionsWorking = () => {
+    Object.entries(MISSION_HEAD_BTNS).forEach(([what, id]) => {
+        const b = document.getElementById(id);
+        if (!b) return;
+        if (!b.dataset.label) b.dataset.label = b.textContent;
+        const busy = missionsWorking.has(what);
+        b.disabled = busy;
+        b.textContent = busy ? WORKING_WORDS[what] : b.dataset.label;
+        if (busy) b.setAttribute('aria-busy', 'true'); else b.removeAttribute('aria-busy');
+    });
+    renderMissions();
+};
+// `work` with `what` under way; nothing when it already is. Starting a new
+// mission, the page is loading again: its button stays as it is till then.
+const whileWorking = async (what, work) => {
+    if (missionsWorking.has(what)) return;
+    missionsWorking.add(what);
+    drawMissionsWorking();
+    try {
+        await work();
+    } finally {
+        missionsWorking.delete(what);
+        if (!missionReloading) drawMissionsWorking();
+    }
+};
+
 // --- Done with Mission ---
 const finishMission = async () => {
     if (isReadOnly) { showToast('View-only mode. Done with Mission is disabled here.', true); return; }
@@ -105,17 +139,19 @@ const finishMission = async () => {
     input.addEventListener('input', () => { go.disabled = input.value.trim().toUpperCase() !== 'DONE'; });
     input.addEventListener('keydown', e => { if (e.key === 'Enter' && !go.disabled) { e.preventDefault(); go.click(); } });
     if (await answer !== 'go') return;
-    const saved = downloadEverything('Mission');
-    if (isLocalFile) {
-        startNewMission(`local-${Date.now()}`, `Mission finished${saved ? '; its backup was saved to this computer' : ''}. Set the new mission's workspace to begin.`);
-        return;
-    }
-    const res = await apiPost('/api/finish_mission', { confirm: 'DONE' });
-    if (!res.ok) {
-        if (res.status !== 401) showToast(`Not finished: ${res.message}${saved ? ' The backup saved to this computer is complete.' : ''}`, true);
-        return;
-    }
-    startNewMission(res.body.mission, `Mission finished. Everything is in Mission Archives\\${res.body.archive} on the server${saved ? ', and a backup was saved to this computer' : ''}.`);
+    await whileWorking('finish', async () => {
+        const saved = downloadEverything('Mission');
+        if (isLocalFile) {
+            startNewMission(`local-${Date.now()}`, `Mission finished${saved ? '; its backup was saved to this computer' : ''}. Set the new mission's workspace to begin.`);
+            return;
+        }
+        const res = await apiPost('/api/finish_mission', { confirm: 'DONE' });
+        if (!res.ok) {
+            if (res.status !== 401) showToast(`Not finished: ${res.message}${saved ? ' The backup saved to this computer is complete.' : ''}`, true);
+            return;
+        }
+        startNewMission(res.body.mission, `Mission finished. Everything is in Mission Archives\\${res.body.archive} on the server${saved ? ', and a backup was saved to this computer' : ''}.`);
+    });
 };
 
 // --- Previous Missions ---
@@ -124,7 +160,7 @@ let missionsKnown = [];
 async function loadMissions() {
     if (isReadOnly || isLocalFile) { renderMissions(); return; }
     try {
-        const res = await fetch('/api/missions');
+        const res = await serverFetch('/api/missions');
         if (res.status === 401) { handleUnauthorized(); return; }
         // A server from before missions answers 404: none.
         const json = res.ok ? await res.json() : null;
@@ -151,10 +187,16 @@ const renderMissions = () => {
         const reports = ws.reduce((n, [, c]) => n + (Number(c) || 0), 0);
         const sub = [ws.length ? ws.map(([a]) => a).join(', ') : 'no workspaces', plural(reports, 'report'),
             missionWhen(m) && `finished ${missionWhen(m)}`, m.by && `by ${m.by}`].filter(Boolean).join(' · ');
+        // Recall or Load under way: its button says so (drawMissionsWorking).
+        const btn = (what, label, enabled = true) => {
+            const busy = missionsWorking.has(`${what}|${m.name}`);
+            return `<button type="button" class="mission-btn" data-mission-${what}="${escapeHtml(m.name)}"${enabled && !busy ? '' : ' disabled'}`
+                + `${busy ? ' aria-busy="true"' : ''}>${busy ? WORKING_WORDS[what] : label}</button>`;
+        };
         return `<div class="mission-row">
             <div class="mission-row-id"><span class="mission-row-name">${escapeHtml(m.name)}</span><span class="mission-row-sub">${escapeHtml(sub)}</span></div>
-            <button type="button" class="mission-btn" data-mission-recall="${escapeHtml(m.name)}">Recall Settings</button>
-            <button type="button" class="mission-btn" data-mission-load="${escapeHtml(m.name)}"${ws.length ? '' : ' disabled'}>Load</button>
+            ${btn('recall', 'Recall Settings')}
+            ${btn('load', 'Load', ws.length > 0)}
         </div>`;
     });
     // Without a server (or before any mission has finished on it), only this
@@ -198,14 +240,17 @@ const recallFrom = async (m) => {
     if (answer !== 'go') return;
     const parts = [...body.querySelectorAll('input[data-part]:checked')].map(i => i.dataset.part);
     const prefs = !!body.querySelector('input[data-prefs]:checked');
+    let recalled = true;
     if (parts.length) {
-        const res = await apiPost('/api/recall_settings', { mission: m.name, parts });
-        if (!res.ok) { if (res.status !== 401) showToast(`Not recalled: ${res.message}`, true); return; }
-        const taken = Array.isArray(res.body.taken) ? res.body.taken : [];
-        const words = { overlays: 'overlays', tags: 'tags', drones: 'drones', profiles: 'initials', format: 'report format', narrative: 'narrative settings', fmv: 'FMV mode' };
-        if (!prefs) showToast(taken.length ? `Recalled the ${wordsAnd(taken.map(p => words[p]))} from ${m.name}.` : 'Nothing changed: those settings are already as they were.');
+        await whileWorking(`recall|${m.name}`, async () => {
+            const res = await apiPost('/api/recall_settings', { mission: m.name, parts });
+            if (!res.ok) { recalled = false; if (res.status !== 401) showToast(`Not recalled: ${res.message}`, true); return; }
+            const taken = Array.isArray(res.body.taken) ? res.body.taken : [];
+            const words = { overlays: 'overlays', tags: 'tags', drones: 'drones', profiles: 'initials', format: 'report format', narrative: 'narrative settings', fmv: 'FMV mode' };
+            if (!prefs) showToast(taken.length ? `Recalled the ${wordsAnd(taken.map(p => words[p]))} from ${m.name}.` : 'Nothing changed: those settings are already as they were.');
+        });
     }
-    if (prefs) recallPrefs();
+    if (prefs && recalled) recallPrefs();
 };
 
 const loadFrom = async (m) => {
@@ -220,9 +265,11 @@ const loadFrom = async (m) => {
     if (answer !== 'go') return;
     const atos = [...body.querySelectorAll('input[data-ato]:checked')].map(i => i.dataset.ato);
     if (!atos.length) return;
-    const res = await apiPost('/api/load_mission', { mission: m.name, atos });
-    if (!res.ok) { if (res.status !== 401) showToast(`Not loaded: ${res.message}`, true); return; }
-    showToast(`Loaded ${wordsAnd(Object.keys(res.body.loaded || {}))} from ${m.name}.`);
+    await whileWorking(`load|${m.name}`, async () => {
+        const res = await apiPost('/api/load_mission', { mission: m.name, atos });
+        if (!res.ok) { if (res.status !== 401) showToast(`Not loaded: ${res.message}`, true); return; }
+        showToast(`Loaded ${wordsAnd(Object.keys(res.body.loaded || {}))} from ${m.name}.`);
+    });
 };
 
 // --- Refresh ---
@@ -231,14 +278,16 @@ const loadFrom = async (m) => {
 // missions are listed again.
 const refreshBackups = async () => {
     if (isReadOnly || isLocalFile) return;
-    const res = await apiPost('/api/refresh', {});
-    loadMissions();
-    if (!res.ok) { if (res.status !== 401) showToast(`Not refreshed: ${res.message}`, true); return; }
-    const found = res.body.workspaces && typeof res.body.workspaces === 'object' ? res.body.workspaces : {};
-    const files = Array.isArray(res.body.files) ? res.body.files.length : 0, skipped = Number(res.body.skipped) || 0;
-    const said = Object.keys(found).sort().map(ato => (found[ato].added ? `${ato} added` : `${ato} ${plural(Number(found[ato].changes) || 0, 'report')} new or changed`));
-    const bad = skipped ? `; ${plural(skipped, 'file')} couldn't be read (the server's window names ${skipped === 1 ? 'it' : 'them'})` : '';
-    showToast(said.length ? `Refresh: ${plural(files, 'file')} read; ${wordsAnd(said)}${bad}.` : `Refresh: nothing new in the backup folder${bad}.`, skipped > 0);
+    await whileWorking('refresh', async () => {
+        const res = await apiPost('/api/refresh', {});
+        loadMissions();
+        if (!res.ok) { if (res.status !== 401) showToast(`Not refreshed: ${res.message}`, true); return; }
+        const found = res.body.workspaces && typeof res.body.workspaces === 'object' ? res.body.workspaces : {};
+        const files = Array.isArray(res.body.files) ? res.body.files.length : 0, skipped = Number(res.body.skipped) || 0;
+        const said = Object.keys(found).sort().map(ato => (found[ato].added ? `${ato} added` : `${ato} ${plural(Number(found[ato].changes) || 0, 'report')} new or changed`));
+        const bad = skipped ? `; ${plural(skipped, 'file')} couldn't be read (the server's window names ${skipped === 1 ? 'it' : 'them'})` : '';
+        showToast(said.length ? `Refresh: ${plural(files, 'file')} read; ${wordsAnd(said)}${bad}.` : `Refresh: nothing new in the backup folder${bad}.`, skipped > 0);
+    });
 };
 
 // "A, B and C".

@@ -648,6 +648,7 @@ const REQUEST_MS = 20000;
 const REQUEST_MS_BY_PATH = {
     '/api/sync': 30000, '/api/save_reports': 60000, '/api/wms_fetch': 60000, '/api/elevation_test': 60000,
     '/api/finish_mission': 120000, '/api/load_mission': 120000, '/api/recall_settings': 120000, '/api/refresh': 120000,
+    '/api/missions': 120000,
 };
 // A page opened as a file has no server: its calls fail at once, as the
 // browser would fail them, without a request it logs as an error.
