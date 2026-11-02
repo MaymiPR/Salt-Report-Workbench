@@ -6547,5 +6547,288 @@ for _name in [n for n in vars(BrowserTests) if n.startswith("test_")]:
     setattr(MissionsAndSyncedPageTests, _name, None)
 
 
+class KeyboardSavesAndZoomTests(BrowserTests):
+    """The keyboard's place in rebuilt panels and opened menus, the narrative
+    settings' tabs, saving the map and the rest (said, in this browser's
+    units), the map's table left alone, and Ctrl + wheel zoom drawn once. A
+    server of its own; BrowserTests' tests are taken off this class below."""
+
+    def active(self, page, attr):
+        """The data attribute ``attr`` (camelCase) of what has the keyboard."""
+        return page.evaluate("a => document.activeElement.dataset[a] ?? null", attr)
+
+    def test_the_keyboard_keeps_its_place_in_rebuilt_basemap_rows(self):
+        page = self.open_editor()
+        self.context.route(
+            "https://tiles.test/**",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="image/png",
+                body=self.PNG_1PX,
+                headers={"Access-Control-Allow-Origin": "*"},
+            ),
+        )
+        before = page.evaluate("JSON.parse(JSON.stringify(sharedBasemaps))")
+        page.evaluate(
+            "saveBasemaps([{ name: 'Tiles', kind: 'tiles', url: 'https://tiles.test/{z}/{x}/{y}.png' }])"
+        )
+        try:
+            self.open_basemaps(page)
+            # Edit opens the row's address, and closes it: the keyboard stays on it.
+            page.focus("[data-base-open='0']")
+            page.keyboard.press("Enter")
+            page.wait_for_selector("#mapTileUrl")
+            self.assertEqual(self.active(page, "baseOpen"), "0")
+            page.keyboard.press("Enter")
+            page.wait_for_selector("#mapTileUrl", state="detached")
+            self.assertEqual(self.active(page, "baseOpen"), "0")
+            # Check: the row is drawn as it asks and again with the answer.
+            page.focus("[data-base-check='0']")
+            page.keyboard.press("Enter")
+            page.wait_for_selector(".map-base-check.ok")
+            self.assertEqual(self.active(page, "baseCheck"), "0")
+        finally:
+            page.evaluate("list => saveBasemaps(list)", before)
+
+    def test_the_narrative_settings_keep_the_keyboard_and_say_which_tab_is_shown(self):
+        self.addCleanup(self.post_to_server, "/api/save_narrative", {"narrative": {}})
+        page = self.open_editor()
+        page.evaluate(
+            "saveNarrative({ units: [{ name: '1-60 GMRB', places: [], kinds: [] }] }, 'Saved.')"
+        )
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        page.wait_for_selector("#narrSettings [data-narr-edit]")
+        pressed = "[...document.querySelectorAll('[data-narr-tab]')].map(b => b.getAttribute('aria-pressed'))"
+        self.assertEqual(page.evaluate(pressed), ["true", "false", "false", "false"])
+        # A saved one opened: the keyboard on Back; Escape goes back to its row.
+        page.focus("[data-narr-edit='0']")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#narrUnitName")
+        self.assertEqual(self.active(page, "narrBack"), "")
+        page.keyboard.press("Tab")
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#narrUnitName", state="detached")
+        self.assertEqual(self.active(page, "narrId"), "1-60 gmrb")
+        # Another tab: the keyboard stays on it, and it says it is the one shown.
+        page.focus("[data-narr-tab='equipment']")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#narrEqFind")
+        self.assertEqual(self.active(page, "narrTab"), "equipment")
+        self.assertEqual(page.evaluate(pressed), ["false", "true", "false", "false"])
+        # + Add: into the form, on Back; Back: out again, on + Add.
+        page.focus("#narrSettings [data-narr-add]")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#narrEqType")
+        self.assertEqual(self.active(page, "narrBack"), "")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#narrEqFind")
+        self.assertEqual(self.active(page, "narrAdd"), "")
+
+    def test_the_map_menus_take_the_keyboard_when_opened(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        self.fmv(page)
+        self.addCleanup(self.post_to_server, "/api/save_fmv", {"fmv": {"on": False}})
+        self.open_map(page)
+        inside = "id => document.getElementById(id).contains(document.activeElement)"
+        for btn, pop in (
+            ("mapExportBtn", "mapExportPop"),
+            ("mapBaseBtn", "mapBasePop"),
+            ("mapDroneBtn", "mapDronePop"),
+        ):
+            page.focus(f"#{btn}")
+            page.keyboard.press("Enter")
+            page.wait_for_selector(f"#{pop}", state="visible")
+            self.assertTrue(page.evaluate(inside, pop), f"{pop} has the keyboard")
+            page.keyboard.press("Escape")
+            page.wait_for_selector(f"#{pop}", state="hidden")
+            self.assertEqual(page.evaluate("document.activeElement.id"), btn)
+        page.focus("#mapExportBtn")
+        page.keyboard.press("Enter")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "mapSavePng")
+
+    def test_save_as_png_says_it_is_working_and_leaves_out_a_tile_that_never_comes(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        hung = []
+        # A tile host that never answers: the requests are held, not answered.
+        self.context.route("https://slow.test/**", lambda route: hung.append(route))
+        self.open_map(page)
+        self.synced(page)
+        before = page.evaluate("JSON.parse(JSON.stringify(sharedBasemaps))")
+        page.evaluate(
+            "saveBasemaps([{ name: 'Slow tiles', kind: 'tiles', url: 'https://slow.test/{z}/{x}/{y}.png' }])"
+        )
+        try:
+            self.pick_basemap(page, "Slow tiles")
+            page.wait_for_selector("#mapBase image")
+            page.evaluate("document.getElementById('toastNotification').textContent = ''")
+            page.click("#mapExportBtn")
+            with page.expect_download(timeout=40000) as d:
+                page.click("#mapSavePng")
+                page.wait_for_selector("#toastNotification:has-text('Saving the map as a PNG')")
+                self.assertEqual(
+                    page.evaluate("[mapSavePng.disabled, mapSavePng.textContent]"),
+                    [True, "Saving..."],
+                )
+            page.wait_for_selector("#toastNotification:has-text('Saved ')")
+            self.assertRegex(
+                page.text_content("#toastNotification"),
+                r"^Saved \S+\.png, without \d+ basemap images? that didn't come in time\.$",
+            )
+            self.assertEqual(
+                page.evaluate("[mapSavePng.disabled, mapSavePng.textContent]"),
+                [False, "Save as PNG"],
+            )
+            path = self.tmp_path(d.value.suggested_filename)
+            d.value.save_as(path)
+            self.assertEqual(path.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+        finally:
+            for route in hung:
+                with contextlib.suppress(PlaywrightError):
+                    route.abort()
+            page.evaluate("list => saveBasemaps(list)", before)
+
+    def test_the_saved_maps_scale_bar_follows_the_units(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        # How long it says it is, in meters, against what its pixels cover there.
+        bar = """() => { const s = mapScaleBar(), v = mapState.view, [, lat] = SaltCore.mercToLonLat(v.cx, v.cy);
+            const [, n, unit] = s.text.replace(',', '').match(/^([\\d.]+) (m|km|yd|mi)$/);
+            const per = { m: 1, km: 1000, yd: 0.9144, mi: 1609.344 }[unit];
+            return { unit, said: n * per, drawn: s.px * v.mpp * Math.cos(lat * Math.PI / 180), px: s.px }; }"""
+        metric = page.evaluate(bar)
+        self.assertIn(metric["unit"], ("m", "km"))
+        page.evaluate("document.getElementById('toggleUnitsBtn').click()")
+        imperial = page.evaluate(bar)
+        self.assertIn(imperial["unit"], ("yd", "mi"))
+        for s in (metric, imperial):
+            self.assertAlmostEqual(s["said"], s["drawn"], delta=s["said"] * 1e-9)
+            self.assertLessEqual(s["px"], 130)
+        self.assertIn(f" {imperial['unit']}</text>", page.evaluate("mapMarksSvg(400, 300)"))
+
+    def test_every_save_says_so_naming_its_file(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        toast = "document.getElementById('toastNotification').textContent"
+
+        def saved(click, ending):
+            page.evaluate(f"{toast} = ''")
+            with page.expect_download() as dl:
+                page.click(click)
+            name = dl.value.suggested_filename
+            page.wait_for_function(f"t => {toast}.startsWith(t)", arg=f"Saved {name}{ending}")
+            return page.evaluate(toast)
+
+        page.click("#statsViewToggleBtn")
+        page.wait_for_selector(".stats-card[data-chart='nai'] svg")
+        for kind in ("png", "svg", "csv"):
+            said = saved(f".stats-card[data-chart='nai'] [data-stats-act='{kind}']", ".")
+            self.assertTrue(said.endswith(f"_nai.{kind}."), said)
+        self.assertIn("as PNG and SVG", saved("#statsExportAllBtn", ": "))
+        self.assertIn("1 report.", saved("#statsExcelBtn", ": "))
+        page.click("#summaryViewToggleBtn")
+        self.assertTrue(saved("#summarySaveBtn", ".").endswith(".txt."))
+
+    def test_the_map_table_is_left_alone_when_its_rows_are_the_same(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        self.log(page, "1x BTR", activity="halted", location="38SMB4600082000")
+        self.open_map(page)
+        rows = "document.querySelectorAll('#mapTableBody tr[data-map-row]').length"
+        page.wait_for_function(f"{rows} === 2")
+        # The activity counts take the drawing's tracks, and work out only the
+        # rest: the same reports as working out every report's.
+        same = page.evaluate(
+            """() => { mapState.activity = new Set(['Moving']); cancelAnimationFrame(mapState.frame); drawMap();
+                const got = mapListReports(true).map(r => r.id);
+                const reps = mapWindowReports(), track = new Map(SaltCore.reportTracks(reps).map(t => [t.report.id, t]));
+                const [x0, y0, x1, y1] = mapState.lastDraw.view;
+                const want = reps.filter(r => { const t = track.get(r.id); if (!t) return false;
+                    const [x, y] = latestMerc(t); return x >= x0 && x <= x1 && y >= y0 && y <= y1; })
+                    .sort((a, b) => new Date(b.time) - new Date(a.time)).map(r => r.id);
+                const drawn = mapState.lastDraw.reps.length;
+                mapState.activity.clear(); drawMap();
+                return { got, want, drawn }; }"""
+        )
+        self.assertEqual(same["drawn"], 1, "the drawing left the halted one out")
+        self.assertEqual(len(same["got"]), 2)
+        self.assertEqual(same["got"], same["want"])
+        page.wait_for_function(f"{rows} === 2")
+        first = "document.querySelector('#mapTableBody tr')"
+        settle = "renderMapTable(mapListReports())"
+        page.evaluate(f"{first}.mark = 'same'; {first}.focus()")
+        # The same rows: left as they are, the keyboard on its row.
+        page.evaluate(settle)
+        self.assertEqual(
+            page.evaluate(f"[{first}.mark, document.activeElement.mark]"), ["same"] * 2
+        )
+        # The picked row marked: built again, with its mark.
+        page.evaluate(f"mapState.selected = {first}.dataset.mapRow; {settle}")
+        self.assertIsNone(page.evaluate(f"{first}.mark"))
+        self.assertEqual(page.locator("#mapTableBody tr.selected-row").count(), 1)
+        # The form, cleared, takes the mark off every row: put back, nothing rebuilt.
+        page.evaluate(
+            f"""() => {{ {first}.mark = 'same';
+                document.querySelectorAll('.selected-row').forEach(r => r.classList.remove('selected-row')); {settle}; }}"""
+        )
+        self.assertEqual(page.evaluate(f"{first}.mark"), "same")
+        self.assertEqual(page.locator("#mapTableBody tr.selected-row").count(), 1)
+        # A row that says something new: built again.
+        page.evaluate(f"localReports.find(r => r.size === '2x BMP').activity = 'dug in'; {settle}")
+        self.assertIsNone(page.evaluate(f"{first}.mark"))
+        self.assertIn("dug in", page.inner_text("#mapTableBody"))
+
+    def test_a_burst_of_wheel_turns_ends_where_turning_slowly_does(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        self.log(page, "1x BTR", location="38SMB4700084000")
+        self.open_map(page)
+        page.click("[data-map-zoom='in']")
+        self.next_frames(page)
+        # Out past the whole area (held there), then back in, off the middle.
+        turns = [100, 100, 100, 100, -100, -100, -100]
+        wheel = """dys => { const b = document.getElementById('mapBox'), r = b.getBoundingClientRect();
+            dys.forEach(dy => b.dispatchEvent(new WheelEvent('wheel', { deltaY: dy, ctrlKey: true, bubbles: true,
+                cancelable: true, clientX: r.left + r.width * 0.3, clientY: r.top + r.height * 0.7 }))); }"""
+        view = "({ ...mapState.view })"
+        start = page.evaluate(view)
+        # Slowly: each turn drawn before the next, as every turn always was.
+        for dy in turns:
+            page.evaluate(wheel, [dy])
+            page.wait_for_function("!mapState.wheeling")
+        slowly = page.evaluate(view)
+        self.assertNotEqual(slowly, start)
+        # From the same view, the same turns at once: the picture is scaled,
+        # not drawn, until a moment after the last.
+        page.evaluate(
+            "v => { Object.assign(mapState.view, v); cancelAnimationFrame(mapState.frame); drawMap(); }",
+            start,
+        )
+        during = page.evaluate(
+            f"""turns => {{ const svg = document.getElementById('mapSvg'), drawn = svg.innerHTML;
+                ({wheel})(turns);
+                return {{ wheeling: mapState.wheeling, transform: svg.style.transform, same: svg.innerHTML === drawn }}; }}""",
+            turns,
+        )
+        self.assertTrue(during["wheeling"] and during["same"], during)
+        self.assertIn("scale(", during["transform"])
+        page.wait_for_function("!mapState.wheeling")
+        self.assertEqual(page.evaluate(view), slowly)
+        self.assertEqual(page.evaluate("document.getElementById('mapSvg').style.transform"), "")
+        self.assertEqual(page.evaluate("mapState.drawnView.mpp"), slowly["mpp"])
+
+
+for _name in [n for n in vars(BrowserTests) if n.startswith("test_")]:
+    setattr(KeyboardSavesAndZoomTests, _name, None)
+
+
 if __name__ == "__main__":
     unittest.main()

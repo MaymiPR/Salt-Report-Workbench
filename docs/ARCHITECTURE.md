@@ -480,8 +480,10 @@ The server is the meeting point, not the authority over content.
   change number and the server's release) is appended each time. Any mutation
   clears the cache. A client that accepts gzip (every browser) gets
   the body compressed, five to eight times smaller; since every client pulls
-  the same state after a change, the compressed form is cached too and one
-  compression serves them all.
+  the same state after a change, the compressed form is cached too, one for
+  editors and one for viewers (their bodies differ in the read-only flag),
+  and one compression of each serves them all; clients that ask at once wait
+  for that one rather than each compressing it.
 
 ## Persistence
 
@@ -505,15 +507,28 @@ the first save afterwards gives each workspace its own file.
 
 Concurrency is handled in two steps:
 
-1. `render_workspace_backups`, a pure function, builds the file texts while
-   `data_lock` is held, giving a consistent snapshot without any I/O.
+1. While `data_lock` is held, `workspace_backup_parts`, a pure function,
+   makes each workspace's part of its file (the summary and its reports'
+   JSON: reports are changed in place), and the shared settings are taken as
+   they are (each is replaced whole when it changes; the profiles are
+   copied), giving a consistent snapshot without any I/O. After the lock is
+   released, `shared_backup_json` serializes the shared settings once, the
+   overlays being megabytes, and `join_workspace_backups` puts each file
+   together (`render_workspace_backups` is the two in one). The files are
+   byte for byte what serializing each one whole would give.
 2. Each text is written to a temporary file, flushed to disk (`fsync`), and
-   moved into place with `os.replace` after the lock is released, so request
+   moved into place with `os.replace`, still without the lock, so request
    handlers are never blocked on the disk and readers never see a partial
    file. A separate `_disk_lock` keeps writes in order. If preparing or writing
    fails (a file held open by antivirus or a sync tool, say), the changes stay
    marked unsaved and the save is retried after 1, 2 and 5 seconds, then every
    30 seconds, with one console line per run of failures.
+
+Stopping (`graceful_drain`, run once whether Ctrl+C or closing the console
+window asks; on Windows a console control handler catches the close) first
+refuses every write with 503, which the page sends again later, and waits up
+to a second for the writes being handled. Then it saves what is pending and
+tells the pages, so nothing is answered as saved that never was.
 
 The shared settings (overlays, basemaps, drones, the narrative's settings,
 the tags, profiles, the report format, the config) are also written to their own
@@ -651,7 +666,7 @@ against.
 | Lock | Guards |
 | --- | --- |
 | `data_lock` | `DATA_STORE`, `workspace_sources`, `unloaded_workspaces`, the sync cache |
-| `_sync_gz_lock` | the last `/api/sync` body and its gzip form |
+| `_sync_gz_locks` | one per view (editor, viewer): its last `/api/sync` body and gzip form |
 | `sse_lock` | `sse_clients`, `client_initials`, `client_workspace` |
 | `SSEClient._lock` | one per SSE connection: whole writes to that client's stream |
 | `_disk_lock` | ordering of backup writes |
@@ -665,7 +680,9 @@ Each SSE connection holds a thread that waits in `select()` with a timeout of
 `SSE_HEARTBEAT_SECONDS` (15): the socket becoming readable means the client
 left, and a timeout means it's time to send a heartbeat. Broadcasts copy the
 client list under `sse_lock` and write outside it, so one stalled client can't
-block the others.
+block the others. A write to a stream may wait `SSE_WRITE_TIMEOUT_SECONDS`
+(10); a client that holds its connection but stops reading is then dropped,
+so the clients after it are told at most that much later, once.
 
 ## Build
 
