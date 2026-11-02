@@ -47,6 +47,9 @@ All notable changes to this project are documented here. The format follows
   busy day. Red now needs at least 4 reports in one place: a lone report is
   blue going green, two or three stay short of red, and a map with 4 or more
   in one place looks as it did.
+- **Red buttons are easier to read.** White on the red of Confirm, Delete
+  and Clear Workspace (pointed at) was 3.4:1; they now use the darker red
+  of the error bars, 5.9:1 (5.3:1 pointed at).
 
 ### Fixed
 

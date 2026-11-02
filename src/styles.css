@@ -57,7 +57,8 @@
     --shadow-strong: rgba(0, 0, 0, 0.55);
     --backdrop: rgba(0, 0, 0, 0.55);
     /* Colors with one job each. on-color is text on a color or a dark glass;
-       error-bg a red dark enough for it (5.9:1). */
+       error-bg a red dark enough for it (5.9:1), behind an error and on a
+       red button (Confirm, Delete, Clear Workspace); --system-red gave 3.4:1. */
     --on-color: #fff;
     --error-bg: #c0261c;
     --switch-off: #76767a;
@@ -184,7 +185,7 @@ button:hover { opacity: 0.85; }
 .search-bar-wrapper .icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); pointer-events: none; z-index: 2;}
 #searchBar { width: 100%; padding: 12px 16px 12px 36px; border-radius: 12px; background-color: var(--input-bg); border: 1.5px solid transparent; color: var(--text-primary); font-size: 1em; font-family: inherit; transition: all 0.2s ease; margin: 0; box-sizing: border-box; }
 #searchBar:focus { background-color: var(--panel-bg); border-color: var(--system-blue); outline: none; }
-#deleteSelectedBtn { font-size: 0.85em; padding: 8px 14px; background-color: var(--system-red); display: none; margin: 0; }
+#deleteSelectedBtn { font-size: 0.85em; padding: 8px 14px; background-color: var(--error-bg); display: none; margin: 0; }
 #sendToAtoSelect { font-size: 0.85em; padding: 6px 24px 6px 10px; border-radius: 8px; margin: 0; width: 90px; }
 #sendToAtoBtn { font-size: 0.85em; padding: 8px 14px; background-color: var(--system-green); margin: 0; }
 
@@ -507,7 +508,7 @@ body.local-mode .startup-access-divider { display: none; }
 #dataMgmtMenu hr { border: none; border-top: 1px solid var(--divider); margin: 5px 0; }
 #dataMgmtMenu button:hover { background: var(--blue-fill); }
 #clearAllBtn { color: var(--red-text) !important; }
-#clearAllBtn:hover { background: var(--system-red) !important; color: var(--on-color) !important; }
+#clearAllBtn:hover { background: var(--error-bg) !important; color: var(--on-color) !important; }
 .file-input-wrapper { display: none; }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -718,7 +719,7 @@ body.local-mode .startup-access-divider { display: none; }
 .toast.confirm.show { transform: translate(-50%, 50%) scale(1); }
 .toast.confirm #confirmButtons { display: flex; gap: 10px; margin-top: 16px; justify-content: center; }
 #confirmButtons button { flex: 1; padding: 10px; border-radius: 10px; }
-.confirm-btn { background-color: var(--system-red); }
+.confirm-btn { background-color: var(--error-bg); }
 .cancel-btn { background-color: var(--input-bg); color: var(--text-primary); }
 
 /* Bars for what needs attention (not saving, another release): fixed at the
@@ -985,8 +986,6 @@ body.read-only #sendToAtoBtn,
 body.read-only .restore-btn,
 body.read-only .discard-btn,
 body.read-only .workspace-row-unload,
-body.read-only #importBackupBtnTrigger,
-body.read-only #importCsvBtnTrigger,
 body.read-only .ws-tab[data-tab="identity"],
 body.read-only #setProfileBtn,
 /* Settings-menu items that have no purpose in a read-only session. */
@@ -1558,10 +1557,6 @@ body.local-mode #refreshBackupsBtn { display: none; }
 .map-pane:fullscreen .map-side-btn { display: none; }
 .map-pane:fullscreen .map-bottom .map-legend { max-width: calc(100cqw - 20px); }
 .map-box .map-zoom svg { position: static; display: block; width: 14px; height: 14px; margin: auto; }
-/* Viewers see the Overlays tab as the map. */
-.for-viewers { display: none; }
-body.read-only .for-viewers { display: inline; }
-body.read-only .for-editors { display: none; }
 .map-box svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .map-label { font: 600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; fill: var(--text-primary); stroke: var(--map-halo); stroke-width: 3px; paint-order: stroke; pointer-events: none; }
 .map-label-track { font-weight: 500; font-size: 10px; text-anchor: start; }
