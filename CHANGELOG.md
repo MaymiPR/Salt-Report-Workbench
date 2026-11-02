@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The manual and the README say what this version does.** The manual's
+  server section now covers `Server Logs/server.log`, putting a snapshot back
+  with `--restore`, saves that say `Error saving` and are kept until they
+  work, `Changes NOT saved` on stopping, and closing the window saving first;
+  waiting changes are tried again every few seconds. The README covers the map's
+  tools, the Narrative's equipment, movement and ground, missions, what keeps an
+  operation's reports safe, and the folders to copy, and links to the
+  repository's new name.
+
 ## [2.44.0] - 2026-11-01
 
 ### Changed
