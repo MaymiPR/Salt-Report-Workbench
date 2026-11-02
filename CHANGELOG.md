@@ -36,6 +36,10 @@ All notable changes to this project are documented here. The format follows
   2,000 overlays, a save holds them up for 0.015 s instead of 0.14 s, and
   the hourly snapshots for 0.11 s instead of 1.5 s. The files are the same,
   to the byte.
+- **CI runs the pre-commit hooks.** The checks in `.pre-commit-config.yaml`
+  (trailing whitespace, end of files, YAML and TOML, merge markers, large
+  files, private keys, ruff) ran only for contributors who had installed
+  pre-commit. The Lint job now runs them on every file of every change.
 
 ### Fixed
 

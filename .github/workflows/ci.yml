@@ -34,6 +34,11 @@ jobs:
         run: ruff check --output-format=github .
       - name: Ruff format
         run: ruff format --check .
+      # The hooks in .pre-commit-config.yaml (whitespace, end of files, YAML
+      # and TOML, keys), for every change, not only a contributor's who
+      # installed them. pre-commit itself comes from requirements-dev.txt above.
+      - name: pre-commit hooks
+        run: pre-commit run --all-files --show-diff-on-failure
       # The core's parts in src/core/ are one function in pieces, so they are
       # checked joined (as the build joins them), not one by one.
       - name: JavaScript syntax
