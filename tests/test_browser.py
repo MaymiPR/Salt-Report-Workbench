@@ -6315,5 +6315,237 @@ for _name in [n for n in vars(BrowserTests) if n.startswith("test_")]:
     setattr(LineOfSightAndSummaryTests, _name, None)
 
 
+class MissionsAndSyncedPageTests(BrowserTests):
+    """Done with Mission and Previous Missions end to end, a mission reset
+    when browser storage is full, the buttons that wait on the server, the
+    unsent count after a reload, and a sync that changes nothing on the page.
+    A server of its own, since these finish missions; BrowserTests' tests are
+    run once, there (they are taken off this class below)."""
+
+    # Browser storage that refuses `key` (while `unless` is in it, when given).
+    FULL_FOR = """([key, unless]) => {
+        const set = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (k, v) {
+            if (k === key && (!unless || localStorage.getItem(unless) !== null)) throw new DOMException('full', 'QuotaExceededError');
+            return set.call(this, k, v);
+        };
+    }"""
+
+    def type_done(self, page):
+        """Done with Mission pressed and DONE typed: its Go button, not yet pressed."""
+        self.open_workspaces(page)
+        page.click("#finishMissionBtn")
+        page.wait_for_selector("#choiceToast.show")
+        page.fill("#choiceBody input", "done")
+        return page.locator("#choiceButtons .choice-primary")
+
+    def mission_in_storage(self, page):
+        """The mission the page has stored, or None while it is loading again."""
+        try:
+            return page.evaluate("readRaw('salt_mission', '')")
+        except PlaywrightError:
+            return None
+
+    def test_done_with_mission_then_load_brings_the_reports_back(self):
+        page = self.open_editor("AB")
+        self.log(page, "2x BTR")
+        self.log(page, "3x BMP")
+        self.synced(page)
+        before = page.evaluate("missionId")
+        self.finish_mission(page)
+        # The new mission: from nothing, the startup window asking again.
+        self.assertNotEqual(page.evaluate("missionId"), before)
+        self.assertEqual(page.evaluate("Object.keys(reportsByAto)"), [])
+        page.fill("#startupInitials", "AB")
+        page.fill("#startupAto", self.ato)
+        page.fill("#startupTitle", "Patrol")
+        page.click("#startupContinueBtn")
+        page.wait_for_selector("#startupModal.show", state="hidden")
+        self.assert_in_workspace(page, self.ato)
+        self.assertEqual(self.sizes(page), [])
+        # Previous Missions lists the finished one, newest first, with this workspace.
+        self.open_workspaces(page)
+        row = page.locator("#missionsBlock:not([hidden]) .mission-row").first
+        row.wait_for()
+        self.assertIn(self.ato, row.locator(".mission-row-sub").text_content())
+        row.locator("[data-mission-load]").click()
+        page.wait_for_selector("#choiceToast.show")
+        page.evaluate(
+            "ato => document.querySelectorAll('#choiceBody input[data-ato]')"
+            ".forEach(i => { i.checked = i.dataset.ato === ato; })",
+            self.ato,
+        )
+        page.click("#choiceButtons .choice-primary")
+        page.wait_for_selector(f"#toastNotification:has-text('Loaded {self.ato} from')")
+        # Its reports are back, for everyone, and in the log of the workspace it was.
+        self.wait_for_server(page, f"s => (s.workspaces['{self.ato}'] || []).length === 2")
+        page.wait_for_function(
+            "document.querySelectorAll('#reportLogBody tr[data-id]').length === 2"
+        )
+        self.assertEqual(sorted(self.sizes(page)), ["2x BTR", "3x BMP"])
+        self.assertEqual(row.locator("[data-mission-load]").text_content(), "Load")
+        self.assertTrue(row.locator("[data-mission-load]").is_enabled())
+
+    def test_a_full_storage_says_so_instead_of_loading_again_for_ever(self):
+        page = self.open_editor("AB")
+        self.log(page, "2x BTR")
+        self.synced(page)
+        before = page.evaluate("missionId")
+        page.evaluate(self.FULL_FOR, ["salt_mission_next", None])
+        page.evaluate("window.stillHere = true")
+        held = []
+        page.route("**/api/finish_mission", lambda route: held.append(route))
+        self.type_done(page).click()
+        self.wait_until(lambda: held, "Done with Mission never asked the server", page=page)
+        # Working: the button says so until the answer comes.
+        btn = page.locator("#finishMissionBtn")
+        self.assertEqual(btn.text_content(), "Finishing...")
+        self.assertTrue(btn.is_disabled())
+        held[0].continue_()
+        page.unroute("**/api/finish_mission")
+        page.wait_for_selector(
+            "#toastNotification:has-text(\"can't start the new mission\")", timeout=15000
+        )
+        # Not loaded again on the finished mission: it stays, says why, and
+        # has let the reports' copy go (the server has them).
+        self.assertTrue(page.evaluate("window.stillHere === true"))
+        self.assertEqual(page.evaluate("missionId"), before)
+        self.assertIsNone(page.evaluate("localStorage.getItem('salt_reports_by_ato')"))
+        self.assertEqual(btn.text_content(), "Done with Mission")
+        self.assertTrue(btn.is_enabled())
+        # With room again, loaded by hand, it finds the mission finished and
+        # starts the new one, once.
+        self.reload(page)
+        self.wait_until(
+            lambda: self.mission_in_storage(page) not in (None, before),
+            "the page never started the new mission",
+            page=page,
+            timeout=20,
+        )
+        page.wait_for_selector("#toastNotification:has-text('started the new one')", timeout=15000)
+        self.assertEqual(page.evaluate("missionId"), self.mission_in_storage(page))
+
+    def test_a_full_storage_lets_the_reports_copy_go_and_starts_the_new_mission(self):
+        page = self.open_editor("AB")
+        self.log(page, "2x BTR")
+        self.synced(page)
+        before = page.evaluate("missionId")
+        self.assertIsNotNone(page.evaluate("localStorage.getItem('salt_reports_by_ato')"))
+        # Full until the reports' copy goes.
+        page.evaluate(self.FULL_FOR, ["salt_mission_next", "salt_reports_by_ato"])
+        self.finish_mission(page)
+        self.assertNotEqual(page.evaluate("missionId"), before)
+        self.assertTrue(page.locator("#startupModal.show").is_visible())
+
+    def test_refresh_says_it_is_working_and_comes_back_when_it_fails(self):
+        page = self.open_editor()
+        self.open_workspaces(page)
+        held = []
+        page.route("**/api/refresh", lambda route: held.append(route))
+        page.click("#refreshBackupsBtn")
+        self.wait_until(lambda: held, "Refresh never asked the server", page=page)
+        btn = page.locator("#refreshBackupsBtn")
+        self.assertEqual(btn.text_content(), "Refreshing...")
+        self.assertTrue(btn.is_disabled())
+        held[0].abort()
+        page.wait_for_selector(
+            "#toastNotification:has-text(\"Not refreshed: The server can't be reached.\")"
+        )
+        self.assertEqual(btn.text_content(), "Refresh")
+        self.assertTrue(btn.is_enabled())
+
+    def test_the_unsent_count_is_only_what_the_server_lacks(self):
+        page = self.open_editor("AB")
+        for size in ("1x UAZ", "2x UAZ", "3x UAZ"):
+            self.log(page, size)
+        self.synced(page)
+        page.route("**/api/save_reports", lambda route: route.abort())
+        self.log(page, "4x UAZ")
+        page.wait_for_function("changesWaiting()")
+        self.assertEqual(page.evaluate("unsentCount()"), 1)
+        # As right after a reload, before the first pull: no record of the
+        # server's copy, so not "4 reports", but not known.
+        page.evaluate("serverVersions = {}; serverVersionsPulled = false")
+        self.assertIsNone(page.evaluate("unsentCount()"))
+        # After a pull, a workspace the server doesn't have is all unsent.
+        page.evaluate("serverVersionsPulled = true")
+        self.assertEqual(page.evaluate("unsentCount()"), 4)
+        page.evaluate("serverVersionsPulled = false")
+        page.evaluate("() => { leaveFinishedMission('not-a-mission'); }")
+        page.wait_for_selector("#choiceToast.show:has-text('The team has finished the mission.')")
+        self.assertIn("reports the server may never have got", page.text_content("#choiceDetail"))
+        with page.expect_navigation():
+            page.click("#choiceButtons button:text-is(\"Don't save them\")")
+
+    def test_a_sync_that_changes_nothing_leaves_the_log_and_the_dropdowns(self):
+        page = self.open_editor("AB")
+        self.log(page, "2x BTR")
+        self.log(page, "3x BMP")
+        self.synced(page)
+        # Another workspace, logged straight to the server.
+        other = {
+            "id": "other-ws-1",
+            "displayId": "OTHERWS001",
+            "ato": "OTHERWS",
+            "title": "Patrol",
+            "fullId": "PatrolOTHERWS001",
+            "size": "1x truck",
+            "activity": "parked",
+            "location": "18SUJ1234",
+            "time": "2026-11-01T10:00:00Z",
+            "yourAnalysis": "",
+            "history": [],
+            "updated": False,
+            "lastModified": 1790000000000,
+        }
+        self.post_to_server("/api/save_reports", {"ato": "OTHERWS", "reports": [other]})
+        page.wait_for_function("(reportsByAto.OTHERWS || []).length === 1")
+        self.synced(page)
+        # This browser's copy holds only its own workspace: the server has the other.
+        cached = "Object.keys(JSON.parse(localStorage.getItem('salt_reports_by_ato')))"
+        self.assertEqual(page.evaluate(cached), [self.ato])
+        # A sync that changes nothing here: the rows are the same nodes.
+        page.evaluate("el.log.body.firstElementChild.mark = 'same'")
+        page.evaluate("() => syncWithServer()")
+        self.assertEqual(page.evaluate("el.log.body.firstElementChild.mark"), "same")
+        # One that does (a report logged elsewhere in this workspace): drawn again.
+        mine = {
+            **other,
+            "id": "other-ws-2",
+            "displayId": "ZZ999",
+            "ato": self.ato,
+            "size": "7x T-80",
+        }
+        self.post_to_server("/api/save_reports", {"ato": self.ato, "reports": [mine]})
+        page.wait_for_selector("#reportLogBody .col-size:has-text('7x T-80')")
+        self.assertIsNone(page.evaluate("el.log.body.firstElementChild.mark"))
+        self.synced(page)
+        # Change: the other workspaces' dropdown, unlocked. A sync that
+        # changes none of its options leaves it alone, unlocked.
+        page.click("#setAtoBtn")
+        page.wait_for_function("!el.config.history.disabled")
+        # The first sync lists the workspace just left as well.
+        page.evaluate("() => syncWithServer()")
+        page.wait_for_function(
+            "ato => [...el.config.history.options].some(o => o.value === ato) && !el.config.history.disabled",
+            arg=self.ato,
+        )
+        page.evaluate(
+            """() => { window.historyChanges = [];
+                new MutationObserver(m => window.historyChanges.push(...m.map(r => r.type)))
+                    .observe(el.config.history, { attributes: true, childList: true, subtree: true, characterData: true });
+                el.config.history.options[1].mark = 'same'; }"""
+        )
+        page.evaluate("() => syncWithServer()")
+        self.next_frames(page)
+        self.assertEqual(page.evaluate("window.historyChanges"), [])
+        self.assertEqual(page.evaluate("el.config.history.options[1].mark"), "same")
+        self.assertFalse(page.evaluate("el.config.history.disabled"))
+
+
+for _name in [n for n in vars(BrowserTests) if n.startswith("test_")]:
+    setattr(MissionsAndSyncedPageTests, _name, None)
+
+
 if __name__ == "__main__":
     unittest.main()
