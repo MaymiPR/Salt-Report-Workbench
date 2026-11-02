@@ -30,8 +30,8 @@ you agree that it is licensed under the same terms.
 ## Setup
 
 ```bash
-git clone https://github.com/MaymiPR/SaltReportWorkbench.git
-cd SaltReportWorkbench
+git clone https://github.com/MaymiPR/Salt-Report-Workbench.git
+cd Salt-Report-Workbench
 pip install --require-hashes -r requirements-dev.txt       # optional: ruff, pre-commit
 pre-commit install
 pip install --require-hashes -r requirements-browser.txt   # optional: the browser tests

@@ -115,7 +115,7 @@ OPTIONS
 
 The full user manual is inside the app: the gear (Settings) menu, then
 User Manual.
-Source: https://github.com/MaymiPR/SaltReportWorkbench
+Source: https://github.com/MaymiPR/Salt-Report-Workbench
 License: GNU AGPL v3 (see LICENSE). If you modify it and run it
 for others over a network, you must offer them your modified source.
 """

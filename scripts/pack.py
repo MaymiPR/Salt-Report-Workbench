@@ -60,7 +60,7 @@ UNPACKER = '''\
 #     --keep       keep this packed file after unpacking
 #
 # @STORAGE@
-# Source: https://github.com/MaymiPR/SaltReportWorkbench
+# Source: https://github.com/MaymiPR/Salt-Report-Workbench
 
 import hashlib
 import os

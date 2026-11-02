@@ -7,7 +7,7 @@ for running the server day to day.
 
 ## The two downloads
 
-Each [release](https://github.com/MaymiPR/SaltReportWorkbench/releases/latest)
+Each [release](https://github.com/MaymiPR/Salt-Report-Workbench/releases/latest)
 offers two downloads holding the same five files: the page, the server, the
 Windows launcher, the license, and a short `README.txt`.
 
