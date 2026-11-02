@@ -106,6 +106,8 @@ const HEADINGS_8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 // { numeric: true } gives, from one collator made once.
 const byNumber = new Intl.Collator(undefined, { numeric: true }).compare;
 
+// The most days the per-day list fills in between the first report and the last.
+const DAYS_FILLED_MAX = 400;
 // Everything the Statistics panel draws, for the live reports given (already
 // cut to the time window). Each report counts once per place, square, tag, or
 // type it names; history is not counted. Lists are sorted largest first.
@@ -145,13 +147,20 @@ const statsData = (reps, overlays, { local, squareDigits = 1, team = null } = {}
     }
     const sorted = map => [...map].map(([label, value]) => ({ label, value }))
         .sort((x, y) => y.value - x.value || byNumber(x.label, y.label));
-    // Every day from the first to the last, so a quiet day shows as zero.
+    // Every day from the first to the last, so a quiet day shows as zero;
+    // over more than DAYS_FILLED_MAX days (a year typed wrong: 2062), only
+    // the days with reports, so the chart stays readable and the odd one out
+    // shows as its own bar.
     const dayList = [];
     const keys = [...days.keys()].sort();
     if (keys.length) {
-        for (let t = Date.parse(`${keys[0]}T00:00:00Z`), end = Date.parse(`${keys[keys.length - 1]}T00:00:00Z`); t <= end; t += 86400000) {
-            const k = new Date(t).toISOString().slice(0, 10);
-            dayList.push({ label: k, value: days.get(k) || 0 });
+        const start = Date.parse(`${keys[0]}T00:00:00Z`), end = Date.parse(`${keys[keys.length - 1]}T00:00:00Z`);
+        if (!((end - start) / 86400000 <= DAYS_FILLED_MAX)) keys.forEach(k => dayList.push({ label: k, value: days.get(k) }));
+        else {
+            for (let t = start; t <= end; t += 86400000) {
+                const k = new Date(t).toISOString().slice(0, 10);
+                dayList.push({ label: k, value: days.get(k) || 0 });
+            }
         }
     }
     const order = ACTIVITY_TAGS.map(([t]) => t).concat('Untagged');
@@ -461,6 +470,13 @@ const reportFacts = (r, overlays, team = null) => {
         pls: a.pls,
     };
 };
+// The order the summaries list reports in: by time, then (two at the same
+// minute) by report number, then by id, compared character by character, so
+// the same reports print the same text in any order and on any machine.
+const factOrder = (x, y) => {
+    const a = reportKey(x.r), b = reportKey(y.r);
+    return x.ms - y.ms || reportNum(x.r) - reportNum(y.r) || (a < b ? -1 : a > b ? 1 : 0);
+};
 const oneLine = (f) => `${f.shown || '-'}; ${f.r.activity || '-'}; ${f.r.location || '-'}`;
 const reportLine = (f, local) => `${dayTime(f.ms, local)}  ${pad(f.r.displayId || f.r.id || '', 9)} ${oneLine(f)}`;
 const pad = (s, n) => String(s).padEnd(n);
@@ -527,7 +543,7 @@ const summaryDetail = (kind, reps, overlays, opts) => {
     if (!Object.prototype.hasOwnProperty.call(SUMMARY_KINDS, kind)) kind = 'rollup';
     const team = opts.team !== undefined ? opts.team : narrative ? narrativeSettings(narrative).team : null;
     const facts = (reps || []).filter(r => !r.deleted).map(r => reportFacts(r, overlays, team))
-        .filter(f => !isNaN(f.ms)).sort((x, y) => x.ms - y.ms);
+        .filter(f => !isNaN(f.ms)).sort(factOrder);
     const within = (lo, hi) => facts.filter(f => (lo === null || f.ms >= lo) && (hi === null || f.ms <= hi));
     const cur = within(from, to);
     const span = from !== null && to !== null ? to - from : null;

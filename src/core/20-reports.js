@@ -154,6 +154,7 @@ const lockSquareWhy = (zone, band, col, row, digits = '') => {
     band = band.toUpperCase(); col = col.toUpperCase(); row = row.toUpperCase();
     if (zone < 1 || zone > 60) return `has no zone ${zone} (zones are 1 to 60)`;
     if (!MGRS_BANDS.includes(band)) return `has no latitude band ${band}`;
+    if (MGRS_NO_ZONE.has(`${zone}${band}`)) return `has no zone ${zone}${band} (near Svalbard only 31X, 33X, 35X and 37X are used)`;
     const set = zone % 6 || 6;
     if (!MGRS_COLS[(set - 1) % 3].includes(col) || !MGRS_ROWS.includes(row)) return `has no square ${col}${row} in zone ${zone}`;
     if (digits && !gridToLatLon(zone, band, col, row, digits)) return `has square ${col}${row} outside band ${zone}${band}`;

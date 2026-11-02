@@ -124,6 +124,22 @@ All notable changes to this project are documented here. The format follows
   identity, which aren't sent again later, now say "Saved here only; the
   server can't be reached." rather than suggesting they will be. The × beside
   an overlay is titled Remove (it said Unload), as its question and toast say.
+- **A report id such as `constructor` or `__proto__`** (which the server
+  takes) no longer breaks the page's record of what the server holds.
+- **Summaries read the same whatever order the reports came in.** Two
+  reports at the same minute were listed in the order the browser held them,
+  so two machines could print a different LAST REPORT, or the same reports in
+  a different order, for the same reports. Same-minute reports now go by
+  report number, then by id.
+- **Grid zones that don't exist are refused.** 32X, 34X and 36X were read as
+  grids (around Svalbard only 31X, 33X, 35X and 37X are used), and
+  "32X NG 12345 12345" was put on the map at a point really in 33X. They are
+  now refused like any other grid that can't be one, and MGRS Lock says why.
+- **One year typed wrong no longer stretches Reports by day.** A single
+  report dated 2062 filled the chart with 13,150 days, nearly all empty. When
+  the first and last reports are more than 400 days apart, only the days with
+  reports are shown, so the odd one out is a bar of its own; over 400 days or
+  less, every day shows as before, a quiet one as zero.
 
 ## [2.42.0] - 2026-11-01
 

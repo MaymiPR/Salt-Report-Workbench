@@ -77,16 +77,21 @@ const latLonToUtm = (lat, lon, zone) => {
 const MGRS_BANDS = 'CDEFGHJKLMNPQRSTUVWX';
 const MGRS_COLS  = ['ABCDEFGH', 'JKLMNPQR', 'STUVWXYZ'];
 const MGRS_ROWS  = 'ABCDEFGHJKLMNPQRSTUV';
+// Grid zones that don't exist: around Svalbard (band X) only 31X, 33X, 35X
+// and 37X are used, each wider, so 32X, 34X and 36X name nothing.
+const MGRS_NO_ZONE = new Set(['32X', '34X', '36X']);
 
 // One MGRS grid (zone, band, 100 km square, digits) as the center of the
 // square it names: "38SMB4488" is a 1 km square, and the point is its middle.
 // The 100 km row letters repeat every 2,000 km, so of the northings they
 // allow, the one that lands inside the latitude band is the grid's. Null when
-// the letters can't belong together (a typo).
+// the letters can't belong together (a typo), or name a zone that doesn't
+// exist (MGRS_NO_ZONE).
 const gridToLatLon = (zone, band, col, row, digits) => {
     band = band.toUpperCase(); col = col.toUpperCase(); row = row.toUpperCase();
     const bandIdx = MGRS_BANDS.indexOf(band);
     if (zone < 1 || zone > 60 || bandIdx < 0 || digits.length % 2 || digits.length < 2 || digits.length > 10) return null;
+    if (MGRS_NO_ZONE.has(`${zone}${band}`)) return null;
     const set    = zone % 6 || 6;
     const colIdx = MGRS_COLS[(set - 1) % 3].indexOf(col);
     const rowIdx = MGRS_ROWS.indexOf(row);
