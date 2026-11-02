@@ -706,12 +706,9 @@ const saveShared = async (path, body, { said = '', undo = null, putBack = () => 
     putBack();
     if (res.status === 401) return false;   // apiPost asked for the code again
     if (res.status === 404 && older) showToast(older, true, { ms: 10000 });
-    else showToast(res.status === 0 ? "Not saved: the server can't be reached. Try again once it's back." : `Not saved: ${res.message}`, true, { ms: 8000 });
+    else showToast(res.status === 0 ? NOT_SAVED_UNREACHABLE : `Not saved: ${res.message}`, true, { ms: 8000 });
     return false;
 };
-// The toast for a save: `okText` when the server took it (or there is no
-// server, opened from a file), else why not. Unreachable is not an error: the
-// change is kept here.
 // A control's "on" state, set in one place: what a screen reader is told
 // (`attr`: aria-pressed for a toggle, aria-selected for a tab, aria-expanded
 // for what opens something) and the class it is drawn with (`cls`, or none
@@ -721,11 +718,20 @@ const setOn = (node, on, attr = 'aria-pressed', cls = 'active') => {
     node.setAttribute(attr, String(!!on));
     if (cls) node.classList.toggle(cls, !!on);
 };
-// Said when reports are kept here to send later: the same words everywhere.
+// What is said when the server can't be reached, the same words everywhere,
+// each true of what happens to the change: reports are kept here and sent
+// again (SENT_LATER); the workspace chosen and the identity are kept here
+// and not sent again (SAVED_HERE_ONLY); a shared list is put back as it was
+// (NOT_SAVED_UNREACHABLE).
 const SENT_LATER = "Saved here; it's sent once the server can be reached.";
+const SAVED_HERE_ONLY = "Saved here only; the server can't be reached.";
+const NOT_SAVED_UNREACHABLE = "Not saved: the server can't be reached. Try again once it's back.";
+// The toast for a save that isn't sent again (the workspace, the identity):
+// `okText` when the server took it (or there is no server, opened from a
+// file), else why not. Unreachable is not an error: the change is kept here.
 const saveToast = (r, okText) => {
     if (r.ok || isLocalFile) showToast(okText);
-    else if (r.status === 0) showToast('Saved here; the server can\'t be reached.');
+    else if (r.status === 0) showToast(SAVED_HERE_ONLY);
     else showToast(`Not saved: ${r.message}`, true);
 };
 // A dropdown never runs past the bottom of the window or of the panel that

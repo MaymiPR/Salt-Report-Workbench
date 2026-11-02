@@ -2359,7 +2359,7 @@ class BrowserTests(unittest.TestCase):
         page.click("#exportViewToggleBtn")
         page.click(".ws-tab[data-tab='overlays']")
         page.click("[data-overlay-fold='open']")
-        nai1 = ".overlay-group[data-overlay-group='NAI'] tr:has([aria-label='Unload NAI 1'])"
+        nai1 = ".overlay-group[data-overlay-group='NAI'] tr:has([aria-label='Remove NAI 1'])"
         box = page.locator(nai1).bounding_box()
         page.click(f"{nai1} .overlay-remove")
         # Its name asks, in red, and nothing on the row moves.
