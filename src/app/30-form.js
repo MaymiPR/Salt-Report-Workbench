@@ -384,7 +384,7 @@ async function undoDeletion(ato, undone) {
         if (touched) { r.lastModified = nextStamp(r); restored++; }
     });
     if (!restored) { showToast('Nothing left to put back.', true); return; }
-    undoneToast(`${restored} item(s) put back.`, await pushUndone(ato, list));
+    undoneToast(`${plural(restored, 'item')} put back.`, await pushUndone(ato, list));
 }
 
 // `before` is the report as it was before a Restore.

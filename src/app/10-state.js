@@ -627,8 +627,6 @@ const copyToClipboard = async (text) => {
     if (back && back !== document.body && back.isConnected && typeof back.focus === 'function') back.focus();
     return ok;
 };
-// POST a JSON body to the sync server. Resolves to the Response whatever its
-// status; rejects only when the server can't be reached.
 // This release. The server says its own in every sync; when they differ,
 // a bar asks for a reload (the server's tests/test_docs.py checks they agree).
 const APP_VERSION = '2.42.0';
@@ -658,8 +656,10 @@ const serverFetch = (path, opts) => {
     const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(ms) : undefined;
     return fetch(path, { ...opts, signal });
 };
-// Each write says which mission it is from: the server refuses one from a
-// mission the team has finished (409, with the mission it is on now).
+// POST a JSON body to the sync server. Resolves to the Response whatever its
+// status; rejects only when the server can't be reached. Each write says
+// which mission it is from: the server refuses one from a mission the team
+// has finished (409, with the mission it is on now).
 const postJson = (path, body) => serverFetch(path, {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...(missionId ? { 'X-Salt-Mission': missionId } : {}) },
     body: JSON.stringify(body),

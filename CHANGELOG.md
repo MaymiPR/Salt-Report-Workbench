@@ -36,6 +36,13 @@ All notable changes to this project are documented here. The format follows
   2,000 overlays, a save holds them up for 0.015 s instead of 0.14 s, and
   the hourly snapshots for 0.11 s instead of 1.5 s. The files are the same,
   to the byte.
+- **Buttons and counts read the same everywhere.** The map's measure tools
+  and their buttons (Range Ring, Keep Ring on the Map, Clear All, Save Axis),
+  Zoom to It, the basemap and print buttons, and the Narrative settings'
+  Add a Unit, Add a Type and Add a Rule are in Title Case like the rest,
+  and the manual quotes them as they are. Counts say "1 report" and
+  "2 reports" instead of "report(s)", in deleting, moving, putting back and
+  importing.
 
 ### Fixed
 
