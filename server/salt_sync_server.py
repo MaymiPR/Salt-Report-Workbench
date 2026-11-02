@@ -218,12 +218,20 @@ data_lock = threading.Lock()
 
 # Cached /api/sync prefix — all but the closing brace and connected_users count. Invalidated on every mutation.
 _sync_cache_prefix: bytes | None = None  # protected by data_lock
-# The last /api/sync body and its gzip form. Every client pulls the same state
-# after a change, so one compression serves them all. Protected by _sync_gz_lock.
-_sync_gz_cache: tuple[bytes, bytes] | None = None
-_sync_gz_lock = threading.Lock()
+# The last /api/sync body and its gzip form for each view, editor (False) and
+# viewer (True): the two bodies differ only in read_only, the rest of the tail
+# being the same for every client at a time. Every client pulls the same state
+# after a change, so one compression per view serves them all. Each view's
+# entry is protected by its own lock in _sync_gz_locks, held while it
+# compresses, so clients that miss at once wait for that one compression.
+_sync_gz_cache: dict = {}
+_sync_gz_locks = {False: threading.Lock(), True: threading.Lock()}
 # Seconds between SSE heartbeats; each one also detects a client that left without a FIN.
 SSE_HEARTBEAT_SECONDS: float = 15.0
+# Seconds a write to an event stream may wait. A machine that holds the
+# connection but stops reading would otherwise hold the notice for everyone
+# after it; past this its stream is closed (the page opens a new one).
+SSE_WRITE_TIMEOUT_SECONDS: float = 10.0
 
 # Per-workspace provenance (ato -> source label). Rides on /api/sync. Protected by data_lock.
 workspace_sources: dict = {}
@@ -339,13 +347,16 @@ class SSEClient:
                 self.sock.shutdown(socket.SHUT_RDWR)
 
     def send(self, payload: bytes) -> bool:
-        """Write to SSE stream; False on disconnect."""
+        """Write to SSE stream; False on disconnect, or a write that timed out
+        (SSE_WRITE_TIMEOUT_SECONDS), which also closes the stream: part of
+        the payload may be in it, and its thread then cleans up."""
         with self._lock:
             try:
                 self.wfile.write(payload)
                 self.wfile.flush()
                 return True
             except Exception:
+                self.close()
                 return False
 
 
@@ -451,7 +462,9 @@ def _say_machines() -> None:
 
 def _send_notice() -> None:
     """Tell every SSE client the latest change's number; prune dead ones.
-    Snapshots under lock, writes lock-free so a stuck peer can't block other ops."""
+    Snapshots under lock, writes lock-free so a stuck peer can't block other
+    ops, and a peer that stops reading holds the rest for at most
+    SSE_WRITE_TIMEOUT_SECONDS, once: its stream is then closed."""
     global _notice_timer
     with _notice_lock:
         _notice_timer = None
@@ -596,6 +609,18 @@ def mark_dirty(ato: str | None = None) -> None:
         _shared_dirty = True
     elif _dirty_atos is not None:
         _dirty_atos.add(ato)
+
+
+def _still_pending(atos: set | None, shared: bool) -> None:
+    """Mark again what a save took to write and couldn't: the workspaces
+    ``atos`` (None: every one) and, when ``shared``, the shared settings, on
+    top of whatever changed since. Caller holds data_lock."""
+    global _dirty_atos, _shared_dirty
+    if atos is None:
+        _dirty_atos = None
+    elif _dirty_atos is not None:
+        _dirty_atos |= atos
+    _shared_dirty = _shared_dirty or shared
 
 
 def schedule_save() -> None:
@@ -762,15 +787,15 @@ def _access_code_ok(headers, view_only: bool, client_ip: str) -> bool:
     return secrets.compare_digest(submitted.encode(), _access_code.encode())
 
 
-def _gzip_sync_body(body: bytes) -> bytes:
-    """gzip a /api/sync body, reusing the last result when the body is unchanged."""
-    global _sync_gz_cache
-    with _sync_gz_lock:
-        if _sync_gz_cache is not None and _sync_gz_cache[0] == body:
-            return _sync_gz_cache[1]
-    packed = gzip.compress(body, compresslevel=5)
-    with _sync_gz_lock:
-        _sync_gz_cache = (body, packed)
+def _gzip_sync_body(body: bytes, view_only: bool = False) -> bytes:
+    """gzip a /api/sync body, reusing the last result for its view (the
+    editor's or the viewer's) when the body is unchanged."""
+    with _sync_gz_locks[view_only]:
+        cached = _sync_gz_cache.get(view_only)
+        if cached is not None and cached[0] == body:
+            return cached[1]
+        packed = gzip.compress(body, compresslevel=5)
+        _sync_gz_cache[view_only] = (body, packed)
     return packed
 
 
@@ -1030,6 +1055,25 @@ def _check_text(raw: bytes, data) -> str | None:
         elif isinstance(v, str) and (m := _SURROGATE_RE.search(v)):
             return broken(where or 'the body', m)
     return None
+
+
+class _NotFinite(ValueError):
+    """A request body's number that JSON can't carry: NaN, Infinity, -Infinity,
+    or one too large for a float (1e999). Python reads them, but stored, they
+    would be sent back in /api/sync as words no browser can read."""
+
+
+def _not_finite(text: str):
+    """json.loads's parse_constant: NaN and the infinities are refused."""
+    raise _NotFinite(text)
+
+
+def _finite_float(text: str) -> float:
+    """json.loads's parse_float: a number too large for a float is refused."""
+    value = float(text)
+    if math.isinf(value):
+        raise _NotFinite(text)
+    return value
 
 
 def _is_real_time(t: str) -> bool:
@@ -2056,7 +2100,11 @@ DATA_STORE: dict = {'workspaces': {}, **{s.key: s.initial() for s in SHARED_SECT
 
 def shared_settings() -> dict:
     """The shared settings as DATA_STORE holds them, key -> value in
-    SHARED_SECTIONS order. Caller holds data_lock."""
+    SHARED_SECTIONS order. Caller holds data_lock.
+
+    Each is replaced whole when it changes, never changed in place (only the
+    profiles are added to, and the save copies them): save_data_to_disk
+    serializes these after letting data_lock go."""
     return {s.key: DATA_STORE.get(s.key, s.kind()) for s in SHARED_SECTIONS}
 
 
@@ -3083,7 +3131,26 @@ def render_backup(
     # Nothing loaded — don't emit an empty placeholder file.
     if not workspaces:
         return None
+    filename, head = _backup_head(workspaces, config, label)
+    machine = {'workspaces': workspaces}
+    given = {**shared, 'config': config, 'profiles': profiles}
+    for s in SHARED_SECTIONS:
+        if s.key == 'format':
+            machine['formats'] = formats  # per workspace, as older versions read it
+        else:
+            machine[s.key] = given.get(s.key) or s.kind()
+    return filename, head + _compact_json(machine) + '\n' + BACKUP_END + '\n'
 
+
+def _compact_json(value) -> str:
+    """JSON as a backup's machine data holds it: no spaces, characters as they are."""
+    return json.dumps(value, separators=(',', ':'), ensure_ascii=False)
+
+
+def _backup_head(workspaces: dict, config: dict, label: tuple | None) -> tuple[str, str]:
+    """``(filename, text)`` of a backup of ``workspaces`` (not empty) up to
+    its machine data's JSON: the summary, then the lines that open the
+    machine data, BACKUP_START and its newline last. See ``render_backup``."""
     if label:
         ato, title = label
     else:
@@ -3175,24 +3242,7 @@ def render_backup(
                     lines.append(f'      Analysis : {h["yourAnalysis"]}')
             lines.append('')
 
-    machine = {'workspaces': workspaces}
-    given = {**shared, 'config': config, 'profiles': profiles}
-    for s in SHARED_SECTIONS:
-        if s.key == 'format':
-            machine['formats'] = formats  # per workspace, as older versions read it
-        else:
-            machine[s.key] = given.get(s.key) or s.kind()
-    machine_json = json.dumps(machine, separators=(',', ':'), ensure_ascii=False)
-    lines += [
-        div,
-        ' MACHINE DATA: DO NOT EDIT BELOW THIS LINE',
-        div,
-        BACKUP_START,
-        machine_json,
-        BACKUP_END,
-        '',
-    ]
-
+    lines += [div, ' MACHINE DATA: DO NOT EDIT BELOW THIS LINE', div, BACKUP_START, '']
     return filename, '\n'.join(lines)
 
 
@@ -3264,8 +3314,27 @@ def render_workspace_backups(
     setting (by name, as ``render_backup`` takes them), so on boot every file
     contributes its workspace and the newest file decides the active one.
     ``names`` is what ``workspace_filenames`` gave (None: worked out here).
-    Pure, like ``render_backup``.
+    Pure, like ``render_backup``, and the same text it gives for each
+    workspace, byte for byte; the shared settings, megabytes with the
+    overlays, are serialized once for all of them. In two steps, which the
+    save takes apart: ``workspace_backup_parts``, then
+    ``join_workspace_backups``.
     """
+    parts = workspace_backup_parts(workspaces, config, formats, only, names)
+    return join_workspace_backups(parts, shared_backup_json(config, profiles, **shared))
+
+
+def workspace_backup_parts(
+    workspaces: dict,
+    config: dict,
+    formats: dict,
+    only: set | None = None,
+    names: dict | None = None,
+) -> list[tuple[str, str, str, str, str]]:
+    """Each workspace's own part of its backup, for those in ``only`` (None:
+    all): ``(ato, filename, head, reports JSON, format JSON)``. All a file
+    holds that comes from its reports, which are changed in place, so the
+    save makes these while it holds data_lock. Pure."""
     if names is None:
         names = workspace_filenames(workspaces, config)
     out = []
@@ -3273,16 +3342,36 @@ def render_workspace_backups(
         if only is not None and ato not in only:
             continue
         reports = workspaces[ato]
-        rendered = render_backup(
-            {ato: reports},
-            config,
-            profiles,
-            {ato: formats[ato]} if ato in formats else {},
-            label=(ato, workspace_title(ato, reports, config)),
-            **shared,
-        )
-        if rendered is not None:
-            out.append((ato, names[ato], rendered[1]))
+        _, head = _backup_head({ato: reports}, config, (ato, workspace_title(ato, reports, config)))
+        fmt = {ato: formats[ato]} if ato in formats else {}
+        out.append((ato, names[ato], head, _compact_json({ato: reports}), _compact_json(fmt)))
+    return out
+
+
+def shared_backup_json(config: dict, profiles: dict, **shared) -> tuple:
+    """The shared settings of a backup's machine data, serialized once for
+    every file of a save: ``,"<key>":<value>`` for each, in SHARED_SECTIONS
+    order, one not given written empty, and None where each file's own format
+    goes. By name as ``render_backup`` takes them. Pure."""
+    if unknown := set(shared) - _BACKUP_BY_NAME:
+        raise TypeError(f'shared_backup_json: not a shared setting: {sorted(unknown)}')
+    given = {**shared, 'config': config, 'profiles': profiles}
+    return tuple(
+        None
+        if s.key == 'format'
+        else f',{_compact_json(s.key)}:{_compact_json(given.get(s.key) or s.kind())}'
+        for s in SHARED_SECTIONS
+    )
+
+
+def join_workspace_backups(parts: list, shared_json: tuple) -> list[tuple[str, str, str]]:
+    """``(ato, filename, text)`` for each of ``workspace_backup_parts`` with
+    the shared settings ``shared_backup_json`` gave. Pure."""
+    out = []
+    for ato, filename, head, reports, fmt in parts:
+        machine = [f',"formats":{fmt}' if j is None else j for j in shared_json]
+        text = ''.join([head, '{"workspaces":', reports, *machine, '}\n', BACKUP_END, '\n'])
+        out.append((ato, filename, text))
     return out
 
 
@@ -3469,10 +3558,12 @@ def _note_save_result(errors: list) -> None:
 def save_data_to_disk() -> None:
     """Persist each changed workspace atomically to its own ``{ATO}_{Title}.txt``.
 
-    The backup texts are rendered while holding ``data_lock`` (a consistent,
-    CPU-only snapshot), then written after releasing it. Holding the lock
-    across the write used to stall every sync and POST for the duration of
-    the disk I/O, which is noticeable on the USB sticks and network shares
+    What the backups hold is taken while holding ``data_lock`` (a consistent,
+    CPU-only snapshot): each workspace's part, and the shared settings as they
+    are. The shared settings (megabytes with the overlays) are serialized once
+    after releasing it, for every file, and the files are written. Holding the
+    lock across the write used to stall every sync and POST for the duration
+    of the disk I/O, which is noticeable on the USB sticks and network shares
     this often runs from. Only workspaces marked dirty since the last save
     are rewritten, except when a dated snapshot is due, which covers all.
     ``Shared settings.json`` is rewritten when the shared settings changed.
@@ -3484,6 +3575,7 @@ def save_data_to_disk() -> None:
             _last_snapshot_at is None or now - _last_snapshot_at >= SNAPSHOT_INTERVAL_SECONDS
         )
         errors = []
+        parts, shared = [], None
         with data_lock:
             pending, shared_pending = _dirty_atos, _shared_dirty
             only = None if (snapshot_due or pending is None) else set(pending)
@@ -3491,24 +3583,46 @@ def save_data_to_disk() -> None:
             try:
                 workspaces = DATA_STORE.get('workspaces', {})
                 shared = shared_settings()
-                files = render_workspace_backups(
+                # Made now: the reports are changed in place.
+                parts = workspace_backup_parts(
                     workspaces,
-                    # The config and profiles by name; the format under each
-                    # workspace's name, the shape backup files keep.
-                    formats=formats_for(workspaces, shared['format']),
+                    shared['config'],
+                    # The format under each workspace's name, the shape backup files keep.
+                    formats_for(workspaces, shared['format']),
                     only=only,
                     names=workspace_filenames(workspaces, shared['config'], _held_names()),
-                    **{k: v for k, v in shared.items() if k != 'format'},
                 )
-                if shared_pending or snapshot_due:
-                    # None for the ATO: the shared settings, not a workspace.
-                    files.append(
-                        (None, SHARED_SETTINGS_NAME, render_shared_settings(shared, dict(mission)))
-                    )
+                # The shared settings are serialized after the lock is let
+                # go: each is replaced whole when it changes, never changed in
+                # place, so these stay as they are now. The profiles are
+                # added to in place, so they are copied, as is the mission.
+                if isinstance(profiles := shared['profiles'], dict):
+                    shared = {**shared, 'profiles': dict(profiles)}
+                on = dict(mission)
             except Exception as exc:
                 # Nothing was written: keep every change pending, so a report
                 # the backup can't be made from never silently stops saving.
-                _dirty_atos, _shared_dirty = pending, shared_pending
+                _still_pending(pending, shared_pending)
+                parts, shared = [], None
+                errors.append(f'Could not prepare the backups: {exc!r}')
+        files = []
+        if shared is not None:
+            try:
+                # The config and profiles first, the format already in each part.
+                by_name = {
+                    k: v for k, v in shared.items() if k not in ('config', 'profiles', 'format')
+                }
+                files = join_workspace_backups(
+                    parts, shared_backup_json(shared['config'], shared['profiles'], **by_name)
+                )
+                if shared_pending or snapshot_due:
+                    # None for the ATO: the shared settings, not a workspace.
+                    files.append((None, SHARED_SETTINGS_NAME, render_shared_settings(shared, on)))
+            except Exception as exc:
+                # As above. Changes since the lock was let go are pending
+                # already: these are added to them, not put in their place.
+                with data_lock:
+                    _still_pending(pending, shared_pending)
                 files = []
                 errors.append(f'Could not prepare the backups: {exc!r}')
         try:
@@ -4103,7 +4217,8 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         where_json = json.dumps(where, ensure_ascii=False).encode('utf-8')
         activity_json = json.dumps(activity(), ensure_ascii=False).encode('utf-8')
         # `read_only` is per-listener — lives in the dynamic tail, not the shared prefix.
-        ro = b'true' if getattr(self.server, 'view_only', False) else b'false'
+        view_only = bool(getattr(self.server, 'view_only', False))
+        ro = b'true' if view_only else b'false'
         body = (
             prefix
             + b',"connected_users":'
@@ -4126,7 +4241,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         # after every change; it compresses five to eight times.
         if 'gzip' in self.headers.get('Accept-Encoding', ''):
             self._send_body(
-                _gzip_sync_body(body),
+                _gzip_sync_body(body, view_only),
                 'application/json',
                 headers=(('Content-Encoding', 'gzip'), ('Vary', 'Accept-Encoding')),
             )
@@ -4141,7 +4256,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         self.send_header('Connection', 'keep-alive')
         self.end_headers()
         sock = self.request  # underlying TCP socket
-        sock.settimeout(None)  # the stream stays open: no idle timeout
+        # The stream stays open: no idle timeout, as the reads below wait in
+        # select(). Writes get one, so a client that stops reading is dropped.
+        sock.settimeout(SSE_WRITE_TIMEOUT_SECONDS)
 
         client = SSEClient(self.wfile, _machine(self.client_address[0]), sock)
         with sse_lock:
@@ -4261,7 +4378,10 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             return
         try:
             raw = self.rfile.read(length)
-            data = json.loads(raw)
+            data = json.loads(raw, parse_constant=_not_finite, parse_float=_finite_float)
+        except _NotFinite:
+            self._bad_request('Invalid JSON: a number is NaN, Infinity or too large.')
+            return
         except (ValueError, RecursionError):  # RecursionError: nesting too deep
             self._bad_request('Invalid JSON.')
             return
@@ -4294,7 +4414,16 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         ):
             self._bad_request(f'Validation failed: {err}.')
             return
-        route.handler(self, data)
+        # Stopping: a change taken now would be answered and never saved.
+        if not _begin_write():
+            self._error(
+                503, 'The server is stopping. Nothing was changed; try again once it is back.'
+            )
+            return
+        try:
+            route.handler(self, data)
+        finally:
+            _end_write()
 
     def _bad_request(self, message: str) -> None:
         self._error(400, message)
@@ -4576,8 +4705,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         where = (clean['ato'] or '').strip().upper()
         moved = self._now_in(where)
         with data_lock:
-            revived = clean['ato'] in unloaded_workspaces
-            unloaded_workspaces.discard(clean['ato'])
+            # The list holds names as the workspaces are keyed: trimmed, upper case.
+            revived = where in unloaded_workspaces
+            unloaded_workspaces.discard(where)
             if revived:
                 invalidate_sync_cache()
         stored, before = self._store_shared('config', clean)  # the config rides in every file
@@ -5389,9 +5519,73 @@ def unsaved_changes() -> bool:
         return _dirty_atos is None or bool(_dirty_atos) or _shared_dirty
 
 
+# Set as the server starts stopping (graceful_drain). A write after it would
+# be answered and then never saved, so it is refused with 503, which the page
+# takes as "send it again later". Protected by _writes.
+_stopping = False
+# The POST requests being handled now, so the drain can wait for them to land
+# before the final save. Protected by _writes.
+_writes_open = 0
+_writes = threading.Condition()
+# How long the drain waits for the requests being handled to finish.
+STOP_WAIT_SECONDS = 1.0
+
+
+def _begin_write() -> bool:
+    """Before a POST is handled: False once the server is stopping, else it
+    is counted until _end_write."""
+    global _writes_open
+    with _writes:
+        if _stopping:
+            return False
+        _writes_open += 1
+        return True
+
+
+def _end_write() -> None:
+    global _writes_open
+    with _writes:
+        _writes_open -= 1
+        _writes.notify_all()
+
+
+def _stop_writes(wait: float) -> None:
+    """Refuse every POST from now on, and wait up to ``wait`` seconds for
+    the ones being handled to finish."""
+    global _stopping
+    with _writes:
+        _stopping = True
+        _writes.wait_for(lambda: _writes_open <= 0, wait)
+
+
+# The drain runs once (see graceful_drain); its answer, None until it has.
+_drain_lock = threading.Lock()
+_drained: bool | None = None
+
+
 def graceful_drain() -> bool:
-    """Notify SSE clients of shutdown, then flush pending disk write. False,
-    said plainly, when the changes could not be saved."""
+    """Stop taking writes, flush the pending disk write, then notify SSE
+    clients of shutdown. False, said plainly, when the changes could not be
+    saved. Runs once, whether Ctrl+C or the console window closing asks
+    first: a second caller waits for it and gets the same answer."""
+    global _drained
+    with _drain_lock:
+        if _drained is None:
+            _drained = _drain()
+        return _drained
+
+
+def _drain() -> bool:
+    _stop_writes(STOP_WAIT_SECONDS)
+    with contextlib.suppress(Exception):
+        stop_terrain()
+    # Saved before the clients are told: a client that stopped reading can
+    # hold its write for SSE_WRITE_TIMEOUT_SECONDS, longer than Windows waits
+    # when the window is closed.
+    try:
+        flush_pending_save()
+    except Exception as exc:
+        safe_print(f'[!] Error flushing on shutdown: {exc}')
     try:
         with sse_lock:
             snapshot = list(sse_clients)
@@ -5400,12 +5594,6 @@ def graceful_drain() -> bool:
                 c.send(b'event: shutdown\ndata: server-stopping\n\n')
     except Exception:
         pass
-    with contextlib.suppress(Exception):
-        stop_terrain()
-    try:
-        flush_pending_save()
-    except Exception as exc:
-        safe_print(f'[!] Error flushing on shutdown: {exc}')
     with contextlib.suppress(Exception):
         flush_terrain()
     saved = not _save_failures and not unsaved_changes()
@@ -5418,6 +5606,52 @@ def graceful_drain() -> bool:
         safe_print('    What changed since the last good save is not on disk.')
     audit('server', 'stopped')
     return saved
+
+
+# Windows console events (SetConsoleCtrlHandler): the window closed (X), the
+# user logging off, Windows shutting down. Ctrl+C and Ctrl+Break (0 and 1)
+# are left to Python, which raises KeyboardInterrupt. Windows sends the last
+# two only to a process without user32.dll, and Python loads it, so in
+# practice the handler catches the window closing.
+CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT = 2, 5, 6
+_CONSOLE_CLOSE_EVENTS = frozenset((CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT))
+# The installed handler, kept so it is never garbage-collected while Windows can call it.
+_console_handler = None
+
+
+def _on_console_close(event: int) -> bool:
+    """The console control handler. Windows ends the process as soon as it
+    returns, or after about 5 seconds, so the final save is made here, as
+    Ctrl+C makes it. True when the event was one of _CONSOLE_CLOSE_EVENTS.
+    Never raises: it runs on a thread of Windows' own."""
+    if event not in _CONSOLE_CLOSE_EVENTS:
+        return False
+    with contextlib.suppress(Exception):
+        safe_print('\n[*] The window is closing: saving the changes first...')
+    with contextlib.suppress(Exception):
+        graceful_drain()
+    return True
+
+
+def install_console_close_handler() -> bool:
+    """On Windows, have closing the console window, logging off or shutting
+    down run the drain (see _on_console_close). False, and nothing done,
+    elsewhere or when it can't be installed."""
+    global _console_handler
+    if os.name != 'nt':
+        return False
+    if _console_handler is not None:
+        return True
+    try:
+        handler_type = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_ulong)
+        handler = handler_type(lambda event: 1 if _on_console_close(event) else 0)
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        if not kernel32.SetConsoleCtrlHandler(handler, 1):
+            return False
+    except Exception:
+        return False
+    _console_handler = handler
+    return True
 
 
 if __name__ == '__main__':
@@ -5519,6 +5753,9 @@ if __name__ == '__main__':
     # Skip the launch thread when it has no work to do.
     if not args.no_browser or (os.name == 'nt' and not args.no_minimize):
         threading.Thread(target=_launch, daemon=True).start()
+
+    # Closing the window saves first, as Ctrl+C does (Windows only).
+    install_console_close_handler()
 
     try:
         httpd.serve_forever()

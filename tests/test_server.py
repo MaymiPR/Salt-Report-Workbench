@@ -18,6 +18,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import ssl
 import sys
 import tempfile
@@ -97,6 +98,9 @@ def reset_state() -> None:
     srv._dirty_atos = None
     srv._shared_dirty = True
     srv._save_failures = 0
+    # Not stopping, and not stopped: a drain is once a run.
+    srv._stopping = False
+    srv._drained = None
     srv._file_holds.clear()
     srv._merged_files.clear()
 
@@ -228,6 +232,68 @@ class BackupFormatTests(unittest.TestCase):
         # The config such a file holds is kept to its two strings.
         text = f'{srv.BACKUP_START}{{"workspaces":{{}},"config":{{"ato":3,"title":"T"}}}}{srv.BACKUP_END}'
         self.assertEqual(srv._extract_json_from_file(text)["config"], {"ato": "", "title": "T"})
+
+    def test_each_workspace_file_is_byte_for_byte_what_it_was(self):
+        # The shared settings are now serialized once for every file of a
+        # save, not once a file: the files must not change by a byte. The old
+        # way is render_backup, which still serializes the whole file at once.
+        class Frozen(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime(2026, 11, 1, 9, 30, tzinfo=timezone.utc)
+
+        ws = {
+            "ALPHA": [
+                report(
+                    custom={"Wetter": "Bewölkt"}, bda=[{"target": "T-72", "effect": "Destroyed"}]
+                ),
+                report("r2", "ALPHA002", lm=7, yourAnalysis="Likely recon 🛰", history=[report()]),
+            ],
+            "BRAVO 2": [report("b1", "BRAVO001", ato="BRAVO 2", title="Screen", deleted=True)],
+            "Ωmega": [report("o1", "OMEGA001", ato="Ωmega", time=None, lm=1.5)],
+        }
+        config = {"ato": "ALPHA", "title": "Patrol «Nord»"}
+        profiles = {"AB": {"initials": "AB", "color": "#0a84ff"}, "ÉF": {"initials": "ÉF"}}
+        fmt = {"preset": "salt", "lines": [{"type": "id"}, {"type": "text", "text": "„x“"}]}
+        shared = {
+            "overlays": [NAI1, PL_BLUE, {**NAI1, "name": "2", "label": "NAI 2 – Brücke"}],
+            "basemaps": [TOPO],
+            "drones": [{"name": "RAVEN", "grid": "38SMB1", "at": 1, "range": 2.5}],
+            "narrative": {"enemy": "OPFOR", "units": [], "custom": [], "equipment": []},
+            "tags": [],  # empty: written as the section's empty value, as before
+            "fmv": {"on": True},
+        }
+        for formats, only in (
+            (srv.formats_for(ws, fmt), None),
+            ({}, None),
+            (srv.formats_for(ws, fmt), {"BRAVO 2"}),
+        ):
+            with mock.patch.object(srv, "datetime", Frozen):
+                new = srv.render_workspace_backups(ws, config, profiles, formats, only, **shared)
+                old = [
+                    (
+                        ato,
+                        srv.workspace_filenames(ws, config)[ato],
+                        srv.render_backup(
+                            {ato: ws[ato]},
+                            config,
+                            profiles,
+                            {ato: formats[ato]} if ato in formats else {},
+                            label=(ato, srv.workspace_title(ato, ws[ato], config)),
+                            **shared,
+                        )[1],
+                    )
+                    for ato in sorted(ws)
+                    if only is None or ato in only
+                ]
+            self.assertEqual([f[:2] for f in new], [f[:2] for f in old])
+            for (ato, _, text), (_, _, was) in zip(new, old, strict=True):
+                self.assertEqual(text.encode("utf-8"), was.encode("utf-8"), ato)
+        # The machine data reads back as it always has.
+        parsed = srv._extract_json_from_file(new[0][2])
+        self.assertEqual(parsed["workspaces"], {"BRAVO 2": ws["BRAVO 2"]})
+        self.assertEqual(parsed["overlays"], shared["overlays"])
+        self.assertEqual(parsed["formats"], {"BRAVO 2": fmt})
 
     def test_files_without_markers_or_with_corrupt_json_are_rejected(self):
         self.assertIsNone(srv._extract_json_from_file("just some notes"))
@@ -1262,23 +1328,189 @@ class RestoreTests(unittest.TestCase):
         # Rounds are pruned by name; the kept copies never are.
         self.assertEqual(sorted(srv.snapshot_rounds()), ["20261027_090000Z", "20261028_090000Z"])
 
-    def test_latest_list_unknown_and_a_running_server(self):
-        code, _ = self.restore("latest")
-        self.assertEqual(code, 0)
-        self.assertEqual((self.tmp / "ALPHA_Patrol.txt").read_text(encoding="utf-8"), "newer")
+    def live(self):
+        """The backup folder's files (not the snapshots), name -> text."""
+        return {p.name: p.read_text(encoding="utf-8") for p in self.tmp.iterdir() if p.is_file()}
+
+    def kept(self):
+        """The before-restore copies made so far."""
+        return sorted((self.tmp / "snapshots").glob("before-restore-*"))
+
+    def test_latest_puts_back_the_newest_round(self):
+        code, out = self.restore("latest")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(
+            self.live(),
+            {"ALPHA_Patrol.txt": "newer", "Shared settings.json": "newer", "audit.log": mock.ANY},
+        )
+        self.assertIn("[+] Restored snapshot 20261028_090000Z: 2 file(s).", out)
+        self.assertIn("[+] The 2 file(s) it replaced are in ", out)
+
+    def test_list_shows_the_rounds_newest_first_and_changes_nothing(self):
+        before = self.live()
         code, out = self.restore("list")
         self.assertEqual(code, 0)
-        self.assertLess(out.index("20261028_090000Z"), out.index("20261027_090000Z"))
+        self.assertEqual(
+            out.splitlines()[1:],
+            ["    20261028_090000Z  (2 file(s))", "    20261027_090000Z  (2 file(s))"],
+        )
+        self.assertEqual(self.live(), before)
+        self.assertEqual(self.kept(), [], "nothing to keep a copy of")
+
+    def test_a_round_that_isnt_there_is_said_and_changes_nothing(self):
+        before = self.live()
         code, out = self.restore("20250101_000000Z")
         self.assertEqual(code, 1)
-        self.assertIn("No snapshot round named", out)
+        self.assertIn("[!] No snapshot round named 20250101_000000Z. The newest:", out)
+        self.assertIn("    20261028_090000Z", out)
+        self.assertIn("--restore list shows them all.", out)
+        self.assertEqual(self.live(), before)
+        self.assertEqual(self.kept(), [])
+
+    def test_no_snapshots_at_all_is_said_and_changes_nothing(self):
+        shutil.rmtree(self.tmp / "snapshots")
+        before = self.live()
+        for which in ("latest", "list", "20261027_090000Z"):
+            code, out = self.restore(which)
+            self.assertEqual(code, 1, which)
+            self.assertIn("[!] No snapshots in ", out)
+        self.assertEqual(self.live(), before)
+
+    def test_a_running_server_is_left_alone(self):
+        before = self.live()
         code, out = self.restore("latest", running=True)
         self.assertEqual(code, 1)
         self.assertIn("A server is running", out)
+        self.assertEqual(self.live(), before)
+        self.assertEqual(self.kept(), [])
+
+    def test_the_backups_it_replaces_are_kept_whole(self):
+        (self.tmp / "Shared settings.json").write_text("live settings", encoding="utf-8")
+        before = self.live()
+        code, _ = self.restore("20261027_090000Z")
+        self.assertEqual(code, 0)
+        (kept,) = self.kept()
+        self.assertRegex(kept.name, r"^before-restore-\d{8}_\d{6}Z$")
+        copied = {p.name: p.read_text(encoding="utf-8") for p in kept.iterdir()}
+        # The backups, as they were; the audit log is not a backup and stays.
+        self.assertEqual(copied, {k: v for k, v in before.items() if k != "audit.log"})
+        self.assertIn("audit.log", self.live())
+        # Not a round: a later restore doesn't offer it, or prune it.
+        self.assertNotIn(kept.name, str(srv.snapshot_rounds()))
+        self.assertEqual(self.restore("latest")[0], 0)
+        self.assertTrue(kept.is_dir())
 
     def test_the_flag_runs_it_and_exits(self):
         with mock.patch.object(sys, "argv", ["salt_sync_server", "--restore", "list"]):
             self.assertEqual(srv.parse_cli_args().restore, "list")
+
+
+class StoppingTests(unittest.TestCase):
+    def setUp(self):
+        reset_state()
+        self.addCleanup(reset_state)
+
+    def test_the_drain_runs_once_and_a_second_caller_gets_its_answer(self):
+        # Ctrl+C and the window closing can both ask; the second must not
+        # save over the first, or tell the clients twice.
+        started = threading.Event()
+        go_on = threading.Event()
+
+        def slow():
+            started.set()
+            go_on.wait(5)
+            return False
+
+        with mock.patch.object(srv, "_drain", side_effect=slow) as drain:
+            answers = []
+            first = threading.Thread(target=lambda: answers.append(srv.graceful_drain()))
+            first.start()
+            self.assertTrue(started.wait(5))
+            second = threading.Thread(target=lambda: answers.append(srv.graceful_drain()))
+            second.start()
+            time.sleep(0.1)
+            self.assertEqual(answers, [], "the second waits for the first")
+            go_on.set()
+            first.join(5)
+            second.join(5)
+            self.assertEqual(answers, [False, False])
+            self.assertIs(srv.graceful_drain(), False)
+        drain.assert_called_once()
+
+    def test_closing_the_window_logging_off_or_shutting_down_runs_the_drain(self):
+        for event in (srv.CTRL_CLOSE_EVENT, srv.CTRL_LOGOFF_EVENT, srv.CTRL_SHUTDOWN_EVENT):
+            with (
+                mock.patch.object(srv, "graceful_drain") as drain,
+                mock.patch.object(srv, "safe_print"),
+            ):
+                self.assertIs(srv._on_console_close(event), True, event)
+            drain.assert_called_once_with()
+        # Ctrl+C and Ctrl+Break are Python's: KeyboardInterrupt, then the drain.
+        for event in (0, 1):
+            with mock.patch.object(srv, "graceful_drain") as drain:
+                self.assertIs(srv._on_console_close(event), False, event)
+            drain.assert_not_called()
+
+    def test_the_console_handler_never_raises(self):
+        # It runs on a thread of Windows' own, with the process ending after it.
+        with (
+            mock.patch.object(srv, "graceful_drain", side_effect=OSError("disk gone")),
+            mock.patch.object(srv, "safe_print", side_effect=OSError("console gone")),
+        ):
+            self.assertIs(srv._on_console_close(srv.CTRL_CLOSE_EVENT), True)
+
+    def fake_ctypes(self, kernel32):
+        return mock.Mock(
+            WINFUNCTYPE=lambda *types: lambda fn: fn,
+            c_int=int,
+            c_ulong=int,
+            WinDLL=lambda name, **kw: kernel32,
+        )
+
+    def test_the_handler_is_installed_on_windows_and_calls_the_drain(self):
+        kernel32 = mock.Mock()
+        kernel32.SetConsoleCtrlHandler.return_value = 1
+        with (
+            mock.patch.object(srv, "_console_handler", None),
+            mock.patch.object(srv.os, "name", "nt"),
+            mock.patch.object(srv, "ctypes", self.fake_ctypes(kernel32)),
+        ):
+            self.assertTrue(srv.install_console_close_handler())
+            self.assertTrue(srv.install_console_close_handler(), "installed once")
+            handler, add = kernel32.SetConsoleCtrlHandler.call_args.args
+            installed = srv._console_handler
+        kernel32.SetConsoleCtrlHandler.assert_called_once()
+        self.assertEqual(add, 1)
+        self.assertIs(handler, installed, "kept, so Windows never calls a freed one")
+        with (
+            mock.patch.object(srv, "graceful_drain") as drain,
+            mock.patch.object(srv, "safe_print"),
+        ):
+            self.assertEqual(handler(srv.CTRL_CLOSE_EVENT), 1)
+            self.assertEqual(handler(0), 0)
+        drain.assert_called_once_with()
+
+    def test_the_handler_is_left_out_elsewhere_or_when_windows_refuses_it(self):
+        with mock.patch.object(srv, "_console_handler", None):
+            with mock.patch.object(srv.os, "name", "posix"):
+                self.assertFalse(srv.install_console_close_handler())
+            refusing = mock.Mock()
+            refusing.SetConsoleCtrlHandler.return_value = 0
+            broken = mock.Mock()
+            broken.SetConsoleCtrlHandler.side_effect = AttributeError("no such function")
+            for kernel32 in (refusing, broken):
+                with (
+                    mock.patch.object(srv.os, "name", "nt"),
+                    mock.patch.object(srv, "ctypes", self.fake_ctypes(kernel32)),
+                ):
+                    self.assertFalse(srv.install_console_close_handler())
+                self.assertIsNone(srv._console_handler)
+            # No ctypes for Windows at all (WINFUNCTYPE is Windows' alone).
+            with (
+                mock.patch.object(srv.os, "name", "nt"),
+                mock.patch.object(srv, "ctypes", mock.Mock(spec=[])),
+            ):
+                self.assertFalse(srv.install_console_close_handler())
 
 
 def own_folder(test) -> Path:
@@ -1811,6 +2043,10 @@ class HttpApiTests(unittest.TestCase):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def setUp(self):
+        # A stream the last test closed is cleaned up by its own thread, which
+        # then drops its machine's initials: let that happen before this test
+        # sets any, or it can land in the middle of it.
+        self.wait_until(lambda: not srv.sse_clients)
         reset_state()
         cancel_pending_save()
 
@@ -1924,6 +2160,24 @@ class HttpApiTests(unittest.TestCase):
             "/api/edit_report", {"ato": "ALPHA", "reportId": "ghost", "fields": {"size": "x"}}
         )
         self.assertEqual((status, body["message"]), (404, "Report not found."))
+
+    def test_numbers_json_cannot_carry_are_refused(self):
+        # Regression: Python reads NaN and Infinity (and 1e999 as Infinity) in
+        # a field no validator checks; stored, they went out in /api/sync as
+        # words JSON.parse refuses, so no page could pull again.
+        good = json.dumps({"ato": "ALPHA", "reports": [report(extra=1)]})
+        for word in ("NaN", "Infinity", "-Infinity", "1e999", "-1E400"):
+            raw = good.replace('"extra": 1', f'"extra": {word}').encode()
+            self.assertIn(word.encode(), raw)
+            message = self.refused(400, "/api/save_reports", raw=raw)
+            self.assertEqual(message, "Invalid JSON: a number is NaN, Infinity or too large.")
+        status, raw = self.request("/api/sync")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(raw)["workspaces"], {}, "nothing got through")
+        # Large but finite numbers, and the same body with an ordinary one, are fine.
+        raw = good.replace('"extra": 1', '"extra": 1.5e300').encode()
+        self.assertEqual(self.request("/api/save_reports", raw=raw)[0], 200)
+        self.assertEqual(self.sync()["workspaces"]["ALPHA"][0]["extra"], 1.5e300)
 
     # -- one refusal shape ---------------------------------------------------- #
     def test_every_refusal_of_a_request_is_the_one_json_shape(self):
@@ -2764,6 +3018,16 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(self.sync()["unloaded"], [])
         # One that was never loaded isn't listed.
         self.post("/api/unload_ato", {"ato": "NEVER"})
+        self.assertEqual(self.sync()["unloaded"], [])
+
+    def test_switching_to_an_unloaded_workspace_as_typed_takes_it_off_the_list(self):
+        # Regression: the list holds the workspace's name trimmed and in upper
+        # case, and save_config looked for it as sent, so " alpha " stayed listed.
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        self.post("/api/unload_ato", {"ato": "ALPHA"})
+        self.assertEqual(self.sync()["unloaded"], ["ALPHA"])
+        status, _ = self.post("/api/save_config", {"config": {"ato": " alpha ", "title": "T"}})
+        self.assertEqual(status, 200)
         self.assertEqual(self.sync()["unloaded"], [])
 
     def test_an_edit_to_an_older_copy_is_refused(self):
@@ -3745,7 +4009,7 @@ class HttpApiTests(unittest.TestCase):
         cancel_pending_save()
         boom = RuntimeError("bad report")
         with (
-            mock.patch.object(srv, "render_workspace_backups", side_effect=boom),
+            mock.patch.object(srv, "workspace_backup_parts", side_effect=boom),
             mock.patch.object(srv, "safe_print") as printed,
         ):
             srv.save_data_to_disk()
@@ -3758,6 +4022,33 @@ class HttpApiTests(unittest.TestCase):
             srv.save_data_to_disk()
         text = (Path(srv.BACKUP_DIR) / "ALPHA_Patrol.txt").read_text("utf-8")
         self.assertEqual(len(srv._extract_json_from_file(text)["workspaces"]["ALPHA"]), 2)
+
+    def test_shared_settings_that_cannot_be_written_keep_every_change(self):
+        # The shared settings are serialized after data_lock is let go, so a
+        # change can land meanwhile: a failure then adds the save's changes
+        # back to it, rather than putting them in its place.
+        self.addCleanup(cancel_pending_save)
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        srv.flush_pending_save()
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report("r2", "ALPHA002")]})
+        cancel_pending_save()
+
+        def changed_meanwhile_then_fails(*args, **kw):
+            self.assertTrue(srv.data_lock.acquire(timeout=2), "data_lock is let go by now")
+            try:
+                srv.mark_dirty("BRAVO")
+            finally:
+                srv.data_lock.release()
+            raise RuntimeError("bad overlay")
+
+        with (
+            mock.patch.object(srv, "shared_backup_json", side_effect=changed_meanwhile_then_fails),
+            mock.patch.object(srv, "safe_print") as printed,
+        ):
+            srv.save_data_to_disk()
+        self.assertEqual(srv._dirty_atos, {"ALPHA", "BRAVO"})
+        self.assertIn("bad overlay", printed.call_args_list[0].args[0])
+        self.assertEqual(self.pending_retry(), 1.0)
 
     def test_a_locked_backup_is_retried_with_a_growing_wait(self):
         # Windows antivirus or OneDrive holding the file makes os.replace fail;
@@ -3882,6 +4173,7 @@ class HttpApiTests(unittest.TestCase):
         )
         self.assertTrue(lines[said + 1].startswith("    Error saving to "), lines[said + 1])
         cancel_pending_save()
+        srv._stopping, srv._drained = False, None  # a drain is once a run: as if started again
         with (
             mock.patch.object(srv, "stop_terrain"),
             mock.patch.object(srv, "safe_print") as printed,
@@ -4079,6 +4371,59 @@ class HttpApiTests(unittest.TestCase):
             resp.readline()  # bootstrap update
             resp.readline()  # blank line ending it
             self.assertEqual(resp.readline(), b": heartbeat\n")
+
+    def test_a_stream_quiet_for_longer_than_the_write_timeout_stays_open(self):
+        # The write timeout is for writes: waiting for the next heartbeat isn't one.
+        with (
+            mock.patch.object(srv, "SSE_WRITE_TIMEOUT_SECONDS", 0.1),
+            mock.patch.object(srv, "SSE_HEARTBEAT_SECONDS", 0.4),
+            contextlib.closing(self.open_events()) as resp,
+        ):
+            resp.readline()
+            resp.readline()
+            self.assertEqual(resp.readline(), b": heartbeat\n")
+            resp.readline()
+            self.assertEqual(resp.readline(), b": heartbeat\n")
+            self.assertEqual(len(srv.sse_clients), 1)
+
+    def test_a_client_that_stops_reading_is_dropped_and_the_others_still_hear(self):
+        # Regression: event streams had no write timeout, so a machine that
+        # held its connection but stopped reading blocked the notice for
+        # every client after it, for good.
+        port = self.editor.server_address[1]
+        with mock.patch.object(srv, "SSE_WRITE_TIMEOUT_SECONDS", 0.3):
+            stuck = socket.socket()
+            self.addCleanup(stuck.close)
+            stuck.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+            stuck.settimeout(5)
+            stuck.connect(("127.0.0.1", port))
+            stuck.sendall(
+                b"GET /api/events HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+                + f"Cookie: salt_access={CODE}\r\n\r\n".encode()
+            )
+            got = b""
+            while b"data:" not in got:
+                got += stuck.recv(4096)
+            self.assertTrue(self.wait_until(lambda: len(srv.sse_clients) == 1))
+            resp = self.open_events()
+            self.addCleanup(resp.close)
+            resp.readline()
+            resp.readline()
+            self.assertTrue(self.wait_until(lambda: len(srv.sse_clients) == 2))
+        stalled, listening = srv.sse_clients
+        self.assertEqual(stalled.sock.gettimeout(), 0.3, "writes to a stream may wait so long")
+        # Fill what the machine isn't reading, until a write has to wait
+        # (Windows takes a single huge write whole, so a megabyte at a time).
+        with self.assertRaises(TimeoutError):
+            for _ in range(1024):
+                stalled.wfile.write(b": " + b"x" * (1 << 20) + b"\n\n")
+        started = time.monotonic()
+        srv._send_notice()
+        self.assertLess(time.monotonic() - started, 5, "the stalled stream was given up on")
+        self.assertEqual(srv.sse_clients, [listening], "and dropped")
+        # Told after it, as if it weren't there.
+        self.assertRegex(resp.readline(), NOTICE)
+        self.assertEqual(stalled.send(b": heartbeat\n\n"), False, "its stream is closed")
 
     def test_a_client_that_leaves_is_pruned_with_its_initials(self):
         self.post("/api/save_profile", {"profile": {"initials": "AB", "color": "#32d74b"}})
@@ -4412,6 +4757,67 @@ class HttpApiTests(unittest.TestCase):
             self.assertEqual(resp.readline(), b"event: shutdown\n")
             self.assertEqual(resp.readline(), b"data: server-stopping\n")
 
+    def drain_quietly(self, **patches):
+        """graceful_drain with the save, the heights and the console stubbed:
+        the stubbed save, to look at."""
+        with (
+            mock.patch.object(srv, "flush_pending_save", **patches) as flush,
+            mock.patch.object(srv, "stop_terrain"),
+            mock.patch.object(srv, "safe_print"),
+        ):
+            srv.graceful_drain()
+        return flush
+
+    def test_a_write_once_stopping_is_refused_and_nothing_changes(self):
+        # Regression: a write between the final save and the exit was answered
+        # as saved, and never was.
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        self.drain_quietly()
+        message = self.refused(
+            503, "/api/save_reports", {"ato": "ALPHA", "reports": [report(rid="r2")]}
+        )
+        self.assertEqual(
+            message, "The server is stopping. Nothing was changed; try again once it is back."
+        )
+        self.refused(503, "/api/save_config", {"config": {"ato": "BRAVO", "title": "T"}})
+        # Reads still answer, and show nothing new.
+        self.assertEqual([r["id"] for r in self.sync()["workspaces"]["ALPHA"]], ["r1"])
+        self.assertEqual(self.sync()["config"], {"ato": "", "title": ""})
+
+    def test_the_final_save_waits_for_a_write_being_handled(self):
+        self.assertTrue(srv._begin_write())  # one being handled now
+        ended = False
+        try:
+            saved_after = []
+            with mock.patch.object(srv, "STOP_WAIT_SECONDS", 5):
+                drain = threading.Thread(
+                    target=self.drain_quietly,
+                    kwargs={"side_effect": lambda: saved_after.append(ended)},
+                )
+                drain.start()
+                time.sleep(0.2)
+                self.assertEqual(saved_after, [], "not saved while it is being handled")
+                self.assertEqual(
+                    self.post("/api/save_reports", {"ato": "A", "reports": []})[0], 503
+                )
+                ended = True
+                srv._end_write()
+                drain.join(5)
+            self.assertEqual(saved_after, [True], "saved once it had landed")
+        finally:
+            if not ended:
+                srv._end_write()
+
+    def test_the_final_save_waits_for_a_stuck_write_only_so_long(self):
+        self.assertTrue(srv._begin_write())
+        try:
+            with mock.patch.object(srv, "STOP_WAIT_SECONDS", 0.2):
+                started = time.monotonic()
+                self.drain_quietly().assert_called_once()
+            self.assertLess(time.monotonic() - started, 3)
+        finally:
+            srv._end_write()
+
     def test_sync_is_gzipped_for_clients_that_accept_it(self):
         self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
         plain_status, plain = self.request("/api/sync")
@@ -4444,6 +4850,66 @@ class HttpApiTests(unittest.TestCase):
             finally:
                 conn.close()
         spy.assert_not_called()
+
+    def gzipped_sync(self, base):
+        """GET /api/sync from ``base``'s port asking for gzip: the body as sent."""
+        port = int(base.rsplit(":", 1)[1])
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        try:
+            conn.request(
+                "GET",
+                "/api/sync",
+                headers={"Cookie": f"salt_access={CODE}", "Accept-Encoding": "gzip"},
+            )
+            resp = conn.getresponse()
+            self.assertEqual(resp.getheader("Content-Encoding"), "gzip")
+            return resp.read()
+        finally:
+            conn.close()
+
+    def test_editors_and_viewers_each_reuse_their_own_compressed_sync(self):
+        # Regression: one cached body for both, and the two differ (read_only),
+        # so editors and viewers pulling in turn compressed it every time.
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report()]})
+        _, plain_editor = self.request("/api/sync")
+        _, plain_viewer = self.request("/api/sync", base=self.viewer_base, code=None)
+        with mock.patch.object(srv.gzip, "compress", wraps=srv.gzip.compress) as spy:
+            got = [self.gzipped_sync(b) for b in (self.base, self.viewer_base) * 3]
+        self.assertEqual(spy.call_count, 2, "one compression for each view")
+        for packed, plain, read_only in zip(
+            got, (plain_editor, plain_viewer) * 3, (False, True) * 3, strict=True
+        ):
+            self.assertEqual(gzip.decompress(packed), plain)
+            self.assertIs(json.loads(gzip.decompress(packed))["read_only"], read_only)
+        # A change is compressed again, once for each view.
+        self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report(rid="r2")]})
+        with mock.patch.object(srv.gzip, "compress", wraps=srv.gzip.compress) as spy:
+            got = [self.gzipped_sync(b) for b in (self.base, self.viewer_base) * 2]
+        self.assertEqual(spy.call_count, 2)
+        self.assertEqual(len(json.loads(gzip.decompress(got[3]))["workspaces"]["ALPHA"]), 2)
+
+    def test_clients_that_miss_the_compressed_sync_at_once_share_one_compression(self):
+        compress = srv.gzip.compress
+        calls = []
+
+        def slow(data, **kw):
+            calls.append(len(data))
+            time.sleep(0.2)  # long enough for the others to arrive meanwhile
+            return compress(data, **kw)
+
+        body = b'{"workspaces":{},"n":"%d"}' % time.monotonic_ns()
+        with mock.patch.object(srv.gzip, "compress", slow):
+            got = []
+            threads = [
+                threading.Thread(target=lambda: got.append(srv._gzip_sync_body(body)))
+                for _ in range(5)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(5)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual([gzip.decompress(p) for p in got], [body] * 5)
 
 
 if __name__ == "__main__":

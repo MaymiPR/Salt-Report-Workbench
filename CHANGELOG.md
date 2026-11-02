@@ -29,6 +29,13 @@ All notable changes to this project are documented here. The format follows
   again (about 8 frames a second with 2,000 reports and 2,000 overlays). Now
   the picture already drawn is scaled while the wheel turns, as a drag slides
   it, and drawn once a moment after the last turn, at the same view as before.
+- **Saving no longer holds up the others.** Every save wrote the shared
+  settings (the overlays above all) into each workspace's file again,
+  while every sync and change waited. They are now written out once a
+  save, after the others can go on: with 8 workspaces of 1,000 reports and
+  2,000 overlays, a save holds them up for 0.015 s instead of 0.14 s, and
+  the hourly snapshots for 0.11 s instead of 1.5 s. The files are the same,
+  to the byte.
 
 ### Fixed
 
@@ -64,6 +71,29 @@ All notable changes to this project are documented here. The format follows
   they are (the keyboard's place with them) when they would be the same, and
   the activity counts beside the map use the drawing's tracks rather than
   working them all out again.
+- **Switching back to an unloaded workspace takes it off the unloaded list**
+  however its name is typed. With spaces around it or in lower case, it
+  stayed listed as unloaded after someone was working in it again.
+- **A number JSON can't carry is refused.** A request with `NaN`,
+  `Infinity` or a number too large (`1e999`) in a field nothing checks was
+  stored, and from then on no page could read a sync. It is now refused
+  with a plain message, and nothing is stored.
+- **One machine that stops reading no longer stops live updates for the
+  rest.** A laptop that kept its connection open but stopped taking what the
+  server sent (asleep, or on a failing network) held the update for every
+  page after it, and they stopped showing changes live. Its connection is
+  now closed after 10 seconds, and the others are told as before.
+- **A sync is compressed once for editors and once for viewers.** The two
+  differ, and only one was kept, so with both pulling after a change the
+  server compressed it again for nearly every machine, and machines asking
+  at the same moment each compressed it. Each is now kept, and compressed
+  once.
+- **Closing the server's window saves first.** Closing it with X skipped
+  the final save that Ctrl+C makes, losing the last half second of changes,
+  or everything since saves began failing. It now saves as Ctrl+C does. And
+  a change sent while the server is stopping is refused, so the page keeps
+  it and sends it again, rather than being told it was saved when it never
+  was.
 
 ## [2.42.0] - 2026-11-01
 

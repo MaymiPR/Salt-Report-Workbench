@@ -12,7 +12,8 @@ getting back an earlier state.
 2. The console shows the version, the address editors open, the **access code**
    (read it out to the editors), the read-only address for viewers, and the
    certificate's fingerprint. Leave the window open: closing it stops the
-   server. It minimizes itself.
+   server (saving the last changes first, as **Ctrl+C** does). It minimizes
+   itself.
 3. Editors open the address, type the code, their initials and their
    workspace. Viewers open the read-only address; they need nothing.
 
