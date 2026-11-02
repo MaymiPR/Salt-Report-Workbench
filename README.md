@@ -231,7 +231,7 @@ warnings mean, backups, and restoring.
 
 ```bash
 python scripts/build.py                  # bundle src/ into dist/
-python -m unittest discover -s tests     # server, build, pack, release, launcher, browser
+python -m unittest discover -s tests     # server, build, bump, pack, release, launcher, docs, styles, browser
 node --test tests/js/core.test.js        # the page's logic
 ```
 

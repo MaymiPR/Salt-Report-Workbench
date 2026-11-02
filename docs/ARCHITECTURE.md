@@ -26,6 +26,19 @@ Three constraints drive almost every decision:
 │   ├── index.html            Markup and the built-in user manual
 │   ├── styles.css
 │   ├── core/                 Pure logic (formatting, parsing, exports) in parts; unit-tested
+│   │   ├── 00-head.js        Opens the function the parts share
+│   │   ├── 10-dates.js       Dates, times, text safety
+│   │   ├── 20-reports.js     Reports, BDA, backups, CSV
+│   │   ├── 30-geography.js   MGRS, overlays, what a Location box says
+│   │   ├── 40-map.js         Shapefiles read, tracks, heat, activity tags
+│   │   ├── 45-measure.js     Units, lengths, areas, range rings, rate of march
+│   │   ├── 50-arcgis.js      The ArcGIS and shapefile exports
+│   │   ├── 60-statistics.js  Statistics, the Excel workbook, summary reports
+│   │   ├── 70-catalogue.js   The equipment catalogue
+│   │   ├── 75-doctrine.js    Echelons, likelihood terms, the built-in rules, doctrine
+│   │   ├── 80-narrative.js   The narrative
+│   │   ├── 85-sync.js        Sync bookkeeping
+│   │   └── 90-exports.js     The SaltCore object; closes the function
 │   └── app/                  DOM, state, and sync: ordered scripts sharing one scope
 │       ├── 10-state.js       Elements, state, helpers, toasts
 │       ├── 20-render.js      The report table, BDA panel and roll-up
@@ -37,11 +50,13 @@ Three constraints drive almost every decision:
 │       ├── 62-map-basemaps.js  Basemaps: drawing them, finding, adding, checking services
 │       ├── 63-map-drones.js  Drones: where, their view and range, their menu, saving; FMV mode
 │       ├── 64-map-controls.js  Full screen, the panel above, menus, grab a grid, go to one, pointer
+│       ├── 65-map-export.js  Saving and printing the map: PNG or print, with its key, title, north arrow, scale bar
 │       ├── 70-stats.js       Statistics panel: charts, hover, tables, PNG / SVG / Excel export
 │       ├── 80-summary.js     Summary Reports panel: written reports, copy, .txt, print, edit
 │       ├── 81-narrative.js   The narrative's settings: enemy name, way of march, units, equipment, rules
 │       ├── 85-mapview.js     The map under the Report Log: what's on it, its table, the report card
 │       ├── 90-sync.js        Push, pull, SSE, offline queue
+│       ├── 92-mission.js     Done with Mission, Previous Missions (Recall Settings, Load), Refresh
 │       ├── 95-handlers.js    Event wiring
 │       └── 99-startup.js     Restore saved state, then connect
 ├── server/
@@ -49,11 +64,13 @@ Three constraints drive almost every decision:
 │   └── Start SALT Workbench.bat  Windows double-click launcher
 ├── scripts/
 │   ├── build.py              Bundles src/ into dist/index.html, copies the server and launcher
+│   ├── bump.py               Sets the version everywhere it is written down, for a release
 │   ├── pack.py               Packs a release zip into one self-unpacking text file
 │   └── release.py            Builds a release: the zip, the one-file .txt, and SHA256SUMS.txt
-├── tests/                    Python tests (server, HTTP API, build, pack, release, launcher, browser); js/ for the core
+├── tests/                    Python tests (server, HTTP API, build, bump, pack, release, launcher, docs, styles,
+│                             browser); js/ for the core
 ├── assets/                   Logo, icon, banners, social preview (see BRAND.md)
-├── docs/                     Architecture, install guide, and screenshots
+├── docs/                     Architecture (this file), INSTALL.md, OPERATIONS.md, and screenshots
 └── dist/                     Build output (git-ignored)
 ```
 
@@ -100,8 +117,8 @@ report moves as and its rate of march), `50-arcgis.js` (the ArcGIS and shapefile
 likelihood terms, the built-in rules, doctrine), `80-narrative.js` (the
 narrative), `85-sync.js` (sync bookkeeping) and `90-exports.js` (the
 `SaltCore` object; closes the function). The rest of the page is
-`src/app/`, eighteen top-level scripts loaded in order (state, rendering,
-form, import/export, overlays, the map in five parts, statistics, summary
+`src/app/`, nineteen top-level scripts loaded in order (state, rendering,
+form, import/export, overlays, the map in six parts, statistics, summary
 reports, the narrative's settings, the map view, sync, missions, handlers,
 startup) that
 share one global scope, so a name declared in an earlier file is visible in the
@@ -109,9 +126,15 @@ later ones. Their numbers rise in the order the page loads them, and
 `tests/test_build.py` checks that, that each is loaded once, and that no
 top-level name is declared in two of them. Together they hold the whole
 application state in a handful of top-level variables, with `reportsByAto` (every workspace's reports) as the core. Every
-change is applied locally first and mirrored to `localStorage`, so the UI never
-waits on the network. Rendering is one function per surface, such as `renderLog`
-and `renderWorkspacesList`, that rebuilds its DOM from state into a
+change is applied in memory first, so the UI never waits on the network, and
+written to an offline copy in `localStorage`. That copy holds the workspace the
+editor is in, the one the page opens in next, and every one with a change the
+server hasn't taken (waiting, refused, or made since the last pull); the others
+the server has, and the next pull brings them back (`reportsToCache`, with
+`SaltCore.workspacesToCache`). A copy of every workspace, with weeks of
+history, outgrew what a browser keeps for a site. A page opened as a file has
+no server, so it keeps them all. Rendering is one function per surface, such
+as `renderLog` and `renderWorkspacesList`, that rebuilds its DOM from state into a
 `DocumentFragment` for a single reflow.
 
 Pushes are deltas. After every pull the client records the version
@@ -123,6 +146,12 @@ this: merging a partial batch is what it always did.
 When a push can't land (the server is unreachable, rate-limits it, or
 errors), the client sets `salt_offline_push`, and the next sync pushes again
 *before* pulling, so the pull can't overwrite changes the server hasn't seen.
+Changes still waiting are sent again every 5 seconds, so they go as soon as
+the server is back, with no notice needed to start a sync. Every request has
+a time limit (`serverFetch`: 20 seconds, longer for `/api/sync`, large saves,
+services asked through the server, and missions; the event stream has none),
+and one that runs out is treated as an unreachable server, so a request stuck
+on a dropped connection can't hold back every pull.
 A pull already on its way when a push comes back that way is dropped when it
 answers, for the same reason. Because merging is idempotent (below),
 replaying is always safe.
@@ -195,10 +224,10 @@ outside `/api`) gets the standard library's HTML `404`.
 | `/api/save_fmv` | POST | Turn FMV mode on or off for everyone: `{fmv: {on: true \| false}}`. Kept in every backup file. Until it is first saved the server holds `{}`, and the page takes that as on when there are drones, else off (a file that never had it, or `{}`, leaves it unsaved at boot). |
 | `/api/save_narrative` | POST | Replace the narrative's settings: `{enemy, units: [{name, places, kinds}], equipment: [{type, role, origin, gear?}], off: [rule ids], custom: [{what, words, min, hours}], toward?, terrain?}` (at most 50 units, 500 equipment entries, 30 rules; `terrain`, the elevation source, `{basemap, layer, encoding, units}`, a saved basemap's name, a WMS layer, `terrarium` or `terrain-rgb` for tiles, `m` or `ft`, kept only when set; unit names and equipment types unique; roles and rule ids from the fixed lists, origin `RU`, `CN` or empty; an entry's `gear`, how it moves, `tracked`, `wheeled`, `towed`, `portable`, `foot`, `air` or `static`, kept only when set; a rule's `min` 1-20 reports within `hours` 1-168; `toward`, the AO's way of march, N, NE, E, SE, S, SW, W, NW or empty, kept only when set). Shared like the basemaps and kept in every backup file. |
 | `/api/refresh` | POST | Refresh: read the backups in the folder the server hasn't read or written as they are now (by size and modification time), and merge their workspaces in; their shared settings are left. `{files, skipped, workspaces: {ATO: {added, changes}}}`. Not on the viewer port. |
-| `/api/finish_mission` | POST | Done with Mission: `{confirm: "DONE"}`. Everything in the backup folder but `tls/` and `terrain.json` goes to `Mission Archives/<when> <title>/`, and the next mission starts with only the basemaps; `{archive, mission}`. A 500 resets nothing. Not on the viewer port. |
+| `/api/finish_mission` | POST | Done with Mission: `{confirm: "DONE"}`. Everything in the backup folder but `tls/`, `terrain.json` and `change.json` goes to `Mission Archives/<when> <title>/`, and the next mission starts with only the basemaps; `{archive, mission}`. A 500 resets nothing. Not on the viewer port. |
 | `/api/missions` | GET | The finished missions, newest first: `{name, finished, by, title, workspaces: {ATO: reports}, settings: {overlays, tags, drones, profiles, format, narrative, fmv}}`. Not on the viewer port. |
-| `/api/recall_settings` | POST | `{mission, parts}`: those settings of a finished mission, merged or replacing as Recall Settings says; `{taken, missed: {part: why}}`. |
-| `/api/load_mission` | POST | `{mission, atos}`: those workspaces of a finished mission, merged into this one and saved with it; `{loaded: {ATO: reports}}`. |
+| `/api/recall_settings` | POST | `{mission, parts}`: those settings of a finished mission, merged or replacing as Recall Settings says; `{taken, missed: {part: why}}`. Not on the viewer port. |
+| `/api/load_mission` | POST | `{mission, atos}`: those workspaces of a finished mission, merged into this one and saved with it; `{loaded: {ATO: reports}}`. Not on the viewer port. |
 | `/api/elevation` | POST | `{points: [[lon, lat], ...]}` (1 to 500): heights for the narrative, from the elevation source in its settings (`narrative.terrain`): `{source, heights, pending, unknown, error}`, a height in meters or null (no data, or not known yet) for each point; `pending` lists the points still being asked, `unknown` those the source failed on in the last minute, `error` why it last failed. The server asks the source (a WMS's GetFeatureInfo, or an elevation tile it decodes) with up to 4 threads, waits up to 8 s, and keeps the answers in `terrain.json` beside the backups, by point and source, through Done with Mission. On the viewer port too: it changes nothing anyone sees. |
 | `/api/elevation_test` | POST | `{terrain, point}`: Test as elevation, for settings not yet saved: `{height, error, reply}`, the reply's start as text. Keeps nothing; logged in the audit log. Not on the viewer port. |
 | `/api/wms_fetch` | POST | `{url}`: the server GETs an http(s) address for an editor's page and returns its status, content type, size and text (not images). For WMS capabilities and Check when a service sends no CORS headers. Changes nothing; logged in the audit log. Not on the viewer port. |
@@ -296,10 +325,10 @@ The map sits under the Report Log in one pager (`#homePager`): the two
 panes are stacked and the pager slides between them with a CSS transform, so
 nothing is laid out again; the pane out of sight is hidden and inert once
 the slide ends. The Map view (`app/85-mapview.js`) is built around that map.
-After each drawing the map tells it (`mapDrawnHook`) what it showed: the
+After each drawing the map tells it (`mapState.drawnHook`) what it showed: the
 view box, the reports and their tracks. Once the view settles, the view
 counts what is on the map and fills the table from that. A click that didn't
-drag (`mapClickHook`) is a report (its card), an axis of advance within ten
+drag (`mapState.clickHook`) is a report (its card), an axis of advance within ten
 pixels (its card, with Remove for editors), an NAI or OBJ it falls in, or a
 phase line within ten pixels (the table narrows to it). The picked report,
 axis and place, and the grid gone to (*Go to a grid*, an X while its box is
@@ -558,6 +587,13 @@ Every accepted write passes through `_commit`, which also appends a line to
 that address (`AB@10.0.0.12`), and what changed. Server start and stop are
 logged the same way. The log is append-only and nothing reads it.
 
+Every line the console shows is also written, with its UTC time, to
+`Server Logs/server.log` beside the backup folder (`start_log`), with the full
+traceback of any error. It is rotated at about 1 MB (`LOG_MAX_BYTES`), three
+older ones kept (`LOG_KEEP`). It sits outside the backup folder, as the
+mission archive does, so nothing that reads or moves the backups meets it,
+and Done with Mission leaves it where it is.
+
 `_commit` also puts a change people would notice on the Activity list
 (`note_activity`), in plain words: for a batch of reports, `report_changes`
 compares each with the server's copy before the merge (new is *logged*, a
@@ -591,8 +627,9 @@ names the mission it is from (`X-Salt-Mission`).
 Done with Mission (`finish_mission`, POST `/api/finish_mission` with
 `confirm: "DONE"`) holds the disk and data locks throughout. It writes every
 workspace and the shared settings as they are, moves everything in the backup
-folder but `tls/` and `terrain.json` into `Mission Archives/<YYYY-MM-DD HHMMZ> <title>/` (beside
-the backup folder) with a `mission.json` summing it up, and starts the next
+folder but `tls/`, `terrain.json` and `change.json` (`MISSION_KEEP`) into
+`Mission Archives/<YYYY-MM-DD HHMMZ> <title>/` (beside the backup folder) with
+a `mission.json` summing it up, and starts the next
 mission with nothing but the basemaps. It is all or nothing: a file that can't
 be moved has what was moved put back, and the request fails with nothing
 reset.
@@ -674,9 +711,14 @@ against.
 | --- | --- |
 | `data_lock` | `DATA_STORE`, `workspace_sources`, `unloaded_workspaces`, the sync cache |
 | `_sync_gz_locks` | one per view (editor, viewer): its last `/api/sync` body and gzip form |
+| `_version_lock` | the change number and how far ahead it is reserved in `change.json` |
+| `_notice_lock` | the timer that sends changes within 150 ms as one SSE message |
 | `sse_lock` | `sse_clients`, `client_initials`, `client_workspace` |
 | `SSEClient._lock` | one per SSE connection: whole writes to that client's stream |
 | `_disk_lock` | ordering of backup writes |
+| `terrain_lock` | the heights kept for `/api/elevation` (`terrain.json`) and what is being asked |
+| `_writes` | a condition: the POSTs being handled, and whether the server is stopping |
+| `_drain_lock` | stopping (`graceful_drain`) runs once |
 | `_save_timer_lock` | the debounce timer |
 | `_workbench_html_lock` | the cached page (`index.html` and its mtime) |
 | `_audit_lock` | appends to `audit.log` |

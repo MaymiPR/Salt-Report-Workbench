@@ -20,7 +20,8 @@ release/
 __pycache__/
 *.py[cod]
 *$py.class
-# What `pip install .` leaves behind.
+# Packaging leftovers, should a tool make them here (pyproject.toml declares
+# no build system or packages, so nothing in this repo does).
 build/
 *.egg-info/
 .venv/
