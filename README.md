@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.41.0-0A84FF" alt="Version 2.41.0">
+  <img src="https://img.shields.io/badge/version-2.42.0-0A84FF" alt="Version 2.42.0">
   <a href="https://github.com/MaymiPR/SaltReportWorkbench/actions/workflows/ci.yml"><img src="https://github.com/MaymiPR/SaltReportWorkbench/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/python-3.11.8%2B-0A84FF" alt="Python 3.11.8+">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-8E8E93" alt="License: AGPL v3"></a>
@@ -142,8 +142,11 @@ it, to keep the finished missions (Done with Mission puts them there).
 git clone https://github.com/MaymiPR/SaltReportWorkbench.git
 cd SaltReportWorkbench
 python scripts/build.py
-python dist/salt_sync_server.py
+python dist/salt_sync_server.py --backup-dir .dev-data
 ```
+
+`--backup-dir .dev-data` (git-ignored) keeps your reports, snapshots and the
+TLS key out of `dist/`, the build output, as `make run` does.
 
 The server prints its addresses, an access code and its certificate's
 fingerprint, then opens your browser:
@@ -233,8 +236,8 @@ node --test tests/js/core.test.js        # the page's logic
 ```
 
 Browser tests run when Playwright is installed, and are skipped otherwise. On
-macOS and Linux, `make check` runs most of what CI runs (not the built-server
-smoke test). See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and conventions,
+macOS and Linux, `make check` runs most of what CI runs (not the smoke tests
+of the built server and of the release on Windows). See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and conventions,
 and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the code layout and how
 sync works.
 

@@ -10,10 +10,14 @@ get set up and what a change needs before it merges.
   change needs a third-party package or a CDN, open an issue to discuss it
   first. Dev tools such as ruff and pre-commit are fine.
 - **Develop on the latest Python, keep 3.11.8 working.** 3.11.8 is what the
-  operators' machines have, so it is the floor: CI runs every test on it, on
-  Linux and Windows, as well as on 3.12 to 3.15. Don't use anything newer
-  than 3.11 in the server or scripts (`datetime.UTC` is fine on 3.11 but not
-  before the server's version check, so the code keeps `timezone.utc`).
+  operators' machines have, so it is the floor. On 3.11.8, CI runs the unit
+  and integration tests on Linux and Windows, the browser tests on Linux, and
+  builds a release, extracts it and starts its server on Windows, as
+  operators do. It also runs the unit and integration tests on 3.12 to 3.15,
+  and the browser tests on 3.15 on Linux and Windows. Don't use anything
+  newer than 3.11 in the server or scripts (`datetime.UTC` is fine on 3.11
+  but not before the server's version check, so the code keeps
+  `timezone.utc`).
 - **Don't break offline use.** Every feature should still work in local mode
   (opening `dist/index.html` directly) or degrade clearly.
 - **Never commit report data.** `Auto Backups/` is git-ignored for a reason.
@@ -36,9 +40,8 @@ python -m playwright install chromium
 
 `make setup` and `make setup-browser` do the same on macOS and Linux. Without
 Playwright the browser tests are skipped; CI runs them, on Linux and Windows.
-`requirements-browser.txt` is locked on Python 3.15 and its pyee 14 needs 3.12
-or newer; to run the browser tests on 3.11 instead, use
-`pip install playwright==1.64.1 pyee==13.0.0 greenlet==3.5.6`.
+`requirements-browser.txt` installs on 3.11.8 as well as on 3.15:
+`requirements-browser.in` holds pyee below 14, which needs 3.12.
 
 The development tools are pinned to exact versions and their hashes, in
 `requirements-dev.txt` and `requirements-browser.txt`, so everyone (and CI)
@@ -74,7 +77,7 @@ monthly. The pre-commit hooks are pinned to commits, and CI's Node to
    ```
 
    `make check` does all of this on macOS and Linux: most of what CI runs (not
-   the built-server smoke test).
+   the smoke tests of the built server and of the release on Windows).
 5. Update the in-app user manual in `src/index.html` if behavior a user can see
    changed, and add an entry under *Unreleased* in [CHANGELOG.md](CHANGELOG.md).
 6. Open a pull request. CI must pass before merging.
