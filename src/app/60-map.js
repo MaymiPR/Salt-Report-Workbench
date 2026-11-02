@@ -1,17 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// The map drawn in the Map view (app/49-mapview.js): the shared NAIs, OBJs
+// The map drawn in the Map view (app/85-mapview.js): the shared NAIs, OBJs
 // and phase lines in Web Mercator, over an optional WMS or tile basemap fetched
 // only for the area the graphics cover, with the shown workspace's reports in
 // layers turned on and off together: a heat map, tracks, and dots. Plain SVG
 // drawn in screen pixels; no map library.
 // One of the ordered scripts that make up the page (see src/app/); they
 // share one top-level scope, so names declared earlier are visible here.
-
-// A setting this browser keeps as plain text (not JSON, so not readStored's),
-// or null when there is none or storage is blocked. Used by the map, its
-// view and Statistics; writes go through writeStored.
-const storedText = (key) => { try { return localStorage.getItem(key); } catch (e) { return null; } };
 
 // Every color the map draws with, here and nowhere else (the saved and printed
 // map draws the same). The system colors are the dark theme's, as the stylesheet's.
@@ -44,7 +39,7 @@ const mapState = {
     })(),
     // The heat map and the dots: each report at its latest grids, or every saved
     // report (its updates too) at its grids. Per browser.
-    allGrids: storedText('salt_map_grids') === 'all',
+    allGrids: readRaw('salt_map_grids') === 'all',
     activity: new Set(),   // the activity tags picked; none for every report
     // The graphics' tags switched off in the key, by id ('none': no tag). Per browser.
     tagsOff: new Set((v => (Array.isArray(v) ? v.filter(x => typeof x === 'string') : []))(readStored('salt_map_tags_off', []))),
@@ -65,7 +60,7 @@ const mapState = {
     clickHook: () => {},
     view: null,            // { cx, cy, mpp }: center (Web Mercator meters) and meters per pixel
     // The basemap this browser shows, by name: 'off' for none, '' for the first.
-    baseChoice: storedText('salt_map_base') || '',
+    baseChoice: readRaw('salt_map_base') || '',
     baseFailed: false,
     wmsTimer: null,
     wmsGen: 0,             // the WMS request whose image may still go on screen
@@ -82,8 +77,8 @@ const mapState = {
     baseOpen: null,        // the saved service whose details are open, by name
     // Whether the drones (app/63-map-drones.js) show, and whether their view
     // does, is each browser's own choice.
-    droneShow: storedText('salt_drone_show') !== 'off',
-    droneView: storedText('salt_drone_view') !== 'off',
+    droneShow: readRaw('salt_drone_show') !== 'off',
+    droneView: readRaw('salt_drone_view') !== 'off',
     pointer: null,         // where the pointer last was over the map: { clientX, clientY, target }
     // While the map is dragged, the picture already drawn slides with the
     // pointer and nothing redraws (app/64-map-controls.js); it is drawn once,
@@ -107,7 +102,6 @@ const mapState = {
     ringR: 0,
     measureHover: null,
     measurePx: null,       // the last drawing's lon/lat to screen, for refreshMeasure (app/61-map-draw.js)
-    // The time-distance tool's speed: a standard rate by id, and km/h.
     // Time-distance: the speed as typed (empty until one is, then kept in
     // this browser) and its unit's id (SPEED_UNITS in app/64-map-controls.js).
     measureSpeed: '',
@@ -120,7 +114,7 @@ const mapState = {
 };
 // Metric or imperial, this browser's own (Settings > Units): the map's
 // measures and a report's rate of march follow it (SaltCore.formatDistance).
-let unitSystem = storedText('salt_units') === 'imperial' ? 'imperial' : 'metric';
+let unitSystem = readRaw('salt_units') === 'imperial' ? 'imperial' : 'metric';
 // A report's rate of march (SaltCore.marchRates) for what it moves as, from
 // the catalogue and the team's equipment: { kind, legs, overall }. Its map
 // card and its history rows in the Report Log show it.
