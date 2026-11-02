@@ -122,6 +122,9 @@ All notable changes to this project are documented here. The format follows
   say.
 - **The saved and printed map's scale bar follows Settings > Units**: yards
   and miles in imperial, as every other measure.
+- **Every save says so.** Summary Reports' Save .txt and each chart's PNG,
+  SVG and CSV saved without a word. Now they, Export All and Excel name the
+  file saved, as the map's PNG does.
 
 ## [2.41.0] - 2026-11-01
 

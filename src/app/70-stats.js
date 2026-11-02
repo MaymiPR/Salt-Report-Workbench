@@ -331,11 +331,14 @@ const zipStored = (files) => {
     return new Blob([...parts, ...central, end], { type: 'application/zip' });
 };
 
+// Each save says so, naming the file, as every save on the page does.
 const exportChart = async (c, kind) => {
     const base = `${statsFileBase()}_${c.id}`;
-    if (kind === 'svg') triggerDownload(`${base}.svg`, chartSvg(c, 'light', true), 'image/svg+xml');
-    else if (kind === 'csv') triggerDownload(`${base}.csv`, chartCsv(c), 'text/csv;charset=utf-8;');
-    else triggerDownload(`${base}.png`, await chartPng(c), 'image/png');
+    const name = `${base}.${kind === 'svg' || kind === 'csv' ? kind : 'png'}`;
+    if (kind === 'svg') triggerDownload(name, chartSvg(c, 'light', true), 'image/svg+xml');
+    else if (kind === 'csv') triggerDownload(name, chartCsv(c), 'text/csv;charset=utf-8;');
+    else triggerDownload(name, await chartPng(c), 'image/png');
+    showToast(`Saved ${name}.`);
 };
 
 const exportAllStats = async () => {
@@ -349,7 +352,7 @@ const exportAllStats = async () => {
     const csv = SaltCore.statsCsv(charts.map(csvSection));
     files.push({ name: 'statistics.csv', bytes: enc.encode(csv) });
     triggerDownload(`${base}.zip`, zipStored(files), 'application/zip');
-    showToast(`Exported ${charts.length} charts as PNG and SVG, with their numbers in one CSV.`);
+    showToast(`Saved ${base}.zip: ${plural(charts.length, 'chart')} as PNG and SVG, with their numbers in one CSV.`);
 };
 
 // One Excel workbook: the headline numbers and every chart (drawn by Excel
@@ -371,8 +374,9 @@ const exportStatsXlsx = () => {
         kpis: statsKpis, charts,
         reports: SaltCore.workbookReportRows(reps, currentOverlays(), { local, idOf: formatFullId, customLabels, team: narrTeam() }),
     });
-    triggerDownload(`${statsFileBase()}.xlsx`, bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    showToast(`Exported ${charts.length} charts and ${plural(reps.length, 'report')} to Excel.`);
+    const name = `${statsFileBase()}.xlsx`;
+    triggerDownload(name, bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    showToast(`Saved ${name}: ${plural(charts.length, 'chart')} and ${plural(reps.length, 'report')}.`);
 };
 
 // --- Wiring ---

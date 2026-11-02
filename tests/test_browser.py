@@ -6479,6 +6479,30 @@ class KeyboardSavesAndZoomTests(BrowserTests):
             self.assertLessEqual(s["px"], 130)
         self.assertIn(f" {imperial['unit']}</text>", page.evaluate("mapMarksSvg(400, 300)"))
 
+    def test_every_save_says_so_naming_its_file(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        toast = "document.getElementById('toastNotification').textContent"
+
+        def saved(click, ending):
+            page.evaluate(f"{toast} = ''")
+            with page.expect_download() as dl:
+                page.click(click)
+            name = dl.value.suggested_filename
+            page.wait_for_function(f"t => {toast}.startsWith(t)", arg=f"Saved {name}{ending}")
+            return page.evaluate(toast)
+
+        page.click("#statsViewToggleBtn")
+        page.wait_for_selector(".stats-card[data-chart='nai'] svg")
+        for kind in ("png", "svg", "csv"):
+            said = saved(f".stats-card[data-chart='nai'] [data-stats-act='{kind}']", ".")
+            self.assertTrue(said.endswith(f"_nai.{kind}."), said)
+        self.assertIn("as PNG and SVG", saved("#statsExportAllBtn", ": "))
+        self.assertIn("1 report.", saved("#statsExcelBtn", ": "))
+        page.click("#summaryViewToggleBtn")
+        self.assertTrue(saved("#summarySaveBtn", ".").endswith(".txt."))
+
 
 for _name in [n for n in vars(BrowserTests) if n.startswith("test_")]:
     setattr(KeyboardSavesAndZoomTests, _name, None)
