@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.44.2] - 2026-11-02
+
+### Changed
+
+- **Links use the repository's new name**, MaymiPR/Salt-Report-Workbench: the
+  manual's Source code link, the README.txt in every download, the docs and
+  this changelog. The old address still forwards there. The download files keep
+  their names.
+
 ## [2.44.1] - 2026-11-02
 
 ### Changed
@@ -2029,7 +2038,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
 
-[Unreleased]: https://github.com/MaymiPR/Salt-Report-Workbench/compare/v2.44.1...HEAD
+[Unreleased]: https://github.com/MaymiPR/Salt-Report-Workbench/compare/v2.44.2...HEAD
+[2.44.2]: https://github.com/MaymiPR/Salt-Report-Workbench/compare/v2.44.1...v2.44.2
 [2.44.1]: https://github.com/MaymiPR/Salt-Report-Workbench/compare/v2.44.0...v2.44.1
 [2.44.0]: https://github.com/MaymiPR/Salt-Report-Workbench/compare/v2.43.0...v2.44.0
 [2.43.0]: https://github.com/MaymiPR/Salt-Report-Workbench/compare/v2.42.0...v2.43.0
