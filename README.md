@@ -60,7 +60,7 @@ slider shows how things stood earlier. Put a drone (a Gray Eagle, say) on it by
 its grid, and a cone points from the drone to the newest report. Shift + click
 copies the grid of any spot.
 
-![The map: NAIs, objectives and phase lines with a heat map, the activity sidebar on the left, and a drone (GE 1) with its 10 km range ring and a cone widening to the newest report, 8.2 km NE](docs/screenshots/map.png)
+![The map: NAIs, objectives, phase lines, an axis of advance and two routes with a heat map, the activity sidebar on the left, and a drone (GE 1) with its 10 km range ring and a cone widening to the newest report it observed, 7.94 km NE](docs/screenshots/map.png)
 
 ### Statistics
 
@@ -99,7 +99,7 @@ with its grid, and a roll-up above the table totals the workspace by outcome.
 Observers open the read-only address and watch live, with no access code. Every
 write is refused.
 
-![The Report Log in view-only mode, with a workspaces sidebar and an exercise's reports](docs/screenshots/viewer.png)
+![The Report Log in view-only mode, with the workspaces and the Activity list in the sidebar, and an exercise's reports](docs/screenshots/viewer.png)
 
 ### And also
 
