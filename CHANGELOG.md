@@ -15,6 +15,23 @@ All notable changes to this project are documented here. The format follows
   and the manual quotes them as they are. Counts say "1 report" and
   "2 reports" instead of "report(s)", in deleting, moving, putting back and
   importing.
+- **CI runs the pre-commit hooks.** The checks in `.pre-commit-config.yaml`
+  (trailing whitespace, end of files, YAML and TOML, merge markers, large
+  files, private keys, ruff) ran only for contributors who had installed
+  pre-commit. The Lint job now runs them on every file of every change.
+- **Browsers keep their connections to the server.** Every map tile, sync
+  and save was a new connection, and with HTTPS a new TLS handshake. The
+  server now keeps connections open between requests (HTTP/1.1 keep-alive),
+  on both ports, with HTTPS or without: the page and 50 map tiles over HTTPS
+  from one client take about 0.6 s instead of 1.25 s here. A connection left
+  idle for 30 seconds is closed, and the live updates stream as before.
+
+### Fixed
+
+- **An IPv6 `--host` is told plainly.** `--host ::` (or any IPv6 address)
+  stopped with "Is the server already running?", which it wasn't. The server
+  listens on IPv4 only, and now says so, with 0.0.0.0 or 127.0.0.1 to use
+  instead.
 
 ## [2.43.0] - 2026-11-01
 
@@ -48,16 +65,6 @@ All notable changes to this project are documented here. The format follows
   2,000 overlays, a save holds them up for 0.015 s instead of 0.14 s, and
   the hourly snapshots for 0.11 s instead of 1.5 s. The files are the same,
   to the byte.
-- **CI runs the pre-commit hooks.** The checks in `.pre-commit-config.yaml`
-  (trailing whitespace, end of files, YAML and TOML, merge markers, large
-  files, private keys, ruff) ran only for contributors who had installed
-  pre-commit. The Lint job now runs them on every file of every change.
-- **Browsers keep their connections to the server.** Every map tile, sync
-  and save was a new connection, and with HTTPS a new TLS handshake. The
-  server now keeps connections open between requests (HTTP/1.1 keep-alive),
-  on both ports, with HTTPS or without: the page and 50 map tiles over HTTPS
-  from one client take about 0.6 s instead of 1.25 s here. A connection left
-  idle for 30 seconds is closed, and the live updates stream as before.
 
 ### Fixed
 
@@ -146,10 +153,6 @@ All notable changes to this project are documented here. The format follows
   identity, which aren't sent again later, now say "Saved here only; the
   server can't be reached." rather than suggesting they will be. The × beside
   an overlay is titled Remove (it said Unload), as its question and toast say.
-- **An IPv6 `--host` is told plainly.** `--host ::` (or any IPv6 address)
-  stopped with "Is the server already running?", which it wasn't. The server
-  listens on IPv4 only, and now says so, with 0.0.0.0 or 127.0.0.1 to use
-  instead.
 
 ## [2.42.0] - 2026-11-01
 
