@@ -171,7 +171,7 @@ setInterval(() => { renderActivity(); renderPeerChange(); }, 30000);
 // to log again.
 function leaveWorkspace() {
     if (activeAto) markPending(activeAto, false);
-    activeAto    = '';
+    activeAto    = null;
     localReports = [];
     localConfig  = { ato:'', title:'' };
     writeStored('salt_offline_config', JSON.stringify(localConfig));
@@ -701,7 +701,7 @@ function processJsonImport(rawText) {
             if (unsent) {
                 // Don't sync: it would drop the workspaces the server never got.
                 // They're kept here and sent before the next pull.
-                showToast(`${unsent} workspace(s) saved here; they're sent once the server can be reached.`, true);
+                showToast(`${plural(unsent, 'workspace')} saved here; ${unsent === 1 ? "it's" : "they're"} sent once the server can be reached.`, true);
                 return;
             }
             if (refusals.length) showToast(`Imported, but not all of it was saved: ${refusals[0]}`, true);
@@ -736,7 +736,7 @@ const openCsvImportView = () => {
     el.menu.panel.style.display = 'none';
 
     el.csv.subtitle.textContent =
-        `${pendingCsv.filename} · ${pendingCsv.headers.length} columns · ${pendingCsv.rows.length} rows`;
+        `${pendingCsv.filename} · ${plural(pendingCsv.headers.length, 'column')} · ${plural(pendingCsv.rows.length, 'row')}`;
 
     // Column reference badges
     el.csv.colList.innerHTML = pendingCsv.headers
@@ -860,7 +860,7 @@ const confirmCsvImport = async () => {
         imported++;
     });
 
-    if (imported === 0) { showToast(`Nothing imported. ${skipped} row(s) skipped.`, true); return; }
+    if (imported === 0) { showToast(`Nothing imported. ${plural(skipped, 'row')} skipped.`, true); return; }
 
     reportsByAto[dest] = [...existing, ...newReps];
     if (activeAto !== dest) {
@@ -878,9 +878,9 @@ const confirmCsvImport = async () => {
     saveReportsByAtoToLocal();
     renderLog();
     closeCsvImportView();
-    let msg = `Imported ${imported} report(s) to ${dest}.`;
-    if (skipped > 0) msg += ` ${skipped} row(s) skipped.`;
-    if (unreadTimes > 0) msg += ` ${unreadTimes} time(s) couldn't be read and got the import time.`;
+    let msg = `Imported ${plural(imported, 'report')} to ${dest}.`;
+    if (skipped > 0) msg += ` ${plural(skipped, 'row')} skipped.`;
+    if (unreadTimes > 0) msg += ` ${plural(unreadTimes, 'time')} couldn't be read and got the import time.`;
     showToast(msg, unreadTimes > 0);
     // Now push to the server and wait for the response. By awaiting here, any
     // SSE-triggered sync that fires afterwards is guaranteed to see our reports
