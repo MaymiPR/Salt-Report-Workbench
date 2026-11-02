@@ -629,7 +629,7 @@ const copyToClipboard = async (text) => {
 };
 // This release. The server says its own in every sync; when they differ,
 // a bar asks for a reload (the server's tests/test_docs.py checks they agree).
-const APP_VERSION = '2.43.0';
+const APP_VERSION = '2.44.0';
 // The server numbers every change (see broadcast_update in the server):
 // `syncedVersion` is the change the data on screen is as of, `seenVersion`
 // the newest heard of, from update notices and this page's own saves. A
