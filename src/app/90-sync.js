@@ -281,6 +281,7 @@ function applyServerUpdate(state) {
     reportsByAto = workspaces || {};
     serverVersions = {};
     Object.entries(reportsByAto).forEach(([ato, reps]) => { serverVersions[ato] = SaltCore.knownVersions(reps); });
+    serverVersionsPulled = true;
     // Refused changes stay on top of the server's copy until fixed or
     // discarded, unless someone has since saved a newer version.
     let droppedUnsaved = false;

@@ -12,21 +12,42 @@
 let missionReloading = false;
 // Start this browser on the mission `id`: the page is loaded again, and its
 // first step begins the mission (see the start of app/10-state.js). `note`
-// is said once it has.
+// is said once it has. With storage too full to keep that, the reports' copy
+// goes (the server has them, what it doesn't was offered as a file, and the
+// new mission clears the copy anyway) and it is tried again. Failing still,
+// the page stays as it is and says why: loaded again, it would still be on
+// the finished mission, find it finished, and load again, for ever. True
+// when the page is loading again.
 const startNewMission = (id, note = '') => {
+    const next = JSON.stringify({ id, note });
+    let kept = writeStored('salt_mission_next', next);
+    if (!kept) {
+        removeStored('salt_reports_by_ato');
+        lastSavedReportsJson = '';
+        kept = writeStored('salt_mission_next', next);
+    }
+    if (!kept) {
+        // Nothing more from the finished mission until the page is loaded again.
+        missionLeaving = true;
+        // After the storage warning writeStored may have put off till now.
+        setTimeout(() => showToast("This browser can't start the new mission: its storage is full or blocked. Free some space for this site in the browser's settings (or allow it storage), then reload the page.", true, { ms: 20000 }), 0);
+        return false;
+    }
     missionReloading = true;
-    writeStored('salt_mission_next', JSON.stringify({ id, note }));
     location.reload();
+    return true;
 };
 
-// The reports this browser has that the server doesn't: changed and not yet
-// sent, or refused.
+// The reports this browser has that the server doesn't: changed since the
+// last pull and not yet sent, or refused. Null when that can't be told
+// (right after a reload, before the first pull: SaltCore.unsentTally). After
+// a pull, a workspace the server didn't have has none of its reports there.
 const unsentCount = () => {
-    const atos = new Set([...pendingAtos, ...(offlinePendingPush && activeAto ? [activeAto] : [])]);
-    let n = 0;
-    atos.forEach(ato => { n += SaltCore.changedReports((ato === activeAto ? localReports : reportsByAto[ato]) || [], serverVersions[ato]).length; });
-    Object.values(unsaved).forEach(entries => { n += Object.keys(entries).length; });
-    return n;
+    const atos = [...new Set([...pendingAtos, ...(offlinePendingPush && activeAto ? [activeAto] : [])])];
+    const waiting = Object.fromEntries(atos.map(ato => [ato, (ato === activeAto ? localReports : reportsByAto[ato]) || []]));
+    const known = Object.fromEntries(atos.map(ato => [ato, serverVersions[ato] || (serverVersionsPulled ? {} : null)]));
+    const refused = Object.fromEntries(Object.entries(unsaved).map(([ato, entries]) => [ato, Object.keys(entries || {})]));
+    return SaltCore.unsentTally(waiting, known, refused);
 };
 
 // Every workspace this browser holds, as one backup file Import reads,
@@ -55,9 +76,10 @@ async function leaveFinishedMission(id) {
     missionLeaving = true;
     const waiting = isReadOnly ? 0 : unsentCount();
     let saved = false;
-    if (waiting) {
+    // How many isn't known (no pull yet since a reload): asked all the same.
+    if (waiting !== 0) {
         const pick = await askChoice('The team has finished the mission.',
-            `This browser has ${plural(waiting, 'report')} the server never got. Save them to a file before the new mission starts? Import can read it.`,
+            `This browser has ${waiting === null ? 'reports' : plural(waiting, 'report')} the server ${waiting === null ? 'may never have got' : 'never got'}. Save them to a file before the new mission starts? Import can read it.`,
             [{ label: 'Save to a file', value: 'save', primary: true }, { label: "Don't save them", value: 'drop' }]);
         // Cancel keeps them too: they go nowhere else.
         if (pick !== 'drop') saved = downloadEverything('Unsent');

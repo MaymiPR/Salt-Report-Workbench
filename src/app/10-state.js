@@ -223,7 +223,7 @@ const readRaw = (key, fallback = null) => {
 };
 const removeStored = (key) => { try { localStorage.removeItem(key); } catch (e) { /* blocked: nothing kept to remove */ } };
 // Write to localStorage. Storage can be full (a long operation's reports and
-// history, cached in every browser) or blocked. The app works from memory
+// history; see reportsToCache) or blocked. The app works from memory
 // either way, so a failure is reported once instead of thrown into whatever
 // was running; before this, a full store silently took the client offline.
 let storageWarned = false;
@@ -539,17 +539,32 @@ const markPending = (ato, pending) => {
 // push sends only what changed. Refreshed on every pull; a workspace with no
 // record yet (say, right after a reload) is pushed in full.
 let serverVersions = {};
+// True once a pull has filled it: from then on a workspace with no record is
+// one the server doesn't have, not one it may have (right after a reload).
+let serverVersionsPulled = false;
 // Changes the server refused, per workspace (report key -> { report, reason }).
 // Kept so nothing is lost: shown as "Not saved" until fixed or discarded.
 let unsaved = readStored('salt_unsaved', {});
 const saveUnsaved = () => { writeStored('salt_unsaved', JSON.stringify(unsaved)); };
 const unsavedEntry = (ato, report) => ((unsaved[ato] || {})[SaltCore.reportKey(report)]) || null;
 
+// The offline copy holds the workspace this editor is in (and opens in next
+// time) and every one with a change the server hasn't taken: waiting to be
+// sent, refused, or made since the last pull. The others the server has,
+// and the next pull brings them back. A copy of every workspace, with weeks
+// of reports and their history, outgrew what a browser keeps for a site.
+// A page opened as a file has no server: it keeps them all.
+const reportsToCache = () => {
+    if (isLocalFile) return reportsByAto;
+    const keep = new Set([activeAto, localConfig.ato, ...pendingAtos,
+        ...Object.keys(unsaved).filter(a => Object.keys(unsaved[a] || {}).length)].filter(Boolean));
+    return SaltCore.workspacesToCache(reportsByAto, keep, serverVersions);
+};
 // Dedupe localStorage writes — skip if the JSON hasn't actually changed.
 let lastSavedReportsJson = readRaw('salt_reports_by_ato', '');
 const saveReportsByAtoToLocal = () => {
     if (isReadOnly) return;
-    const json = JSON.stringify(reportsByAto);
+    const json = JSON.stringify(reportsToCache());
     // A write that fails is tried again on the next change, not forgotten.
     if (json !== lastSavedReportsJson && writeStored('salt_reports_by_ato', json)) {
         lastSavedReportsJson = json;

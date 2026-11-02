@@ -572,6 +572,33 @@ test('a push carries only reports the server lacks in that version', () => {
     assert.equal(core.changedReports(local, undefined).length, 4, 'no record: send everything mergeable');
 });
 
+test('a browser keeps only the workspaces the server could not give back', () => {
+    const server = { A: [report({ id: 'a', lastModified: 1 })], B: [report({ id: 'b', lastModified: 2 })], C: [report({ id: 'c', lastModified: 3 })] };
+    const versions = Object.fromEntries(Object.entries(server).map(([k, v]) => [k, core.knownVersions(v)]));
+    const byAto = {
+        A: server.A,                                                        // the one it is in
+        B: [report({ id: 'b', lastModified: 2 }), report({ id: 'n', lastModified: 4 })],  // logged since the pull
+        C: server.C,                                                        // as the server has it
+        D: [report({ id: 'd', lastModified: 5 })],                          // never pulled: no record
+        E: [],
+    };
+    assert.deepEqual(Object.keys(core.workspacesToCache(byAto, new Set(['A']), versions)), ['A', 'B', 'D']);
+    assert.deepEqual(Object.keys(core.workspacesToCache(byAto, new Set(['C', 'E']), versions)), ['B', 'C', 'D', 'E']);
+    assert.deepEqual(Object.keys(core.workspacesToCache(byAto, new Set(), {})), ['A', 'B', 'C', 'D'], 'before the first pull: all it has');
+});
+
+test('the unsent count is what the server lacks, once each, and unknown before a pull', () => {
+    const versions = { A: core.knownVersions([report({ id: 'a', lastModified: 1 }), report({ id: 'b', lastModified: 2 })]) };
+    const waiting = { A: [report({ id: 'a', lastModified: 1 }), report({ id: 'b', lastModified: 7 }), report({ id: 'c', lastModified: 3 })] };
+    assert.equal(core.unsentTally(waiting, versions, {}), 2, 'b changed, c new; a the server has');
+    assert.equal(core.unsentTally(waiting, versions, { A: ['b', 'z'], B: ['y'] }), 4, 'b counted once; refused ones elsewhere too');
+    assert.equal(core.unsentTally({}, {}, { A: ['a'] }), 1);
+    // Right after a reload: no record, so not every report the workspace has.
+    const many = { A: Array.from({ length: 1200 }, (_, i) => report({ id: `r${i}` })) };
+    assert.equal(core.unsentTally(many, {}, {}), null);
+    assert.equal(core.unsentTally({ A: [] }, {}, {}), 0, 'an empty one is nothing to tell');
+});
+
 test('refused changes stay over the server copy until superseded', () => {
     const server = [report({ id: 'a', size: 'server', lastModified: 5 }), report({ id: 'b', size: 'server', lastModified: 9 })];
     const unsaved = [
