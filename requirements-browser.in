@@ -1,3 +1,6 @@
 # The browser tests (tests/test_browser.py): Playwright, which drives Chromium.
 # Pinned with hashes in requirements-browser.txt: pip-compile --generate-hashes requirements-browser.in
 playwright==1.64.1
+# Playwright's own dependency. pyee 14 needs Python 3.12 or newer, and CI runs
+# the browser tests on 3.11.8 too (the operators' Python, the floor).
+pyee<14
