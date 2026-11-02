@@ -92,7 +92,8 @@ a determined attacker on that network.
   `Auto Backups/tls/` holds the server's private key. Protect the machine and
   the folder according to your data-handling rules.
 - **Sensitive data in the browser.** Editors' browsers keep a copy of the
-  reports in browser storage for offline use, and any summary text they edited
+  reports in browser storage for offline use (the workspace they are in, and
+  any with changes the server hasn't taken), and any summary text they edited
   (Summary Reports, Edit text). Viewers keep no reports. Clear browser data on
   shared machines.
 - **The server reaching other addresses for editors.** `/api/wms_fetch` (editor
@@ -118,4 +119,6 @@ The folder also holds `Shared settings.json` (the settings every workspace
 shares, such as basemaps and the narrative), `audit.log`, which names
 operators by initials and LAN address, and `snapshots/`, dated copies of the
 backups and older files moved aside when a workspace's backup was renamed;
-all stay with the host.
+all stay with the host. So do the folders beside it: `Mission Archives/`,
+the finished missions' backups, and `Server Logs/`, the server's console
+lines, which name operators and workspaces.

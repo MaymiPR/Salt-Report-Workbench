@@ -39,7 +39,7 @@ format:  ## Auto-format Python
 
 check: lint test build  ## Most of what CI runs (not the smoke tests of the built server and release)
 
-release:  ## Set the version everywhere for a release: make release VERSION=2.24.0
+release:  ## Only bump the version (the tag's workflow builds the release): make release VERSION=2.24.0
 	@test -n "$(VERSION)" || { echo "usage: make release VERSION=X.Y.Z"; exit 1; }
 	$(PY) scripts/bump.py $(VERSION)
 	$(PY) -m unittest tests.test_docs

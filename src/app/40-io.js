@@ -585,7 +585,7 @@ const importNarrative = async (n) => {
         const count = (k) => (n[k] || []).length;
         const pick = await askChoice("Use this file's narrative settings?",
             `It has ${plural(count('units'), 'unit')}, ${plural(count('equipment'), 'equipment entry')} and ${plural(count('custom'), 'rule')} of its own; yours would be replaced for everyone.`,
-            [{ label: "Use the file's", value: 'file', primary: true }, { label: 'Keep mine', value: 'keep' }]);
+            [{ label: "Use the File's", value: 'file', primary: true }, { label: 'Keep Mine', value: 'keep' }]);
         if (pick !== 'file') return;
     }
     await saveNarrative(n, 'Narrative settings taken from the file.');

@@ -126,8 +126,8 @@ SHARED_SETTINGS_NAME = 'Shared settings.json'
 # the backups, which is reserved CHANGE_RESERVE ahead (see _sync_version).
 CHANGE_NAME = 'change.json'
 CHANGE_RESERVE = 10_000_000
-# Done with Mission moves everything in BACKUP_DIR but the certificate (tls/)
-# into a folder of its own under MISSION_ARCHIVE_NAME, beside BACKUP_DIR, named
+# Done with Mission moves everything in BACKUP_DIR but MISSION_KEEP (the
+# certificate, the heights, the change numbers) into a folder of its own under MISSION_ARCHIVE_NAME, beside BACKUP_DIR, named
 # for when it finished and its title (``2026-10-30 1415Z Patrol``), with what
 # it held summed up in MISSION_INFO_NAME for the Previous Missions list.
 MISSION_ARCHIVE_NAME = 'Mission Archives'

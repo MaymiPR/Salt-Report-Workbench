@@ -46,6 +46,7 @@ Open `/api/health` on either port, from any machine, without the code:
 | `last_saved` | when the backups were last written (UTC), or `null` before the first change |
 | `save_failures` | saves that failed in a row; 0 when all is well |
 | `connected_machines` | machines with the page open |
+| `change` | the number of the newest change; it rises with every change anyone can see |
 
 A script or a monitoring tool can poll it; it says nothing about the reports.
 

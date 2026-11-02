@@ -14,7 +14,7 @@ const askEditConflict = async (theirs) => {
     const now = [theirs.size, theirs.activity, theirs.location].filter(Boolean).join(' · ');
     const pick = await askChoice(`${who} changed this report since you opened it`,
         `${formatFullId(theirs)} now reads ${now}.`,
-        [{ label: 'Keep theirs', value: 'theirs', primary: true }, { label: 'Overwrite theirs', value: 'mine' }]);
+        [{ label: 'Keep Theirs', value: 'theirs', primary: true }, { label: 'Overwrite Theirs', value: 'mine' }]);
     if (pick === 'theirs') loadReportForEditing(theirs.id);
     return pick;
 };
@@ -25,7 +25,7 @@ const askNotGrids = (list) => {
     const one = list.length === 1;
     return askChoice(one ? `Not a grid: ${list[0].text}` : `${list.length} parts of the Location aren't grids`,
         `${list.map(c => `${c.text} ${c.why}`).join('; ')}. Logged as typed, ${one ? 'it' : 'they'} won't be read as ${one ? 'a grid' : 'grids'} on the map or in the statistics.`,
-        [{ label: 'Fix it', value: 'fix', primary: true }, { label: 'Log as typed', value: 'typed' }]);
+        [{ label: 'Fix It', value: 'fix', primary: true }, { label: 'Log as Typed', value: 'typed' }]);
 };
 
 // The form's values put back over a report loaded for editing.

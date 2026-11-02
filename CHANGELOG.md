@@ -12,9 +12,11 @@ All notable changes to this project are documented here. The format follows
   and their buttons (Range Ring, Keep Ring on the Map, Clear All, Save Axis),
   Zoom to It, the basemap and print buttons, and the Narrative settings'
   Add a Unit, Add a Type and Add a Rule are in Title Case like the rest,
-  and the manual quotes them as they are. Counts say "1 report" and
-  "2 reports" instead of "report(s)", in deleting, moving, putting back and
-  importing.
+  and so are the answers in the page's questions (Keep Theirs, Overwrite
+  Theirs, Keep Both, Take Out, Fix It, Log as Typed, Use the File's, Keep
+  Mine, Save to a File, Don't Save Them, Back Up and Start a New Mission);
+  the manual quotes them as they are. Counts say "1 report" and "2 reports"
+  instead of "report(s)", in deleting, moving, putting back and importing.
 - **CI runs the pre-commit hooks.** The checks in `.pre-commit-config.yaml`
   (trailing whitespace, end of files, YAML and TOML, merge markers, large
   files, private keys, ruff) ran only for contributors who had installed
