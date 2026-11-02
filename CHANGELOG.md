@@ -131,6 +131,15 @@ All notable changes to this project are documented here. The format follows
   the activity counts beside the map use the drawing's tracks rather than
   working them all out again.
 
+### Changed
+
+- **Text and buttons are easier to read.** Blue and red text (on a field or
+  a tinted chip), white on blue buttons (Log New Report, Set, Copy, Save .txt,
+  Print, the pressed Latest Grids, a picked chip), a tag switched off in the
+  map's key and a BDA's delete were below the 4.5:1 contrast WCAG asks for.
+  Blue and red text are a little lighter, blue buttons a little darker, and
+  the last two are dimmed less; all now reach 4.5:1.
+
 ## [2.41.0] - 2026-11-01
 
 ### Added
