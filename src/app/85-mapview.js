@@ -43,16 +43,23 @@ const placesOfReport = (r) => { const a = locationInfo(r.location); return [...a
 // The reports the table and the numbers are about: those the map shows, cut
 // to the picked place and (when asked) to the part of the map on screen.
 // `everyActivity`: before the activity filter, to count what it can pick.
+// A report's track hangs on that report alone, so the drawing's are used, and
+// only those of the reports it left out (another activity, the search) are
+// worked out here.
 const mapListReports = (everyActivity = false) => {
     const d = mapState.lastDraw;
     if (!d) return [];
     let reps = everyActivity ? mapWindowReports() : d.reps;
-    const track = new Map((everyActivity ? SaltCore.reportTracks(reps) : d.tracks).map(t => [t.report.id, t]));
+    const track = new Map(d.tracks.map(t => [t.report, t]));
+    if (everyActivity) {
+        const drawn = new Set(d.reps);
+        SaltCore.reportTracks(reps.filter(r => !drawn.has(r))).forEach(t => track.set(t.report, t));
+    }
     if (mapState.place) reps = reps.filter(r => placesOfReport(r).includes(mapState.place));
     if (mapOnlyInView && d.view) {
         const [x0, y0, x1, y1] = d.view;
         reps = reps.filter(r => {
-            const t = track.get(r.id);
+            const t = track.get(r);
             if (!t) return false;
             const [x, y] = latestMerc(t);
             return x >= x0 && x <= x1 && y >= y0 && y <= y1;
@@ -96,6 +103,7 @@ const renderMapSide = (reps) => {
         </div>`;
 };
 
+let mapTableBuilt = null;   // the rows last put in the table, as markup
 const renderMapTable = (reps) => {
     const s = mapViewEls(), local = timeDisplayMode === 'local';
     s.timeHead.textContent = local ? 'Time (L)' : 'Time (Z)';
@@ -103,15 +111,29 @@ const renderMapTable = (reps) => {
     s.only.checked = mapOnlyInView;
     s.chip.innerHTML = mapState.place
         ? `<button type="button" class="map-place-chip" data-map-place="${escapeHtml(mapState.place)}" title="Show every place again">${escapeHtml(mapState.place)} <span aria-hidden="true">&times;</span></button>` : '';
-    // Rebuilt after every drawing: a row with the keyboard's focus keeps it.
-    const focused = s.body.contains(document.activeElement) ? document.activeElement.dataset.mapRow : null;
     const team = narrTeam();
-    s.body.innerHTML = reps.length ? reps.map(r => `
+    const rows = reps.length ? reps.map(r => `
         <tr data-map-row="${escapeHtml(r.id)}" tabindex="0"${r.id === mapState.selected ? ' class="selected-row"' : ''}>
             <td>${escapeHtml(formatFullId(r))}</td><td>${escapeHtml(SaltCore.sizeAfterBda(r, team).shown)}</td><td>${escapeHtml(r.activity || '')}</td>
             <td>${escapeHtml(r.location || '')}</td><td>${escapeHtml(mapTimeFmt(r.time))}</td>
         </tr>`).join('')
         : `<tr class="map-table-empty"><td colspan="5">${mapOnlyInView ? 'No reports on this part of the map. Zoom out, or untick “Only what’s on the map”.' : 'No reports in this window.'}</td></tr>`;
+    // The rows' markup is the fingerprint of all they show (which reports, in
+    // what order; each one's ID, Size after BDA, Activity, Location and time in
+    // the time mode; the picked row; the empty table's words): the same as the
+    // last built, the table is left as it is, the keyboard's place and all
+    // (most settles, a pan that keeps the same reports in view, say). Only the
+    // picked row's mark is put back, which the form takes off every row when it
+    // is cleared.
+    if (rows === mapTableBuilt && s.body.isConnected && s.body.childElementCount) {
+        const picked = mapState.selected && s.body.querySelector(`[data-map-row="${CSS.escape(mapState.selected)}"]`);
+        if (picked) picked.classList.add('selected-row');
+        return;
+    }
+    mapTableBuilt = rows;
+    // Rebuilt: a row with the keyboard's focus keeps it.
+    const focused = s.body.contains(document.activeElement) ? document.activeElement.dataset.mapRow : null;
+    s.body.innerHTML = rows;
     const again = focused && s.body.querySelector(`[data-map-row="${CSS.escape(focused)}"]`);
     if (again) again.focus({ preventScroll: true });
 };

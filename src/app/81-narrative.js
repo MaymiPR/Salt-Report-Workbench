@@ -413,7 +413,8 @@ const renderNarrSettings = () => {
     narrBuilt = key;
     const counts = narrCounts(), unknown = narrUnknown().length;
     const tabs = [['units', 'Units'], ['equipment', 'Equipment'], ['rules', 'Rules'], ['terrain', 'Terrain']];
-    box.innerHTML = `<div class="narr-head">Narrative settings</div>
+    // Rebuilt, the keyboard stays where it was (a tab, a row), found again.
+    refocusAfter(() => { box.innerHTML = `<div class="narr-head">Narrative settings</div>
         <label class="narr-call"><span>Call them</span>
             <input type="text" id="narrEnemy" value="${escapeHtml(sharedNarrative.enemy || '')}" placeholder="enemy forces" maxlength="60" spellcheck="false"${isReadOnly ? ' disabled' : ''}></label>
         <div class="narr-hint narr-call-hint">When no unit fits a judgment.</div>
@@ -422,9 +423,11 @@ const renderNarrSettings = () => {
                 `<option value="${v}"${v === narrToward() ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
         <div class="narr-hint narr-call-hint">The way of march in the AO, for judging which way reports move. Within 10 km of an axis of advance on the map, the axis's way instead.</div>
         <div class="summary-kinds narr-tabs" role="group" aria-label="Narrative settings">${tabs.map(([t, n]) =>
-            `<button type="button" class="ws-tab${t === narrTab ? ' active' : ''}" data-narr-tab="${t}">${n}<span class="narr-count">${counts[t]}</span>${t === 'equipment' && unknown && !isReadOnly ? '<span class="narr-dot" title="Types in your reports that the catalogue doesn\'t know" aria-hidden="true"></span><span class="visually-hidden">, with types in your reports that the catalogue doesn\'t know</span>' : ''}</button>`).join('')}</div>
+            `<button type="button" class="ws-tab" data-narr-tab="${t}">${n}<span class="narr-count">${counts[t]}</span>${t === 'equipment' && unknown && !isReadOnly ? '<span class="narr-dot" title="Types in your reports that the catalogue doesn\'t know" aria-hidden="true"></span><span class="visually-hidden">, with types in your reports that the catalogue doesn\'t know</span>' : ''}</button>`).join('')}</div>
         <div class="narr-body">${{ units: unitsTab, equipment: equipmentTab, rules: rulesTab, terrain: terrainTab }[narrTab]()}</div>
-        <div class="narr-hint narr-shared">Shared with everyone${isReadOnly ? '; editors change them' : ''}.</div>`;
+        <div class="narr-hint narr-shared">Shared with everyone${isReadOnly ? '; editors change them' : ''}.</div>`; });
+    // The tab shown says so, as the Report buttons above the summary do.
+    box.querySelectorAll('[data-narr-tab]').forEach(b => setOn(b, b.dataset.narrTab === narrTab));
 };
 // Shown with the Narrative, and only then.
 const showNarrSettings = (show) => {
@@ -499,6 +502,19 @@ const saveNarrForm = () => {
     if (!box) return;
     const rerender = () => { narrBuilt = null; renderNarrSettings(); };
     const go = (open) => { narrOpen = open; rerender(); };
+    // Into an item, the keyboard goes to its Back; back out, to the item's row
+    // (one new or gone: to + Add), so it isn't left at the top of the page.
+    const into = (open) => {
+        go(open);
+        const back = box.querySelector('[data-narr-back]');
+        if (back) back.focus({ preventScroll: true });
+    };
+    const out = () => {
+        const was = narrOpen;
+        go(null);
+        const to = (was && was.id !== null && box.querySelector(`[data-narr-id="${CSS.escape(was.id)}"]`)) || box.querySelector('[data-narr-add]');
+        if (to && !box.contains(document.activeElement)) to.focus({ preventScroll: true });
+    };
     box.addEventListener('click', e => {
         const tab = e.target.closest('[data-narr-tab]');
         if (tab) {
@@ -512,17 +528,17 @@ const saveNarrForm = () => {
         const edit = e.target.closest('[data-narr-edit]');
         if (edit) {
             const key = LIST_OF[narrTab], entry = narrList(key).find(x => narrId(key, x) === edit.dataset.narrId);
-            if (entry) go({ id: edit.dataset.narrId, entry }); else rerender();
+            if (entry) into({ id: edit.dataset.narrId, entry }); else rerender();
             return;
         }
         if (e.target.closest('[data-narr-add]')) {
             const typed = narrTab === 'equipment' ? ((document.getElementById('narrEqFind') || {}).value || '').trim() : '';
-            go({ id: null, fill: typed });
+            into({ id: null, fill: typed });
             return;
         }
         const fill = e.target.closest('[data-narr-fill]');
-        if (fill) { go({ id: null, fill: fill.dataset.narrFill }); return; }
-        if (e.target.closest('[data-narr-back]')) { go(null); return; }
+        if (fill) { into({ id: null, fill: fill.dataset.narrFill }); return; }
+        if (e.target.closest('[data-narr-back]')) { out(); return; }
         // A dropdown: its button opens or closes it; an option is ticked or not.
         const ddBtn = e.target.closest('.narr-dd-btn');
         if (ddBtn) {
@@ -603,7 +619,7 @@ const saveNarrForm = () => {
         if (e.key === 'Escape' && (open || narrOpen)) {
             e.preventDefault();
             e.stopPropagation();
-            if (open) { closeDropdowns(); open.closest('.narr-dd').querySelector('.narr-dd-btn').focus(); } else go(null);
+            if (open) { closeDropdowns(); open.closest('.narr-dd').querySelector('.narr-dd-btn').focus(); } else out();
             return;
         }
         // In a one-choice group, the arrow keys pick the next or previous one.

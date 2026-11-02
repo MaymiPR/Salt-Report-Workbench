@@ -7,7 +7,7 @@
 // --- Drawing ---
 
 const drawMap = () => {
-    if (mapState.dragging) return;   // drawn when the drag ends
+    if (mapState.dragging || mapState.wheeling) return;   // drawn when the drag or the wheel ends
     const m = mapEls();
     if (!m.svg || !m.box) return;
     const w = m.box.clientWidth, h = m.box.clientHeight;
@@ -30,6 +30,7 @@ const drawMap = () => {
     if (!mapState.view) mapState.view = { cx: (ext[0] + ext[2]) / 2, cy: (ext[1] + ext[3]) / 2, mpp: Infinity };
     clampMapView(ext, w, h);
     const { cx, cy, mpp } = mapState.view;
+    mapState.drawnView = { cx, cy, mpp, w, h };
     const px = (lon, lat) => { const [x, y] = SaltCore.lonLatToMerc(lon, lat); return [(x - cx) / mpp + w / 2, (cy - y) / mpp + h / 2]; };
     const view = [cx - w * mpp / 2, cy - h * mpp / 2, cx + w * mpp / 2, cy + h * mpp / 2];
     drawBasemap(m, ext, view, w, h);

@@ -375,7 +375,12 @@ const summaryFileName = () =>
             copyToClipboard(shownSummary()).then(ok => showToast(ok ? 'Report copied.' : "Couldn't copy the report: the browser blocked the clipboard.", !ok));
             return;
         }
-        if (e.target.closest('#summarySaveBtn')) { triggerDownload(summaryFileName(), shownSummary().replace(/\n/g, '\r\n')); return; }
+        if (e.target.closest('#summarySaveBtn')) {
+            const name = summaryFileName();
+            triggerDownload(name, shownSummary().replace(/\n/g, '\r\n'));
+            showToast(`Saved ${name}.`);
+            return;
+        }
         // Edit: the text in a box to change as you like; Done keeps it, Revert drops it.
         if (e.target.closest('#summaryEditBtn')) {
             if (summaryEditing) finishEditing();
