@@ -7,18 +7,23 @@
 // displayId for rows that predate ids.
 const reportKey = r => (r && (r.id || r.displayId)) || '';
 
-// The version of each report a workspace holds: key -> lastModified.
+// The version of each report a workspace holds: key -> lastModified, as a
+// plain object (the page keeps it so). Built through a Map, so an id such as
+// "__proto__" (which the server takes) is a key like any other.
 const knownVersions = reps => {
-    const out = {};
-    (reps || []).forEach(r => { const k = reportKey(r); if (k) out[k] = r.lastModified || 0; });
-    return out;
+    const out = new Map();
+    (reps || []).forEach(r => { const k = reportKey(r); if (k) out.set(k, r.lastModified || 0); });
+    return Object.fromEntries(out);
 };
+// A key's version in a knownVersions record: its own, never one an object
+// inherits ("constructor", "toString").
+const versionIn = (known, k) => (Object.prototype.hasOwnProperty.call(known, k) ? known[k] : undefined);
 
 // The reports the server doesn't hold in this exact version: new ones and
 // changed ones. With no record of the server's copy (`known` undefined),
 // everything is sent.
 const changedReports = (reps, known) =>
-    (reps || []).filter(r => { const k = reportKey(r); return k && (!known || known[k] !== (r.lastModified || 0)); });
+    (reps || []).filter(r => { const k = reportKey(r); return k && (!known || versionIn(known, k) !== (r.lastModified || 0)); });
 
 // The workspaces of `byAto` (workspace -> reports) a browser keeps in its own
 // copy: those named in `keep` (a Set: the one it is in, those with changes
@@ -51,13 +56,13 @@ const unsentTally = (waiting, versions, refused) => {
 // moved past (someone saved a newer version) is superseded and dropped.
 const withUnsaved = (serverReps, unsavedReps) => {
     const reports = [...(serverReps || [])];
-    const index = {};
-    reports.forEach((r, i) => { index[reportKey(r)] = i; });
+    const index = new Map();
+    reports.forEach((r, i) => { index.set(reportKey(r), i); });
     const superseded = [];
     (unsavedReps || []).forEach(u => {
         const k = reportKey(u);
-        const i = index[k];
-        if (i === undefined) { index[k] = reports.length; reports.push(u); }
+        const i = index.get(k);
+        if (i === undefined) { index.set(k, reports.length); reports.push(u); }
         else if ((reports[i].lastModified || 0) > (u.lastModified || 0)) superseded.push(k);
         else reports[i] = u;
     });
