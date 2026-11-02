@@ -142,8 +142,11 @@ it, to keep the finished missions (Done with Mission puts them there).
 git clone https://github.com/MaymiPR/SaltReportWorkbench.git
 cd SaltReportWorkbench
 python scripts/build.py
-python dist/salt_sync_server.py
+python dist/salt_sync_server.py --backup-dir .dev-data
 ```
+
+`--backup-dir .dev-data` (git-ignored) keeps your reports, snapshots and the
+TLS key out of `dist/`, the build output, as `make run` does.
 
 The server prints its addresses, an access code and its certificate's
 fingerprint, then opens your browser:
@@ -233,8 +236,8 @@ node --test tests/js/core.test.js        # the page's logic
 ```
 
 Browser tests run when Playwright is installed, and are skipped otherwise. On
-macOS and Linux, `make check` runs most of what CI runs (not the built-server
-smoke test). See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and conventions,
+macOS and Linux, `make check` runs most of what CI runs (not the smoke tests
+of the built server and of the release on Windows). See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and conventions,
 and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the code layout and how
 sync works.
 
