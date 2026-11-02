@@ -125,6 +125,11 @@ All notable changes to this project are documented here. The format follows
 - **Every save says so.** Summary Reports' Save .txt and each chart's PNG,
   SVG and CSV saved without a word. Now they, Export All and Excel name the
   file saved, as the map's PNG does.
+- **The map's table is no longer rebuilt when nothing in it changed.** With
+  2,000 reports every pan or sync rebuilt every row. Now the rows are left as
+  they are (the keyboard's place with them) when they would be the same, and
+  the activity counts beside the map use the drawing's tracks rather than
+  working them all out again.
 
 ## [2.41.0] - 2026-11-01
 

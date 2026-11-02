@@ -6503,6 +6503,56 @@ class KeyboardSavesAndZoomTests(BrowserTests):
         page.click("#summaryViewToggleBtn")
         self.assertTrue(saved("#summarySaveBtn", ".").endswith(".txt."))
 
+    def test_the_map_table_is_left_alone_when_its_rows_are_the_same(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        self.log(page, "1x BTR", activity="halted", location="38SMB4600082000")
+        self.open_map(page)
+        rows = "document.querySelectorAll('#mapTableBody tr[data-map-row]').length"
+        page.wait_for_function(f"{rows} === 2")
+        # The activity counts take the drawing's tracks, and work out only the
+        # rest: the same reports as working out every report's.
+        same = page.evaluate(
+            """() => { mapState.activity = new Set(['Moving']); cancelAnimationFrame(mapState.frame); drawMap();
+                const got = mapListReports(true).map(r => r.id);
+                const reps = mapWindowReports(), track = new Map(SaltCore.reportTracks(reps).map(t => [t.report.id, t]));
+                const [x0, y0, x1, y1] = mapState.lastDraw.view;
+                const want = reps.filter(r => { const t = track.get(r.id); if (!t) return false;
+                    const [x, y] = latestMerc(t); return x >= x0 && x <= x1 && y >= y0 && y <= y1; })
+                    .sort((a, b) => new Date(b.time) - new Date(a.time)).map(r => r.id);
+                const drawn = mapState.lastDraw.reps.length;
+                mapState.activity.clear(); drawMap();
+                return { got, want, drawn }; }"""
+        )
+        self.assertEqual(same["drawn"], 1, "the drawing left the halted one out")
+        self.assertEqual(len(same["got"]), 2)
+        self.assertEqual(same["got"], same["want"])
+        page.wait_for_function(f"{rows} === 2")
+        first = "document.querySelector('#mapTableBody tr')"
+        settle = "renderMapTable(mapListReports())"
+        page.evaluate(f"{first}.mark = 'same'; {first}.focus()")
+        # The same rows: left as they are, the keyboard on its row.
+        page.evaluate(settle)
+        self.assertEqual(
+            page.evaluate(f"[{first}.mark, document.activeElement.mark]"), ["same"] * 2
+        )
+        # The picked row marked: built again, with its mark.
+        page.evaluate(f"mapState.selected = {first}.dataset.mapRow; {settle}")
+        self.assertIsNone(page.evaluate(f"{first}.mark"))
+        self.assertEqual(page.locator("#mapTableBody tr.selected-row").count(), 1)
+        # The form, cleared, takes the mark off every row: put back, nothing rebuilt.
+        page.evaluate(
+            f"""() => {{ {first}.mark = 'same';
+                document.querySelectorAll('.selected-row').forEach(r => r.classList.remove('selected-row')); {settle}; }}"""
+        )
+        self.assertEqual(page.evaluate(f"{first}.mark"), "same")
+        self.assertEqual(page.locator("#mapTableBody tr.selected-row").count(), 1)
+        # A row that says something new: built again.
+        page.evaluate(f"localReports.find(r => r.size === '2x BMP').activity = 'dug in'; {settle}")
+        self.assertIsNone(page.evaluate(f"{first}.mark"))
+        self.assertIn("dug in", page.inner_text("#mapTableBody"))
+
 
 for _name in [n for n in vars(BrowserTests) if n.startswith("test_")]:
     setattr(KeyboardSavesAndZoomTests, _name, None)
