@@ -144,7 +144,13 @@ test('HTML, colors, and filenames are made safe', () => {
     assert.equal(core.safeColor('#0a84ff'), '#0a84ff');
     assert.equal(core.safeColor('red;background:url(x)'), 'var(--system-gray)');
     assert.equal(core.safeFilename('A/B 1'), 'A_B_1');
-    assert.equal(core.safeFilename('///'), 'X');
+    // As the server's _filename_part names its backups (its answers, from Python):
+    // letters and digits of any script, an emoji one '_', a combining mark '_'.
+    [['Patrouille Été', 'Patrouille_Été'], ['Дозор 7', 'Дозор_7'], ['café 1', 'cafe__1'], ['Δ-1 \u{1F680} x', 'Δ-1___x'],
+        ['١٢٣ ²⅓', '١٢٣_²⅓'], ['日本 演習', '日本_演習'], ['__x__', 'x'], ['///', ''], ['', '']]
+        .forEach(([s, want]) => assert.equal(core.safeFilename(s), want, s));
+    assert.equal(core.backupFilename('ALPHA', 'Дозор'), 'ALPHA_Дозор');
+    assert.equal(core.backupFilename('ALPHA', '???'), 'ALPHA_', 'nothing left: empty, as the server has it');
     // Zero is a value, not nothing.
     assert.equal(core.escapeHtml(0), '0');
     assert.equal(core.escapeHtml(null), '');
@@ -485,6 +491,23 @@ test('CSV parsing handles quotes, doubled quotes, and every line ending', () => 
     assert.deepEqual(core.parseCsv('a,"b,c","say ""hi"""\r\n1,2,3\n4,"line\nbreak",6\r7,8,9'), [
         ['a', 'b,c', 'say "hi"'], ['1', '2', '3'], ['4', 'line\nbreak', '6'], ['7', '8', '9'],
     ]);
+});
+
+test('a CSV cell a spreadsheet would run as a formula is written as text, and read back as it was', () => {
+    const formulas = ['=HYPERLINK("http://x","y")', '+1+1', '-2+3', '@SUM(A1)', '\t=1', '\r=1', '-', '--', '- moving', "'=1", "''+2", "'-"];
+    formulas.filter(v => v !== '-').forEach(v => assert.ok(core.reportsCsv([report({ activity: v })], { local: false, customLabels: [], idOf: r => r.id })
+        .includes(`,"2x T-72","'${v.replace(/"/g, '""')}",`), JSON.stringify(v)));
+    // Numbers stay numbers, the page's "-" for none stays as it is, and other text is untouched.
+    ['-5', '+2.5', '-.5', '12', '3.', '-', 'moving N', "it's", "'quoted'", ''].forEach(v =>
+        assert.equal(core.statsCsv([{ title: v, items: [] }]), `"${v}"\r\n`, JSON.stringify(v)));
+    // A round trip through the page's own import gives every cell back as it was.
+    const values = [...formulas, '-5', '+2.5', 'moving N', "it's", "'quoted'", 'Destroyed - T-72', ''];
+    const reps = values.map((v, i) => report({ id: `r${i}`, size: v, activity: v, location: v, yourAnalysis: v }));
+    const rows = core.parseCsv(core.reportsCsv(reps, { local: false, customLabels: [], idOf: r => r.id })).slice(1);
+    assert.deepEqual(rows.map(r => [r[3], r[4], r[6]]), values.map(v => [v, v, v]));
+    assert.deepEqual(rows.map(r => r[2]), values, 'the Size too');
+    // Someone else's CSV: an apostrophe before anything but a formula's first character stays.
+    assert.deepEqual(core.parseCsv("'=1,'-5,'abc,''=2\n"), [['=1', "'-5", "'abc", "'=2"]]);
 });
 
 test('the CSV export lists each report, its history, then its BDA', () => {

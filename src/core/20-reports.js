@@ -507,8 +507,15 @@ const parseBackup = (rawText) => {
 
 // --- CSV ---
 
+// A cell a spreadsheet would run as a formula: one starting with =, +, -, @,
+// a tab or a carriage return (after any ' already there, so a round trip
+// keeps those too). A plain number (-5, +2.5) is a number, and a lone "-"
+// (the page's "none") is text, so neither is one.
+const CSV_FORMULA = /^'*[=+\-@\t\r]/;
+const csvFormula = (s) => CSV_FORMULA.test(s) && s !== '-' && !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(s);
 // RFC 4180-style parse into rows of cells: quoted fields, doubled quotes,
-// and CRLF, LF, or CR line endings.
+// and CRLF, LF, or CR line endings. The ' csvField puts before a formula
+// comes off again (so the page's own CSV reads back as it was written).
 const parseCsv = (csvText) => {
     const arr = []; let q = false, row = 0, col = 0;
     for (let i = 0; i < csvText.length; i++) {
@@ -521,10 +528,12 @@ const parseCsv = (csvText) => {
         if ((c==='\n'||c==='\r') && !q) { row++; col=0; continue; }
         arr[row][col]+=c;
     }
+    arr.forEach(cells => cells.forEach((v, i) => { if (v[0] === "'" && csvFormula(v.slice(1))) cells[i] = v.slice(1); }));
     return arr;
 };
 
-const csvField  = v => `"${(v == null ? '' : String(v)).replace(/"/g,'""')}"`;
+// One quoted cell; a formula (csvFormula) starts with ' so it is read as text.
+const csvField  = v => { const s = v == null ? '' : String(v); return `"${(csvFormula(s) ? `'${s}` : s).replace(/"/g,'""')}"`; };
 const csvHeader = (local, extra = []) =>
     `Identifier,UpdateStatus,Size,Activity,MGRS,Time (${local ? 'Local' : 'Z'}),Analysis${extra.map(c => ',' + c).join('')}\r\n`;
 // History entries newest first, labeled "Update #N (Old)" with N counting up from the oldest.

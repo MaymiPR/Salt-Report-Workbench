@@ -182,5 +182,10 @@ const parseCsvTime = (text, local, now = new Date()) => {
 const escapeHtml = (s) => (s == null ? '' : String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const safeColor  = (c) => /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(String(c)) ? c : 'var(--system-gray)';
 
-// Mirrors the server's _safe() helper, so filenames are interchangeable.
-const safeFilename = (s) => String(s||'').split('').map(c => /[A-Za-z0-9_-]/.test(c) ? c : '_').join('').replace(/^_+|_+$/g, '') || 'X';
+// Mirrors the server's _filename_part, so filenames are interchangeable:
+// letters and digits of any script (Python's isalnum: \p{L} and \p{N}; a
+// combining mark is neither), '-' and '_' are kept, anything else is made
+// '_', a character at a time (an emoji is one), and '_' at either end goes.
+// Nothing left is '' as there: every caller adds a separator, a time or an
+// extension, so a filename is never empty.
+const safeFilename = (s) => Array.from(String(s || ''), c => (/[\p{L}\p{N}_-]/u.test(c) ? c : '_')).join('').replace(/^_+|_+$/g, '');
