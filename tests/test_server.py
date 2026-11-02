@@ -2043,6 +2043,10 @@ class HttpApiTests(unittest.TestCase):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def setUp(self):
+        # A stream the last test closed is cleaned up by its own thread, which
+        # then drops its machine's initials: let that happen before this test
+        # sets any, or it can land in the middle of it.
+        self.wait_until(lambda: not srv.sse_clients)
         reset_state()
         cancel_pending_save()
 
