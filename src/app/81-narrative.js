@@ -244,7 +244,7 @@ const unitsTab = () => {
     return `<div class="narr-list">${units.map((u, i) => row(i, u.name,
             [(u.places || []).join(', ') || 'Anywhere', (u.kinds || []).map(k => ROLE_NAMES[k]).join(', ')].filter(Boolean).join(' · '), narrId('units', u))).join('')
             || '<div class="narr-empty">No units yet. Add the units you track, and where they operate, to have judgments name them.</div>'}</div>
-        ${addRow('Add a unit')}`;
+        ${addRow('Add a Unit')}`;
 };
 
 // --- Equipment ---
@@ -302,7 +302,7 @@ const equipmentTab = () => {
         <div class="narr-label">Yours</div>
         <div class="narr-list">${narrList('equipment').map((e, i) => row(i, e.type, `${ROLE_NAMES[e.role] || e.role} · ${ORIGIN_NAMES[e.origin || '']}${e.gear ? ` · ${GEAR_NAMES[e.gear] || e.gear}` : ''}${e.reach ? ` · ${e.reach} km` : ''}`, narrId('equipment', e))).join('')
             || '<div class="narr-empty">None yet: the built-in catalogue only.</div>'}</div>
-        ${addRow('Add a type')}
+        ${addRow('Add a Type')}
         <details class="narr-builtin"><summary>Built-in catalogue</summary>${builtIn}</details>`;
 };
 
@@ -329,7 +329,7 @@ const rulesTab = () => {
     const groups = [...new Set(SaltCore.NARRATIVE_RULES.map(r => r[3]))];
     // The team's own first, with the button to add one at the right of their
     // heading; then the built-in rules by kind.
-    return `<div class="narr-label narr-label-row"><span>Your own</span><button type="button" class="narr-add narr-add-top editor-only" data-narr-add>+ Add a rule</button></div>
+    return `<div class="narr-label narr-label-row"><span>Your own</span><button type="button" class="narr-add narr-add-top editor-only" data-narr-add>+ Add a Rule</button></div>
         <div class="narr-list">${narrList('custom').map((c, i) => row(i, c.what, `${c.words} · ${c.min} in ${c.hours} hrs`, narrId('custom', c))).join('')
             || '<div class="narr-empty">None yet: a judgment, the words that point to it, and how often.</div>'}</div>
         <div class="narr-hint">Each judgment uses Russian or PLA doctrine, by the design of the equipment in its reports.</div>
