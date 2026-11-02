@@ -17,7 +17,7 @@ const SaltCore = {
     sizeElements, gridSquare, statsData, statsCsv, PL_NEAR_METERS, workbookReportRows, statsXlsx, excelSerial, colName,
     dtg, summaryReport, summaryDetail, summaryPlaces, EQUIPMENT_CATALOGUE, EQUIPMENT_ROLES, RUNNING_GEARS, CATALOGUE_GEAR, REACH_KIND, CATALOGUE_REACH, REACH_MAX_KM, lookupEquipment, teamEquipment, ECHELONS, echelonOf, ICD203, NARRATIVE_RULES, DOCTRINE,
     reportKey, knownVersions, changedReports, workspacesToCache, unsentTally, withUnsaved,
-    MOVEMENT_CLASSES, formatDistance, speedUnit, kmhPerSpeedUnit, formatSpeed, formatArea, formatDuration, formatBearing,
+    formatDistance, speedUnit, kmhPerSpeedUnit, formatSpeed, formatArea, formatDuration, formatBearing,
     pathMeters, areaMeters, ringPoints, movementClass, MARCH_MAX_KMH, marchRates,
     nearestSegment, AXIS_NEAR_METERS, wayOfMarchAt, axesOf, wayRelation,
     TERRAIN_STEP_METERS, TERRAIN_AHEAD_METERS, terrainKey, terrainPoints, sightPicture, losBetween, LOS_TOOL_MAX_METERS,

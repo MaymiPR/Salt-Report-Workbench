@@ -24,19 +24,23 @@ const handleUnauthorized = () => {
     if (!isReadOnly && !document.body.classList.contains('read-only')) openStartupModal();
 };
 
+// A report's key set as the object's own, so an id such as "__proto__"
+// (which the server takes) is a key like any other.
+const setOwn = (o, k, v) => Object.defineProperty(o, k, { value: v, writable: true, enumerable: true, configurable: true });
+
 // Record the outcome of a push for each report in `batch`.
 const markSaved = (ato, batch) => {
     const versions = serverVersions[ato] = serverVersions[ato] || {};
     let cleared = false;
     batch.forEach(r => {
         const k = SaltCore.reportKey(r);
-        versions[k] = r.lastModified || 0;
-        if (unsaved[ato] && unsaved[ato][k]) { delete unsaved[ato][k]; cleared = true; }
+        setOwn(versions, k, r.lastModified || 0);
+        if (unsaved[ato] && Object.hasOwn(unsaved[ato], k)) { delete unsaved[ato][k]; cleared = true; }
     });
     if (cleared) saveUnsaved();
 };
 const markRefused = (ato, report, reason) => {
-    (unsaved[ato] = unsaved[ato] || {})[SaltCore.reportKey(report)] = { report: JSON.parse(JSON.stringify(report)), reason };
+    setOwn(unsaved[ato] = unsaved[ato] || {}, SaltCore.reportKey(report), { report: JSON.parse(JSON.stringify(report)), reason });
     saveUnsaved();
 };
 

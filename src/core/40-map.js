@@ -3,8 +3,9 @@
 
 // --- Shapefiles ---
 
-// Web Mercator (ArcGIS's default for web layers) to longitude / latitude.
-const webMercatorToLonLat = ([x, y]) => [x / 6378137 * 180 / Math.PI, (2 * Math.atan(Math.exp(y / 6378137)) - Math.PI / 2) * 180 / Math.PI];
+// Web Mercator (ArcGIS's default for web layers) to longitude / latitude,
+// for a shapefile's [x, y]: mercToLonLat's math.
+const webMercatorToLonLat = ([x, y]) => mercToLonLat(x, y);
 
 // What a .prj (WKT, as ArcGIS writes it) says the coordinates are, as
 // { name, toLonLat }: geographic (WGS 84, NAD 83), Web Mercator, or a UTM zone
@@ -153,13 +154,16 @@ const readShapefile = (shp, dbf, prj, cpg) => {
 
 // --- Tracks, heat, and the map ---
 
+// A report's saved versions (its history, not itself) in the order they were
+// reported: by Time, then by when each was saved.
+const versionsByTime = (r) => [...(r.history || [])].sort((a, b) => (new Date(a.time) - new Date(b.time)) || (a.lastModified - b.lastModified));
 // Where each report has been: the first grid of each version's Location, in
 // the order the versions were reported (their Time), the current one last.
 // A grid repeated in a row counts once. `moved` when it has two or more.
 //   points     [{ lon, lat, mgrs, time }]
 //   lengthM    along the track; bearingDeg from its start to its end
 const reportTracks = (reps) => (reps || []).filter(r => !r.deleted).map(r => {
-    const versions = [...(r.history || [])].sort((a, b) => (new Date(a.time) - new Date(b.time)) || (a.lastModified - b.lastModified));
+    const versions = versionsByTime(r);
     const points = [];
     [...versions, r].forEach(v => {
         const g = findGrids(v.location)[0];
@@ -175,9 +179,11 @@ const reportTracks = (reps) => (reps || []).filter(r => !r.deleted).map(r => {
 }).filter(t => t.points.length);
 
 // Meters between two points, and the bearing from the first to the second
-// (degrees clockwise from north), on a sphere: plenty for tracks of a few km.
+// (degrees clockwise from north), on a sphere of the earth's mean radius
+// (EARTH_RADIUS_METERS): plenty for tracks of a few km.
+const EARTH_RADIUS_METERS = 6371008.8;
 const metersBetween = (a, b) => {
-    const R = 6371008.8, f1 = a.lat * Math.PI / 180, f2 = b.lat * Math.PI / 180;
+    const R = EARTH_RADIUS_METERS, f1 = a.lat * Math.PI / 180, f2 = b.lat * Math.PI / 180;
     const df = f2 - f1, dl = (b.lon - a.lon) * Math.PI / 180;
     const h = Math.sin(df / 2) ** 2 + Math.cos(f1) * Math.cos(f2) * Math.sin(dl / 2) ** 2;
     return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
@@ -195,7 +201,7 @@ const compass16 = (deg) => COMPASS[Math.round(deg / 22.5) % 16];
 // version evenly between the grids it names, so each version counts once.
 const reportPositions = (reps, all = false) => (reps || []).filter(r => !r.deleted).flatMap(r => {
     const versions = all
-        ? [...(r.history || [])].sort((a, b) => (new Date(a.time) - new Date(b.time)) || (a.lastModified - b.lastModified)).concat(r)
+        ? versionsByTime(r).concat(r)
         : [r];
     return versions.flatMap(v => {
         const grids = findGrids(v.location);

@@ -144,7 +144,13 @@ test('HTML, colors, and filenames are made safe', () => {
     assert.equal(core.safeColor('#0a84ff'), '#0a84ff');
     assert.equal(core.safeColor('red;background:url(x)'), 'var(--system-gray)');
     assert.equal(core.safeFilename('A/B 1'), 'A_B_1');
-    assert.equal(core.safeFilename('///'), 'X');
+    // As the server's _filename_part names its backups (its answers, from Python):
+    // letters and digits of any script, an emoji one '_', a combining mark '_'.
+    [['Patrouille Été', 'Patrouille_Été'], ['Дозор 7', 'Дозор_7'], ['café 1', 'cafe__1'], ['Δ-1 \u{1F680} x', 'Δ-1___x'],
+        ['١٢٣ ²⅓', '١٢٣_²⅓'], ['日本 演習', '日本_演習'], ['__x__', 'x'], ['///', ''], ['', '']]
+        .forEach(([s, want]) => assert.equal(core.safeFilename(s), want, s));
+    assert.equal(core.backupFilename('ALPHA', 'Дозор'), 'ALPHA_Дозор');
+    assert.equal(core.backupFilename('ALPHA', '???'), 'ALPHA_', 'nothing left: empty, as the server has it');
     // Zero is a value, not nothing.
     assert.equal(core.escapeHtml(0), '0');
     assert.equal(core.escapeHtml(null), '');
@@ -487,6 +493,23 @@ test('CSV parsing handles quotes, doubled quotes, and every line ending', () => 
     ]);
 });
 
+test('a CSV cell a spreadsheet would run as a formula is written as text, and read back as it was', () => {
+    const formulas = ['=HYPERLINK("http://x","y")', '+1+1', '-2+3', '@SUM(A1)', '\t=1', '\r=1', '-', '--', '- moving', "'=1", "''+2", "'-"];
+    formulas.filter(v => v !== '-').forEach(v => assert.ok(core.reportsCsv([report({ activity: v })], { local: false, customLabels: [], idOf: r => r.id })
+        .includes(`,"2x T-72","'${v.replace(/"/g, '""')}",`), JSON.stringify(v)));
+    // Numbers stay numbers, the page's "-" for none stays as it is, and other text is untouched.
+    ['-5', '+2.5', '-.5', '12', '3.', '-', 'moving N', "it's", "'quoted'", ''].forEach(v =>
+        assert.equal(core.statsCsv([{ title: v, items: [] }]), `"${v}"\r\n`, JSON.stringify(v)));
+    // A round trip through the page's own import gives every cell back as it was.
+    const values = [...formulas, '-5', '+2.5', 'moving N', "it's", "'quoted'", 'Destroyed - T-72', ''];
+    const reps = values.map((v, i) => report({ id: `r${i}`, size: v, activity: v, location: v, yourAnalysis: v }));
+    const rows = core.parseCsv(core.reportsCsv(reps, { local: false, customLabels: [], idOf: r => r.id })).slice(1);
+    assert.deepEqual(rows.map(r => [r[3], r[4], r[6]]), values.map(v => [v, v, v]));
+    assert.deepEqual(rows.map(r => r[2]), values, 'the Size too');
+    // Someone else's CSV: an apostrophe before anything but a formula's first character stays.
+    assert.deepEqual(core.parseCsv("'=1,'-5,'abc,''=2\n"), [['=1', "'-5", "'abc", "'=2"]]);
+});
+
 test('the CSV export lists each report, its history, then its BDA', () => {
     const r = report({
         updated: true, custom: { W: 'Rain' },
@@ -612,6 +635,25 @@ test('refused changes stay over the server copy until superseded', () => {
     assert.equal(server[0].size, 'server', 'the server copy itself is not modified');
 });
 
+test('ids an object already has ("constructor", "__proto__") are keys like any other', () => {
+    const ids = ['constructor', '__proto__', 'toString', 'hasOwnProperty'];
+    const server = ids.map((id, i) => report({ id, size: 'server', lastModified: i + 1 }));
+    const known = core.knownVersions(server);
+    assert.deepEqual(Object.entries(known), ids.map((id, i) => [id, i + 1]));
+    assert.deepEqual(JSON.parse(JSON.stringify(known)), known, 'kept and read back as the page keeps it');
+    assert.deepEqual(core.changedReports(server, known), [], 'the server has every one');
+    assert.deepEqual(core.changedReports([report({ id: 'valueOf' }), report({ id: '__proto__', lastModified: 9 })], known).map(r => r.id), ['valueOf', '__proto__']);
+    assert.equal(core.unsentTally({ A: server }, { A: known }, {}), 0);
+    // Refused changes: one newer, one the server moved past, one never saved.
+    const { reports, superseded } = core.withUnsaved(server, [
+        report({ id: 'constructor', size: 'mine', lastModified: 7 }),
+        report({ id: '__proto__', size: 'mine', lastModified: 0 }),
+        report({ id: 'valueOf', size: 'mine', lastModified: 1 }),
+    ]);
+    assert.deepEqual(reports.map(r => `${r.id}:${r.size}`), ['constructor:mine', '__proto__:server', 'toString:server', 'hasOwnProperty:server', 'valueOf:mine']);
+    assert.deepEqual(superseded, ['__proto__']);
+});
+
 // --- Geography ---
 
 // The center of each square, from the NGA's GeoTrans (the `mgrs` Python
@@ -637,6 +679,12 @@ test('grids are found in free text, several at once, and typos are refused', () 
     assert.deepEqual(core.findGrids('NAI 1 and OBJ 2, 10 km N of town'), [], 'I and O are never grid letters');
     assert.deepEqual(core.findGrids('38S PL 12345 67890'), [], 'a 100 km square outside its latitude band');
     assert.deepEqual(core.findGrids('38SMB123'), [], 'an odd number of digits');
+    // Around Svalbard only 31X, 33X, 35X and 37X are used: 32X, 34X and 36X name nothing.
+    ['32X NG 12345 12345', '32XNM5000050000', '34X EM 50000 50000', '36x wm 50000 50000'].forEach(t =>
+        assert.deepEqual(core.findGrids(`at ${t}`), [], t));
+    assert.equal(core.gridToLatLon(32, 'X', 'N', 'G', '1234512345'), null);
+    assert.equal(core.findGrids('33X VC 12345 12345')[0].mgrs, '33X VC 12345 12345', 'the zones that are there still read');
+    assert.equal(core.findGrids('32V NM 12345 67890')[0].mgrs, '32V NM 12345 67890', 'and 32 in band V');
     assert.equal(core.findGrids('38S MB 1234 567')[0].mgrs, '38S MB 12 34', 'halves of different lengths');
 });
 
@@ -1052,6 +1100,22 @@ test('statistics count each report once per place, square, tag and type', () => 
     assert.deepEqual(core.statsData([], OVERLAYS, {}).days, []);
 });
 
+test('the per-day list fills quiet days up to 400 days, and past that lists only days with reports', () => {
+    const on = (...times) => times.map((time, i) => report({ id: `t${i}`, displayId: `ALPHA${i + 1}`, time }));
+    const days = (...times) => core.statsData(on(...times), [], { local: false }).days;
+    // 400 days from the first to the last: every day, the quiet ones zero.
+    const year = days('2026-01-01T10:00:00Z', '2026-01-01T11:00:00Z', '2027-02-05T10:00:00Z');
+    assert.equal(year.length, 401);
+    assert.deepEqual(year[0], { label: '2026-01-01', value: 2 });
+    assert.deepEqual(year[1], { label: '2026-01-02', value: 0 });
+    assert.deepEqual(year[400], { label: '2027-02-05', value: 1 });
+    // One more, or a year typed wrong: the days with reports, the typo a bar of its own.
+    assert.equal(days('2026-01-01T10:00:00Z', '2027-02-06T10:00:00Z').length, 2);
+    assert.deepEqual(days('2026-10-24T10:00:00Z', '2026-10-26T09:00:00Z', '2062-10-25T10:00:00Z', '2026-10-24T12:00:00Z'), [
+        { label: '2026-10-24', value: 2 }, { label: '2026-10-26', value: 1 }, { label: '2062-10-25', value: 1 },
+    ]);
+});
+
 test('the statistics CSV has one section per chart', () => {
     assert.equal(core.statsCsv([
         { title: 'Reports per NAI', items: [{ label: 'NAI 1', value: 4 }] },
@@ -1122,6 +1186,21 @@ test('the shift brief is the short handover', () => {
 test('the same reports always give the same words', () => {
     assert.equal(core.summaryReport('rollup', SUMMARY_REPS, OVERLAYS, SUMMARY_OPTS),
                  core.summaryReport('rollup', [...SUMMARY_REPS].reverse(), OVERLAYS, SUMMARY_OPTS));
+    // Reports at the same minute: by report number, then by id, whatever order they came in.
+    const at = '2026-10-26T05:00:00Z';
+    const tied = [
+        report({ id: 'z', displayId: 'ALPHA001', activity: 'moving N', location: '38SMB4500082000', time: at }),
+        report({ id: 'y', displayId: 'ALPHA002', activity: 'firing', location: '38SMB4500082000', time: at }),
+        report({ id: 'x', displayId: 'ALPHA002', activity: 'halted', location: '38SMB4500082000', time: at }),
+    ];
+    ['rollup', 'trafficked', 'brief', 'narrative'].forEach(kind => {
+        const one = core.summaryReport(kind, tied, OVERLAYS, SUMMARY_OPTS);
+        assert.equal(one, core.summaryReport(kind, [...tied].reverse(), OVERLAYS, SUMMARY_OPTS), kind);
+        assert.equal(one, core.summaryReport(kind, [tied[1], tied[0], tied[2]], OVERLAYS, SUMMARY_OPTS), kind);
+    });
+    const brief = core.summaryReport('brief', [...tied].reverse(), OVERLAYS, SUMMARY_OPTS).split('\n');
+    assert.ok(brief.includes('LAST REPORT:  260500Z  ALPHA002  2x T-72; firing; 38SMB4500082000'), brief.join('\n'));
+    assert.deepEqual(brief.slice(brief.indexOf('LAST 5 REPORTS') + 1, -1).map(l => l.split('  ')[3].split(';')[1].trim()), ['firing', 'halted', 'moving N']);
 });
 
 test('places to summarize: every overlay, then whatever reports name', () => {
@@ -1319,6 +1398,9 @@ test('WMS: the service\'s version, projection and format', () => {
     assert.ok(core.wmsUrl('http://s/wms', 'a', [1, 2, 3, 4], 10, 10, { crs: 'EPSG:102100' }).includes('BBOX=1.00,2.00,3.00,4.00'), 'meters');
     const [lon, lat] = core.mercToLonLat(...core.lonLatToMerc(-116.5, 35.3));
     assert.ok(Math.abs(lon + 116.5) < 1e-9 && Math.abs(lat - 35.3) < 1e-9);
+    // A shapefile's [x, y] in Web Mercator reads the same as the map's meters.
+    assert.deepEqual(core.webMercatorToLonLat([-12974286.651, 4202000]), core.mercToLonLat(-12974286.651, 4202000));
+    assert.deepEqual(core.webMercatorToLonLat([0, 0]), [0, 0]);
 });
 
 test('WMS: capabilities link, projection and format choices', () => {
@@ -1417,6 +1499,8 @@ test('MGRS Lock says which parts look meant as a grid but are not one', () => {
     assert.deepEqual(why('11S AV 39697 06762'), ['11S AV 39697 06762 has no square AV in zone 11']);
     assert.deepEqual(why('11S NW 39697 06762'), ['11S NW 39697 06762 has no square NW in zone 11']);
     assert.deepEqual(why('11X NV 39697 06762'), ['11X NV 39697 06762 has square NV outside band 11X']);
+    assert.deepEqual(why('32X NG 12345 12345'), ['32X NG 12345 12345 has no zone 32X (near Svalbard only 31X, 33X, 35X and 37X are used)']);
+    assert.deepEqual(why('12345 12345', '34X EM'), ['12345 12345 would be in 34X EM, which has no zone 34X (near Svalbard only 31X, 33X, 35X and 37X are used)']);
     assert.deepEqual(why('11s nv 3969 06762'), ['11s nv 3969 06762 has two numbers of different lengths']);
     // Each part on its own; the locked square checked under digits alone.
     assert.deepEqual(why('39697 06762, NAI 2, 3969 0676'), [], 'equal halves of four are a grid');

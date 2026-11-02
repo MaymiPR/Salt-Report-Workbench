@@ -3,10 +3,9 @@
 
 // --- Measuring ---
 
-// What moves, for its units and its rate: 'vehicle' (ground distances in
-// km | mi, speeds in km/h | mph), 'dismount' (m | yd, km/h | mph) or
-// 'aircraft' (km | nm, km/h | knots). Measuring on the map is 'vehicle'.
-const MOVEMENT_CLASSES = ['vehicle', 'dismount', 'aircraft'];
+// What moves (`kind` below), for its units and its rate: 'vehicle' (ground
+// distances in km | mi, speeds in km/h | mph), 'dismount' (m | yd, km/h |
+// mph) or 'aircraft' (km | nm, km/h | knots). Measuring on the map is 'vehicle'.
 const M_PER_YD = 0.9144, M_PER_MI = 1609.344, M_PER_NM = 1852;
 const M2_PER_YD2 = M_PER_YD * M_PER_YD, M2_PER_MI2 = M_PER_MI * M_PER_MI;
 
@@ -58,7 +57,7 @@ const areaMeters = (pts) => {
     const ring = (pts || []).slice();
     if (ring.length > 1 && ring[0].lon === ring[ring.length - 1].lon && ring[0].lat === ring[ring.length - 1].lat) ring.pop();
     if (ring.length < 3) return 0;
-    const R = 6371008.8, rad = Math.PI / 180;
+    const R = EARTH_RADIUS_METERS, rad = Math.PI / 180;
     let s = 0;
     ring.forEach((p, i) => {
         const q = ring[(i + 1) % ring.length];
@@ -69,7 +68,7 @@ const areaMeters = (pts) => {
 // A ring `meters` round a center, as `n` points ({ lon, lat }) on the same
 // sphere, for drawing a range ring true at any size and latitude.
 const ringPoints = (c, meters, n = 72) => {
-    const R = 6371008.8, rad = Math.PI / 180, d = Math.max(0, Number(meters) || 0) / R;
+    const R = EARTH_RADIUS_METERS, rad = Math.PI / 180, d = Math.max(0, Number(meters) || 0) / R;
     const f1 = c.lat * rad, l1 = c.lon * rad;
     return Array.from({ length: n }, (_, i) => {
         const t = (i / n) * 2 * Math.PI;
@@ -105,7 +104,7 @@ const MARCH_MAX_KMH = { vehicle: 120, dismount: 20, aircraft: 1000 };
 const marchRates = (r, kind = 'vehicle') => {
     const none = { legs: [], overall: null };
     if (!r) return none;
-    const versions = [...(r.history || [])].sort((a, b) => (new Date(a.time) - new Date(b.time)) || (a.lastModified - b.lastModified));
+    const versions = versionsByTime(r);
     const runs = [];
     [...versions, r].forEach(v => {
         const g = findGrids(v.location)[0];

@@ -16,6 +16,35 @@ All notable changes to this project are documented here. The format follows
   "2 reports" instead of "report(s)", in deleting, moving, putting back and
   importing.
 
+### Fixed
+
+- **A report id such as `constructor` or `__proto__`** (which the server
+  takes) no longer breaks the page's record of what the server holds.
+- **Summaries read the same whatever order the reports came in.** Two
+  reports at the same minute were listed in the order the browser held them,
+  so two machines could print a different LAST REPORT, or list them in a
+  different order, for the same reports. Same-minute reports now go by
+  report number, then by id.
+- **Grid zones that don't exist are refused.** 32X, 34X and 36X were read as
+  grids (around Svalbard only 31X, 33X, 35X and 37X are used), and
+  "32X NG 12345 12345" was put on the map at a point really in 33X. They are
+  now refused like any other grid that can't be one, and MGRS Lock says why.
+- **One year typed wrong no longer stretches Reports by day.** A single
+  report dated 2062 filled the chart with 13,150 days, nearly all empty. When
+  the first and last reports are more than 400 days apart, only the days with
+  reports are shown, so the odd one out is a bar of its own; over 400 days or
+  less, every day shows as before, a quiet one as zero.
+- **CSV exports can't run as formulas.** A cell starting with =, +, -, @, a
+  tab or a return (an Activity typed as `=HYPERLINK(...)`) would be run by a
+  spreadsheet opening the file. Such a cell now starts with ' so it is read
+  as text; numbers (-5, +2.5) and a lone - stay as they are, and importing
+  the page's own CSV takes the ' off again, so it reads back as it was.
+- **Downloaded files keep letters and digits of any alphabet in their
+  names**, as the server's backups do: a title such as "Patrouille Été" or
+  "Дозор" lost its accented or Cyrillic letters to underscores, and an emoji
+  became two. A title with nothing left to keep now leaves that part of the
+  name empty, as the server does, instead of X.
+
 ## [2.43.0] - 2026-11-01
 
 ### Changed
