@@ -40,6 +40,12 @@ All notable changes to this project are documented here. The format follows
   (trailing whitespace, end of files, YAML and TOML, merge markers, large
   files, private keys, ruff) ran only for contributors who had installed
   pre-commit. The Lint job now runs them on every file of every change.
+- **Browsers keep their connections to the server.** Every map tile, sync
+  and save was a new connection, and with HTTPS a new TLS handshake. The
+  server now keeps connections open between requests (HTTP/1.1 keep-alive),
+  on both ports, with HTTPS or without: the page and 50 map tiles over HTTPS
+  from one client take about 0.6 s instead of 1.25 s here. A connection left
+  idle for 30 seconds is closed, and the live updates stream as before.
 
 ### Fixed
 

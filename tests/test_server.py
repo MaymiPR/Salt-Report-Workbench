@@ -1089,6 +1089,45 @@ class HttpsTests(unittest.TestCase):
                 self.assertEqual(resp.status, 200)
         self.assertEqual(printed.call_args_list, [], "nothing to report")
 
+    def test_https_requests_share_one_connection_on_both_ports(self):
+        viewer = srv.SaltSyncServer(
+            ("127.0.0.1", 0),
+            srv.SaltSyncHandler,
+            view_only=True,
+            tls=srv.tls_context(self.cert, self.key),
+        )
+        threading.Thread(target=viewer.serve_forever, daemon=True).start()
+        self.addCleanup(viewer.server_close)
+        self.addCleanup(viewer.shutdown)
+        unverified = ssl._create_unverified_context()
+        for port in (self.port, viewer.server_address[1]):
+            conn = http.client.HTTPSConnection("127.0.0.1", port, context=unverified, timeout=5)
+            try:
+                with mock.patch.object(conn, "connect", wraps=conn.connect) as connect:
+                    for path in ("/api/health", "/api/sync", "/api/sync", "/api/health"):
+                        conn.request("GET", path)
+                        resp = conn.getresponse()
+                        resp.read()
+                        self.assertEqual(resp.status, 200, path)
+                self.assertEqual(connect.call_count, 1, "one connection, one TLS handshake")
+            finally:
+                conn.close()
+
+    def test_an_idle_https_connection_is_closed_after_the_timeout(self):
+        unverified = ssl._create_unverified_context()
+        with mock.patch.object(srv.SaltSyncHandler, "timeout", 0.3):
+            conn = http.client.HTTPSConnection(
+                "127.0.0.1", self.port, context=unverified, timeout=5
+            )
+            try:
+                conn.request("GET", "/api/health")
+                conn.getresponse().read()
+                start = time.monotonic()
+                self.assertEqual(conn.sock.recv(1), b"", "closed by the server")
+                self.assertLess(time.monotonic() - start, 3)
+            finally:
+                conn.close()
+
     def test_the_fingerprint_is_the_certificates_sha256(self):
         import hashlib
 
@@ -2959,6 +2998,139 @@ class HttpApiTests(unittest.TestCase):
                 time.sleep(0.6)  # twice the idle timeout
                 self.post("/api/save_config", {"config": {"ato": "A", "title": "T"}})
                 self.assertRegex(resp.readline(), NOTICE)
+
+    # -- keep-alive -------------------------------------------------------- #
+    def test_requests_share_one_connection_on_both_ports(self):
+        for port, code in (
+            (self.editor.server_address[1], CODE),
+            (self.viewer.server_address[1], None),
+        ):
+            headers = {"Cookie": f"salt_access={code}"} if code else {}
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            try:
+                sockets = []
+                for path in ("/api/health", "/api/sync", "/", "/api/sync", "/api/nothing-here"):
+                    conn.request("GET", path, headers=headers)
+                    resp = conn.getresponse()
+                    body = resp.read()
+                    self.assertEqual(resp.status, 404 if "nothing" in path else 200, path)
+                    self.assertEqual(int(resp.getheader("Content-Length")), len(body), path)
+                    self.assertIsNone(resp.getheader("Connection"), path)
+                    sockets.append(conn.sock)
+                if code:
+                    body = json.dumps({"config": {"ato": "A", "title": "T"}})
+                    conn.request(
+                        "POST",
+                        "/api/save_config",
+                        body,
+                        {**headers, "Content-Type": "application/json"},
+                    )
+                    resp = conn.getresponse()
+                    self.assertEqual(resp.status, 200, resp.read())
+                    sockets.append(conn.sock)
+                self.assertIsNotNone(sockets[0])
+                self.assertTrue(all(s is sockets[0] for s in sockets), "one connection")
+            finally:
+                conn.close()
+
+    def raw_exchange(self, port, data, timeout=5):
+        """Send ``data`` down one connection and read until the server closes
+        it. A reset after a body the server left unread ends it too."""
+        reply = b""
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout) as s:
+            s.sendall(data)
+            with contextlib.suppress(ConnectionResetError, ConnectionAbortedError):
+                while chunk := s.recv(65536):
+                    reply += chunk
+        return reply
+
+    def test_a_body_left_unread_is_never_read_as_the_next_request(self):
+        # Under keep-alive, what isn't read of a request would be read as the
+        # next one. Each of these is answered once (if the client hears it
+        # before the reset), and the connection closed: the request hidden
+        # in its body is never handled.
+        hidden = b"GET /api/health HTTP/1.1\r\nHost: x\r\n\r\n"
+        json_post = (
+            b"POST /api/save_config HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"
+        )
+        editor, viewer = self.editor.server_address[1], self.viewer.server_address[1]
+        for port, head, status in (
+            # Refused on the viewer port, the body too large to drain.
+            (
+                viewer,
+                json_post + f"Content-Length: {srv.MAX_DRAIN_BYTES + len(hidden)}\r\n\r\n".encode(),
+                405,
+            ),
+            # A body in chunks, which the server doesn't read.
+            (
+                editor,
+                json_post
+                + f"Cookie: salt_access={CODE}\r\nTransfer-Encoding: chunked\r\n\r\n".encode(),
+                400,
+            ),
+            # A GET with a body.
+            (editor, f"GET / HTTP/1.1\r\nContent-Length: {len(hidden)}\r\n\r\n".encode(), 200),
+        ):
+            with mock.patch.object(srv, "health", wraps=srv.health) as health:
+                reply = self.raw_exchange(port, head + hidden)
+            health.assert_not_called()
+            self.assertLessEqual(reply.count(b"HTTP/1.1 "), 1, reply)
+            if reply:
+                self.assertTrue(reply.startswith(f"HTTP/1.1 {status} ".encode()), reply)
+                self.assertIn(b"\r\nConnection: close\r\n", reply)
+
+    def test_a_refused_request_closes_its_connection_after_the_reply(self):
+        body = b'{"config": {}}'
+        reply = self.raw_exchange(
+            self.viewer.server_address[1],
+            b"POST /api/save_config HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"
+            + f"Content-Length: {len(body)}\r\n\r\n".encode()
+            + body,
+        )
+        self.assertTrue(reply.startswith(b"HTTP/1.1 405 "), reply)
+        self.assertIn(b"\r\nConnection: close\r\n", reply)
+        head, payload = reply.split(b"\r\n\r\n", 1)
+        self.assertIn(f"Content-Length: {len(payload)}\r\n".encode(), head + b"\r\n")
+
+    def test_an_idle_kept_connection_is_closed_after_the_timeout(self):
+        with mock.patch.object(srv.SaltSyncHandler, "timeout", 0.3):
+            conn = http.client.HTTPConnection("127.0.0.1", self.editor.server_address[1], timeout=5)
+            try:
+                conn.request("GET", "/api/health")
+                resp = conn.getresponse()
+                resp.read()
+                self.assertEqual(resp.status, 200)
+                self.assertIsNotNone(conn.sock, "kept open")
+                start = time.monotonic()
+                self.assertEqual(conn.sock.recv(1), b"", "then closed by the server")
+                self.assertLess(time.monotonic() - start, 3)
+            finally:
+                conn.close()
+
+    def test_an_event_stream_after_other_requests_on_its_connection(self):
+        # A browser may open its stream down a connection it kept: it starts
+        # as on a new one, and the connection ends with it.
+        conn = http.client.HTTPConnection("127.0.0.1", self.editor.server_address[1], timeout=5)
+        try:
+            headers = {"Cookie": f"salt_access={CODE}"}
+            conn.request("GET", "/api/sync", headers=headers)
+            conn.getresponse().read()
+            first = conn.sock
+            conn.request("GET", "/api/events", headers=headers)
+            resp = conn.getresponse()
+            self.assertIs(conn.sock, None, "the stream has the connection now")
+            self.assertIs(resp.fp.raw._sock, first, "the same connection")
+            self.assertEqual(resp.getheader("Content-Type"), "text/event-stream")
+            self.assertIsNone(resp.getheader("Content-Length"))
+            self.assertRegex(resp.readline(), NOTICE)
+            self.assertTrue(self.wait_until(lambda: len(srv.sse_clients) == 1))
+            self.post("/api/save_config", {"config": {"ato": "A", "title": "T"}})
+            resp.readline()
+            self.assertRegex(resp.readline(), NOTICE)
+            resp.close()
+        finally:
+            conn.close()
+        self.assertTrue(self.wait_until(lambda: not srv.sse_clients))
 
     def test_files_beside_the_server_are_not_exposed(self):
         # Regression: the handler inherited SimpleHTTPRequestHandler, whose HEAD

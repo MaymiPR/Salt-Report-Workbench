@@ -195,8 +195,9 @@ TLS_DIR_NAME = 'tls'
 TLS_CERT_DAYS = 825
 TLS_RENEW_DAYS = 30
 TLS_HANDSHAKE_TIMEOUT = 10
-# Seconds a connection may sit idle mid-request before it is closed. Not the
-# event stream, which stays open; see SaltSyncHandler.timeout.
+# Seconds a connection may sit idle, mid-request or kept open between requests,
+# before it is closed. Not the event stream, which stays open; see
+# SaltSyncHandler.timeout.
 REQUEST_IDLE_TIMEOUT = 30
 # Event streams one machine may hold open at once (a tab each); a new one past
 # this closes that machine's oldest, which is most likely a tab long gone.
@@ -4038,8 +4039,17 @@ def _same_origin(origin: str, host: str, tls: bool) -> bool:
 
 
 class SaltSyncHandler(server.BaseHTTPRequestHandler):
+    # Keep-alive: a browser sends its tiles, syncs and saves down the
+    # connections it has open, not a new connection (and, with HTTPS, a new
+    # TLS handshake) for each. So every reply carries its exact
+    # Content-Length, and a request whose body can't be read to its end
+    # (refused unread, or not framed by a Content-Length) has its connection
+    # closed after the reply, so no part of it is read as the next request.
+    # The event stream, which has no length, closes its connection when it ends.
+    protocol_version = 'HTTP/1.1'
     # A connection that sends nothing for this long is closed (StreamRequestHandler
-    # applies it in setup()), so a client that stalls can't hold a thread forever.
+    # applies it in setup()), so a client that stalls, or keeps a connection
+    # open between requests and sends no more, can't hold a thread forever.
     # The event stream clears it: it is meant to stay open.
     timeout = REQUEST_IDLE_TIMEOUT
 
@@ -4055,15 +4065,24 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         super().end_headers()
 
     def _send_body(
-        self, body: bytes, content_type: str, status: int = 200, headers: tuple = ()
+        self,
+        body: bytes,
+        content_type: str,
+        status: int = 200,
+        headers: tuple = (),
+        cache: str = 'no-cache, no-store, must-revalidate',
     ) -> None:
-        """Send a complete, uncacheable response."""
+        """Send a complete response, uncacheable unless ``cache`` says otherwise.
+        Every reply but the event stream's and send_error's is sent here."""
         self.send_response(status)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(body)))
-        self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+        self.send_header('Cache-Control', cache)
         for name, value in headers:
             self.send_header(name, value)
+        if self.close_connection:
+            # Said, so the client sends its next request down another connection.
+            self.send_header('Connection', 'close')
         self.end_headers()
         self.wfile.write(body)
 
@@ -4077,6 +4096,12 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
     def do_GET(self):
         # Strip query string so cache-bust params don't 404.
         path = self.path.split('?', 1)[0]
+        # A GET's body is never read. One sent anyway (no browser does) closes
+        # the connection after the reply, so it isn't read as the next request.
+        if self.headers.get('Transfer-Encoding') or self.headers.get(
+            'Content-Length', ''
+        ).strip() not in ('', '0'):
+            self.close_connection = True
         route = _ROUTE_TABLE.get(('GET', path))
         if route is None:
             if path.startswith('/api/'):
@@ -4109,12 +4134,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         if status != 200 or not ctype.lower().startswith('image/'):
             self._error(502, 'The basemap service sent no image.')
             return
-        self.send_response(200)
-        self.send_header('Content-Type', ctype)
-        self.send_header('Content-Length', str(len(body)))
-        self.send_header('Cache-Control', 'private, max-age=300')  # panning back reuses tiles
-        self.end_headers()
-        self.wfile.write(body)
+        self._send_body(body, ctype, cache='private, max-age=300')  # panning back reuses tiles
 
     def _authorized(self, body_length: int = 0) -> bool:
         """Editor-port code check; sends 401 (or 429) + False if denied. Viewer/localhost always pass.
@@ -4258,6 +4278,10 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-cache')
         self.send_header('Connection', 'keep-alive')
         self.end_headers()
+        # The stream has no length: it ends when the connection does, so the
+        # connection is never kept for another request (the header above
+        # would otherwise keep it).
+        self.close_connection = True
         sock = self.request  # underlying TCP socket
         # The stream stays open: no idle timeout, as the reads below wait in
         # select(). Writes get one, so a client that stops reading is dropped.
@@ -4343,6 +4367,11 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             length = int(self.headers.get('Content-Length', '0'))
         except (TypeError, ValueError):
             length = -1
+        # A body sent in chunks isn't read (the page never sends one): the
+        # connection closes after the reply, so the chunks aren't read as the
+        # next request.
+        if self.headers.get('Transfer-Encoding'):
+            self.close_connection = True
         if length < 0:
             # Unknowable body: drop what has already arrived, answer, and close.
             self._drain_available()
