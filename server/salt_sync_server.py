@@ -195,8 +195,9 @@ TLS_DIR_NAME = 'tls'
 TLS_CERT_DAYS = 825
 TLS_RENEW_DAYS = 30
 TLS_HANDSHAKE_TIMEOUT = 10
-# Seconds a connection may sit idle mid-request before it is closed. Not the
-# event stream, which stays open; see SaltSyncHandler.timeout.
+# Seconds a connection may sit idle, mid-request or kept open between requests,
+# before it is closed. Not the event stream, which stays open; see
+# SaltSyncHandler.timeout.
 REQUEST_IDLE_TIMEOUT = 30
 # Event streams one machine may hold open at once (a tab each); a new one past
 # this closes that machine's oldest, which is most likely a tab long gone.
@@ -216,7 +217,8 @@ _SECURITY_HEADERS = (
 # under Shared settings below) and everything marked "Protected by data_lock".
 data_lock = threading.Lock()
 
-# Cached /api/sync prefix — all but the closing brace and connected_users count. Invalidated on every mutation.
+# Cached /api/sync prefix: the shared state, without the closing brace or the
+# per-request tail (see _handle_sync). Invalidated on every mutation.
 _sync_cache_prefix: bytes | None = None  # protected by data_lock
 # The last /api/sync body and its gzip form for each view, editor (False) and
 # viewer (True): the two bodies differ only in read_only, the rest of the tail
@@ -771,15 +773,18 @@ def _machine(ip: str) -> str:
     return '127.0.0.1' if _is_localhost(ip) else ip
 
 
+def _code_needed(view_only: bool, client_ip: str) -> bool:
+    """Whether a request must carry the access code to hit gated endpoints.
+    * Viewer-port requests never do (the port itself is the gate).
+    * Nor any while access-code auth is disabled (_access_code is None).
+    * Nor localhost (the host running the server gets a free ride)."""
+    return not view_only and _access_code is not None and not _is_localhost(client_ip)
+
+
 def _access_code_ok(headers, view_only: bool, client_ip: str) -> bool:
-    """Return True if the request is authorized to hit gated endpoints.
-    * Viewer-port requests always pass (the port itself is the gate).
-    * If access-code auth is disabled (_access_code is None), pass.
-    * Localhost passes (the host running the server gets a free ride).
-    * Otherwise require a matching `salt_access` cookie."""
-    if view_only or _access_code is None:
-        return True
-    if _is_localhost(client_ip):
+    """Return True if the request is authorized to hit gated endpoints: it
+    needs no code (see _code_needed), or has a matching `salt_access` cookie."""
+    if not _code_needed(view_only, client_ip):
         return True
     submitted = (_get_cookie(headers, 'salt_access') or '').upper()
     # Constant-time compare to avoid timing-leak guesses. Bytes, because
@@ -1506,9 +1511,9 @@ def _v_save_basemaps(data: dict) -> str | None:
         name = b.get('name')
         if not _is_str(name, MAX_BASEMAP_NAME) or not name.strip():
             return f'basemaps[{i}].name must be a non-empty string ≤{MAX_BASEMAP_NAME} chars'
-        if name.strip().lower() in names:
+        if name.strip().casefold() in names:
             return f'basemaps[{i}].name is used twice'
-        names.add(name.strip().lower())
+        names.add(name.strip().casefold())
         if b.get('kind') not in ('wms', 'tiles'):
             return f'basemaps[{i}].kind must be wms or tiles'
         url = b.get('url')
@@ -1542,9 +1547,9 @@ def _v_save_drones(data: dict) -> str | None:
         name = d.get('name')
         if not _is_str(name, MAX_DRONE_NAME) or not name.strip():
             return f'drones[{i}].name must be a non-empty string ≤{MAX_DRONE_NAME} chars'
-        if name.strip().lower() in names:
+        if name.strip().casefold() in names:
             return f'drones[{i}].name is used twice'
-        names.add(name.strip().lower())
+        names.add(name.strip().casefold())
         grid = d.get('grid')
         if not isinstance(grid, str) or not _DRONE_GRID_RE.fullmatch(grid):
             return f'drones[{i}].grid must be an MGRS grid like "11S NV 39697 06762"'
@@ -1640,9 +1645,9 @@ def _v_save_narrative(data: dict) -> str | None:
             return (
                 f'narrative.units[{i}].name must be a non-empty string ≤{MAX_NARRATIVE_NAME} chars'
             )
-        if name.strip().lower() in names:
+        if name.strip().casefold() in names:
             return f'narrative.units[{i}].name is used twice'
-        names.add(name.strip().lower())
+        names.add(name.strip().casefold())
         places = u.get('places', [])
         if (
             not isinstance(places, list)
@@ -2796,14 +2801,6 @@ def read_mission(value) -> dict | None:
     }
 
 
-def _extract_json_from_file(raw_text: str) -> dict | None:
-    """DATA_STORE dict from a backup file (see ``_parse_backup``). None on failure."""
-    try:
-        return _parse_backup(raw_text)
-    except ValueError:
-        return None
-
-
 def _sort_num(v) -> float:
     """A number to compare by, whatever a hand-edited backup holds (else 0)."""
     return v if isinstance(v, (int, float)) else 0
@@ -2925,7 +2922,7 @@ def _merge_reports(existing_list: list, incoming_list: list) -> list:
 
 def backup_files(folder: str) -> list:
     """The backups in ``folder`` the boot reads: every ``.txt`` and ``Shared
-    settings.json``, oldest first. None when it has none (or isn't there)."""
+    settings.json``, oldest first. Empty when it has none (or isn't there)."""
     try:
         names = os.listdir(folder)
     except OSError:
@@ -3119,7 +3116,7 @@ def render_backup(
     """Return ``(filename, text)`` for a backup of the given state, or None if empty.
 
     Pure: no I/O, no global state. The text is a human-readable report summary
-    followed by a machine-readable JSON block that ``_extract_json_from_file``
+    followed by a machine-readable JSON block that ``_parse_backup``
     reads back on the next boot. ``formats`` is the format under each
     workspace's name (formats_for). The other shared settings come by name
     (``overlays=[...]``); one not given is written empty. ``label`` is the
@@ -3492,6 +3489,17 @@ def _held_names() -> set:
     }
 
 
+def _backup_layout(workspaces: dict, shared: dict) -> dict:
+    """The ``formats`` (the format under each workspace's name, the shape
+    backup files keep) and file ``names`` the backups of ``workspaces`` are
+    written with, as workspace_backup_parts and render_workspace_backups take
+    them. ``shared`` is shared_settings(). Caller holds data_lock."""
+    return {
+        'formats': formats_for(workspaces, shared['format']),
+        'names': workspace_filenames(workspaces, shared['config'], _held_names()),
+    }
+
+
 def _note_written(written: list) -> list:
     """Record the workspace backups just written, ``[(ato, filename)]``, and
     return the names of the files that now hold nothing. Caller holds data_lock."""
@@ -3585,12 +3593,7 @@ def save_data_to_disk() -> None:
                 shared = shared_settings()
                 # Made now: the reports are changed in place.
                 parts = workspace_backup_parts(
-                    workspaces,
-                    shared['config'],
-                    # The format under each workspace's name, the shape backup files keep.
-                    formats_for(workspaces, shared['format']),
-                    only=only,
-                    names=workspace_filenames(workspaces, shared['config'], _held_names()),
+                    workspaces, shared['config'], only=only, **_backup_layout(workspaces, shared)
                 )
                 # The shared settings are serialized after the lock is let
                 # go: each is replaced whole when it changes, never changed in
@@ -3777,8 +3780,7 @@ def finish_mission(actor: str, by: str = '') -> tuple:
         shared = shared_settings()
         files = render_workspace_backups(
             workspaces,
-            formats=formats_for(workspaces, shared['format']),
-            names=workspace_filenames(workspaces, shared['config'], _held_names()),
+            **_backup_layout(workspaces, shared),
             **{k: v for k, v in shared.items() if k != 'format'},
         )
         files.append((None, SHARED_SETTINGS_NAME, render_shared_settings(shared, dict(mission))))
@@ -4037,8 +4039,17 @@ def _same_origin(origin: str, host: str, tls: bool) -> bool:
 
 
 class SaltSyncHandler(server.BaseHTTPRequestHandler):
+    # Keep-alive: a browser sends its tiles, syncs and saves down the
+    # connections it has open, not a new connection (and, with HTTPS, a new
+    # TLS handshake) for each. So every reply carries its exact
+    # Content-Length, and a request whose body can't be read to its end
+    # (refused unread, or not framed by a Content-Length) has its connection
+    # closed after the reply, so no part of it is read as the next request.
+    # The event stream, which has no length, closes its connection when it ends.
+    protocol_version = 'HTTP/1.1'
     # A connection that sends nothing for this long is closed (StreamRequestHandler
-    # applies it in setup()), so a client that stalls can't hold a thread forever.
+    # applies it in setup()), so a client that stalls, or keeps a connection
+    # open between requests and sends no more, can't hold a thread forever.
     # The event stream clears it: it is meant to stay open.
     timeout = REQUEST_IDLE_TIMEOUT
 
@@ -4054,15 +4065,24 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         super().end_headers()
 
     def _send_body(
-        self, body: bytes, content_type: str, status: int = 200, headers: tuple = ()
+        self,
+        body: bytes,
+        content_type: str,
+        status: int = 200,
+        headers: tuple = (),
+        cache: str = 'no-cache, no-store, must-revalidate',
     ) -> None:
-        """Send a complete, uncacheable response."""
+        """Send a complete response, uncacheable unless ``cache`` says otherwise.
+        Every reply but the event stream's and send_error's is sent here."""
         self.send_response(status)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(body)))
-        self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+        self.send_header('Cache-Control', cache)
         for name, value in headers:
             self.send_header(name, value)
+        if self.close_connection:
+            # Said, so the client sends its next request down another connection.
+            self.send_header('Connection', 'close')
         self.end_headers()
         self.wfile.write(body)
 
@@ -4076,6 +4096,12 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
     def do_GET(self):
         # Strip query string so cache-bust params don't 404.
         path = self.path.split('?', 1)[0]
+        # A GET's body is never read. One sent anyway (no browser does) closes
+        # the connection after the reply, so it isn't read as the next request.
+        if self.headers.get('Transfer-Encoding') or self.headers.get(
+            'Content-Length', ''
+        ).strip() not in ('', '0'):
+            self.close_connection = True
         route = _ROUTE_TABLE.get(('GET', path))
         if route is None:
             if path.startswith('/api/'):
@@ -4108,12 +4134,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         if status != 200 or not ctype.lower().startswith('image/'):
             self._error(502, 'The basemap service sent no image.')
             return
-        self.send_response(200)
-        self.send_header('Content-Type', ctype)
-        self.send_header('Content-Length', str(len(body)))
-        self.send_header('Cache-Control', 'private, max-age=300')  # panning back reuses tiles
-        self.end_headers()
-        self.wfile.write(body)
+        self._send_body(body, ctype, cache='private, max-age=300')  # panning back reuses tiles
 
     def _authorized(self, body_length: int = 0) -> bool:
         """Editor-port code check; sends 401 (or 429) + False if denied. Viewer/localhost always pass.
@@ -4125,8 +4146,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         """
         view_only = getattr(self.server, 'view_only', False)
         ip = self.client_address[0]
-        gated = not view_only and _access_code is not None and not _is_localhost(ip)
-        if gated and not auth_fail_check(ip, take=False):
+        if not _code_needed(view_only, ip):
+            return True
+        if not auth_fail_check(ip, take=False):
             self._refuse(429, 'Too many wrong access codes. Retry shortly.', body_length)
             return False
         if _access_code_ok(self.headers, view_only, ip):
@@ -4179,8 +4201,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         self._error(status, message)
 
     def _handle_sync(self) -> None:
-        """Full sync payload. Cached prefix + dynamic tail (connected counts).
-        Operator IPs tracked server-side for attribution; never sent to peers."""
+        """Full sync payload. Cached prefix + dynamic tail: who is connected and
+        where, the Activity list, read_only and the version numbers. Operator
+        IPs tracked server-side for attribution; never sent to peers."""
         global _sync_cache_prefix
         # Read before the data: the answer then holds at least this change,
         # never less, so a page can't take itself to be newer than it is.
@@ -4198,7 +4221,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 full = json.dumps(data, separators=(',', ':'))
                 _sync_cache_prefix = full[:-1].encode('utf-8')
             prefix = _sync_cache_prefix
-        # Dynamic tail: connected count + deduped initials (no IPs).
+        # Dynamic tail: connected count, deduped initials and their workspaces (no IPs).
         with sse_lock:
             # Unique machines, not tabs: tabs from one machine share a key (the
             # host's localhost and LAN tabs included) and would otherwise inflate the count.
@@ -4255,6 +4278,10 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-cache')
         self.send_header('Connection', 'keep-alive')
         self.end_headers()
+        # The stream has no length: it ends when the connection does, so the
+        # connection is never kept for another request (the header above
+        # would otherwise keep it).
+        self.close_connection = True
         sock = self.request  # underlying TCP socket
         # The stream stays open: no idle timeout, as the reads below wait in
         # select(). Writes get one, so a client that stops reading is dropped.
@@ -4340,6 +4367,11 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             length = int(self.headers.get('Content-Length', '0'))
         except (TypeError, ValueError):
             length = -1
+        # A body sent in chunks isn't read (the page never sends one): the
+        # connection closes after the reply, so the chunks aren't read as the
+        # next request.
+        if self.headers.get('Transfer-Encoding'):
+            self.close_connection = True
         if length < 0:
             # Unknowable body: drop what has already arrived, answer, and close.
             self._drain_available()
@@ -4469,7 +4501,10 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         if said:
             note_activity(self._initials(), said, ato)
         schedule_save()
-        version = broadcast_update()
+        self._send_changed(broadcast_update(), extra)
+
+    def _send_changed(self, version: int, extra: dict) -> None:
+        """A write's success reply, with the number of the change it made."""
         # In a header too, so a page reads it before (or without) the body.
         self._send_body(
             json.dumps({'status': 'success', 'version': version, **extra}).encode('utf-8'),
@@ -4488,12 +4523,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             return
         if said:
             note_activity(self._initials(), said, ato)
-        version = broadcast_update()
-        self._send_body(
-            json.dumps({'status': 'success', 'version': version, **extra}).encode('utf-8'),
-            'application/json',
-            headers=(('X-Salt-Change', str(version)),),
-        )
+        self._send_changed(broadcast_update(), extra)
 
     def _store_shared(self, key: str, value, keep=None) -> tuple[bool, Any]:
         """Put a shared setting in place, for every workspace. Says whether it
@@ -5307,9 +5337,9 @@ class SaltSyncServer(socketserver.ThreadingTCPServer):
 def display_host() -> str:
     """The address the banner shows and the browser opens: the LAN address when
     listening on every interface, else the one listened on (``--host``)."""
-    if HOST in ('', '0.0.0.0', '::'):
+    if HOST in ('', '0.0.0.0'):
         return get_local_ip()
-    return f'[{HOST}]' if ':' in HOST else HOST
+    return HOST
 
 
 def run_boot_dashboard(
@@ -5493,12 +5523,7 @@ def restore_snapshot(which: str) -> int:
         return 1
     snap_dir = os.path.join(BACKUP_DIR, SNAPSHOT_DIR_NAME)
     keep = os.path.join(snap_dir, f'before-restore-{datetime.now(timezone.utc):%Y%m%d_%H%M%S}Z')
-    live = [
-        f
-        for f in os.listdir(BACKUP_DIR)
-        if (f.endswith('.txt') or f == SHARED_SETTINGS_NAME)
-        and os.path.isfile(os.path.join(BACKUP_DIR, f))
-    ]
+    live = [os.path.basename(p) for p in backup_files(BACKUP_DIR)]
     os.makedirs(keep, exist_ok=True)
     for f in live:
         shutil.copy2(os.path.join(BACKUP_DIR, f), os.path.join(keep, f))
@@ -5702,6 +5727,10 @@ if __name__ == '__main__':
     try:
         httpd = SaltSyncServer((HOST, PORT), SaltSyncHandler, tls=tls)
     except OSError as exc:
+        if ':' in HOST:  # an IPv6 address: the listeners are IPv4 only
+            safe_print(f'\n[!] Could not listen on {HOST}: only IPv4 addresses are supported.')
+            safe_print('    Use --host 0.0.0.0 (every interface) or 127.0.0.1 (this machine only).')
+            sys.exit(1)
         safe_print(f'\n[!] Could not listen on port {PORT}: {exc}')
         safe_print('    Is the server already running? Close it, or start this one with --port.')
         sys.exit(1)

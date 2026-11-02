@@ -27,7 +27,6 @@ select = [
 ignore = [
     "E501",     # line length is the formatter's job
     "RUF001",   # the UI and manual use typographic glyphs on purpose
-    "RUF002",
     "RUF003",
     # datetime.UTC is 3.11+. The server imports run before its version check,
     # so an older Python would stop at the import instead of being told why;
@@ -40,9 +39,6 @@ ignore = [
 # keeps the import order the same on every machine, whatever folders (a local
 # release/ or build/, say) sit beside them.
 known-first-party = ["build", "bump", "pack", "release", "salt_sync_server"]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["B011"]
 
 [tool.ruff.format]
 quote-style = "preserve"

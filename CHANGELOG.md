@@ -15,6 +15,16 @@ All notable changes to this project are documented here. The format follows
   and the manual quotes them as they are. Counts say "1 report" and
   "2 reports" instead of "report(s)", in deleting, moving, putting back and
   importing.
+- **CI runs the pre-commit hooks.** The checks in `.pre-commit-config.yaml`
+  (trailing whitespace, end of files, YAML and TOML, merge markers, large
+  files, private keys, ruff) ran only for contributors who had installed
+  pre-commit. The Lint job now runs them on every file of every change.
+- **Browsers keep their connections to the server.** Every map tile, sync
+  and save was a new connection, and with HTTPS a new TLS handshake. The
+  server now keeps connections open between requests (HTTP/1.1 keep-alive),
+  on both ports, with HTTPS or without: the page and 50 map tiles over HTTPS
+  from one client take about 0.6 s instead of 1.25 s here. A connection left
+  idle for 30 seconds is closed, and the live updates stream as before.
 
 ### Fixed
 
@@ -44,6 +54,10 @@ All notable changes to this project are documented here. The format follows
   "Дозор" lost its accented or Cyrillic letters to underscores, and an emoji
   became two. A title with nothing left to keep now leaves that part of the
   name empty, as the server does, instead of X.
+- **An IPv6 `--host` is told plainly.** `--host ::` (or any IPv6 address)
+  stopped with "Is the server already running?", which it wasn't. The server
+  listens on IPv4 only, and now says so, with 0.0.0.0 or 127.0.0.1 to use
+  instead.
 
 ## [2.43.0] - 2026-11-01
 
