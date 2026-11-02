@@ -1319,6 +1319,9 @@ test('WMS: the service\'s version, projection and format', () => {
     assert.ok(core.wmsUrl('http://s/wms', 'a', [1, 2, 3, 4], 10, 10, { crs: 'EPSG:102100' }).includes('BBOX=1.00,2.00,3.00,4.00'), 'meters');
     const [lon, lat] = core.mercToLonLat(...core.lonLatToMerc(-116.5, 35.3));
     assert.ok(Math.abs(lon + 116.5) < 1e-9 && Math.abs(lat - 35.3) < 1e-9);
+    // A shapefile's [x, y] in Web Mercator reads the same as the map's meters.
+    assert.deepEqual(core.webMercatorToLonLat([-12974286.651, 4202000]), core.mercToLonLat(-12974286.651, 4202000));
+    assert.deepEqual(core.webMercatorToLonLat([0, 0]), [0, 0]);
 });
 
 test('WMS: capabilities link, projection and format choices', () => {

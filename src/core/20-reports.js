@@ -355,7 +355,7 @@ const bdaRollup = (reps) => {
 
 const BACKUP_START = '##SALT_BACKUP##';
 const BACKUP_END   = '##SALT_BACKUP_END##';
-// Literal em-dashes (not the HTML entity): this is a .txt file.
+// A literal box-drawing line (U+2500), not an HTML entity: this is a .txt file.
 const BACKUP_DIV = '='.repeat(72), BACKUP_SUB = '─'.repeat(72);
 
 const backupFilename = (ato, title) => `${safeFilename(ato)}_${safeFilename(title)}`;

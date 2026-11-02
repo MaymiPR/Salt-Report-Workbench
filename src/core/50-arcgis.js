@@ -21,7 +21,7 @@ const arcgisRows = (reps, overlays, { local, customLabels = [], idOf, team = nul
     for (const r of reps) {
         if (r.deleted) continue;
         const versions = all
-            ? [...(r.history || [])].sort((a, b) => (new Date(a.time) - new Date(b.time)) || (a.lastModified - b.lastModified)).concat(r)
+            ? versionsByTime(r).concat(r)
             : [r];
         const placed = versions.map((v, n) => ({ v, n, a: analyzeLocation(v.location, overlays) })).filter(x => x.a.points.length);
         if (!placed.length) { skipped++; continue; }

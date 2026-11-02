@@ -266,13 +266,31 @@ const boxOf = (coords) => {
 // changes an answer.
 const BOX_MARGIN = 1e-9;
 const outsideBox = (b, lon, lat) => !!b && (lon < b[0] - BOX_MARGIN || lon > b[2] + BOX_MARGIN || lat < b[1] - BOX_MARGIN || lat > b[3] + BOX_MARGIN);
-// The fewest meters from a point to anything in a box, on metersToLine's
-// flat projection (so never more than metersToLine gives to what is in
-// it), less a millimeter for rounding; 0 with no box. `kx` is the meters in
-// a degree of longitude there, for a caller asking of many boxes.
-const metersToBox = (b, lon, lat, kx = 111320 * Math.cos(lat * Math.PI / 180)) => {
+// The flat projection the distances to lines, boxes and areas are measured
+// on, centered on a point: the meters in a degree of latitude, and in one of
+// longitude at `lat`. Within a fraction of a percent over the tens of
+// kilometers that matter here.
+const M_PER_DEG_LAT = 110574;
+const mPerDegLon = (lat) => 111320 * Math.cos(lat * Math.PI / 180);
+// The point of segment a-b ([lon, lat] each) nearest (lon, lat), on that
+// projection centered on it (`kx`: mPerDegLon(lat)): { x, y } its meters east
+// and north of the point, `meters` how far that is, and `len2` the segment's
+// length squared (0 for one of no length, whose nearest point is its end).
+const segmentNearest = (lon, lat, a, b, kx) => {
+    const ax = (a[0] - lon) * kx, ay = (a[1] - lat) * M_PER_DEG_LAT;
+    const bx = (b[0] - lon) * kx, by = (b[1] - lat) * M_PER_DEG_LAT;
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+    const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+    const x = ax + t * dx, y = ay + t * dy;
+    return { x, y, meters: Math.hypot(x, y), len2 };
+};
+// The fewest meters from a point to anything in a box, on that projection
+// (so never more than metersToLine gives to what is in it), less a
+// millimeter for rounding; 0 with no box. `kx` is the meters in a degree of
+// longitude there, for a caller asking of many boxes.
+const metersToBox = (b, lon, lat, kx = mPerDegLon(lat)) => {
     if (!b) return 0;
-    const ky = 110574;
+    const ky = M_PER_DEG_LAT;
     const dx = Math.max(0, b[0] - lon, lon - b[2]) * kx, dy = Math.max(0, b[1] - lat, lat - b[3]) * ky;
     return Math.max(0, Math.hypot(dx, dy) - 0.001);
 };
@@ -295,33 +313,22 @@ const geometryContains = (g, lon, lat) =>
   : g.type === 'MultiPolygon' ? g.coordinates.some(p => inPolygon(lon, lat, p))
   : false;
 
-// Meters from a point to a line, on a flat projection centered on the point:
-// within a fraction of a percent over the tens of kilometers that matter here.
+// Meters from a point to a line, on the flat projection centered on the point.
 const metersToLine = (lon, lat, line) => {
-    const kx = 111320 * Math.cos(lat * Math.PI / 180), ky = 110574;
+    const kx = mPerDegLon(lat);
     let best = Infinity;
-    for (let i = 1; i < line.length; i++) {
-        const ax = (line[i-1][0] - lon) * kx, ay = (line[i-1][1] - lat) * ky;
-        const bx = (line[i][0]   - lon) * kx, by = (line[i][1]   - lat) * ky;
-        const dx = bx - ax, dy = by - ay, len2 = dx*dx + dy*dy;
-        const t  = len2 ? Math.max(0, Math.min(1, -(ax*dx + ay*dy) / len2)) : 0;
-        best = Math.min(best, Math.hypot(ax + t*dx, ay + t*dy));
-    }
+    for (let i = 1; i < line.length; i++) best = Math.min(best, segmentNearest(lon, lat, line[i - 1], line[i], kx).meters);
     return best;
 };
 // The segment of a line nearest a point, on the same flat projection:
 // { meters, bearingDeg }, its bearing from the segment's start to its end
 // (the way the line was drawn), or null for a line of no length.
 const nearestSegment = (lon, lat, line) => {
-    const kx = 111320 * Math.cos(lat * Math.PI / 180), ky = 110574;
+    const kx = mPerDegLon(lat);
     let best = null;
     for (let i = 1; i < line.length; i++) {
-        const ax = (line[i-1][0] - lon) * kx, ay = (line[i-1][1] - lat) * ky;
-        const bx = (line[i][0]   - lon) * kx, by = (line[i][1]   - lat) * ky;
-        const dx = bx - ax, dy = by - ay, len2 = dx*dx + dy*dy;
+        const { meters, len2 } = segmentNearest(lon, lat, line[i - 1], line[i], kx);
         if (!len2) continue;
-        const t = Math.max(0, Math.min(1, -(ax*dx + ay*dy) / len2));
-        const meters = Math.hypot(ax + t*dx, ay + t*dy);
         if (!best || meters < best.meters) {
             best = { meters, bearingDeg: bearingBetween({ lon: line[i-1][0], lat: line[i-1][1] }, { lon: line[i][0], lat: line[i][1] }) };
         }
@@ -442,6 +449,19 @@ const overlayIndex = (overlays) => {
     overlayIndexes.set(list, index);
     return index;
 };
+// The NAIs or OBJs typed in a Location (`keys`) that its grids (`points`)
+// are outside, each { typed, found, message }: the areas of that type
+// (`areas`, overlayIndex's) the grids are in instead, and the words for it,
+// as analyzeLocation's checks and locationPlan's conflicts say them. A key
+// with no area isn't checked.
+const placeConflicts = (keys, areas, points) => {
+    const contains = (g) => points.some(p => geometryContains(g, p.lon, p.lat));
+    const found = [...new Set(areas.filter(x => contains(x.geometry)).map(x => x.key))].filter(k => !keys.includes(k));
+    return keys.filter(k => {
+        const own = areas.filter(x => x.key === k);
+        return own.length && !own.some(x => contains(x.geometry));
+    }).map(k => ({ typed: k, found, message: found.length ? `${k} typed; grid is in ${found.join(', ')}` : `${k} typed; grid is outside it` }));
+};
 const readLocation = (text, index) => {
     const points = findGrids(text);
     let rest = String(text || '');
@@ -455,15 +475,7 @@ const readLocation = (text, index) => {
         const areas = index[t];
         const inside = [...new Set(areas.filter(x => contains(x.geometry)).map(x => x.key))];
         if (!keys.length) return { keys: inside, from: inside.length ? 'grid' : '' };
-        if (points.length) {
-            keys.forEach(k => {
-                const own = areas.filter(x => x.key === k);
-                if (own.length && !own.some(x => contains(x.geometry))) {
-                    const other = inside.filter(i => !keys.includes(i));
-                    checks.push(other.length ? `${k} typed; grid is in ${other.join(', ')}` : `${k} typed; grid is outside it`);
-                }
-            });
-        }
+        if (points.length) checks.push(...placeConflicts(keys, areas, points).map(c => c.message));
         return { keys, from: 'typed' };
     };
     const nai = place('NAI'), obj = place('OBJ');
@@ -507,18 +519,11 @@ const locationPlan = (text, overlays) => {
     if (!a.points.length) return plan;
     const ovs = (overlays || []).filter(overlayOk);
     const keyOf = overlayKey;
+    const index = overlayIndex(overlays);
     ['NAI', 'OBJ'].forEach(t => {
         const p = t === 'NAI' ? a.nai : a.obj;
         if (p.from === 'grid') { plan.add.push(...p.keys); return; }
-        const areas = ovs.filter(o => o.type === t).map(o => ({ ...o, geometry: asArea(o.geometry) }))
-            .filter(o => /Polygon/.test(o.geometry.type));
-        const inside = o => a.points.some(pt => geometryContains(o.geometry, pt.lon, pt.lat));
-        const found = [...new Set(areas.filter(inside).map(keyOf))].filter(k => !p.keys.includes(k));
-        p.keys.forEach(k => {
-            const own = areas.filter(o => keyOf(o) === k);
-            if (own.length && !own.some(inside)) plan.conflicts.push({ type: t, typed: k, found,
-                message: found.length ? `${k} typed; grid is in ${found.join(', ')}` : `${k} typed; grid is outside it` });
-        });
+        plan.conflicts.push(...placeConflicts(p.keys, index[t], a.points).map(c => ({ type: t, ...c })));
     });
     // The team's tags: each area a grid is in, by its name, unless named already.
     a.custom.forEach(c => { if (c.from === 'grid') plan.add.push(c.key); });

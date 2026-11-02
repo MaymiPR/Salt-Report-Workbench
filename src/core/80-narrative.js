@@ -53,7 +53,7 @@ const TERRAIN_STEP_METERS = 100, TERRAIN_AHEAD_METERS = 500;
 const terrainKey = (lon, lat) => `${lon.toFixed(5)},${lat.toFixed(5)}`;
 const offsetPoint = (pt, meters, deg) => {
     const r = deg * Math.PI / 180;
-    return { lon: pt.lon + meters * Math.sin(r) / (111320 * Math.cos(pt.lat * Math.PI / 180)), lat: pt.lat + meters * Math.cos(r) / 110574 };
+    return { lon: pt.lon + meters * Math.sin(r) / mPerDegLon(pt.lat), lat: pt.lat + meters * Math.cos(r) / M_PER_DEG_LAT };
 };
 const groundPoints = (pt, aheadDeg = null) => [pt, ...[0, 90, 180, 270].map(d => offsetPoint(pt, TERRAIN_STEP_METERS, d)),
     ...(aheadDeg === null ? [] : [offsetPoint(pt, TERRAIN_AHEAD_METERS, aheadDeg)])];
@@ -181,7 +181,7 @@ const metersAtLeast = (g, pt) => {
 // The NAIs and OBJs that may be within `m` of a point (overlayIndex's
 // places, in order): those whose box is further are not.
 const placesWithin = (pt, overlays, m) => {
-    const kx = 111320 * Math.cos(pt.lat * Math.PI / 180);
+    const kx = mPerDegLon(pt.lat);
     return overlayIndex(overlays).places.filter(p => metersToBox(p.box, pt.lon, pt.lat, kx) <= m);
 };
 // What `of(pt, overlays, m)` gives, kept with the overlays' index by what
@@ -234,8 +234,6 @@ const crossingsOf = (facts, overlays) => {
     });
     return out.sort((x, y) => Date.parse(y.time) - Date.parse(x.time) || x.key.localeCompare(y.key));
 };
-// The tempo: reports in the last 3 hrs of the period against the average 3
-// hrs before them, rising, steady or falling; null in a period under 6 hrs.
 // The ground at a report, from the heights the page has (terrain.heights,
 // by terrainKey): its grid's height, the slope round it (percent, from the
 // four points TERRAIN_STEP_METERS away) and how much the ground rises
@@ -275,6 +273,10 @@ const slopeRead = (f) => {
 // earth curves away (with refraction, a radius 4/3 of its own). Ground above
 // the sightline anywhere hides it; ground with no data there hides nothing.
 const LOS_MAX_METERS = 5000, LOS_AREAS = 3, LOS_EYE_METERS = 2, LOS_TARGET_METERS = 2;
+// The curve's radius: 4/3 of the round 6,371 km the refraction rule is given
+// with. Not EARTH_RADIUS_METERS (metersBetween's mean radius): the line of
+// sight was built and tested on this one, and the difference (micrometers
+// over these lengths) isn't worth moving its answers for.
 const LOS_EARTH_METERS = 6371000 * 4 / 3;
 // The point of an area (or line, or point) nearest `pt`, and its middle (the
 // mean of its outer ring's corners).
@@ -282,15 +284,11 @@ const ringsOf = (g) => (g.type === 'Polygon' ? g.coordinates : g.type === 'Multi
     : g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates
         : g.type === 'Point' ? [[g.coordinates]] : g.type === 'MultiPoint' ? g.coordinates.map(c => [c]) : []);
 const nearestOn = (g, pt) => {
-    const kx = 111320 * Math.cos(pt.lat * Math.PI / 180), ky = 110574;
+    const kx = mPerDegLon(pt.lat);
     let best = null;
     ringsOf(g).forEach(line => line.forEach((c, i) => {
-        const a = line[i === 0 ? 0 : i - 1];
-        const ax = (a[0] - pt.lon) * kx, ay = (a[1] - pt.lat) * ky, bx = (c[0] - pt.lon) * kx, by = (c[1] - pt.lat) * ky;
-        const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
-        const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
-        const m = Math.hypot(ax + t * dx, ay + t * dy);
-        if (!best || m < best.m) best = { m, lon: pt.lon + (ax + t * dx) / kx, lat: pt.lat + (ay + t * dy) / ky };
+        const { x, y, meters } = segmentNearest(pt.lon, pt.lat, line[i === 0 ? 0 : i - 1], c, kx);
+        if (!best || meters < best.m) best = { m: meters, lon: pt.lon + x / kx, lat: pt.lat + y / M_PER_DEG_LAT };
     }));
     return best && { lon: best.lon, lat: best.lat };
 };
@@ -472,6 +470,9 @@ const losBetween = (a, b, terrain = null) => {
     const c = losCheck(a, b, terrain.heights);
     return { ...c, d, points, ...(c.state === 'hidden' ? { block: pointAlong(a, b, c.x) } : {}) };
 };
+// The tempo: reports in the last TEMPO_HOURS of the period against the
+// average TEMPO_HOURS before them, rising, steady or falling; null in a
+// period under twice TEMPO_HOURS.
 const TEMPO_HOURS = 3;
 const tempoOf = (facts, end) => {
     const span = end - facts[0].ms;
