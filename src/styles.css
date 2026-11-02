@@ -42,6 +42,13 @@
     --green-strong: rgba(50, 215, 75, 0.35);
     --yellow-soft: rgba(255, 214, 10, 0.14);
     --yellow-hover: rgba(255, 214, 10, 0.22);
+    /* Blue and red for text, and a blue to fill a button with white text on
+       it: the system colors read below 4.5:1 there (blue text on a field or a
+       blue tint, red on a red tint, white on blue). These reach it on the
+       panel, a field, the map's glass and their tints. */
+    --blue-text: #5eadff;
+    --red-text: #ff847b;
+    --blue-fill: #0a68cc;
     /* White washes for neutral chips and hovered rows; black for shadows. */
     --white-faint: rgba(255, 255, 255, 0.06);
     --white-soft: rgba(255, 255, 255, 0.1);
@@ -124,11 +131,11 @@ input[type="checkbox"]:hover { border-color: var(--text-secondary); }
 button { color: var(--on-color); padding: 12px 20px; border: none; border-radius: 12px; cursor: pointer; font-size: 0.95em; font-weight: 600; transition: transform 0.1s ease, opacity 0.2s ease; }
 button:active { transform: scale(0.96); }
 button:hover { opacity: 0.85; }
-#logButton { background-color: var(--system-blue); width: 100%; margin-top: 6px; }
+#logButton { background-color: var(--blue-fill); width: 100%; margin-top: 6px; }
 #editUpdatePair { display: flex; gap: 8px; margin-top: 6px; }
 #editUpdatePair button { flex: 1 1 0; }
 #editButton   { background-color: var(--system-gray); }
-#updateButton { background-color: var(--system-blue); }
+#updateButton { background-color: var(--blue-fill); }
 #cancelButton { background-color: var(--system-gray); width: 100%; margin-top: 10px; }
 
 .config-controls { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; margin-bottom: 28px; }
@@ -140,12 +147,12 @@ button:hover { opacity: 0.85; }
 .time-control { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; }
 .time-control input { flex-grow: 1; margin-bottom: 0; }
 .time-control button { margin-right: 0; width: 90px; height: 46px; flex-shrink: 0; text-align: center; }
-.set-btn { background-color: var(--system-blue); color: var(--on-color); }
+.set-btn { background-color: var(--blue-fill); color: var(--on-color); }
 .change-btn { background-color: var(--system-gray); }
-#updateTimeBtn { background-color: var(--system-blue); }
+#updateTimeBtn { background-color: var(--blue-fill); }
 #updateTimeBtn:disabled { background-color: var(--system-gray); opacity: 0.35; cursor: not-allowed; transform: none; }
 
-.copy-btn { background-color: var(--blue-soft); color: var(--system-blue); font-size: 0.74em; font-weight: 600; padding: 4px 12px; border-radius: 100px; margin: 0; border: none; transition: background-color 0.15s ease; letter-spacing: 0.02em; }
+.copy-btn { background-color: var(--blue-soft); color: var(--blue-text); font-size: 0.74em; font-weight: 600; padding: 4px 12px; border-radius: 100px; margin: 0; border: none; transition: background-color 0.15s ease; letter-spacing: 0.02em; }
 .copy-btn:hover { background-color: var(--blue-hover); opacity: 1; }
 /* Restore (history rows): same pill shape as Copy, green accent. */
 .restore-btn { background-color: var(--green-soft); color: var(--system-green); font-size: 0.74em; font-weight: 600; padding: 4px 10px; border-radius: 100px; margin: 0; border: none; transition: background-color 0.15s ease; letter-spacing: 0.02em; cursor: pointer; }
@@ -271,7 +278,7 @@ button:hover { opacity: 0.85; }
 /* A fixed width, so Show and Hide take the same room. */
 .access-show-btn { width: 60px; padding-left: 0; padding-right: 0; text-align: center; cursor: pointer; }
 .access-show-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.startup-access-error { display: none; color: var(--system-red); font-size: 0.82em; margin-top: 6px; line-height: 1.4; }
+.startup-access-error { display: none; color: var(--red-text); font-size: 0.82em; margin-top: 6px; line-height: 1.4; }
 .startup-access-error.show { display: block; }
 /* Viewer port has no code gate — hide the whole section + divider. */
 body.read-only .startup-access-section,
@@ -338,7 +345,7 @@ body.local-mode .startup-access-divider { display: none; }
 /* Minor headings inside a section ("Boot Dashboard", etc.). */
 .manual-subhead { margin: 12px 0 6px; font-size: 0.9em; color: var(--text-secondary); }
 /* Tutorial sub-headings ("To Update a report", etc.). */
-.manual-step { margin: 14px 0 4px 0; font-size: 0.92em; color: var(--system-blue); font-weight: 600; }
+.manual-step { margin: 14px 0 4px 0; font-size: 0.92em; color: var(--blue-text); font-weight: 600; }
 .manual-step + ol { margin-top: 4px; }
 .manual-step-result { margin: 4px 0 0 0; font-size: 0.88em; color: var(--text-secondary); line-height: 1.5; }
 .manual-step-result em { color: var(--text-secondary); }
@@ -360,7 +367,7 @@ body.local-mode .startup-access-divider { display: none; }
 /* "Locally" / "With sync server" mode lines under feature bullets. */
 .manual-section .manual-modes { margin: 8px 0 0 0; font-size: 0.88em; line-height: 1.55; color: var(--text-primary); }
 .manual-section .manual-modes + .manual-modes { margin-top: 3px; }
-.manual-section .manual-modes strong { display: inline-block; min-width: 140px; color: var(--system-blue); font-weight: 600; }
+.manual-section .manual-modes strong { display: inline-block; min-width: 140px; color: var(--blue-text); font-weight: 600; }
 /* Heading-level "Local only" / "Online only" tags. */
 .manual-section h3 .manual-tag {
     display: inline-block;
@@ -375,9 +382,9 @@ body.local-mode .startup-access-divider { display: none; }
     border: 1px solid transparent;
 }
 .manual-tag.local  { background: var(--green-soft);  color: var(--system-green); border-color: var(--green-strong); }
-.manual-tag.online { background: var(--blue-soft); color: var(--system-blue);  border-color: var(--blue-strong); }
+.manual-tag.online { background: var(--blue-soft); color: var(--blue-text);  border-color: var(--blue-strong); }
 .manual-testers { background-color: var(--blue-faint); border: 1px solid var(--glass-border); border-radius: 12px; padding: 14px 16px; }
-.manual-testers h3 { border-bottom: none; padding-bottom: 0; color: var(--system-blue); }
+.manual-testers h3 { border-bottom: none; padding-bottom: 0; color: var(--blue-text); }
 .manual-tester-list { font-weight: 500; font-size: 0.88em !important; color: var(--text-primary); line-height: 1.7 !important; }
 /* Manual footer: version + source link, discreet small caps. */
 .manual-version-footer {
@@ -395,7 +402,7 @@ body.local-mode .startup-access-divider { display: none; }
 /* Source link (AGPL): quiet, same color as the footer, underline on hover. */
 .manual-version-footer a { color: inherit; text-decoration: none; border-bottom: 1px solid currentColor; }
 .manual-version-footer a:hover { color: var(--text-primary); }
-#setProfileBtn { background-color: var(--system-blue); width: 100%; margin-top: 4px; }
+#setProfileBtn { background-color: var(--blue-fill); width: 100%; margin-top: 4px; }
 
 /* Access code display in the Identity tab. Monospace and tracked so each
    character reads clearly when the host shares the code verbally. Read-only
@@ -454,7 +461,7 @@ body.local-mode .startup-access-divider { display: none; }
 .view-icon { width: 28px; height: 28px; margin: 0; padding: 0; border: none; border-radius: 8px; background: var(--input-bg); color: var(--text-secondary); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background-color 0.15s, color 0.15s; }
 .view-icon svg { width: 17px; height: 17px; display: block; }
 .view-icon:hover { background: var(--input-bg-hover); color: var(--text-primary); }
-.view-icon.active, .data-management-menu:has(#dataMgmtMenu[style*="block"]) #dataMgmtBtn { background: var(--blue-hover); color: var(--system-blue); }
+.view-icon.active, .data-management-menu:has(#dataMgmtMenu[style*="block"]) #dataMgmtBtn { background: var(--blue-hover); color: var(--blue-text); }
 .view-icon:focus-visible { outline: 2px solid var(--system-blue); outline-offset: 1px; }
 .report-header, .export-panel-header { padding-right: 84px; min-height: 66px; box-sizing: border-box; }
 /* The Report Log and the map, one above the other: the pager slides between
@@ -493,14 +500,14 @@ body.local-mode .startup-access-divider { display: none; }
 /* The button by a heading: to the map, or back to the Report Log. */
 .home-arrow { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; margin: 0 0 0 6px; padding: 0; border: none; border-radius: 8px; background: var(--input-bg); color: var(--text-secondary); cursor: pointer; vertical-align: middle; transition: color 0.15s, background-color 0.15s; }
 .home-arrow svg { width: 17px; height: 17px; display: block; }
-.home-arrow:hover { color: var(--system-blue); background: var(--blue-soft); }
+.home-arrow:hover { color: var(--blue-text); background: var(--blue-soft); }
 .home-arrow:active { transform: none; }
 .data-management-menu { position: relative; }
 #dataMgmtMenu { display: none; position: absolute; right: 0; top: calc(100% + 8px); overflow-y: auto; box-sizing: border-box; background-color: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: 14px; padding: 6px; z-index: 20; min-width: 250px; box-shadow: 0 10px 30px var(--shadow-strong); }
 #dataMgmtMenu button { width: 100%; text-align: left; background: transparent; font-size: 0.9em; margin: 0; border-radius: 8px; padding: 10px 14px; color: var(--text-primary); font-weight: 500; }
 #dataMgmtMenu hr { border: none; border-top: 1px solid var(--divider); margin: 5px 0; }
-#dataMgmtMenu button:hover { background: var(--system-blue); }
-#clearAllBtn { color: var(--system-red) !important; }
+#dataMgmtMenu button:hover { background: var(--blue-fill); }
+#clearAllBtn { color: var(--red-text) !important; }
 #clearAllBtn:hover { background: var(--system-red) !important; color: var(--on-color) !important; }
 .file-input-wrapper { display: none; }
 
@@ -643,12 +650,12 @@ body.local-mode .startup-access-divider { display: none; }
 /* A change the server refused: kept locally until fixed or discarded. */
 .unsaved-badge {
     font-size: 0.8em;
-    color: var(--system-red);
+    color: var(--red-text);
     font-weight: 600;
     line-height: 1.2;
     cursor: help;
 }
-.discard-btn { background-color: var(--red-soft); color: var(--system-red); font-size: 0.74em; font-weight: 600; padding: 4px 10px; border-radius: 100px; margin: 0; border: none; letter-spacing: 0.02em; }
+.discard-btn { background-color: var(--red-soft); color: var(--red-text); font-size: 0.74em; font-weight: 600; padding: 4px 10px; border-radius: 100px; margin: 0; border: none; letter-spacing: 0.02em; }
 .discard-btn:hover { background-color: var(--red-hover); opacity: 1; }
 /* Two live reports share this number: Renumber gives this one the next free. */
 .dupe-badge {
@@ -665,7 +672,7 @@ body.local-mode .startup-access-divider { display: none; }
 .history-btn {
     background: transparent;
     border: none;
-    color: var(--system-blue);
+    color: var(--blue-text);
     cursor: pointer;
     font-size: 1.05em;
     padding: 2px 5px;
@@ -706,7 +713,7 @@ body.local-mode .startup-access-divider { display: none; }
 .toast { visibility: hidden; min-width: 280px; background-color: var(--glass-bg); backdrop-filter: blur(16px); border: 1px solid var(--glass-border); color: var(--on-color); text-align: center; border-radius: 16px; padding: 16px 20px; position: fixed; z-index: 2500; left: 50%; transform: translateX(-50%) translateY(20px); bottom: 40px; font-size: 0.95em; font-weight: 500; opacity: 0; transition: opacity 0.4s, transform 0.4s, visibility 0.4s; box-shadow: 0 8px 32px var(--shadow); }
 .toast.show { visibility: visible; opacity: 1; transform: translateX(-50%) translateY(0); }
 /* Undo pill on the delete and restore toasts. */
-.toast .toast-undo { margin-left: 14px; padding: 4px 14px; border-radius: 100px; background-color: var(--blue-hover); color: var(--system-blue); font-size: 0.85em; font-weight: 600; vertical-align: middle; }
+.toast .toast-undo { margin-left: 14px; padding: 4px 14px; border-radius: 100px; background-color: var(--blue-hover); color: var(--blue-text); font-size: 0.85em; font-weight: 600; vertical-align: middle; }
 .toast .toast-undo:hover { background-color: var(--blue-strong); opacity: 1; }
 .toast.confirm { bottom: 50vh; transform: translate(-50%, 50%) scale(0.9); }
 .toast.confirm.show { transform: translate(-50%, 50%) scale(1); }
@@ -791,7 +798,7 @@ body.local-mode .startup-access-divider { display: none; }
 .sortable-th:hover { color: var(--text-primary); }
 .sort-icon { display: inline-block; font-size: 0.85em; opacity: 0.35; margin-left: 5px; color: var(--text-secondary); transition: opacity 0.15s ease, color 0.15s ease; }
 .sortable-th:hover .sort-icon { opacity: 0.7; }
-.sort-icon.active { opacity: 1; color: var(--system-blue); }
+.sort-icon.active { opacity: 1; color: var(--blue-text); }
 
 #logView { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 /* flex:1 + min-height:0 gives the inner workspaces list a bounded height to scroll against. */
@@ -814,7 +821,7 @@ body.local-mode .startup-access-divider { display: none; }
 .filter-field-head label { margin: 0; }
 .filter-field label { min-height: 24px; }
 .filter-clear { margin: 0; width: auto; padding: 3px 12px; font-size: 0.78em; border-radius: 8px; }
-.filter-mode { font-size: 0.95em; color: var(--system-blue); font-weight: 700; letter-spacing: 0.3px; text-transform: none; }
+.filter-mode { font-size: 0.95em; color: var(--blue-text); font-weight: 700; letter-spacing: 0.3px; text-transform: none; }
 .filter-pair { display: flex; gap: 8px; align-items: stretch; }
 .filter-pair input { box-sizing: border-box; padding: 11px 14px; border: 1.5px solid transparent; border-radius: 12px; background-color: var(--input-bg); color: var(--text-primary); font-size: 0.95em; font-family: inherit; transition: border-color 0.2s, background-color 0.2s; color-scheme: dark; margin: 0; }
 .filter-pair input:focus { background-color: var(--panel-bg); border-color: var(--system-blue); outline: none; }
@@ -840,7 +847,7 @@ body.local-mode .startup-access-divider { display: none; }
     transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 .filter-preset-btn:hover  { background-color: var(--input-bg-hover); border-color: var(--system-blue); }
-.filter-preset-btn:active { background-color: var(--system-blue); color: var(--on-color); }
+.filter-preset-btn:active { background-color: var(--blue-fill); color: var(--on-color); }
 .filter-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; flex-wrap: wrap; }
 /* Stacked counts — quiet by default; blue when a filter narrows the set. */
 .filter-count-line {
@@ -863,7 +870,7 @@ body.local-mode .startup-access-divider { display: none; }
     white-space: nowrap;
 }
 .filter-count-line.active .filter-count-main,
-.filter-count-line.active .filter-count-detail { color: var(--system-blue); opacity: 1; }
+.filter-count-line.active .filter-count-detail { color: var(--blue-text); opacity: 1; }
 .filter-meta button { padding: 8px 18px; font-size: 0.85em; margin: 0; }
 .export-divider { height: 1px; background: var(--divider); margin: 4px 0 18px 0; }
 .export-option-row { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
@@ -901,7 +908,7 @@ body.local-mode .startup-access-divider { display: none; }
 .io-menu-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; font-size: 0.9em; color: var(--text-primary); cursor: pointer; user-select: none; }
 .io-menu-item .io-check { flex: 0 0 12px; visibility: hidden; }
 .io-menu-item[aria-selected="true"] .io-check { visibility: visible; }
-.io-menu-item:hover, .io-menu-item:focus { background-color: var(--system-blue); color: var(--on-color); outline: none; }
+.io-menu-item:hover, .io-menu-item:focus { background-color: var(--blue-fill); color: var(--on-color); outline: none; }
 .io-menu-sep { height: 1px; margin: 5px 8px; background-color: var(--glass-border); }
 .io-desc { font-size: 0.85em; color: var(--text-secondary); line-height: 1.45; min-height: 2.9em; }
 /* Exports: the time range and the format's options as two cards side by side. */
@@ -914,7 +921,7 @@ body.local-mode .startup-access-divider { display: none; }
 .io-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .io-card-head .export-block-label { margin: 0; }
 /* A plain blue text button, as Apple uses for Clear and Edit in a section header. */
-.text-btn { width: auto; margin: 0; padding: 0; border: none; background: none; color: var(--system-blue); font-size: 0.86em; font-weight: 500; line-height: 1.4; cursor: pointer; }
+.text-btn { width: auto; margin: 0; padding: 0; border: none; background: none; color: var(--blue-text); font-size: 0.86em; font-weight: 500; line-height: 1.4; cursor: pointer; }
 .text-btn:hover { opacity: 0.7; background: none; }
 .text-btn:active { transform: none; opacity: 0.5; }
 .io-card .filter-presets { margin-top: 12px; }
@@ -1173,7 +1180,7 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .workspace-showing-tag:hover { transform: scale(1.12); }
 .workspace-active-tag {
     background-color: var(--blue-soft);
-    color: var(--system-blue);
+    color: var(--blue-text);
     box-shadow: inset 0 0 0 1px var(--blue-strong);
 }
 /* Invisible placeholder — reserves the ACTIVE slot's width on rows where
@@ -1210,7 +1217,7 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .workspace-row-counts strong { color: var(--text-primary); font-weight: 600; }
 .workspace-row-unload {
     background-color: var(--red-soft);
-    color: var(--system-red);
+    color: var(--red-text);
     border: 1px solid var(--red-strong);
     font-size: 0.78em;
     font-weight: 600;
@@ -1225,9 +1232,9 @@ body.read-only #reportLogTable tbody tr:hover:not(.history-sub-row) td { cursor:
 .ws-block-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .ws-block-head .export-block-label { margin: 0; }
 .ws-block-btns { display: flex; gap: 8px; }
-.ws-head-btn { width: auto; margin: 0; padding: 5px 12px; border-radius: 100px; font-size: 0.78em; font-weight: 600; background-color: var(--blue-hover); color: var(--system-blue); border: none; }
+.ws-head-btn { width: auto; margin: 0; padding: 5px 12px; border-radius: 100px; font-size: 0.78em; font-weight: 600; background-color: var(--blue-hover); color: var(--blue-text); border: none; }
 .ws-head-btn:hover { background-color: var(--blue-strong); opacity: 1; }
-.ws-finish-btn { background-color: var(--red-soft); color: var(--system-red); border: 1px solid var(--red-strong); }
+.ws-finish-btn { background-color: var(--red-soft); color: var(--red-text); border: 1px solid var(--red-strong); }
 .ws-finish-btn:hover { background-color: var(--red-hover); }
 body.read-only .ws-block-btns { display: none; }
 /* Refresh asks the server; a page opened without one has none. */
@@ -1238,7 +1245,7 @@ body.local-mode #refreshBackupsBtn { display: none; }
 .mission-row-id { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
 .mission-row-name { font-weight: 600; font-size: 0.9em; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mission-row-sub { font-size: 0.78em; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mission-btn { width: auto; margin: 0; padding: 6px 12px; border-radius: 100px; font-size: 0.78em; font-weight: 600; background-color: var(--blue-hover); color: var(--system-blue); border: none; white-space: nowrap; }
+.mission-btn { width: auto; margin: 0; padding: 6px 12px; border-radius: 100px; font-size: 0.78em; font-weight: 600; background-color: var(--blue-hover); color: var(--blue-text); border: none; white-space: nowrap; }
 .mission-btn:hover { background-color: var(--blue-strong); opacity: 1; }
 .mission-btn:disabled { opacity: 0.4; cursor: default; }
 /* What a question's body holds: Done with Mission's list and typed word, Recall's and Load's tick boxes. */
@@ -1309,7 +1316,7 @@ body.local-mode #refreshBackupsBtn { display: none; }
 /* Extra class beats the base rule, so the cap lifts when expanded. */
 #reportLogTable td .cell-clamp.expanded { -webkit-line-clamp: unset; }
 .cell-clamp.clampable, .cell-clamp.expanded { cursor: pointer; }
-.cell-clamp.clampable:hover { color: var(--system-blue); }
+.cell-clamp.clampable:hover { color: var(--blue-text); }
 
 /* --- Report Builder --- */
 #builderScopeNote { text-transform: none; letter-spacing: 0; font-size: 1em; color: var(--text-secondary); font-weight: 400; margin-left: 6px; }
@@ -1342,7 +1349,7 @@ body.local-mode #refreshBackupsBtn { display: none; }
     cursor: pointer;
 }
 .builder-line-btns button:hover { color: var(--text-primary); border-color: var(--system-blue); opacity: 1; }
-.builder-line-btns .builder-del:hover { color: var(--system-red); border-color: var(--system-red); }
+.builder-line-btns .builder-del:hover { color: var(--red-text); border-color: var(--system-red); }
 .builder-palette { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
 .builder-add-row { display: flex; gap: 8px; align-items: center; }
 .builder-add-row input { flex: 1 1 auto; padding: 9px 12px; font-size: 0.9em; }
@@ -1373,12 +1380,12 @@ body.local-mode #refreshBackupsBtn { display: none; }
 .overlay-type { display: inline-block; min-width: 30px; text-align: center; font-size: 0.78em; font-weight: 700; padding: 1px 6px; border-radius: 6px; margin-right: 4px; }
 /* The map's colors: NAI green, OBJ blue, PL black (a neutral chip here, on the dark panel), AXIS red. */
 .overlay-nai { background: var(--green-soft); color: var(--system-green); }
-.overlay-obj { background: var(--blue-soft); color: var(--system-blue); }
+.overlay-obj { background: var(--blue-soft); color: var(--blue-text); }
 .overlay-pl  { background: var(--white-soft); color: var(--text-primary); }
 /* An axis of advance: the enemy's red. */
-.overlay-axis { background: var(--red-soft); color: var(--system-red); }
+.overlay-axis { background: var(--red-soft); color: var(--red-text); }
 .overlay-remove { background: none; border: none; color: var(--text-secondary); font-size: 1.2em; line-height: 1; padding: 2px 6px; margin: 0; width: auto; cursor: pointer; }
-.overlay-remove:hover { color: var(--system-red); }
+.overlay-remove:hover { color: var(--red-text); }
 /* One group per type, each with its own Unload. */
 /* List | Map, with the import buttons beside it. */
 .overlays-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 12px; }
@@ -1403,9 +1410,9 @@ body.local-mode #refreshBackupsBtn { display: none; }
    More); More opens where it's looking, its range and Remove under it. */
 .map-drone-pop { width: min(360px, calc(100% - 70px)); max-height: calc(100% - 20px); overflow-y: auto; gap: 6px; }
 #mapDroneBtn[hidden] { display: none; }
-#mapDroneBtn.active { color: var(--system-blue); }
+#mapDroneBtn.active { color: var(--blue-text); }
 .map-drone-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.map-drone-plus { width: 24px; height: 24px; margin: 0; padding: 0; border: none; border-radius: 50%; background: var(--input-bg); color: var(--system-blue); display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; cursor: pointer; }
+.map-drone-plus { width: 24px; height: 24px; margin: 0; padding: 0; border: none; border-radius: 50%; background: var(--input-bg); color: var(--blue-text); display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; cursor: pointer; }
 /* Inside the map box, whose own svg rule (the map, absolute and full size) would take it. */
 .map-box .map-drone-plus svg, .map-drone-plus svg { display: block; width: 12px; height: 12px; position: static; inset: auto; flex: 0 0 auto; }
 .map-drone-plus:hover, .map-drone-plus[aria-expanded="true"] { background: var(--input-bg-hover); }
@@ -1433,7 +1440,7 @@ body.local-mode #refreshBackupsBtn { display: none; }
 .map-drone-sub { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 58px; align-items: center; gap: 6px 8px; padding: 0 0 6px 38px; font-size: 0.8em; }
 .map-drone-sub-label { color: var(--text-secondary); white-space: nowrap; }
 .map-drone-range-in { margin: 0; padding: 4px 8px; font-size: 0.95em; text-align: right; border-radius: 8px; }
-.map-drone-remove { grid-column: 1 / -1; justify-self: start; color: var(--system-red); font-size: 0.95em; }
+.map-drone-remove { grid-column: 1 / -1; justify-self: start; color: var(--red-text); font-size: 0.95em; }
 .map-drone-add input { padding: 7px 10px; font-size: 0.84em; }
 .map-drone-add #mapDroneName { flex: 0 1 120px; }
 .map-drone-add #mapDroneGridNew { flex: 1 1 150px; }
@@ -1442,9 +1449,9 @@ body.local-mode #refreshBackupsBtn { display: none; }
 .map-base-add #mapBaseInput { flex: 1 1 170px; }
 .map-base-add button { padding: 7px 14px; font-size: 0.84em; }
 .map-base-hint { font-size: 0.75em; color: var(--text-secondary); }
-#mapBaseBtn.active { color: var(--system-blue); }
+#mapBaseBtn.active { color: var(--blue-text); }
 /* A button in the map's column that is on (the ruler) or has its box open. */
-.map-zoom button.active, .map-zoom button[aria-expanded="true"] { background: var(--map-on-bg); border-color: var(--blue-outline); color: var(--system-blue); }
+.map-zoom button.active, .map-zoom button[aria-expanded="true"] { background: var(--map-on-bg); border-color: var(--blue-outline); color: var(--blue-text); }
 /* Go to a grid: its box beside its button, the fourth in the column. */
 .map-goto-pop { top: 112px; width: 270px; gap: 6px; }
 .map-goto-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -1453,8 +1460,8 @@ body.local-mode #refreshBackupsBtn { display: none; }
 .map-goto-pop .map-goto-row button { padding: 7px 14px; font-size: 0.84em; }
 .map-goto-said { font-size: 0.8em; color: var(--text-secondary); }
 .map-goto-said:empty { display: none; }
-.map-goto-said.bad { color: var(--system-red); }
-.map-card-remove { color: var(--system-red); }
+.map-goto-said.bad { color: var(--red-text); }
+.map-card-remove { color: var(--red-text); }
 .map-base-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
 .map-base-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto auto; align-items: center; gap: 10px; padding: 4px 2px; border-bottom: 1px solid var(--divider); font-size: 0.85em; }
 .map-base-check { margin: 4px 6px 6px; padding: 7px 10px; border-radius: 8px; font-size: 0.82em; line-height: 1.4; background: var(--orange-soft); color: var(--text-primary); border: 1px solid var(--orange-strong); }
@@ -1483,8 +1490,8 @@ body.local-mode #refreshBackupsBtn { display: none; }
 .map-find-foot { margin-bottom: 4px; }
 .map-base-name { font-weight: 600; }
 /* Remove on each row; pressed once, the name asks "for everyone?" in its place. */
-.map-base-row .map-base-del { color: var(--system-red); }
-.map-base-ask { color: var(--system-red); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-base-row .map-base-del { color: var(--red-text); }
+.map-base-ask { color: var(--red-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-base-kind { color: var(--text-secondary); }
 .map-basemap-form { background: var(--input-bg); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
 .map-form-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
@@ -1529,7 +1536,7 @@ body.local-mode #refreshBackupsBtn { display: none; }
 .map-measure-tools.open { opacity: 1; visibility: visible; transform: none; transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.18s ease, visibility 0s linear 0s; }
 .map-zoom .map-measure-tools button { width: auto; padding: 0 10px; font-size: 0.8em; font-weight: 600; color: var(--text-secondary); }
 .map-zoom .map-measure-tools button:hover { color: var(--text-primary); }
-.map-zoom .map-measure-tools button[aria-pressed="true"] { background: var(--map-on-bg); border-color: var(--blue-outline); color: var(--system-blue); }
+.map-zoom .map-measure-tools button[aria-pressed="true"] { background: var(--map-on-bg); border-color: var(--blue-outline); color: var(--blue-text); }
 .map-measure-panel { position: absolute; right: calc(100% + 6px); top: 70px; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; width: max-content; max-width: 320px; box-sizing: border-box; padding: 8px 10px; border-radius: 12px;
     background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px var(--shadow); font-size: 0.8em; color: var(--text-primary); cursor: default; }
 .map-measure-panel[hidden] { display: none; }
@@ -1577,11 +1584,11 @@ circle.map-hit { pointer-events: all; }
 button.map-key-tag { margin: 0; width: auto; padding: 0; border: none; border-radius: 4px; background: none; color: inherit; font: inherit; cursor: pointer; }
 button.map-key-tag:hover { opacity: 1; color: var(--text-primary); }
 button.map-key-tag:active { transform: none; }
-button.map-key-tag.off { opacity: 0.45; text-decoration: line-through; }
+button.map-key-tag.off { opacity: 0.8; text-decoration: line-through; }
 .map-ramp { display: inline-block; width: 46px; height: 8px; border-radius: 4px; background: var(--heat-ramp); }
 /* Latest grids / All reports: the one picked is solid blue, the other plain. */
 .map-grids .io-mode { color: var(--text-secondary); }
-.map-grids .io-mode[aria-pressed="true"] { background-color: var(--system-blue); color: var(--on-color); box-shadow: 0 1px 3px var(--shadow-soft); }
+.map-grids .io-mode[aria-pressed="true"] { background-color: var(--blue-fill); color: var(--on-color); box-shadow: 0 1px 3px var(--shadow-soft); }
 
 .overlay-group { background: var(--input-bg); border-radius: 12px; padding: 10px 12px 2px; margin-bottom: 12px; }
 .overlay-group-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
@@ -1594,7 +1601,7 @@ button.map-key-tag.off { opacity: 0.45; text-decoration: line-through; }
 .overlay-group-title { font-weight: 600; font-size: 0.92em; }
 .overlay-group-count { font-size: 0.78em; font-weight: 600; color: var(--text-secondary); background: var(--white-soft); border-radius: 100px; padding: 1px 8px; }
 .overlay-group-unload { margin: 0 0 0 auto; width: auto; padding: 5px 12px; font-size: 0.8em; font-weight: 600; border: none; border-radius: 8px; background: var(--white-soft); color: var(--text-primary); cursor: pointer; }
-.overlay-group-unload:hover { background: var(--red-hover); color: var(--system-red); }
+.overlay-group-unload:hover { background: var(--red-hover); color: var(--red-text); }
 .overlay-group .overlays-table { margin-bottom: 6px; table-layout: fixed; }
 /* Columns: the checkbox, the name (the rest), shape, reports, its tag, the ×. */
 .overlay-group .overlays-table th:nth-child(1) { width: 26px; }
@@ -1645,7 +1652,7 @@ body.read-only .editor-only { display: none !important; }
 
 /* Under a report's Location: the place its grid puts it in, and checks. */
 .loc-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
-.loc-tag { font-size: 0.72em; font-weight: 600; padding: 1px 7px; border-radius: 100px; background: var(--blue-soft); color: var(--system-blue); white-space: nowrap; }
+.loc-tag { font-size: 0.72em; font-weight: 600; padding: 1px 7px; border-radius: 100px; background: var(--blue-soft); color: var(--blue-text); white-space: nowrap; }
 .loc-tag.loc-nai { background: var(--green-soft); color: var(--system-green); }
 .loc-tag.loc-pl { background: var(--white-soft); color: var(--text-primary); }
 .loc-tag.loc-team { display: inline-flex; align-items: center; background: var(--white-soft); color: var(--text-primary); }
@@ -1659,12 +1666,12 @@ button.loc-tag.warn:hover { background: var(--orange-hover); }
 /* MGRS Lock: the locked zone and square sit in front of the Location box. */
 .location-row { display: flex; gap: 8px; }
 .location-row #location { flex: 1 1 auto; min-width: 0; }
-.mgrs-prefix { display: none; flex: 0 0 92px; width: 92px !important; text-align: center; text-transform: uppercase; font-weight: 600; letter-spacing: 0.3px; color: var(--system-blue) !important; }
+.mgrs-prefix { display: none; flex: 0 0 92px; width: 92px !important; text-align: center; text-transform: uppercase; font-weight: 600; letter-spacing: 0.3px; color: var(--blue-text) !important; }
 body.mgrs-lock .mgrs-prefix { display: block; }
 .mgrs-prefix.invalid { border-color: var(--system-red) !important; }
 .loc-hints { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 0 2px; min-height: 22px; }
 .loc-hints[hidden] { display: none; }
-.loc-hint { font-size: 0.78em; font-weight: 600; padding: 3px 10px; border-radius: 100px; border: none; margin: 0; width: auto; background: var(--blue-soft); color: var(--system-blue); cursor: pointer; font-family: inherit; line-height: 1.4; }
+.loc-hint { font-size: 0.78em; font-weight: 600; padding: 3px 10px; border-radius: 100px; border: none; margin: 0; width: auto; background: var(--blue-soft); color: var(--blue-text); cursor: pointer; font-family: inherit; line-height: 1.4; }
 .loc-hint:hover { background: var(--blue-hover); }
 .loc-hint-sub { font-weight: 500; opacity: 0.75; }
 /* Add Nearby Places off: only said, grey, nothing to press. */
@@ -1678,9 +1685,9 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .choice-detail { color: var(--text-secondary); font-size: 0.88em; font-weight: 400; margin-bottom: 14px; }
 .choice-buttons { display: flex; flex-direction: column; gap: 8px; }
 .choice-buttons button { width: 100%; margin: 0; padding: 11px; border-radius: 12px; font-size: 0.95em; font-weight: 600; border: none; cursor: pointer; }
-.choice-buttons .choice-primary { background: var(--system-blue); color: var(--on-color); }
+.choice-buttons .choice-primary { background: var(--blue-fill); color: var(--on-color); }
 .choice-buttons .choice-option { background: var(--white-soft); color: var(--text-primary); }
-.choice-buttons .choice-cancel { background: none; color: var(--system-blue); font-weight: 500; }
+.choice-buttons .choice-cancel { background: none; color: var(--blue-text); font-weight: 500; }
 .choice-buttons button:hover { filter: brightness(1.12); }
 
 /* --- Statistics panel --- */
@@ -1708,7 +1715,7 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .map-layer-btn:hover { color: var(--text-primary); }
 .map-layer-btn:active { transform: none; }
 .map-layer-check { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid currentColor; box-sizing: border-box; flex: 0 0 auto; }
-.map-layer-btn[aria-pressed="true"] { background: var(--map-on-bg); border-color: var(--blue-outline); color: var(--system-blue); }
+.map-layer-btn[aria-pressed="true"] { background: var(--map-on-bg); border-color: var(--blue-outline); color: var(--blue-text); }
 .map-layer-btn[aria-pressed="true"] .map-layer-check { border: none; background: var(--system-blue) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M3.5 7.2l2.3 2.3 4.7-4.9' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 14px no-repeat; }
 .map-grids .io-mode:disabled { opacity: 0.4; cursor: default; }
 .map-label-time { font-weight: 500; font-size: 10px; fill: var(--system-yellow); }
@@ -1733,7 +1740,7 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .map-side-btn { position: absolute; top: 10px; left: 10px; z-index: 4; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px; margin: 0; padding: 0; border: 1px solid var(--glass-border); border-radius: 9px; background: var(--glass-bg); backdrop-filter: blur(20px); color: var(--text-secondary); cursor: pointer; }
 .map-side-btn:hover { color: var(--text-primary); }
 .map-side-btn:active { transform: none; }
-.map-side-btn[aria-pressed="true"] { color: var(--system-blue); }
+.map-side-btn[aria-pressed="true"] { color: var(--blue-text); }
 /* Its box reaches up round the sidebar button (which stays put); the contents keep their place. */
 .map-side { position: absolute; left: 4px; top: 4px; bottom: 50px; z-index: 3; width: 196px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; box-sizing: border-box; padding: 56px 10px 12px 16px; border-radius: 15px; background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); box-shadow: 0 8px 24px var(--shadow); transform: translateX(0); opacity: 1; visibility: inherit; transition: transform var(--slide), opacity 0.3s ease, visibility 0s linear 0s; will-change: transform; }
 /* Two halves, as tall as each other; each scrolls its own list when it's long. */
@@ -1747,8 +1754,8 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .map-chip strong { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .map-chip:hover { background: var(--input-bg-hover); }
 .map-chip:active { transform: none; }
-.map-chip.active { background: var(--blue-hover); color: var(--system-blue); }
-.map-chip.active strong { color: var(--system-blue); }
+.map-chip.active { background: var(--blue-hover); color: var(--blue-text); }
+.map-chip.active strong { color: var(--blue-text); }
 .map-side-head { font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); margin-bottom: 4px; }
 .map-side-empty { font-size: 0.8em; color: var(--text-secondary); }
 .map-side-head { display: flex; justify-content: space-between; align-items: baseline; }
@@ -1757,7 +1764,7 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .map-table-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
 .map-table-head h4 { margin: 0; font-size: 0.92em; font-weight: 600; color: var(--text-primary); }
 .map-only-toggle { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 0.82em; color: var(--text-secondary); cursor: pointer; user-select: none; }
-.map-place-chip { width: auto; margin: 0; padding: 3px 10px; border: none; border-radius: 100px; background: var(--blue-hover); color: var(--system-blue); font-size: 0.78em; font-weight: 600; }
+.map-place-chip { width: auto; margin: 0; padding: 3px 10px; border: none; border-radius: 100px; background: var(--blue-hover); color: var(--blue-text); font-size: 0.78em; font-weight: 600; }
 .map-table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
 .map-table th { position: sticky; top: 0; padding: 6px 8px; border-bottom: 1px solid var(--divider); background: var(--panel-bg); color: var(--text-secondary); font-size: 0.85em; font-weight: 600; text-align: left; }
 .map-table td { padding: 7px 8px; border-bottom: 1px solid var(--divider); color: var(--text-primary); vertical-align: top; overflow-wrap: anywhere; }
@@ -1799,7 +1806,7 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .stats-range label { margin: 0 2px 0 4px; font-size: 0.8em; color: var(--text-secondary); }
 /* Statistics and Summary: the From / To pickers laid out as in Workspaces. */
 .range-grid { max-width: 620px; margin-bottom: 16px; }
-.filter-preset-btn.active { background-color: var(--blue-hover); color: var(--system-blue); }
+.filter-preset-btn.active { background-color: var(--blue-hover); color: var(--blue-text); }
 /* On the map, over any basemap: as solid as the controls round it. */
 .map-box .map-tools .filter-preset-btn.active { background: var(--map-on-bg); border-color: var(--blue-outline); }
 .stats-body { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
@@ -1814,7 +1821,7 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .stats-note { font-size: 0.75em; color: var(--text-secondary); margin-top: 2px; }
 .stats-card-actions { display: flex; gap: 4px; flex-shrink: 0; }
 .stats-card-actions button { margin: 0; width: auto; padding: 3px 8px; font-size: 0.72em; font-weight: 600; border-radius: 6px; background: var(--input-bg); color: var(--text-secondary); border: none; }
-.stats-card-actions button:hover:not(:disabled), .stats-card-actions button.active { color: var(--system-blue); }
+.stats-card-actions button:hover:not(:disabled), .stats-card-actions button.active { color: var(--blue-text); }
 .stats-card-actions button:disabled { opacity: 0.35; cursor: not-allowed; }
 .stats-chart { position: relative; }
 .stats-chart svg { display: block; width: 100%; height: auto; }
@@ -1863,7 +1870,7 @@ body.mgrs-lock .mgrs-prefix { display: block; }
 .narr-tabs { display: flex; align-self: stretch; margin: 0; background-color: var(--panel-bg); }
 .narr-tabs .ws-tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; position: relative; padding: 6px 8px; }
 .narr-count { min-width: 16px; padding: 0 5px; border-radius: 8px; background: var(--input-bg); color: var(--text-secondary); font-size: 0.82em; font-weight: 600; line-height: 16px; }
-.narr-tabs .ws-tab.active .narr-count { background: var(--system-blue); color: var(--on-color); }
+.narr-tabs .ws-tab.active .narr-count { background: var(--blue-fill); color: var(--on-color); }
 .narr-dot { position: absolute; top: 5px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--system-orange); }
 .narr-body { display: flex; flex-direction: column; gap: 8px; }
 .narr-list { display: flex; flex-direction: column; border-radius: 10px; background: var(--panel-bg); overflow: hidden; }
@@ -1875,7 +1882,7 @@ button.narr-row:hover { background: var(--input-bg-hover); }
 .narr-meta { grid-column: 1; font-size: 0.86em; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .narr-chevron { grid-column: 2; grid-row: 1 / span 2; color: var(--text-secondary); }
 .narr-empty { padding: 10px 12px; color: var(--text-secondary); font-size: 0.9em; line-height: 1.4; }
-.narr-add { align-self: flex-start; margin: 0; padding: 2px 0; border: none; background: none; color: var(--system-blue); font: inherit; font-weight: 500; cursor: pointer; }
+.narr-add { align-self: flex-start; margin: 0; padding: 2px 0; border: none; background: none; color: var(--blue-text); font: inherit; font-weight: 500; cursor: pointer; }
 .narr-add:hover { opacity: 0.7; }
 /* The Rules tab's add button, at the right of the heading of the team's own:
    a small pill, in the heading's line but not in its small capitals. */
@@ -1887,7 +1894,7 @@ button.narr-row:hover { background: var(--input-bg-hover); }
 .narr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .narr-chip { margin: 0; width: auto; padding: 5px 11px; border: 1px solid var(--divider); border-radius: 999px; background: var(--panel-bg); color: var(--text-primary); font: inherit; font-size: 0.88em; cursor: pointer; transition: background-color 0.15s, border-color 0.15s, color 0.15s; }
 .narr-chip:hover { border-color: var(--text-secondary); }
-.narr-chip[aria-checked="true"] { background: var(--system-blue); border-color: var(--system-blue); color: var(--on-color); }
+.narr-chip[aria-checked="true"] { background: var(--blue-fill); border-color: var(--blue-fill); color: var(--on-color); }
 /* A dropdown that picks several: a field-like button, and a menu of ticks under it. */
 .narr-dd { position: relative; }
 .narr-dd-btn { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; margin: 0; padding: 8px 12px; border: 1px solid transparent; border-radius: 10px; background: var(--panel-bg); color: var(--text-primary); font: inherit; font-size: 0.95em; text-align: left; cursor: pointer; }
@@ -1911,8 +1918,8 @@ button.narr-row:hover { background: var(--input-bg-hover); }
 .narr-foot { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
 .narr-foot .set-btn { margin: 0; width: auto; padding: 8px 20px; }
 /* Red, as Remove on a basemap's row, and when it asks "for everyone?". */
-.narr-foot .map-base-remove { margin-left: auto; color: var(--system-red); }
-.narr-back { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 2px 0; border: none; background: none; color: var(--system-blue); font: inherit; cursor: pointer; }
+.narr-foot .map-base-remove { margin-left: auto; color: var(--red-text); }
+.narr-back { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 2px 0; border: none; background: none; color: var(--blue-text); font: inherit; cursor: pointer; }
 .narr-drill-title { font-size: 1.05em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .narr-sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-secondary); }
 .narr-sentence input[type="text"] { flex: 1 1 180px; }
@@ -1931,7 +1938,7 @@ input[type="checkbox"].narr-switch:checked { background: var(--system-green); ba
 .narr-hint { font-size: 0.8em; color: var(--text-secondary); line-height: 1.4; }
 .narr-shared { margin-top: auto; padding-top: 6px; }
 .narr-builtin { font-size: 0.82em; color: var(--text-secondary); line-height: 1.5; }
-.narr-builtin summary { cursor: pointer; color: var(--system-blue); }
+.narr-builtin summary { cursor: pointer; color: var(--blue-text); }
 .narr-builtin strong { color: var(--text-primary); font-weight: 600; }
 .narr-cat { margin-top: 8px; }
 .narr-cat em { font-style: normal; color: var(--text-primary); }
@@ -1988,7 +1995,7 @@ body.bda-mode .bda-rollup { display: flex; }
 }
 .bda-btn.bda-partial { background-color: var(--orange-soft); color: var(--system-orange); box-shadow: inset 0 0 0 1px var(--orange-outline); }
 .bda-btn.bda-full    { background-color: var(--orange-fill); color: var(--system-orange); }
-.bda-btn.bda-full.bda-worst-destroyed    { background-color: var(--red-fill);  color: var(--system-red); }
+.bda-btn.bda-full.bda-worst-destroyed    { background-color: var(--red-fill);  color: var(--red-text); }
 .bda-btn.bda-full.bda-worst-damaged,
 .bda-btn.bda-full.bda-worst-mobilitykill { background-color: var(--orange-fill); color: var(--system-orange); }
 .bda-btn.bda-full.bda-worst-suppressed   { background-color: var(--yellow-hover); color: var(--system-yellow); }
@@ -2006,7 +2013,7 @@ body.read-only .bda-effect { cursor: default; }
 body.read-only .bda-effect:hover { filter: none; }
 /* Inline effect editor sits where the badge was, so the row doesn't jump. */
 .bda-eff-group.bda-eff-editing { margin-left: 0; }
-.bda-eff-destroyed    { background-color: var(--red-hover);  color: var(--system-red); }
+.bda-eff-destroyed    { background-color: var(--red-hover);  color: var(--red-text); }
 .bda-eff-damaged,
 .bda-eff-mobilitykill { background-color: var(--orange-hover); color: var(--system-orange); }
 .bda-eff-suppressed   { background-color: var(--yellow-soft); color: var(--system-yellow); }
@@ -2016,8 +2023,8 @@ body.read-only .bda-effect:hover { filter: none; }
 .bda-coords { color: var(--text-secondary); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.92em; letter-spacing: 0.3px; }
 .bda-note { color: var(--text-secondary); }
 .bda-meta { color: var(--text-secondary); font-size: 0.78em; margin-left: auto; white-space: nowrap; opacity: 0.8; }
-.bda-del { background: transparent; border: none; color: var(--text-secondary); font-size: 0.75em; padding: 2px 6px; margin: 0; cursor: pointer; opacity: 0.6; }
-.bda-del:hover { color: var(--system-red); opacity: 1; }
+.bda-del { background: transparent; border: none; color: var(--text-secondary); font-size: 0.75em; padding: 2px 6px; margin: 0; cursor: pointer; opacity: 0.85; }
+.bda-del:hover { color: var(--red-text); opacity: 1; }
 /* Checklist: one row per element from the report, pre-paired with its grid.
    Pick an effect to stage it; nothing is written until Log Assessments. */
 .bda-add { border-top: 1px solid var(--divider); padding-top: 8px; display: flex; flex-direction: column; gap: 5px; }
@@ -2051,7 +2058,7 @@ body.read-only .bda-effect:hover { filter: none; }
     transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 .bda-eff-btn:hover { opacity: 1; border-color: currentColor; }
-.bda-eff-btn.bda-eff-destroyed:hover,    .bda-eff-btn.bda-eff-destroyed.picked    { color: var(--system-red); }
+.bda-eff-btn.bda-eff-destroyed:hover,    .bda-eff-btn.bda-eff-destroyed.picked    { color: var(--red-text); }
 .bda-eff-btn.bda-eff-damaged:hover,      .bda-eff-btn.bda-eff-damaged.picked,
 .bda-eff-btn.bda-eff-mobilitykill:hover, .bda-eff-btn.bda-eff-mobilitykill.picked { color: var(--system-orange); }
 .bda-eff-btn.bda-eff-suppressed:hover,   .bda-eff-btn.bda-eff-suppressed.picked   { color: var(--system-yellow); }
