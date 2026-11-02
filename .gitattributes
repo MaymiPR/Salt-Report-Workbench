@@ -1,6 +1,4 @@
 # Normalize line endings in the repo; check out natively per platform.
 * text=auto eol=lf
 *.bat text eol=crlf
-*.ps1 text eol=crlf
 *.png binary
-*.ico binary

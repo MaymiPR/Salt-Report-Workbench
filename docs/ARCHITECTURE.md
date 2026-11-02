@@ -651,10 +651,17 @@ bucket of their own per IP (30, refilling at 1 per second), on GET as well as
 POST; while it's empty every request from that address is refused before its
 code is checked, and a request with the right code never touches it, so a
 burst of saves can't block reading. Map images through `/api/basemap` have their own per-IP limit
-on both ports. A connection that goes quiet for 30 seconds is closed (event
-streams excepted), and every reply forbids framing and content sniffing. A
-refused request's body is read and dropped before the reply, so the client
-receives the error rather than a connection reset. The `user` on a report and
+on both ports. Connections are kept alive (HTTP/1.1), so a page's tiles,
+syncs and saves go down the few connections its browser holds rather than a
+new connection and TLS handshake each; every reply carries its exact
+`Content-Length`, and the event stream, which has none, closes its connection
+when it ends. A connection that goes quiet for 30 seconds, between requests or
+in the middle of one, is closed (event streams excepted), and every reply
+forbids framing and content sniffing. A refused request's body is read and
+dropped before the reply, so the client receives the error rather than a
+connection reset, and the connection is closed after it (`Connection:
+close`), as it is after any request whose body isn't read to its end, so no
+part of a body is ever read as the next request. The `user` on a report and
 the initials in `audit.log` are what the page says; only the address in
 `audit.log` is observed by the server.
 

@@ -306,7 +306,8 @@ const discardUnsaved = (ids, { confirm = true } = {}) => {
             delete entries[k];
             // Never saved: there's no server copy to come back, so remove it
             // here (by key: a sync while asking replaced the report objects).
-            if (!(serverVersions[activeAto] || {})[k]) localReports = localReports.filter(x => SaltCore.reportKey(x) !== k);
+            const known = serverVersions[activeAto] || {};
+            if (!(Object.hasOwn(known, k) && known[k])) localReports = localReports.filter(x => SaltCore.reportKey(x) !== k);
         });
         saveUnsaved();
         reportsByAto[activeAto] = localReports;
