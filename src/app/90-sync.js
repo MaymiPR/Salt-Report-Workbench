@@ -281,6 +281,7 @@ function applyServerUpdate(state) {
     reportsByAto = workspaces || {};
     serverVersions = {};
     Object.entries(reportsByAto).forEach(([ato, reps]) => { serverVersions[ato] = SaltCore.knownVersions(reps); });
+    serverVersionsPulled = true;
     // Refused changes stay on top of the server's copy until fixed or
     // discarded, unless someone has since saved a newer version.
     let droppedUnsaved = false;
@@ -323,11 +324,11 @@ function applyServerUpdate(state) {
     }
 
     loadConfig({ fromSync: true });
-    renderLog(el.log.search.value.toLowerCase());
+    // Drawn again only when something it shows changed.
+    renderLogOnSync(el.log.search.value.toLowerCase());
     // The dropdown of other workspaces stays unlocked while Change is open.
     const historyOpen = !el.config.history.disabled && !el.config.ato.readOnly;
-    populateAtoHistory();
-    if (historyOpen && el.config.history.options.length > 1) el.config.history.disabled = false;
+    populateAtoHistory(historyOpen);
     // Render the workspaces list AFTER activeAto/viewerShowingAto are settled
     // so an editor's live workspace switch updates the ACTIVE / SHOWING tags
     // in real time on every viewer's sidebar.

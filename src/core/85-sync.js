@@ -20,6 +20,32 @@ const knownVersions = reps => {
 const changedReports = (reps, known) =>
     (reps || []).filter(r => { const k = reportKey(r); return k && (!known || known[k] !== (r.lastModified || 0)); });
 
+// The workspaces of `byAto` (workspace -> reports) a browser keeps in its own
+// copy: those named in `keep` (a Set: the one it is in, those with changes
+// waiting), and any holding a report the server doesn't have in that
+// version, by `versions` (workspace -> knownVersions; one with no record is
+// kept). The others the server has, and a pull brings them back.
+const workspacesToCache = (byAto, keep, versions) => Object.fromEntries(Object.entries(byAto || {})
+    .filter(([ato, reps]) => keep.has(ato) || changedReports(reps, (versions || {})[ato]).length));
+
+// How many reports a browser has that the server doesn't, each once: in the
+// workspaces with changes waiting (`waiting`, workspace -> reports), those
+// changed since the last pull (`versions`), and those it refused (`refused`,
+// workspace -> report keys). Null when it can't be told: a workspace waiting
+// with no record of the server's copy (right after a reload, before the
+// first pull), where every report would count.
+const unsentTally = (waiting, versions, refused) => {
+    const keys = {};
+    let known = true;
+    Object.entries(waiting || {}).forEach(([ato, reps]) => {
+        if (!(versions || {})[ato]) { if ((reps || []).some(reportKey)) known = false; return; }
+        keys[ato] = new Set(changedReports(reps, versions[ato]).map(reportKey));
+    });
+    if (!known) return null;
+    Object.entries(refused || {}).forEach(([ato, ks]) => { (ks || []).forEach(k => (keys[ato] = keys[ato] || new Set()).add(k)); });
+    return Object.values(keys).reduce((n, s) => n + s.size, 0);
+};
+
 // Lay changes the server refused over its copy of a workspace, so they stay
 // visible until fixed or discarded. A refused change the server has since
 // moved past (someone saved a newer version) is superseded and dropped.

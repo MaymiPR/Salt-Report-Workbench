@@ -274,6 +274,8 @@ const pruneTableState = (live) => {
 // `filterText` defaults to the current search-bar value so every repaint
 // preserves the active filter without the caller having to pass it.
 const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
+    // Drawn from anything: the next sync draws it again (renderLogOnSync).
+    logDrawnFrom = null;
     keepBdaDrafts();
     // A row control with keyboard focus gets it back after the redraw (the
     // checklist's boxes are put back by keepBdaDrafts' own record).
@@ -436,13 +438,45 @@ const renderLog =(filterText = el.log.search.value.toLowerCase()) => {
     }
 
     // Mark only the cells that actually overflow their 2-line clamp as
-    // clickable (pointer + expand). One rAF pass, after layout settles.
+    // clickable (pointer + expand). One rAF pass, after layout settles: every
+    // cell measured first, then marked, so the layout is worked out once
+    // rather than again after each mark.
     requestAnimationFrame(() => {
-        el.log.body.querySelectorAll('.cell-clamp').forEach(c => {
-            if (!c.classList.contains('expanded'))
-                c.classList.toggle('clampable', c.scrollHeight > c.clientHeight + 1);
-        });
+        const cells = [...el.log.body.querySelectorAll('.cell-clamp:not(.expanded)')];
+        const over = cells.map(c => c.scrollHeight > c.clientHeight + 1);
+        cells.forEach((c, i) => c.classList.toggle('clampable', over[i]));
     });
+};
+
+// What the Report Log is drawn from, so a sync that changed none of it
+// leaves the table as it is (renderLogOnSync), an open cell, a checklist and
+// the keyboard's place with it. Strings by value, the rest by identity (each
+// is replaced, not changed in place, when it changes): the workspace shown
+// and this editor's, view-only or not, the search, the reports shown as they
+// are (whole, not only their versions: the server keeps a report's author
+// over a BDA or a delete), the reasons for those refused, the sort, the time
+// and title display, BDA mode and its filter, the rows opened or checked and
+// the cells expanded, the report in the form, the question a row asks, the
+// format's lines (its own columns), the overlays and tags a Location is read
+// against, the narrative's settings (the team's equipment: the Size after
+// BDA, what a report moves as) and the units of a rate of march.
+const logInputs = (filterText) => [
+    shownAto(), activeAto, isReadOnly, filterText, JSON.stringify(localReports),
+    JSON.stringify(Object.entries(unsaved[activeAto] || {}).map(([k, e]) => [k, e && e.reason])),
+    currentSortMode, timeDisplayMode, atoTitleSep, bdaMode, bdaFilter,
+    [...openHistoryRows].join(), [...openBdaRows].join(), [...selectedRows].join(), [...selectedHistory].join(), [...expandedCells].join('\n'),
+    el.form.reportId.value, askNow ? askNow.key : '', JSON.stringify(currentFormat().lines),
+    sharedOverlays, placeOverlays(), sharedTags, sharedNarrative, unitSystem,
+];
+let logDrawnFrom = null;   // logInputs as a sync last drew the log; null once anything else has
+// A sync's redraw of the Report Log, only when something it shows changed.
+// Delete and Send still follow it: Send lists the other workspaces.
+const renderLogOnSync = (filterText) => {
+    const now = logInputs(filterText);
+    if (logDrawnFrom && now.length === logDrawnFrom.length && now.every((x, i) => x === logDrawnFrom[i])) { updateSelectionUI(); return; }
+    renderLog(filterText);
+    // As drawn: the drawing forgets the checked rows that are gone.
+    logDrawnFrom = logInputs(filterText);
 };
 
 // True from Change (or typing in the workspace fields) until Set applies it.
@@ -462,17 +496,30 @@ const loadConfig = ({ fromSync = false } = {}) => {
     applyFormFieldOrder();
 };
 
-const populateAtoHistory = () => {
+// The other workspaces, to switch to. Its options are made again only when
+// they change, so a sync that changed none of them leaves one held open open.
+// `keepUnlocked`: Change is open (a sync), so it stays unlocked if it lists any.
+let atoHistoryDrawn = null;
+const populateAtoHistory = (keepUnlocked = false) => {
     const others = Object.keys(reportsByAto).filter(k => k !== activeAto && (reportsByAto[k]||[]).some(r => !r.deleted));
-    el.config.history.innerHTML = '<option value=""></option>';
-    others.forEach(ato => {
+    const options = others.map(ato => {
         const rep = (reportsByAto[ato]||[]).find(r => r.title && !r.deleted);
-        const opt = document.createElement('option');
-        opt.value = ato; opt.textContent = ato; opt.dataset.title = rep ? rep.title : '';
-        el.config.history.appendChild(opt);
+        return [ato, rep ? rep.title : ''];
     });
+    const drawn = JSON.stringify(options);
+    if (drawn !== atoHistoryDrawn) {
+        el.config.history.innerHTML = '<option value=""></option>';
+        options.forEach(([ato, title]) => {
+            const opt = document.createElement('option');
+            opt.value = ato; opt.textContent = ato; opt.dataset.title = title;
+            el.config.history.appendChild(opt);
+        });
+        atoHistoryDrawn = drawn;
+    } else if (!keepUnlocked) {
+        el.config.history.value = '';
+    }
     // Locked until the Set button toggles into Change state.
-    el.config.history.disabled = true;
+    el.config.history.disabled = !(keepUnlocked && el.config.history.options.length > 1);
 };
 
 const updateProfilePreview = () => {
@@ -491,6 +538,7 @@ const updateSortIcons = () => {
     });
 };
 
+let sendTargetsDrawn = '';   // the workspaces Send's options were made from
 const updateSelectionUI = () => {
     // Single DOM query for both checkbox kinds; partition by class.
     const checked = document.querySelectorAll('.row-selector:checked, .history-selector:checked');
@@ -509,9 +557,13 @@ const updateSelectionUI = () => {
     el.log.deleteBtn.dataset.ask = key;
     if (activeAto === 'IMPORT' && nMain > 0) {
         const targets = Object.keys(reportsByAto).filter(k => k !== 'IMPORT' && (reportsByAto[k]||[]).some(r => !r.deleted));
-        const picked  = el.log.sendSelect.value;   // kept over a redraw
-        el.log.sendSelect.innerHTML = targets.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
-        if (targets.includes(picked)) el.log.sendSelect.value = picked;
+        // Made again only when the workspaces change, so one held open stays open.
+        if (targets.join('\n') !== sendTargetsDrawn) {
+            const picked  = el.log.sendSelect.value;   // kept over a redraw
+            el.log.sendSelect.innerHTML = targets.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
+            if (targets.includes(picked)) el.log.sendSelect.value = picked;
+            sendTargetsDrawn = targets.join('\n');
+        }
         el.log.sendSelect.style.display = targets.length > 0 ? 'inline-block' : 'none';
         el.log.sendBtn.style.display    = targets.length > 0 ? 'inline-block' : 'none';
     } else {

@@ -737,7 +737,7 @@ const drawOverlays = (box) => {
             <td>${badge} ${shown}</td>
             <td>${SHAPE_LABEL[o.geometry.type] || ''}</td><td>${uses[name] || 0}</td>
             <td><select class="overlay-retag" data-retag="${i}" aria-label="Tag of ${escapeHtml(name)}">${options}</select></td>
-            <td><button type="button" class="overlay-remove editor-only" data-remove-overlay="${i}"${ask ? ' data-asking' : ''} title="Unload ${escapeHtml(name)}" aria-label="Unload ${escapeHtml(name)}">&times;</button></td></tr>`;
+            <td><button type="button" class="overlay-remove editor-only" data-remove-overlay="${i}"${ask ? ' data-asking' : ''} title="Remove ${escapeHtml(name)}" aria-label="Remove ${escapeHtml(name)}">&times;</button></td></tr>`;
     };
     // A list for each tag with graphics: Unknown first (the graphics with
     // none, waiting to be sorted), then the built-in ones, then the team's by

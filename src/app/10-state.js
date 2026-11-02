@@ -223,7 +223,7 @@ const readRaw = (key, fallback = null) => {
 };
 const removeStored = (key) => { try { localStorage.removeItem(key); } catch (e) { /* blocked: nothing kept to remove */ } };
 // Write to localStorage. Storage can be full (a long operation's reports and
-// history, cached in every browser) or blocked. The app works from memory
+// history; see reportsToCache) or blocked. The app works from memory
 // either way, so a failure is reported once instead of thrown into whatever
 // was running; before this, a full store silently took the client offline.
 let storageWarned = false;
@@ -539,17 +539,32 @@ const markPending = (ato, pending) => {
 // push sends only what changed. Refreshed on every pull; a workspace with no
 // record yet (say, right after a reload) is pushed in full.
 let serverVersions = {};
+// True once a pull has filled it: from then on a workspace with no record is
+// one the server doesn't have, not one it may have (right after a reload).
+let serverVersionsPulled = false;
 // Changes the server refused, per workspace (report key -> { report, reason }).
 // Kept so nothing is lost: shown as "Not saved" until fixed or discarded.
 let unsaved = readStored('salt_unsaved', {});
 const saveUnsaved = () => { writeStored('salt_unsaved', JSON.stringify(unsaved)); };
 const unsavedEntry = (ato, report) => ((unsaved[ato] || {})[SaltCore.reportKey(report)]) || null;
 
+// The offline copy holds the workspace this editor is in (and opens in next
+// time) and every one with a change the server hasn't taken: waiting to be
+// sent, refused, or made since the last pull. The others the server has,
+// and the next pull brings them back. A copy of every workspace, with weeks
+// of reports and their history, outgrew what a browser keeps for a site.
+// A page opened as a file has no server: it keeps them all.
+const reportsToCache = () => {
+    if (isLocalFile) return reportsByAto;
+    const keep = new Set([activeAto, localConfig.ato, ...pendingAtos,
+        ...Object.keys(unsaved).filter(a => Object.keys(unsaved[a] || {}).length)].filter(Boolean));
+    return SaltCore.workspacesToCache(reportsByAto, keep, serverVersions);
+};
 // Dedupe localStorage writes — skip if the JSON hasn't actually changed.
 let lastSavedReportsJson = readRaw('salt_reports_by_ato', '');
 const saveReportsByAtoToLocal = () => {
     if (isReadOnly) return;
-    const json = JSON.stringify(reportsByAto);
+    const json = JSON.stringify(reportsToCache());
     // A write that fails is tried again on the next change, not forgotten.
     if (json !== lastSavedReportsJson && writeStored('salt_reports_by_ato', json)) {
         lastSavedReportsJson = json;
@@ -633,6 +648,7 @@ const REQUEST_MS = 20000;
 const REQUEST_MS_BY_PATH = {
     '/api/sync': 30000, '/api/save_reports': 60000, '/api/wms_fetch': 60000, '/api/elevation_test': 60000,
     '/api/finish_mission': 120000, '/api/load_mission': 120000, '/api/recall_settings': 120000, '/api/refresh': 120000,
+    '/api/missions': 120000,
 };
 // A page opened as a file has no server: its calls fail at once, as the
 // browser would fail them, without a request it logs as an error.
@@ -690,12 +706,9 @@ const saveShared = async (path, body, { said = '', undo = null, putBack = () => 
     putBack();
     if (res.status === 401) return false;   // apiPost asked for the code again
     if (res.status === 404 && older) showToast(older, true, { ms: 10000 });
-    else showToast(res.status === 0 ? "Not saved: the server can't be reached. Try again once it's back." : `Not saved: ${res.message}`, true, { ms: 8000 });
+    else showToast(res.status === 0 ? NOT_SAVED_UNREACHABLE : `Not saved: ${res.message}`, true, { ms: 8000 });
     return false;
 };
-// The toast for a save: `okText` when the server took it (or there is no
-// server, opened from a file), else why not. Unreachable is not an error: the
-// change is kept here.
 // A control's "on" state, set in one place: what a screen reader is told
 // (`attr`: aria-pressed for a toggle, aria-selected for a tab, aria-expanded
 // for what opens something) and the class it is drawn with (`cls`, or none
@@ -705,11 +718,20 @@ const setOn = (node, on, attr = 'aria-pressed', cls = 'active') => {
     node.setAttribute(attr, String(!!on));
     if (cls) node.classList.toggle(cls, !!on);
 };
-// Said when reports are kept here to send later: the same words everywhere.
+// What is said when the server can't be reached, the same words everywhere,
+// each true of what happens to the change: reports are kept here and sent
+// again (SENT_LATER); the workspace chosen and the identity are kept here
+// and not sent again (SAVED_HERE_ONLY); a shared list is put back as it was
+// (NOT_SAVED_UNREACHABLE).
 const SENT_LATER = "Saved here; it's sent once the server can be reached.";
+const SAVED_HERE_ONLY = "Saved here only; the server can't be reached.";
+const NOT_SAVED_UNREACHABLE = "Not saved: the server can't be reached. Try again once it's back.";
+// The toast for a save that isn't sent again (the workspace, the identity):
+// `okText` when the server took it (or there is no server, opened from a
+// file), else why not. Unreachable is not an error: the change is kept here.
 const saveToast = (r, okText) => {
     if (r.ok || isLocalFile) showToast(okText);
-    else if (r.status === 0) showToast('Saved here; the server can\'t be reached.');
+    else if (r.status === 0) showToast(SAVED_HERE_ONLY);
     else showToast(`Not saved: ${r.message}`, true);
 };
 // A dropdown never runs past the bottom of the window or of the panel that
