@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.44.0] - 2026-11-01
+
 ### Changed
 
 - **Buttons and counts read the same everywhere.** The map's measure tools
@@ -2014,7 +2016,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.43.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.44.0...HEAD
+[2.44.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.43.0...v2.44.0
 [2.43.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.42.0...v2.43.0
 [2.42.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.41.0...v2.42.0
 [2.41.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.40.0...v2.41.0
