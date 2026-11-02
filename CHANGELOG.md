@@ -103,6 +103,36 @@ All notable changes to this project are documented here. The format follows
   does change, they come back where the same judgment is.
 - **No dashes for "none".** The map's BDA assessed tile says None, and the
   CSV import's column picker says (None).
+- **Browser storage lasts the operation.** Each editor's browser kept a copy
+  of every workspace, with every report's history, and after a few weeks it
+  outgrew what the browser keeps for a site: one warning, then an offline
+  copy that silently went stale. It now keeps the workspace you are in and
+  any with changes the server hasn't taken (4 workspaces of 1,500 reports
+  each: about 2.1 million characters where it was 8.4 million, past the
+  browser's limit). The others the server has, and the next sync brings them.
+- **Done with Mission can't loop when storage is full.** With no room left
+  to note the new mission, the page loaded again on the finished one, found
+  it finished and loaded again, possibly for ever. It now frees the reports'
+  copy and tries again, and if that fails too it stays put and says how to
+  make room.
+- **The unsent count is only what the server lacks.** Right after a reload,
+  before the first sync, it counted every report in a workspace with changes
+  waiting ("1,200 reports the server never got"), and a refused report could
+  count twice. When the number can't be known it now says so instead.
+- **Mission buttons say they are working.** Done with Mission, Refresh,
+  Recall Settings and Load show Finishing..., Refreshing..., Recalling... or
+  Loading... and can't be pressed again until the server answers; when it
+  refuses, or doesn't answer in time, they come back and say why. Previous
+  Missions is now asked with the same time limit as other requests.
+- **A sync no longer redraws what it didn't change.** The Report Log is
+  drawn again only when something it shows has changed, so an expanded cell,
+  a checklist being filled in and the keyboard's place stay as they are; the
+  workspace dropdown (and Send's) is made again only when its workspaces
+  change, so one held open stays open.
+- **Plainer words when the server can't be reached.** Your workspace and
+  identity, which aren't sent again later, now say "Saved here only; the
+  server can't be reached." rather than suggesting they will be. The × beside
+  an overlay is titled Remove (it said Unload), as its question and toast say.
 
 ## [2.41.0] - 2026-11-01
 
