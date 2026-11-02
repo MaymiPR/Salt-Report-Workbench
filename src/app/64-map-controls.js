@@ -82,13 +82,13 @@ const renderMapPanel = (box) => {
                     <div class="map-base-pop-head">Basemap</div>
                     <select id="mapBaseSelect" class="map-base-select" aria-label="Basemap"></select>
                     <div id="mapBaseNone" class="map-base-none">No basemaps yet.</div>
-                    <button type="button" id="mapBaseManage" class="text-btn editor-only">Add or change basemaps in Manage&hellip;</button>
+                    <button type="button" id="mapBaseManage" class="text-btn editor-only">Add or Change Basemaps in Manage&hellip;</button>
                 </div>
                 <!-- Saving or printing what the map shows (app/65-map-export.js). -->
                 <div id="mapExportPop" class="map-base-pop map-export-pop" hidden>
                     <div class="map-base-pop-head">Save or print the map</div>
                     <button type="button" id="mapSavePng" class="text-btn">Save as PNG</button>
-                    <button type="button" id="mapPrint" class="text-btn">Print (or save as PDF)</button>
+                    <button type="button" id="mapPrint" class="text-btn">Print (or Save as PDF)</button>
                 </div>
                 <!-- Drones: where each is, shown or not, its view, and (editors) moving them. -->
                 <div id="mapDronePop" class="map-base-pop map-drone-pop" hidden></div>
@@ -101,7 +101,7 @@ const renderMapPanel = (box) => {
                         <button type="button" id="mapGotoGo" class="set-btn">Go</button>
                     </div>
                     <div id="mapGotoSaid" class="map-goto-said" role="status"></div>
-                    <button type="button" id="mapGotoZoom" class="text-btn" hidden>Zoom to it</button>
+                    <button type="button" id="mapGotoZoom" class="text-btn" hidden>Zoom to It</button>
                 </div>
                 <div id="mapGridReadout" class="map-grid-readout" hidden></div>
                 <div id="mapTip" class="map-tip" hidden></div>
@@ -176,7 +176,7 @@ window.addEventListener('blur', () => showGridReadout(null, false));
 
 // The target button opens a box beside it: a grid typed or pasted (digits
 // alone take MGRS Lock's zone and square), then Enter or Go puts an X on the
-// map there, bringing it into view, and Zoom to it zooms in on it. One that
+// map there, bringing it into view, and Zoom to It zooms in on it. One that
 // can't be read is said in the box. Closing the box (its ×, Escape, or the
 // button again) takes the X away. This browser's alone, and not kept.
 const toggleGotoPop = (open) => {
@@ -421,11 +421,11 @@ const MEASURE_TOOLS = [
     ['distance', 'Distance', 'Two points: the distance and bearing between them'],
     ['path', 'Path', 'Click along a way: its length, and each leg\'s distance and bearing'],
     ['area', 'Area', 'Click round a shape: its area and perimeter'],
-    ['ring', 'Range ring', 'Click a center, then the radius (or drag it out)'],
-    ['time', 'Time-distance', 'Click along a route: how long it takes at a speed'],
-    ['sight', 'Line of sight', 'Two points: whether the first can see the second over the ground (with an elevation source)'],
+    ['ring', 'Range Ring', 'Click a center, then the radius (or drag it out)'],
+    ['time', 'Time-Distance', 'Click along a route: how long it takes at a speed'],
+    ['sight', 'Line of Sight', 'Two points: whether the first can see the second over the ground (with an elevation source)'],
     // Editors only: an axis of advance drawn, then named and saved for everyone.
-    ['axis', 'Draw axis', 'Click from where the enemy comes from, along its way, to where it heads; then name it and save it'],
+    ['axis', 'Draw Axis', 'Click from where the enemy comes from, along its way, to where it heads; then name it and save it'],
 ];
 const MAX_RINGS = 20;
 // The time-distance tool's speed: a number typed and a unit of the units
@@ -496,14 +496,14 @@ const renderMeasureTools = () => {
         // it is, the name typed and the keyboard where they were.
         if (!document.getElementById('mapAxisName')) panel.innerHTML = `<label for="mapAxisName">Name</label>
             <span class="map-measure-speed"><span aria-hidden="true">AXIS</span><input type="text" id="mapAxisName" maxlength="20" spellcheck="false" value="${escapeHtml(nextAxisName())}" aria-label="Name, after AXIS"></span>
-            <button type="button" id="mapAxisSave" class="text-btn">Save axis</button>`;
+            <button type="button" id="mapAxisSave" class="text-btn">Save Axis</button>`;
     } else if (tool === 'ring') {
         const done = mapState.measure.length && mapState.ringR > 0;
-        panel.innerHTML = `<button type="button" id="mapRingKeep" class="text-btn"${done ? '' : ' disabled'}>Keep ring on the map</button>
+        panel.innerHTML = `<button type="button" id="mapRingKeep" class="text-btn"${done ? '' : ' disabled'}>Keep Ring on the Map</button>
             ${mapState.rings.length ? `<div class="map-base-pop-head">Kept rings</div>
             <ul class="map-ring-list">${mapState.rings.map((g, i) => `<li><span>${escapeHtml(SaltCore.formatDistance(g.r, unitSystem))} round ${escapeHtml(SaltCore.latLonToMgrs(g.lat, g.lon) || '')}</span>
                 <button type="button" class="map-ring-remove" data-ring-remove="${i}" title="Remove this ring" aria-label="Remove the ${escapeHtml(SaltCore.formatDistance(g.r, unitSystem))} ring">&times;</button></li>`).join('')}</ul>
-            <button type="button" id="mapRingClear" class="text-btn">Clear all</button>` : ''}`;
+            <button type="button" id="mapRingClear" class="text-btn">Clear All</button>` : ''}`;
     } else panel.innerHTML = '';
     panel.hidden = !panel.innerHTML;
 };
