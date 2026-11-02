@@ -6417,6 +6417,68 @@ class KeyboardSavesAndZoomTests(BrowserTests):
         page.keyboard.press("Enter")
         self.assertEqual(page.evaluate("document.activeElement.id"), "mapSavePng")
 
+    def test_save_as_png_says_it_is_working_and_leaves_out_a_tile_that_never_comes(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        hung = []
+        # A tile host that never answers: the requests are held, not answered.
+        self.context.route("https://slow.test/**", lambda route: hung.append(route))
+        self.open_map(page)
+        self.synced(page)
+        before = page.evaluate("JSON.parse(JSON.stringify(sharedBasemaps))")
+        page.evaluate(
+            "saveBasemaps([{ name: 'Slow tiles', kind: 'tiles', url: 'https://slow.test/{z}/{x}/{y}.png' }])"
+        )
+        try:
+            self.pick_basemap(page, "Slow tiles")
+            page.wait_for_selector("#mapBase image")
+            page.evaluate("document.getElementById('toastNotification').textContent = ''")
+            page.click("#mapExportBtn")
+            with page.expect_download(timeout=40000) as d:
+                page.click("#mapSavePng")
+                page.wait_for_selector("#toastNotification:has-text('Saving the map as a PNG')")
+                self.assertEqual(
+                    page.evaluate("[mapSavePng.disabled, mapSavePng.textContent]"),
+                    [True, "Saving..."],
+                )
+            page.wait_for_selector("#toastNotification:has-text('Saved ')")
+            self.assertRegex(
+                page.text_content("#toastNotification"),
+                r"^Saved \S+\.png, without \d+ basemap images? that didn't come in time\.$",
+            )
+            self.assertEqual(
+                page.evaluate("[mapSavePng.disabled, mapSavePng.textContent]"),
+                [False, "Save as PNG"],
+            )
+            path = self.tmp_path(d.value.suggested_filename)
+            d.value.save_as(path)
+            self.assertEqual(path.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+        finally:
+            for route in hung:
+                with contextlib.suppress(PlaywrightError):
+                    route.abort()
+            page.evaluate("list => saveBasemaps(list)", before)
+
+    def test_the_saved_maps_scale_bar_follows_the_units(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.open_map(page)
+        # How long it says it is, in meters, against what its pixels cover there.
+        bar = """() => { const s = mapScaleBar(), v = mapState.view, [, lat] = SaltCore.mercToLonLat(v.cx, v.cy);
+            const [, n, unit] = s.text.replace(',', '').match(/^([\\d.]+) (m|km|yd|mi)$/);
+            const per = { m: 1, km: 1000, yd: 0.9144, mi: 1609.344 }[unit];
+            return { unit, said: n * per, drawn: s.px * v.mpp * Math.cos(lat * Math.PI / 180), px: s.px }; }"""
+        metric = page.evaluate(bar)
+        self.assertIn(metric["unit"], ("m", "km"))
+        page.evaluate("document.getElementById('toggleUnitsBtn').click()")
+        imperial = page.evaluate(bar)
+        self.assertIn(imperial["unit"], ("yd", "mi"))
+        for s in (metric, imperial):
+            self.assertAlmostEqual(s["said"], s["drawn"], delta=s["said"] * 1e-9)
+            self.assertLessEqual(s["px"], 130)
+        self.assertIn(f" {imperial['unit']}</text>", page.evaluate("mapMarksSvg(400, 300)"))
+
 
 for _name in [n for n in vars(BrowserTests) if n.startswith("test_")]:
     setattr(KeyboardSavesAndZoomTests, _name, None)

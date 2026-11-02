@@ -114,6 +114,14 @@ All notable changes to this project are documented here. The format follows
   button, and Save as PNG or Print goes back to Save or print.
 - **The Narrative settings say which tab is shown**, to screen readers too,
   as the Report buttons above the summary do.
+- **Save as PNG says it is working, and can't hang.** It showed nothing for a
+  second or more with many graphics, and a basemap tile that never came held
+  it up for good. Now a toast says it is saving and the button says
+  Saving... until it is done; the basemap's images are asked for together,
+  and one not in after 8 seconds is left out, which the toast and the image
+  say.
+- **The saved and printed map's scale bar follows Settings > Units**: yards
+  and miles in imperial, as every other measure.
 
 ## [2.41.0] - 2026-11-01
 

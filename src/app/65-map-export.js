@@ -39,15 +39,24 @@ const mapExportTitle = () => {
 };
 
 // A scale bar a round length long (1, 2 or 5 times a power of ten), at most
-// `most` pixels: meters on the ground per pixel at the middle of the view.
+// `most` pixels: meters on the ground per pixel at the middle of the view. In
+// this browser's units (Settings > Units), as every other measure: meters and
+// km, or yards and miles.
 const mapScaleBar = (most = 130) => {
     const v = mapState.view, box = document.getElementById('mapBox');
     if (!v || !isFinite(v.mpp) || !box) return null;
     const [, lat] = SaltCore.mercToLonLat(v.cx, v.cy);
     const ground = v.mpp * Math.cos(lat * Math.PI / 180);
-    let len = 1;
-    for (const p of [1, 10, 100, 1000, 10000, 100000]) for (const k of [1, 2, 5]) if (k * p / ground <= most) len = k * p;
-    return { px: len / ground, text: len >= 1000 ? `${len / 1000} km` : `${len} m` };
+    // [meters, as written], shortest first.
+    const lengths = [];
+    const round = (powers, unit, per, text) => powers.forEach(p => [1, 2, 5].forEach(k => lengths.push([k * p * per, text(k * p, unit)])));
+    if (unitSystem === 'imperial') {
+        round([1, 10, 100], 'yd', 0.9144, (n, u) => `${n} ${u}`);
+        round([1, 10, 100, 1000, 10000], 'mi', M_PER_MI, (n, u) => `${n.toLocaleString('en-US')} ${u}`);
+    } else round([1, 10, 100, 1000, 10000, 100000], 'm', 1, (n) => (n >= 1000 ? `${n / 1000} km` : `${n} m`));
+    let len = lengths[0];
+    lengths.forEach(l => { if (l[0] / ground <= most) len = l; });
+    return { px: len[0] / ground, text: len[1] };
 };
 
 // The north arrow and scale bar, as SVG to lay over the map (Web Mercator:
@@ -72,6 +81,11 @@ const loadImage = (src, cors) => new Promise(resolve => {
     img.onerror = () => resolve(null);
     img.src = src;
 });
+// A basemap image for the PNG, all of them asked at once: the image, null when
+// the service refused it, or MAP_TILE_LATE when it hadn't come in
+// MAP_EXPORT_TILE_MS, so a slow tile host can't hold the save up for ever.
+const MAP_EXPORT_TILE_MS = 8000, MAP_TILE_LATE = 'late';
+const loadTile = (src) => Promise.race([loadImage(src, true), new Promise(r => setTimeout(r, MAP_EXPORT_TILE_MS, MAP_TILE_LATE))]);
 const svgImage = (markup) => loadImage('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(markup), false);
 
 // The key as drawn on the canvas: the map's own key, each swatch and its words
@@ -102,7 +116,8 @@ const drawMapKey = async (ctx, keys, x0, y0, width) => {
 
 // The map drawn on a canvas: title block, the view (its basemap too, with
 // `withBase`, where the service lets the page copy its images), north arrow,
-// scale bar and key. Resolves { canvas, baseLeftOut }, or null.
+// scale bar and key. Resolves { canvas, baseLeftOut, late } (late: how many
+// of its images didn't come in time and are left out), or null.
 const drawMapCanvas = async (withBase) => {
     const m = mapEls();
     const w = m.box.clientWidth, h = m.box.clientHeight, scale = 2;
@@ -133,12 +148,15 @@ const drawMapCanvas = async (withBase) => {
     ctx.fillStyle = mapBackground();
     ctx.fillRect(0, 0, w, h);
     const tiles = [...m.base.querySelectorAll('image')];
-    let baseLeftOut = !withBase && tiles.length > 0;
-    for (const el of withBase ? tiles : []) {
-        const img = await loadImage(new URL(el.getAttribute('href'), location.href).href, true);
-        if (!img) { baseLeftOut = true; continue; }
+    let baseLeftOut = !withBase && tiles.length > 0, late = 0;
+    // Asked for together, drawn in their order.
+    const got = await Promise.all((withBase ? tiles : []).map(el => loadTile(new URL(el.getAttribute('href'), location.href).href)));
+    got.forEach((img, i) => {
+        if (img === MAP_TILE_LATE) { late++; return; }
+        if (!img) { baseLeftOut = true; return; }
+        const el = tiles[i];
         ctx.drawImage(img, +el.getAttribute('x'), +el.getAttribute('y'), +el.getAttribute('width'), +el.getAttribute('height'));
-    }
+    });
     const over = await svgImage(new XMLSerializer().serializeToString(mapStyledCopy(m.svg)));
     if (!over) { ctx.restore(); return null; }
     ctx.drawImage(over, 0, 0, w, h);
@@ -148,32 +166,50 @@ const drawMapCanvas = async (withBase) => {
     // The key under it, and what was left out, if anything.
     ctx.font = '12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
     const y = await drawMapKey(ctx, keys, 14, head + h + 20, w - 28);
-    if (baseLeftOut) {
+    if (baseLeftOut || late) {
         ctx.fillStyle = '#8e1a12';
-        ctx.fillText("The basemap is left out: its service doesn't let the page copy its images. Print shows it.", 14, y + 10);
+        ctx.fillText(baseLeftOut ? "The basemap is left out: its service doesn't let the page copy its images. Print shows it."
+            : `${plural(late, 'basemap image')} didn't come in time and ${late === 1 ? 'is' : 'are'} left out.`, 14, y + 10);
     }
-    return { canvas, baseLeftOut };
+    return { canvas, baseLeftOut, late };
 };
 
 // The map as a PNG. Should the browser have let in a basemap image it then
-// won't let the page read back, it is drawn again without the basemap.
+// won't let the page read back, it is drawn again without the basemap. It
+// can take a second or more with many graphics: meanwhile a toast says it is
+// being saved, and Save as PNG says so and can't be pressed again.
 const saveMapPng = async () => {
     const m = mapEls();
     if (!m.box || !mapState.view || !mapState.lastDraw || !mapState.lastDraw.view) { showToast('Nothing on the map to save yet.', true); return; }
+    const btn = document.getElementById('mapSavePng');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    showToast('Saving the map as a PNG...');
     const toPng = (canvas) => new Promise((resolve, reject) => {
         try { canvas.toBlob(b => (b ? resolve(b) : reject(new Error('no image'))), 'image/png'); } catch (e) { reject(e); }
     });
-    let drawn = await drawMapCanvas(true), blob = null;
     try {
-        blob = drawn && await toPng(drawn.canvas);
+        // The toast drawn before the work starts (a timer too, should the tab be in the background).
+        await new Promise(r => { requestAnimationFrame(() => setTimeout(r, 0)); setTimeout(r, 100); });
+        let drawn = await drawMapCanvas(true), blob = null;
+        try {
+            blob = drawn && await toPng(drawn.canvas);
+        } catch (e) {
+            drawn = await drawMapCanvas(false);
+            blob = drawn && await toPng(drawn.canvas).catch(() => null);
+        }
+        if (!blob) { showToast("The map couldn't be saved as an image.", true); return; }
+        const name = `${SaltCore.backupFilename(viewerShowingAto || activeAto || 'ATO', localConfig.title || 'SALT')}_map_${fileStamp(new Date(), timeDisplayMode === 'local')}.png`;
+        triggerDownload(name, blob, 'image/png');
+        const late = drawn.late ? `, without ${plural(drawn.late, 'basemap image')} that didn't come in time` : '';
+        showToast(drawn.baseLeftOut ? `Saved ${name}, without the basemap (its service doesn't allow it; Print shows it).` : `Saved ${name}${late}.`, drawn.baseLeftOut || !!drawn.late);
     } catch (e) {
-        drawn = await drawMapCanvas(false);
-        blob = drawn && await toPng(drawn.canvas).catch(() => null);
+        showToast("The map couldn't be saved as an image.", true);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save as PNG';
     }
-    if (!blob) { showToast("The map couldn't be saved as an image.", true); return; }
-    const name = `${SaltCore.backupFilename(viewerShowingAto || activeAto || 'ATO', localConfig.title || 'SALT')}_map_${fileStamp(new Date(), timeDisplayMode === 'local')}.png`;
-    triggerDownload(name, blob, 'image/png');
-    showToast(drawn.baseLeftOut ? `Saved ${name}, without the basemap (its service doesn't allow it; Print shows it).` : `Saved ${name}.`, drawn.baseLeftOut);
 };
 
 // The map in the print dialog: the same title block, view, marks and key, as
