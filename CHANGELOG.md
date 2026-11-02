@@ -124,6 +124,10 @@ All notable changes to this project are documented here. The format follows
   identity, which aren't sent again later, now say "Saved here only; the
   server can't be reached." rather than suggesting they will be. The × beside
   an overlay is titled Remove (it said Unload), as its question and toast say.
+- **An IPv6 `--host` is told plainly.** `--host ::` (or any IPv6 address)
+  stopped with "Is the server already running?", which it wasn't. The server
+  listens on IPv4 only, and now says so, with 0.0.0.0 or 127.0.0.1 to use
+  instead.
 
 ## [2.42.0] - 2026-11-01
 

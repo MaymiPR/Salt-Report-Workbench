@@ -216,7 +216,8 @@ _SECURITY_HEADERS = (
 # under Shared settings below) and everything marked "Protected by data_lock".
 data_lock = threading.Lock()
 
-# Cached /api/sync prefix — all but the closing brace and connected_users count. Invalidated on every mutation.
+# Cached /api/sync prefix: the shared state, without the closing brace or the
+# per-request tail (see _handle_sync). Invalidated on every mutation.
 _sync_cache_prefix: bytes | None = None  # protected by data_lock
 # The last /api/sync body and its gzip form for each view, editor (False) and
 # viewer (True): the two bodies differ only in read_only, the rest of the tail
@@ -771,15 +772,18 @@ def _machine(ip: str) -> str:
     return '127.0.0.1' if _is_localhost(ip) else ip
 
 
+def _code_needed(view_only: bool, client_ip: str) -> bool:
+    """Whether a request must carry the access code to hit gated endpoints.
+    * Viewer-port requests never do (the port itself is the gate).
+    * Nor any while access-code auth is disabled (_access_code is None).
+    * Nor localhost (the host running the server gets a free ride)."""
+    return not view_only and _access_code is not None and not _is_localhost(client_ip)
+
+
 def _access_code_ok(headers, view_only: bool, client_ip: str) -> bool:
-    """Return True if the request is authorized to hit gated endpoints.
-    * Viewer-port requests always pass (the port itself is the gate).
-    * If access-code auth is disabled (_access_code is None), pass.
-    * Localhost passes (the host running the server gets a free ride).
-    * Otherwise require a matching `salt_access` cookie."""
-    if view_only or _access_code is None:
-        return True
-    if _is_localhost(client_ip):
+    """Return True if the request is authorized to hit gated endpoints: it
+    needs no code (see _code_needed), or has a matching `salt_access` cookie."""
+    if not _code_needed(view_only, client_ip):
         return True
     submitted = (_get_cookie(headers, 'salt_access') or '').upper()
     # Constant-time compare to avoid timing-leak guesses. Bytes, because
@@ -1506,9 +1510,9 @@ def _v_save_basemaps(data: dict) -> str | None:
         name = b.get('name')
         if not _is_str(name, MAX_BASEMAP_NAME) or not name.strip():
             return f'basemaps[{i}].name must be a non-empty string ≤{MAX_BASEMAP_NAME} chars'
-        if name.strip().lower() in names:
+        if name.strip().casefold() in names:
             return f'basemaps[{i}].name is used twice'
-        names.add(name.strip().lower())
+        names.add(name.strip().casefold())
         if b.get('kind') not in ('wms', 'tiles'):
             return f'basemaps[{i}].kind must be wms or tiles'
         url = b.get('url')
@@ -1542,9 +1546,9 @@ def _v_save_drones(data: dict) -> str | None:
         name = d.get('name')
         if not _is_str(name, MAX_DRONE_NAME) or not name.strip():
             return f'drones[{i}].name must be a non-empty string ≤{MAX_DRONE_NAME} chars'
-        if name.strip().lower() in names:
+        if name.strip().casefold() in names:
             return f'drones[{i}].name is used twice'
-        names.add(name.strip().lower())
+        names.add(name.strip().casefold())
         grid = d.get('grid')
         if not isinstance(grid, str) or not _DRONE_GRID_RE.fullmatch(grid):
             return f'drones[{i}].grid must be an MGRS grid like "11S NV 39697 06762"'
@@ -1640,9 +1644,9 @@ def _v_save_narrative(data: dict) -> str | None:
             return (
                 f'narrative.units[{i}].name must be a non-empty string ≤{MAX_NARRATIVE_NAME} chars'
             )
-        if name.strip().lower() in names:
+        if name.strip().casefold() in names:
             return f'narrative.units[{i}].name is used twice'
-        names.add(name.strip().lower())
+        names.add(name.strip().casefold())
         places = u.get('places', [])
         if (
             not isinstance(places, list)
@@ -2796,14 +2800,6 @@ def read_mission(value) -> dict | None:
     }
 
 
-def _extract_json_from_file(raw_text: str) -> dict | None:
-    """DATA_STORE dict from a backup file (see ``_parse_backup``). None on failure."""
-    try:
-        return _parse_backup(raw_text)
-    except ValueError:
-        return None
-
-
 def _sort_num(v) -> float:
     """A number to compare by, whatever a hand-edited backup holds (else 0)."""
     return v if isinstance(v, (int, float)) else 0
@@ -2925,7 +2921,7 @@ def _merge_reports(existing_list: list, incoming_list: list) -> list:
 
 def backup_files(folder: str) -> list:
     """The backups in ``folder`` the boot reads: every ``.txt`` and ``Shared
-    settings.json``, oldest first. None when it has none (or isn't there)."""
+    settings.json``, oldest first. Empty when it has none (or isn't there)."""
     try:
         names = os.listdir(folder)
     except OSError:
@@ -3119,7 +3115,7 @@ def render_backup(
     """Return ``(filename, text)`` for a backup of the given state, or None if empty.
 
     Pure: no I/O, no global state. The text is a human-readable report summary
-    followed by a machine-readable JSON block that ``_extract_json_from_file``
+    followed by a machine-readable JSON block that ``_parse_backup``
     reads back on the next boot. ``formats`` is the format under each
     workspace's name (formats_for). The other shared settings come by name
     (``overlays=[...]``); one not given is written empty. ``label`` is the
@@ -3492,6 +3488,17 @@ def _held_names() -> set:
     }
 
 
+def _backup_layout(workspaces: dict, shared: dict) -> dict:
+    """The ``formats`` (the format under each workspace's name, the shape
+    backup files keep) and file ``names`` the backups of ``workspaces`` are
+    written with, as workspace_backup_parts and render_workspace_backups take
+    them. ``shared`` is shared_settings(). Caller holds data_lock."""
+    return {
+        'formats': formats_for(workspaces, shared['format']),
+        'names': workspace_filenames(workspaces, shared['config'], _held_names()),
+    }
+
+
 def _note_written(written: list) -> list:
     """Record the workspace backups just written, ``[(ato, filename)]``, and
     return the names of the files that now hold nothing. Caller holds data_lock."""
@@ -3585,12 +3592,7 @@ def save_data_to_disk() -> None:
                 shared = shared_settings()
                 # Made now: the reports are changed in place.
                 parts = workspace_backup_parts(
-                    workspaces,
-                    shared['config'],
-                    # The format under each workspace's name, the shape backup files keep.
-                    formats_for(workspaces, shared['format']),
-                    only=only,
-                    names=workspace_filenames(workspaces, shared['config'], _held_names()),
+                    workspaces, shared['config'], only=only, **_backup_layout(workspaces, shared)
                 )
                 # The shared settings are serialized after the lock is let
                 # go: each is replaced whole when it changes, never changed in
@@ -3777,8 +3779,7 @@ def finish_mission(actor: str, by: str = '') -> tuple:
         shared = shared_settings()
         files = render_workspace_backups(
             workspaces,
-            formats=formats_for(workspaces, shared['format']),
-            names=workspace_filenames(workspaces, shared['config'], _held_names()),
+            **_backup_layout(workspaces, shared),
             **{k: v for k, v in shared.items() if k != 'format'},
         )
         files.append((None, SHARED_SETTINGS_NAME, render_shared_settings(shared, dict(mission))))
@@ -4125,8 +4126,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         """
         view_only = getattr(self.server, 'view_only', False)
         ip = self.client_address[0]
-        gated = not view_only and _access_code is not None and not _is_localhost(ip)
-        if gated and not auth_fail_check(ip, take=False):
+        if not _code_needed(view_only, ip):
+            return True
+        if not auth_fail_check(ip, take=False):
             self._refuse(429, 'Too many wrong access codes. Retry shortly.', body_length)
             return False
         if _access_code_ok(self.headers, view_only, ip):
@@ -4179,8 +4181,9 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         self._error(status, message)
 
     def _handle_sync(self) -> None:
-        """Full sync payload. Cached prefix + dynamic tail (connected counts).
-        Operator IPs tracked server-side for attribution; never sent to peers."""
+        """Full sync payload. Cached prefix + dynamic tail: who is connected and
+        where, the Activity list, read_only and the version numbers. Operator
+        IPs tracked server-side for attribution; never sent to peers."""
         global _sync_cache_prefix
         # Read before the data: the answer then holds at least this change,
         # never less, so a page can't take itself to be newer than it is.
@@ -4198,7 +4201,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
                 full = json.dumps(data, separators=(',', ':'))
                 _sync_cache_prefix = full[:-1].encode('utf-8')
             prefix = _sync_cache_prefix
-        # Dynamic tail: connected count + deduped initials (no IPs).
+        # Dynamic tail: connected count, deduped initials and their workspaces (no IPs).
         with sse_lock:
             # Unique machines, not tabs: tabs from one machine share a key (the
             # host's localhost and LAN tabs included) and would otherwise inflate the count.
@@ -4469,7 +4472,10 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
         if said:
             note_activity(self._initials(), said, ato)
         schedule_save()
-        version = broadcast_update()
+        self._send_changed(broadcast_update(), extra)
+
+    def _send_changed(self, version: int, extra: dict) -> None:
+        """A write's success reply, with the number of the change it made."""
         # In a header too, so a page reads it before (or without) the body.
         self._send_body(
             json.dumps({'status': 'success', 'version': version, **extra}).encode('utf-8'),
@@ -4488,12 +4494,7 @@ class SaltSyncHandler(server.BaseHTTPRequestHandler):
             return
         if said:
             note_activity(self._initials(), said, ato)
-        version = broadcast_update()
-        self._send_body(
-            json.dumps({'status': 'success', 'version': version, **extra}).encode('utf-8'),
-            'application/json',
-            headers=(('X-Salt-Change', str(version)),),
-        )
+        self._send_changed(broadcast_update(), extra)
 
     def _store_shared(self, key: str, value, keep=None) -> tuple[bool, Any]:
         """Put a shared setting in place, for every workspace. Says whether it
@@ -5307,9 +5308,9 @@ class SaltSyncServer(socketserver.ThreadingTCPServer):
 def display_host() -> str:
     """The address the banner shows and the browser opens: the LAN address when
     listening on every interface, else the one listened on (``--host``)."""
-    if HOST in ('', '0.0.0.0', '::'):
+    if HOST in ('', '0.0.0.0'):
         return get_local_ip()
-    return f'[{HOST}]' if ':' in HOST else HOST
+    return HOST
 
 
 def run_boot_dashboard(
@@ -5493,12 +5494,7 @@ def restore_snapshot(which: str) -> int:
         return 1
     snap_dir = os.path.join(BACKUP_DIR, SNAPSHOT_DIR_NAME)
     keep = os.path.join(snap_dir, f'before-restore-{datetime.now(timezone.utc):%Y%m%d_%H%M%S}Z')
-    live = [
-        f
-        for f in os.listdir(BACKUP_DIR)
-        if (f.endswith('.txt') or f == SHARED_SETTINGS_NAME)
-        and os.path.isfile(os.path.join(BACKUP_DIR, f))
-    ]
+    live = [os.path.basename(p) for p in backup_files(BACKUP_DIR)]
     os.makedirs(keep, exist_ok=True)
     for f in live:
         shutil.copy2(os.path.join(BACKUP_DIR, f), os.path.join(keep, f))
@@ -5702,6 +5698,10 @@ if __name__ == '__main__':
     try:
         httpd = SaltSyncServer((HOST, PORT), SaltSyncHandler, tls=tls)
     except OSError as exc:
+        if ':' in HOST:  # an IPv6 address: the listeners are IPv4 only
+            safe_print(f'\n[!] Could not listen on {HOST}: only IPv4 addresses are supported.')
+            safe_print('    Use --host 0.0.0.0 (every interface) or 127.0.0.1 (this machine only).')
+            sys.exit(1)
         safe_print(f'\n[!] Could not listen on port {PORT}: {exc}')
         safe_print('    Is the server already running? Close it, or start this one with --port.')
         sys.exit(1)

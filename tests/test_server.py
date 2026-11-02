@@ -105,6 +105,15 @@ def reset_state() -> None:
     srv._merged_files.clear()
 
 
+def read_backup(text: str) -> dict | None:
+    """What a backup file's machine data holds, as the boot reads it (see
+    ``_parse_backup``); None for a file that isn't a backup."""
+    try:
+        return srv._parse_backup(text)
+    except ValueError:
+        return None
+
+
 def cancel_pending_save() -> None:
     with srv._save_timer_lock:
         if srv._save_timer is not None:
@@ -188,7 +197,7 @@ class BackupFormatTests(unittest.TestCase):
         formats = {"ALPHA": {"preset": "salt", "lines": [{"type": "id"}]}}
         _, text = srv.render_backup(ws, cfg, profiles, formats)
 
-        parsed = srv._extract_json_from_file(text)
+        parsed = read_backup(text)
         self.assertEqual(parsed["workspaces"], ws)
         self.assertEqual(parsed["config"], cfg)
         self.assertEqual(parsed["profiles"], profiles)
@@ -211,7 +220,7 @@ class BackupFormatTests(unittest.TestCase):
     def test_legacy_single_workspace_backups_still_load(self):
         legacy = {"config": {"ato": "ALPHA", "title": "Old"}, "reports": [report()]}
         text = f"{srv.BACKUP_START}\n{json.dumps(legacy)}\n{srv.BACKUP_END}"
-        parsed = srv._extract_json_from_file(text)
+        parsed = read_backup(text)
         self.assertEqual(list(parsed["workspaces"]), ["ALPHA"])
         self.assertEqual(parsed["formats"], {})
 
@@ -231,7 +240,7 @@ class BackupFormatTests(unittest.TestCase):
         self.assertEqual(len(files), 1)
         # The config such a file holds is kept to its two strings.
         text = f'{srv.BACKUP_START}{{"workspaces":{{}},"config":{{"ato":3,"title":"T"}}}}{srv.BACKUP_END}'
-        self.assertEqual(srv._extract_json_from_file(text)["config"], {"ato": "", "title": "T"})
+        self.assertEqual(read_backup(text)["config"], {"ato": "", "title": "T"})
 
     def test_each_workspace_file_is_byte_for_byte_what_it_was(self):
         # The shared settings are now serialized once for every file of a
@@ -290,16 +299,14 @@ class BackupFormatTests(unittest.TestCase):
             for (ato, _, text), (_, _, was) in zip(new, old, strict=True):
                 self.assertEqual(text.encode("utf-8"), was.encode("utf-8"), ato)
         # The machine data reads back as it always has.
-        parsed = srv._extract_json_from_file(new[0][2])
+        parsed = read_backup(new[0][2])
         self.assertEqual(parsed["workspaces"], {"BRAVO 2": ws["BRAVO 2"]})
         self.assertEqual(parsed["overlays"], shared["overlays"])
         self.assertEqual(parsed["formats"], {"BRAVO 2": fmt})
 
     def test_files_without_markers_or_with_corrupt_json_are_rejected(self):
-        self.assertIsNone(srv._extract_json_from_file("just some notes"))
-        self.assertIsNone(
-            srv._extract_json_from_file(f"{srv.BACKUP_START}{{not json{srv.BACKUP_END}")
-        )
+        self.assertIsNone(read_backup("just some notes"))
+        self.assertIsNone(read_backup(f"{srv.BACKUP_START}{{not json{srv.BACKUP_END}"))
 
 
 # --------------------------------------------------------------------------- #
@@ -525,6 +532,12 @@ class ValidatorTests(unittest.TestCase):
         self.assertIsNone(v({"basemaps": []}), "none: a plain background")
         self.assertRejects(v, {"basemaps": wms}, "list")
         self.assertRejects(v, {"basemaps": [wms, {**tiles, "name": " imagery "}]}, "used twice")
+        # Names are told apart as tags' are: casefolded.
+        self.assertRejects(
+            v,
+            {"basemaps": [{**wms, "name": "Straße"}, {**tiles, "name": "STRASSE"}]},
+            "used twice",
+        )
         self.assertRejects(v, {"basemaps": [{**wms, "name": ""}]}, "name")
         self.assertRejects(v, {"basemaps": [{**wms, "kind": "wfs"}]}, "wms or tiles")
         self.assertRejects(v, {"basemaps": [{**wms, "url": "file:///c:/x"}]}, "http(s)")
@@ -1211,6 +1224,16 @@ class StartupTests(unittest.TestCase):
         self.assertIn(f"Could not listen on port {port}", result.stdout)
         self.assertNotIn("no ssl module", result.stdout)
 
+    def test_an_ipv6_host_is_told_only_ipv4_is_supported(self):
+        # Regression: it said "Is the server already running?", which it wasn't.
+        args = ("--port", "0", "--viewer-port", "0", "--no-https", "--no-browser", "--no-minimize")
+        for host in ("::", "::1"):
+            result = self.run_server("--host", host, *args)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn(f"Could not listen on {host}: only IPv4 addresses", result.stdout)
+            self.assertIn("0.0.0.0", result.stdout)
+            self.assertNotIn("already running", result.stdout)
+
     def test_a_stop_that_could_not_save_says_so_and_exits_non_zero(self):
         # Regression: it said "flushed to disk" and exited 0 when the save
         # had failed, so the launcher closed its window on the news.
@@ -1257,7 +1280,6 @@ class StartupTests(unittest.TestCase):
                 ("", "10.0.0.12"),
                 ("127.0.0.1", "127.0.0.1"),
                 ("10.0.0.7", "10.0.0.7"),
-                ("::1", "[::1]"),
             ):
                 with mock.patch.object(srv, "HOST", host):
                     self.assertEqual(srv.display_host(), shown, host)
@@ -3183,7 +3205,7 @@ class HttpApiTests(unittest.TestCase):
         srv.flush_pending_save()
         # In every workspace's file, so any one of them restores the set.
         for f in self.backup_files():
-            data = srv._extract_json_from_file(f.read_text("utf-8"))
+            data = read_backup(f.read_text("utf-8"))
             self.assertEqual(data["overlays"], [NAI1, PL_BLUE], f.name)
         reset_state()
         srv.load_data_from_disk()
@@ -3380,7 +3402,7 @@ class HttpApiTests(unittest.TestCase):
         self.post("/api/save_overlays", {"overlays": [NAI1, route], "tagged": True})
         srv.flush_pending_save()
         for f in self.backup_files():
-            data = srv._extract_json_from_file(f.read_text("utf-8"))
+            data = read_backup(f.read_text("utf-8"))
             self.assertEqual((data["tags"], data["overlays"]), (clean, [NAI1, route]), f.name)
         reset_state()
         srv.load_data_from_disk()
@@ -3433,9 +3455,9 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(srv.read_tags(held), [good])
         self.assertIsNone(srv.read_tags(None), "a file from before tags decides nothing")
         _, text = srv.render_backup({"ALPHA": [report()]}, {}, {}, {}, tags=held)
-        self.assertEqual(srv._extract_json_from_file(text)["tags"], [good])
+        self.assertEqual(read_backup(text)["tags"], [good])
         _, old = srv.render_backup({"ALPHA": [report()]}, {}, {}, {})
-        self.assertEqual(srv._extract_json_from_file(old)["tags"], [], "written empty")
+        self.assertEqual(read_backup(old)["tags"], [], "written empty")
 
     def test_drones_sync_and_survive_a_restart(self):
         shutil.rmtree(srv.BACKUP_DIR, ignore_errors=True)
@@ -3594,7 +3616,7 @@ class HttpApiTests(unittest.TestCase):
         def write(name, overlays, when):
             text = srv.render_backup({name: [report(id=name)]}, {}, {}, {}, label=(name, "T"))[1]
             if overlays is not None:
-                data = srv._extract_json_from_file(text)
+                data = read_backup(text)
                 data["overlays"] = overlays
                 text = srv.BACKUP_START + json.dumps(data) + srv.BACKUP_END
             path = Path(srv.BACKUP_DIR) / f"{name}_T.txt"
@@ -3620,9 +3642,7 @@ class HttpApiTests(unittest.TestCase):
         srv.flush_pending_save()
         files = self.backup_files()
         self.assertIn("ALPHA_Patrol.txt", [f.name for f in files])
-        parsed = srv._extract_json_from_file(
-            (Path(srv.BACKUP_DIR) / "ALPHA_Patrol.txt").read_text("utf-8")
-        )
+        parsed = read_backup((Path(srv.BACKUP_DIR) / "ALPHA_Patrol.txt").read_text("utf-8"))
         self.assertEqual(parsed["workspaces"]["ALPHA"][0]["id"], "r1")
 
     def test_unload_is_persisted_immediately(self):
@@ -3637,7 +3657,7 @@ class HttpApiTests(unittest.TestCase):
             spy.assert_called_once()
         srv.flush_pending_save()
         text = (Path(srv.BACKUP_DIR) / "ALPHA_Patrol.txt").read_text("utf-8")
-        self.assertNotIn("BRAVO", srv._extract_json_from_file(text)["workspaces"])
+        self.assertNotIn("BRAVO", read_backup(text)["workspaces"])
         # Unload is "from view": the workspace's own file stays for the next start.
         self.assertTrue((Path(srv.BACKUP_DIR) / "BRAVO_Patrol.txt").exists())
 
@@ -3650,8 +3670,8 @@ class HttpApiTests(unittest.TestCase):
         )
         srv.flush_pending_save()
         folder = Path(srv.BACKUP_DIR)
-        alpha = srv._extract_json_from_file((folder / "ALPHA_Patrol.txt").read_text("utf-8"))
-        bravo = srv._extract_json_from_file((folder / "BRAVO_Screen.txt").read_text("utf-8"))
+        alpha = read_backup((folder / "ALPHA_Patrol.txt").read_text("utf-8"))
+        bravo = read_backup((folder / "BRAVO_Screen.txt").read_text("utf-8"))
         self.assertEqual(list(alpha["workspaces"]), ["ALPHA"])
         self.assertEqual(list(bravo["workspaces"]), ["BRAVO"])
         # Both carry the shared config, so a restart restores the active workspace.
@@ -3675,9 +3695,7 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(
             alpha.stat().st_mtime_ns, before, "ALPHA was untouched, so its file is too"
         )
-        bravo = srv._extract_json_from_file(
-            (Path(srv.BACKUP_DIR) / "BRAVO_Patrol.txt").read_text("utf-8")
-        )
+        bravo = read_backup((Path(srv.BACKUP_DIR) / "BRAVO_Patrol.txt").read_text("utf-8"))
         self.assertEqual(len(bravo["workspaces"]["BRAVO"]), 2)
 
     def test_a_combined_file_from_an_older_version_is_split_on_the_first_save(self):
@@ -3691,7 +3709,7 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(sorted(srv.DATA_STORE["workspaces"]), ["ALPHA", "BRAVO"])
         self.post("/api/save_reports", {"ato": "ALPHA", "reports": [report("r2", "ALPHA002")]})
         srv.flush_pending_save()
-        alpha = srv._extract_json_from_file((folder / "ALPHA_Patrol.txt").read_text("utf-8"))
+        alpha = read_backup((folder / "ALPHA_Patrol.txt").read_text("utf-8"))
         self.assertEqual(
             list(alpha["workspaces"]), ["ALPHA"], "the combined file became ALPHA's own"
         )
@@ -3850,7 +3868,7 @@ class HttpApiTests(unittest.TestCase):
             snaps
         ):  # UTC stamp first, so a listing is chronological; same-second copies are numbered
             self.assertRegex(s.name, r"^\d{8}_\d{6}Z_ALPHA_Patrol(_\d+)?\.txt$")
-        newest = srv._extract_json_from_file(snaps[-1].read_text("utf-8"))
+        newest = read_backup(snaps[-1].read_text("utf-8"))
         self.assertEqual(newest["workspaces"]["ALPHA"][0]["size"], "v2")
         # Snapshots live in a subfolder, which the boot loader does not read.
         reset_state()
@@ -3965,14 +3983,14 @@ class HttpApiTests(unittest.TestCase):
             "Day1's report is in Day2's file now; BRAVO's file is its only copy",
         )
         text = (folder / "ALPHA_Day2.txt").read_text("utf-8")
-        self.assertEqual(len(srv._extract_json_from_file(text)["workspaces"]["ALPHA"]), 2)
+        self.assertEqual(len(read_backup(text)["workspaces"]["ALPHA"]), 2)
         # An unloaded workspace's file isn't overwritten by one whose name collides with it.
         self.post(
             "/api/save_reports",
             {"ato": "BRAVO", "reports": [report("b9", "BRAVO009", title="Screen")]},
         )
         srv.flush_pending_save()
-        old = srv._extract_json_from_file((folder / "BRAVO_Screen.txt").read_text("utf-8"))
+        old = read_backup((folder / "BRAVO_Screen.txt").read_text("utf-8"))
         self.assertEqual([r["id"] for r in old["workspaces"]["BRAVO"]], ["b1"])
         self.assertEqual(len(list(folder.glob("BRAVO_*_Screen.txt"))), 1)
 
@@ -4021,7 +4039,7 @@ class HttpApiTests(unittest.TestCase):
         with mock.patch.object(srv, "safe_print"):
             srv.save_data_to_disk()
         text = (Path(srv.BACKUP_DIR) / "ALPHA_Patrol.txt").read_text("utf-8")
-        self.assertEqual(len(srv._extract_json_from_file(text)["workspaces"]["ALPHA"]), 2)
+        self.assertEqual(len(read_backup(text)["workspaces"]["ALPHA"]), 2)
 
     def test_shared_settings_that_cannot_be_written_keep_every_change(self):
         # The shared settings are serialized after data_lock is let go, so a
