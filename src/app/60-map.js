@@ -13,14 +13,24 @@
 // view and Statistics; writes go through writeStored.
 const storedText = (key) => { try { return localStorage.getItem(key); } catch (e) { return null; } };
 
-// core: the white center of a report dot, so a dot shows on the red of a busy heat map.
+// Every color the map draws with, here and nowhere else (the saved and printed
+// map draws the same). The system colors are the dark theme's, as the stylesheet's.
+// core: the white center of a report dot, so a dot shows on the red of a busy
+// heat map, and the white edge under a phase line, an axis, a line of sight or a ring.
 // none: an Unknown graphic, with no tag (app/50-overlays.js): gray, its dot in the list.
 // AXIS: an axis of advance, the enemy's dark red, wider than a track and on a white edge.
 // goto: the X on a grid gone to, yellow on a black edge, unlike anything else drawn.
 // seen, hidden, waiting: a line of sight that sees, the ground past what hides
-// it, and one not known yet. direct, indirect, ad: the rings of a report's reach.
-const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', AXIS: '#b0001e', track: '#ff3b30', edge: '#000000', core: '#ffffff', none: '#8e8e93', goto: '#ffd60a',
-    seen: '#30d158', hidden: '#ff453a', waiting: '#8e8e93', direct: '#ff9f0a', indirect: '#bf5af2', ad: '#64d2ff' };
+// it, and one not known yet. Seen is a teal green, so it isn't read as an
+// NAI's outline. direct, indirect, ad: the rings of a report's reach; direct
+// fire pink, so it isn't read as a drone's range. Both hold 3:1 on their white edge.
+// drone, droneOut: a drone and its view, and a view past its range.
+// paper, ink, inkSoft, inkWarn: the saved and printed map's page round the
+// map: its background, its title and key, the line under the title, and what was left out.
+const MAP_COLORS = { NAI: '#32d74b', OBJ: '#0a84ff', PL: '#000000', AXIS: '#b0001e', track: '#ff453a', edge: '#000000', core: '#ffffff', none: '#8e8e93', goto: '#ffd60a',
+    seen: '#00a67e', hidden: '#ff453a', waiting: '#8e8e93', direct: '#ff2d8a', indirect: '#bf5af2', ad: '#64d2ff',
+    drone: '#ff9f0a', droneOut: '#ff453a',
+    paper: '#ffffff', ink: '#1d1d1f', inkSoft: '#48484a', inkWarn: '#8e1a12' };
 // The layers on, in any mix (per browser); the heat map alone to start with.
 const MAP_LAYERS = [['heat', 'Heat map'], ['tracks', 'Tracks'], ['reports', 'Reports']];
 // Everything the map keeps between drawings, in one place: what this browser

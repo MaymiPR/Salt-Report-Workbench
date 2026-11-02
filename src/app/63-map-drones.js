@@ -10,8 +10,8 @@
 
 // Where each drone was last put (shared; editors move it). With FMV mode on,
 // the drones on station show; whether they do, and whether their view does,
-// is then each browser's own choice (mapState).
-const DRONE_COLOR = '#ff9f0a';
+// is then each browser's own choice (mapState). Drawn in MAP_COLORS.drone,
+// and a view past the drone's range in MAP_COLORS.droneOut.
 // The sync server's limits (MAX_DRONES, MAX_DRONE_RANGE_KM in server/salt_sync_server.py).
 const MAX_DRONES = 10, MAX_DRONE_RANGE_KM = 1000;
 const dronePoint = (d) => { const g = SaltCore.findGrids(d.grid)[0]; return g ? { lon: g.lon, lat: g.lat } : null; };
@@ -22,7 +22,6 @@ const droneGrid = (text) => { const g = SaltCore.findGrids(lockedLocation(String
 // Where a drone is looking, when it's been given a grid to look at; without
 // one, its view follows its own newest report (one it was the observer of).
 const lookPoint = (d) => { const g = d.look ? SaltCore.findGrids(d.look)[0] : null; return g ? { lon: g.lon, lat: g.lat } : null; };
-const DRONE_OUT = '#ff453a';   // a view past the drone's range
 // A drone's range is kept in km for everyone; it's shown, and typed, in the
 // units of this browser (Settings > Units): km, or miles.
 const M_PER_MI = 1609.344;
@@ -60,7 +59,7 @@ const droneLayer = (tracks, px, labels) => {
         // Its range, as a ring: meters on the ground to pixels at its latitude.
         if (mapState.droneView && d.range && mapState.view) {
             const r = d.range * 1000 / (mapState.view.mpp * Math.cos(p.lat * Math.PI / 180));
-            cones.push(`<circle class="map-drone-range" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${DRONE_COLOR}" fill-opacity="0.025" stroke="${DRONE_COLOR}" stroke-opacity="0.6" stroke-width="1.3" stroke-dasharray="3 4"/>`);
+            cones.push(`<circle class="map-drone-range" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${MAP_COLORS.drone}" fill-opacity="0.025" stroke="${MAP_COLORS.drone}" stroke-opacity="0.6" stroke-width="1.3" stroke-dasharray="3 4"/>`);
             if (r > 36) marks.push(mapLabel(labels, [x, y - r - 5], droneDistance(d.range * 1000), { cls: ' map-label-drone' }));
         }
         const q = mapState.droneView ? lookPoint(d) || newestOf(d) : null;
@@ -86,7 +85,7 @@ const droneLayer = (tracks, px, labels) => {
                 const meters = SaltCore.metersBetween(p, q);
                 const dir = SaltCore.compass16(SaltCore.bearingBetween(p, q));
                 const out = d.range ? meters - d.range * 1000 : 0;   // past its range, in meters
-                const color = out > 0 ? DRONE_OUT : DRONE_COLOR;
+                const color = out > 0 ? MAP_COLORS.droneOut : MAP_COLORS.drone;
                 defs.push(`<linearGradient id="droneCone${i}" gradientUnits="userSpaceOnUse" x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}">`
                     + `<stop offset="0" stop-color="${color}" stop-opacity="0.16"/><stop offset="1" stop-color="${color}" stop-opacity="0.42"/></linearGradient>`);
                 // Edged in its color, and the dashed sightline over a dark one, so
@@ -94,7 +93,7 @@ const droneLayer = (tracks, px, labels) => {
                 // From one touching point the long way round the far side to the
                 // other (clockwise on screen, more than half the circle).
                 cones.push(`<path class="map-drone-cone${out > 0 ? ' out' : ''}" d="M${f(x)},${f(y)} L${f(p1[0])},${f(p1[1])} A${f(hw)},${f(hw)} 0 1 1 ${f(p2[0])},${f(p2[1])} Z" fill="url(#droneCone${i})" stroke="${color}" stroke-opacity="0.85" stroke-width="1.2" stroke-linejoin="round"/>`
-                    + `<line x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}" stroke="#000" stroke-width="4" stroke-opacity="0.7" stroke-dasharray="8 5"/>`
+                    + `<line x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}" stroke="${MAP_COLORS.edge}" stroke-width="4" stroke-opacity="0.7" stroke-dasharray="8 5"/>`
                     + `<line x1="${f(x)}" y1="${f(y)}" x2="${f(tx)}" y2="${f(ty)}" stroke="${color}" stroke-width="2.2" stroke-dasharray="8 5"/>`
                     + `<rect x="${f(tx - 9)}" y="${f(ty - 9)}" width="18" height="18" rx="2" fill="none" stroke="${color}" stroke-width="2.4"/>`);
                 // On top, with the drones, so no graphic hides it.
@@ -108,7 +107,7 @@ const droneLayer = (tracks, px, labels) => {
         }
         const k = mapState.items.push({ kind: 'drone', d }) - 1;
         marks.push(`<g class="map-drone" data-map-item="${k}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})">`
-            + `<g transform="rotate(${angle.toFixed(0)})"><path d="M0,-10 L2.2,-3 L10,0.5 L10,2.6 L2.2,1.4 L1.6,6.5 L4.4,8.6 L4.4,10 L0,8.8 L-4.4,10 L-4.4,8.6 L-1.6,6.5 L-2.2,1.4 L-10,2.6 L-10,0.5 L-2.2,-3 Z" fill="${DRONE_COLOR}" stroke="#000" stroke-width="1.3" stroke-linejoin="round"/></g>`
+            + `<g transform="rotate(${angle.toFixed(0)})"><path d="M0,-10 L2.2,-3 L10,0.5 L10,2.6 L2.2,1.4 L1.6,6.5 L4.4,8.6 L4.4,10 L0,8.8 L-4.4,10 L-4.4,8.6 L-1.6,6.5 L-2.2,1.4 L-10,2.6 L-10,0.5 L-2.2,-3 Z" fill="${MAP_COLORS.drone}" stroke="${MAP_COLORS.edge}" stroke-width="1.3" stroke-linejoin="round"/></g>`
             + `<circle r="14" fill="transparent" class="map-hit"/>`
             // How old the position is, so a drone left where it was hours ago shows it.
             + mapLabel(labels, [14, -10], `${d.name}${d.at ? ` · moved ${timeAgo(d.at)}` : ''}`, { cls: ' map-label-drone', anchor: 'start', shift: [x, y] }) + '</g>');

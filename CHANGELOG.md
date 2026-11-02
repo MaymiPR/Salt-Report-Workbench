@@ -36,6 +36,12 @@ All notable changes to this project are documented here. The format follows
   2,000 overlays, a save holds them up for 0.015 s instead of 0.14 s, and
   the hourly snapshots for 0.11 s instead of 1.5 s. The files are the same,
   to the byte.
+- **The map's colors no longer look alike.** A line of sight that sees was
+  nearly the green of an NAI's outline, and a report's direct-fire ring the
+  orange of a drone's range. A line that sees is now teal green and a
+  direct-fire ring pink; tracks and report dots take the red the rest of
+  the page uses, and the heat map's key, on screen, saved and printed, is
+  drawn from the heat map's own colors.
 
 ### Fixed
 

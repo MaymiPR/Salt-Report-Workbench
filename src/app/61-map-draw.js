@@ -207,7 +207,7 @@ const axisHead = (pts, color) => {
     const ux = dx / len, uy = dy / len, s = 16, half = 9;
     const bx = ex - ux * s, by = ey - uy * s;
     const p = [[ex + ux * 4, ey + uy * 4], [bx - uy * half, by + ux * half], [bx + uy * half, by - ux * half]];
-    return `<path d="M${p.map(q => `${q[0].toFixed(1)},${q[1].toFixed(1)}`).join('L')}Z" fill="${color}" stroke="#ffffff" stroke-width="2" stroke-linejoin="round" class="map-axis-head"/>`;
+    return `<path d="M${p.map(q => `${q[0].toFixed(1)},${q[1].toFixed(1)}`).join('L')}Z" fill="${color}" stroke="${MAP_COLORS.core}" stroke-width="2" stroke-linejoin="round" class="map-axis-head"/>`;
 };
 
 // Each graphic in its tag's color (app/50-overlays.js), unless its tag is
@@ -249,14 +249,14 @@ const overlayLayer = (px, w, h, view, labels, counts) => {
             const named = picked || Math.hypot(bw, bh) >= nw;
             if (tag.axis) {
                 const heads = parts.map(l => l.map(c => px(c[0], c[1]))).filter(l => l.length >= 2).map(l => axisHead(l, color));
-                lines.push(`<g class="map-axis${picked ? ' picked' : ''}"><path d="${d}" fill="none" stroke="#ffffff" stroke-width="${picked ? 11 : 8}" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`
+                lines.push(`<g class="map-axis${picked ? ' picked' : ''}"><path d="${d}" fill="none" stroke="${MAP_COLORS.core}" stroke-width="${picked ? 11 : 8}" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`
                     + `<path d="${d}" fill="none" stroke="${color}" stroke-width="${picked ? 6 : 4.5}" stroke-linejoin="round" stroke-linecap="round"/>${heads.join('')}</g>`);
                 if (named) label(lineLabelAt(parts.map(l => l.map(c => px(c[0], c[1]))), w, h), key, picked ? 'picked' : 'line');
                 return;
             }
             // A phase line: black, on a white edge, so it shows on dark imagery
             // and on the plain background. The team's: its color, on a black edge.
-            const edge = tag.builtIn ? '#ffffff' : MAP_COLORS.edge;
+            const edge = tag.builtIn ? MAP_COLORS.core : MAP_COLORS.edge;
             const top = picked && tag.builtIn ? MAP_COLORS.track : color;
             lines.push(`<path d="${d}" fill="none" stroke="${edge}" stroke-width="${picked && !tag.builtIn ? 8 : 6}" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`
                 + `<path d="${d}" fill="none" stroke="${top}" stroke-width="${picked ? 4 : 3}" stroke-linejoin="round" stroke-linecap="round"/>`);
@@ -264,7 +264,7 @@ const overlayLayer = (px, w, h, view, labels, counts) => {
         } else if (g.type === 'Point') {
             const [x, y] = px(...g.coordinates);
             const [cx, cy] = [x.toFixed(1), y.toFixed(1)];
-            fill.push(tag.builtIn ? `<circle cx="${cx}" cy="${cy}" r="4" fill="${color}" stroke="#fff" stroke-width="1.5"/>`
+            fill.push(tag.builtIn ? `<circle cx="${cx}" cy="${cy}" r="4" fill="${color}" stroke="${MAP_COLORS.core}" stroke-width="1.5"/>`
                 : `<path d="M${cx},${(y - 6).toFixed(1)}L${(x + 6).toFixed(1)},${cy}L${cx},${(y + 6).toFixed(1)}L${(x - 6).toFixed(1)},${cy}Z" fill="${color}" stroke="${MAP_COLORS.edge}" stroke-width="1.5" stroke-linejoin="round"/>`);
             label([x, y - 10], key, prio, n ? -n : 0);
         }
@@ -278,7 +278,12 @@ const HEAT_RADIUS = 28;
 // Blue, green, yellow, red, from fewest to most. The blue end fades in from
 // clear, so a lone report doesn't read as an OBJ, and it grows more opaque as
 // it rises, so the busiest places stand out over imagery or the plain background.
-const HEAT_STOPS = [[0, [10, 132, 255, 0]], [0.15, [10, 132, 255, 90]], [0.4, [48, 209, 88, 165]], [0.65, [255, 214, 10, 205]], [1, [255, 59, 48, 235]]];
+const HEAT_STOPS = [[0, [10, 132, 255, 0]], [0.15, [10, 132, 255, 90]], [0.4, [50, 215, 75, 165]], [0.65, [255, 214, 10, 205]], [1, [255, 69, 58, 235]]];
+// The ramp as the key shows it (on screen, saved and printed): the same stops,
+// the clear end made as solid as the first blue, so it shows as a swatch.
+// The stylesheet's --heat-ramp is set from it, so the two can't differ.
+const HEAT_KEY_STOPS = HEAT_STOPS.map(([at, [r, g, b, a]]) => [at, `rgba(${r}, ${g}, ${b}, ${+(Math.max(a, 90) / 255).toFixed(3)})`]);
+document.documentElement.style.setProperty('--heat-ramp', `linear-gradient(90deg, ${HEAT_KEY_STOPS.map(([at, c]) => `${c} ${at * 100}%`).join(', ')})`);
 // The ramp, worked out once: 256 colors (RGBA) from fewest to most.
 const HEAT_LUT = (() => {
     const lut = new Uint8ClampedArray(256 * 4);
@@ -494,7 +499,7 @@ const selectionLayer = (tracks, px) => {
     const t = mapState.selected && tracks.find(x => x.report.id === mapState.selected);
     if (!t) return '';
     const p = t.points[t.points.length - 1], [x, y] = px(p.lon, p.lat);
-    return `<g class="map-selected${Date.now() < mapState.flashUntil ? ' flash' : ''}" pointer-events="none"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="none" stroke="#fff" stroke-width="4"/>`
+    return `<g class="map-selected${Date.now() < mapState.flashUntil ? ' flash' : ''}" pointer-events="none"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="none" stroke="${MAP_COLORS.core}" stroke-width="4"/>`
         + `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="none" stroke="${MAP_COLORS.OBJ}" stroke-width="2.5"/></g>`;
 };
 
@@ -537,9 +542,9 @@ const sightLayer = (reps, px, labels) => {
 const tagKeys = () => {
     const ovs = currentOverlays();
     const swatch = (color, kind) => `<svg width="18" height="10" aria-hidden="true">${kind === 'pl'
-        ? `<line x1="1" y1="5" x2="17" y2="5" stroke="#fff" stroke-width="4"/><line x1="1" y1="5" x2="17" y2="5" stroke="${color}" stroke-width="2"/>`
-        : kind === 'axis' ? `<line x1="1" y1="5" x2="12" y2="5" stroke="#fff" stroke-width="5"/><line x1="1" y1="5" x2="12" y2="5" stroke="${color}" stroke-width="2.6"/>`
-            + `<path d="M17.5,5L10.5,0.8L10.5,9.2Z" fill="${color}" stroke="#fff" stroke-width="1"/>`
+        ? `<line x1="1" y1="5" x2="17" y2="5" stroke="${MAP_COLORS.core}" stroke-width="4"/><line x1="1" y1="5" x2="17" y2="5" stroke="${color}" stroke-width="2"/>`
+        : kind === 'axis' ? `<line x1="1" y1="5" x2="12" y2="5" stroke="${MAP_COLORS.core}" stroke-width="5"/><line x1="1" y1="5" x2="12" y2="5" stroke="${color}" stroke-width="2.6"/>`
+            + `<path d="M17.5,5L10.5,0.8L10.5,9.2Z" fill="${color}" stroke="${MAP_COLORS.core}" stroke-width="1"/>`
         : kind === 'line' ? `<line x1="1" y1="5" x2="17" y2="5" stroke="${MAP_COLORS.edge}" stroke-width="4.5"/><line x1="1" y1="5" x2="17" y2="5" stroke="${color}" stroke-width="2.2"/>`
         : kind === 'point' ? `<path d="M9,0.5L13.5,5L9,9.5L4.5,5Z" fill="${color}" stroke="${MAP_COLORS.edge}" stroke-width="1"/>`
         : `<rect x="1" y="1" width="16" height="8" rx="2" fill="${color}" fill-opacity="0.3" stroke="${color}" stroke-width="1.5"/>`}</svg>`;
@@ -569,7 +574,7 @@ const mapLegend = (heatPts, positions, tracks) => {
             ? `Fewer to more reports (${heat}, every saved report, updates included)`
             : `Fewer to more reports (${heat}, each once, at its latest grid)`),
         mapState.layers.tracks && key(trackLine, `Track, first to latest (${tracks.filter(t => t.moved).length} moved${mapState.layers.reports ? '' : `, ${tracks.filter(t => !t.moved).length} at one grid`})`),
-        shownDrones().length && key('<svg width="18" height="10" aria-hidden="true"><path d="M9,0.5 L10.2,3.6 L14.5,5.3 L14.5,6.4 L10.2,5.8 L9.9,8.4 L11.3,9.5 L6.7,9.5 L8.1,8.4 L7.8,5.8 L3.5,6.4 L3.5,5.3 L7.8,3.6 Z" fill="#ff9f0a" stroke="#000" stroke-width="0.8"/></svg>',
+        shownDrones().length && key(`<svg width="18" height="10" aria-hidden="true"><path d="M9,0.5 L10.2,3.6 L14.5,5.3 L14.5,6.4 L10.2,5.8 L9.9,8.4 L11.3,9.5 L6.7,9.5 L8.1,8.4 L7.8,5.8 L3.5,6.4 L3.5,5.3 L7.8,3.6 Z" fill="${MAP_COLORS.drone}" stroke="${MAP_COLORS.edge}" stroke-width="0.8"/></svg>`,
             mapState.droneView ? 'Drone, and its view' : 'Drone'),
         mapState.layers.reports && key(dot, mapState.allGrids
             ? `Report, every saved one (${positions.length} positions; earlier ones smaller)`

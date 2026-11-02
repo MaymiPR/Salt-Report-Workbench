@@ -3857,9 +3857,9 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("In NAI 1; sees into NAI 2.", page.inner_text("#mapCard"))
         # The map is drawn a frame after the card: wait for the lines.
         strokes = "[...document.querySelectorAll('#mapSvg .map-sight path')].map(p => p.getAttribute('stroke'))"
-        page.wait_for_function(f"{strokes}.filter(s => s === '#30d158').length === 2")
+        page.wait_for_function(f"{strokes}.filter(s => s === '#00a67e').length === 2")
         strokes = page.evaluate(strokes)
-        self.assertEqual(strokes.count("#ff9f0a"), 1, "a ring, direct fire")
+        self.assertEqual(strokes.count("#ff2d8a"), 1, "a ring, direct fire")
         self.assertIn("Kornet 5.50 km", page.text_content("#mapSvg .map-sight"))
         # Closed: they go.
         page.click("[data-card-act='close']")
@@ -3875,7 +3875,7 @@ class BrowserTests(unittest.TestCase):
         page.mouse.click(x + 120, y - 60)
         page.wait_for_selector("#mapMeasureOut:has-text('Seen: 38S MB')")
         page.wait_for_function(
-            "document.querySelector('#mapSvg .map-measure path[stroke=\"#30d158\"]')"
+            "document.querySelector('#mapSvg .map-measure path[stroke=\"#00a67e\"]')"
         )
 
     def test_a_wms_found_through_the_server_in_latitude_longitude(self):
@@ -6250,7 +6250,7 @@ class LineOfSightAndSummaryTests(BrowserTests):
         # Drawn gray and dashed, as one not known; never green or red.
         strokes = "[...document.querySelectorAll('#mapSvg .map-sight path')].map(p => p.getAttribute('stroke'))"
         page.wait_for_function(f"{strokes}.filter(s => s === '#8e8e93').length === 2")
-        self.assertFalse({"#30d158", "#ff453a"} & set(page.evaluate(strokes)))
+        self.assertFalse({"#00a67e", "#ff453a"} & set(page.evaluate(strokes)))
         self.two_points(page)
         page.wait_for_selector(
             "#mapMeasureOut:has-text('No height here from the elevation source: line of sight from 38S MB')",

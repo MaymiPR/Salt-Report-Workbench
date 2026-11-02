@@ -42,6 +42,20 @@ class StylesTests(unittest.TestCase):
         defined = set(DEFINED.findall(CSS)).union(*(SET_FROM_JS.findall(text) for text in PAGE))
         self.assertEqual(sorted(USED_ANYWHERE - defined), [], "var() of a property defined nowhere")
 
+    def test_the_map_draws_only_in_map_colors(self):
+        # Every color the map's scripts draw with is a MAP_COLORS entry, so
+        # the map, its key and the saved map can't drift apart. A stylesheet
+        # token's fallback is the token's own value.
+        hexes = re.compile(r"#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b")
+        palette = re.compile(r"const MAP_COLORS = \{.*?\};", re.DOTALL)
+        fallback = re.compile(r"getPropertyValue\('--[\w-]+'\)\.trim\(\) \|\| '#[0-9a-fA-F]+'")
+        found = {}
+        for path in sorted((SRC / "app").glob("6*-map*.js")):
+            text = fallback.sub("", palette.sub("", read(path)))
+            if hexes.search(text):
+                found[path.name] = hexes.findall(text)
+        self.assertEqual(found, {}, "map colors outside MAP_COLORS")
+
     def test_every_token_is_used(self):
         tokens = set(DEFINED.findall("".join(ROOT_BLOCK.findall(CSS))))
         self.assertEqual(sorted(tokens - USED_ANYWHERE), [], "tokens in :root that nothing uses")

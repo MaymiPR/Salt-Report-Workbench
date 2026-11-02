@@ -69,7 +69,6 @@
     /* The map's floating controls switched on: the blue of a pressed chip laid
        on the panel's own color, so it reads the same over any basemap. */
     --map-on-bg: linear-gradient(var(--blue-hover), var(--blue-hover)), var(--panel-bg);
-    --heat-ramp: linear-gradient(90deg, rgba(10, 132, 255, 0.35), rgba(48, 209, 88, 0.65) 35%, rgba(255, 214, 10, 0.8) 65%, rgba(255, 59, 48, 0.92));
     /* The identity colors that aren't system colors. */
     --swatch-sky: #5ac8fa;
     --swatch-pink: #ff375f;
@@ -1585,6 +1584,7 @@ button.map-key-tag { margin: 0; width: auto; padding: 0; border: none; border-ra
 button.map-key-tag:hover { opacity: 1; color: var(--text-primary); }
 button.map-key-tag:active { transform: none; }
 button.map-key-tag.off { opacity: 0.8; text-decoration: line-through; }
+/* --heat-ramp is set by the page from the heat map's own stops (HEAT_KEY_STOPS, app/61-map-draw.js). */
 .map-ramp { display: inline-block; width: 46px; height: 8px; border-radius: 4px; background: var(--heat-ramp); }
 /* Latest grids / All reports: the one picked is solid blue, the other plain. */
 .map-grids .io-mode { color: var(--text-secondary); }
