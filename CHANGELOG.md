@@ -42,6 +42,11 @@ All notable changes to this project are documented here. The format follows
   direct-fire ring pink; tracks and report dots take the red the rest of
   the page uses, and the heat map's key, on screen, saved and printed, is
   drawn from the heat map's own colors.
+- **A few reports no longer make the heat map red.** It was scaled to the
+  busiest place, so two lone reports showed as red as the busiest spot of a
+  busy day. Red now needs at least 4 reports in one place: a lone report is
+  blue going green, two or three stay short of red, and a map with 4 or more
+  in one place looks as it did.
 
 ### Fixed
 

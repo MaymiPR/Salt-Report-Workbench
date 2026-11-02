@@ -297,10 +297,19 @@ const HEAT_LUT = (() => {
     }
     return lut;
 })();
+// The least the top of the ramp stands for, in the heat grid's own unit: a
+// report adds its weight (1, or its share when it names several grids) at
+// its grid, so a pixel's value is how many reports are there, the nearer
+// counting more. The top is the busiest pixel's value, but never under 4
+// reports in one place: a lone report (about 1) is then a quarter of the
+// way up, blue going green, and two or three stay below the red, while a map
+// with 4 or more in one place (any busy one) is scaled to its busiest, as before.
+const HEAT_TOP_MIN = 4;
 // How many reports are near each pixel: each adds a cone, its weight at its
 // grid falling to nothing at the radius, summed without limit (an 8-bit
 // canvas stopped counting at about three in one place), then scaled so the
-// busiest place is the top of the ramp. Kept between drawings (mapState.heatGrid).
+// busiest place is the top of the ramp (or HEAT_TOP_MIN, when it is busier).
+// Kept between drawings (mapState.heatGrid).
 const heatLayer = (points, px, w, h) => {
     const R = HEAT_RADIUS;
     const pts = points.map(p => ({ xy: px(p.lon, p.lat), w: p.w }))
@@ -326,6 +335,7 @@ const heatLayer = (points, px, w, h) => {
     if (bx0 > bx1) return '';
     let max = 0;
     for (let j = by0; j <= by1; j++) for (let i = bx0, k = j * w + bx0; i <= bx1; i++, k++) if (grid[k] > max) max = grid[k];
+    const top = Math.max(max, HEAT_TOP_MIN);
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const ctx = c.getContext('2d');
@@ -335,7 +345,7 @@ const heatLayer = (points, px, w, h) => {
             const v = grid[k];
             if (!v) continue;
             grid[k] = 0;
-            const at = Math.min(255, Math.round(v / max * 255)) * 4, o = k * 4;
+            const at = Math.min(255, Math.round(v / top * 255)) * 4, o = k * 4;
             d[o] = HEAT_LUT[at]; d[o + 1] = HEAT_LUT[at + 1]; d[o + 2] = HEAT_LUT[at + 2]; d[o + 3] = HEAT_LUT[at + 3];
         }
     }
