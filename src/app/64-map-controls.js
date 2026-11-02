@@ -268,8 +268,9 @@ if (mapBody) {
         if (e.target.closest('#mapGotoZoom')) { zoomToGoto(); return; }
         if (e.target.closest('#mapMeasureBtn')) { setMapMeasuring(!mapState.measuring); return; }
         if (e.target.closest('#mapExportBtn')) { toggleExportPop(); return; }
-        if (e.target.closest('#mapSavePng')) { toggleExportPop(false); saveMapPng(); return; }
-        if (e.target.closest('#mapPrint')) { toggleExportPop(false); printMap(); return; }
+        // The menu closes behind what was picked: the keyboard goes back to its button.
+        if (e.target.closest('#mapSavePng')) { toggleExportPop(false); document.getElementById('mapExportBtn').focus(); saveMapPng(); return; }
+        if (e.target.closest('#mapPrint')) { toggleExportPop(false); document.getElementById('mapExportBtn').focus(); printMap(); return; }
         const zoom = e.target.closest('[data-map-zoom]');
         if (zoom && zoom.dataset.mapZoom === 'full') { toggleMapFullscreen(); return; }
         if (zoom && mapState.view) {
@@ -402,12 +403,16 @@ if (mapBody) {
 }
 
 // The basemap and drone menus on the map, each opened from its button; a
-// click elsewhere closes them.
+// click elsewhere closes them. Opened, the keyboard goes to its first control
+// (the menus come after every button in the column, so Tab would pass them).
 const togglePop = (popId, btnId) => (open) => {
     const pop = document.getElementById(popId), btn = document.getElementById(btnId);
     if (!pop) return;
+    const was = pop.hidden;
     pop.hidden = open === undefined ? !pop.hidden : !open;
     setOn(btn, !pop.hidden, 'aria-expanded');
+    const first = was && !pop.hidden && focusablesIn(pop)[0];
+    if (first) first.focus();
 };
 // --- Measure ---
 

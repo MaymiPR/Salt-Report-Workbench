@@ -6315,5 +6315,112 @@ for _name in [n for n in vars(BrowserTests) if n.startswith("test_")]:
     setattr(LineOfSightAndSummaryTests, _name, None)
 
 
+class KeyboardSavesAndZoomTests(BrowserTests):
+    """The keyboard's place in rebuilt panels and opened menus, the narrative
+    settings' tabs, saving the map and the rest (said, in this browser's
+    units), the map's table left alone, and Ctrl + wheel zoom drawn once. A
+    server of its own; BrowserTests' tests are taken off this class below."""
+
+    def active(self, page, attr):
+        """The data attribute ``attr`` (camelCase) of what has the keyboard."""
+        return page.evaluate("a => document.activeElement.dataset[a] ?? null", attr)
+
+    def test_the_keyboard_keeps_its_place_in_rebuilt_basemap_rows(self):
+        page = self.open_editor()
+        self.context.route(
+            "https://tiles.test/**",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="image/png",
+                body=self.PNG_1PX,
+                headers={"Access-Control-Allow-Origin": "*"},
+            ),
+        )
+        before = page.evaluate("JSON.parse(JSON.stringify(sharedBasemaps))")
+        page.evaluate(
+            "saveBasemaps([{ name: 'Tiles', kind: 'tiles', url: 'https://tiles.test/{z}/{x}/{y}.png' }])"
+        )
+        try:
+            self.open_basemaps(page)
+            # Edit opens the row's address, and closes it: the keyboard stays on it.
+            page.focus("[data-base-open='0']")
+            page.keyboard.press("Enter")
+            page.wait_for_selector("#mapTileUrl")
+            self.assertEqual(self.active(page, "baseOpen"), "0")
+            page.keyboard.press("Enter")
+            page.wait_for_selector("#mapTileUrl", state="detached")
+            self.assertEqual(self.active(page, "baseOpen"), "0")
+            # Check: the row is drawn as it asks and again with the answer.
+            page.focus("[data-base-check='0']")
+            page.keyboard.press("Enter")
+            page.wait_for_selector(".map-base-check.ok")
+            self.assertEqual(self.active(page, "baseCheck"), "0")
+        finally:
+            page.evaluate("list => saveBasemaps(list)", before)
+
+    def test_the_narrative_settings_keep_the_keyboard_and_say_which_tab_is_shown(self):
+        self.addCleanup(self.post_to_server, "/api/save_narrative", {"narrative": {}})
+        page = self.open_editor()
+        page.evaluate(
+            "saveNarrative({ units: [{ name: '1-60 GMRB', places: [], kinds: [] }] }, 'Saved.')"
+        )
+        page.click("#summaryViewToggleBtn")
+        page.click("[data-summary-kind='narrative']")
+        page.wait_for_selector("#narrSettings [data-narr-edit]")
+        pressed = "[...document.querySelectorAll('[data-narr-tab]')].map(b => b.getAttribute('aria-pressed'))"
+        self.assertEqual(page.evaluate(pressed), ["true", "false", "false", "false"])
+        # A saved one opened: the keyboard on Back; Escape goes back to its row.
+        page.focus("[data-narr-edit='0']")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#narrUnitName")
+        self.assertEqual(self.active(page, "narrBack"), "")
+        page.keyboard.press("Tab")
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#narrUnitName", state="detached")
+        self.assertEqual(self.active(page, "narrId"), "1-60 gmrb")
+        # Another tab: the keyboard stays on it, and it says it is the one shown.
+        page.focus("[data-narr-tab='equipment']")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#narrEqFind")
+        self.assertEqual(self.active(page, "narrTab"), "equipment")
+        self.assertEqual(page.evaluate(pressed), ["false", "true", "false", "false"])
+        # + Add: into the form, on Back; Back: out again, on + Add.
+        page.focus("#narrSettings [data-narr-add]")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#narrEqType")
+        self.assertEqual(self.active(page, "narrBack"), "")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#narrEqFind")
+        self.assertEqual(self.active(page, "narrAdd"), "")
+
+    def test_the_map_menus_take_the_keyboard_when_opened(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        self.fmv(page)
+        self.addCleanup(self.post_to_server, "/api/save_fmv", {"fmv": {"on": False}})
+        self.open_map(page)
+        inside = "id => document.getElementById(id).contains(document.activeElement)"
+        for btn, pop in (
+            ("mapExportBtn", "mapExportPop"),
+            ("mapBaseBtn", "mapBasePop"),
+            ("mapDroneBtn", "mapDronePop"),
+        ):
+            page.focus(f"#{btn}")
+            page.keyboard.press("Enter")
+            page.wait_for_selector(f"#{pop}", state="visible")
+            self.assertTrue(page.evaluate(inside, pop), f"{pop} has the keyboard")
+            page.keyboard.press("Escape")
+            page.wait_for_selector(f"#{pop}", state="hidden")
+            self.assertEqual(page.evaluate("document.activeElement.id"), btn)
+        page.focus("#mapExportBtn")
+        page.keyboard.press("Enter")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "mapSavePng")
+
+
+for _name in [n for n in vars(BrowserTests) if n.startswith("test_")]:
+    setattr(KeyboardSavesAndZoomTests, _name, None)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -412,15 +412,18 @@ const basemapForm = () => {
     </div>`;
 };
 
-// The form, rebuilt from the list, keeping what was being typed.
+// The form, rebuilt from the list, keeping what was being typed and the
+// keyboard's place (a row's Check, Layers or Edit, found again in the new rows).
 const renderBasemapManager = () => {
     const slot = document.getElementById('mapBaseFormSlot');
     if (!slot) return;
     const old = document.getElementById('mapBasemapForm');
     const same = old && old.dataset.open === (mapState.baseOpen || '');
     const typed = old ? [...old.querySelectorAll('input[type="text"][id]')].filter(i => same || i.closest('.map-base-add')).map(i => [i.id, i.value]) : [];
-    slot.innerHTML = basemapForm();
-    typed.forEach(([id, v]) => { const i = document.getElementById(id); if (i) i.value = v; });
+    refocusAfter(() => {
+        slot.innerHTML = basemapForm();
+        typed.forEach(([id, v]) => { const i = document.getElementById(id); if (i) i.value = v; });
+    });
     filterWmsLayers();
 };
 const basemapsChanged = () => { renderBasemapManager(); renderMapView(); };

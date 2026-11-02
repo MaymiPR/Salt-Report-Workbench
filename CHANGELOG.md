@@ -103,6 +103,17 @@ All notable changes to this project are documented here. The format follows
   does change, they come back where the same judgment is.
 - **No dashes for "none".** The map's BDA assessed tile says None, and the
   CSV import's column picker says (None).
+- **The keyboard keeps its place in panels drawn again.** After a basemap's
+  Check, Layers or Edit in Manage > Map, and after the Narrative settings'
+  tabs, + Add, Back or opening a row, it was left at the top of the page. Now
+  it stays on the button pressed, goes to Back when a row or + Add opens, and
+  comes back to that row (or + Add) on Back or Escape.
+- **The map's menus take the keyboard when opened.** Basemap, Save or print
+  and Drones now start on their first control, as Go to a grid does (Tab
+  passed every button in the column first); Escape still goes back to the
+  button, and Save as PNG or Print goes back to Save or print.
+- **The Narrative settings say which tab is shown**, to screen readers too,
+  as the Report buttons above the summary do.
 
 ## [2.41.0] - 2026-11-01
 
