@@ -436,7 +436,7 @@ el.log.deleteBtn.addEventListener('click', async () => {
     resetForm();
     updateSelectionUI();
     const canUndo = undone.ids.length || Object.keys(undone.history).length;
-    showToast(saved || isLocalFile ? `${total} item(s) deleted.` : `${total} item(s) deleted. ${SENT_LATER}`,
+    showToast(saved || isLocalFile ? `${plural(total, 'item')} deleted.` : `${plural(total, 'item')} deleted. ${SENT_LATER}`,
         false, canUndo ? { ms: UNDO_MS, undo: () => undoDeletion(ato, undone) } : {});
 });
 
@@ -483,7 +483,7 @@ el.log.sendBtn.addEventListener('click', async () => {
     reportsByAto['IMPORT'] = (reportsByAto['IMPORT'] || []).map(r => (takenIds.has(r.id) ? { ...r, deleted: true, lastModified: nextStamp(r) } : r));
     populateAtoHistory();
     await saveLocalAndSync(reportsByAto);
-    showToast(left ? `Moved ${taken.length} report(s) to ${target}. ${left} stayed in IMPORT: ${refusedNote.reason}` : `Moved ${taken.length} report(s) to ${target}.`, !!left);
+    showToast(left ? `Moved ${plural(taken.length, 'report')} to ${target}. ${left} stayed in IMPORT: ${refusedNote.reason}` : `Moved ${plural(taken.length, 'report')} to ${target}.`, !!left);
 });
 
 el.log.search.addEventListener('input', debounce(e => { renderLog(e.target.value.toLowerCase()); renderMapView(); }, 100));
@@ -819,7 +819,7 @@ el.startup.continueBtn.addEventListener('click', async () => {
     if (!isReadOnly && !isLocalFile) {
         setAccessCode(code);
         try {
-            const probe = await fetch('/api/sync');
+            const probe = await serverFetch('/api/sync');
             if (probe.status === 401) {
                 clearAccessCode();
                 if (el.startup.accessError) {

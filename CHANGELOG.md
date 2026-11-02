@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Buttons and counts read the same everywhere.** The map's measure tools
+  and their buttons (Range Ring, Keep Ring on the Map, Clear All, Save Axis),
+  Zoom to It, the basemap and print buttons, and the Narrative settings'
+  Add a Unit, Add a Type and Add a Rule are in Title Case like the rest,
+  and the manual quotes them as they are. Counts say "1 report" and
+  "2 reports" instead of "report(s)", in deleting, moving, putting back and
+  importing.
+
+## [2.43.0] - 2026-11-01
+
+### Changed
+
 - **CI tries the downloads the way operators use them.** A new job builds the
   release zip and the one-file .txt from each change, extracts the zip on
   Windows, checks that the .txt unpacks to the same files, and starts the
@@ -1957,7 +1969,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
 
-[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.42.0...HEAD
+[Unreleased]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.43.0...HEAD
+[2.43.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.42.0...v2.43.0
 [2.42.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.41.0...v2.42.0
 [2.41.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.40.0...v2.41.0
 [2.40.0]: https://github.com/MaymiPR/SaltReportWorkbench/compare/v2.39.0...v2.40.0

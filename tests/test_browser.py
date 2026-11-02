@@ -524,7 +524,7 @@ class BrowserTests(unittest.TestCase):
         other.click(unload)
         other.wait_for_selector("#toastNotification:has-text('unloaded.')")
         self.wait_for_server(other, f"s => !s.workspaces['{self.ato}']")
-        self.assertEqual(other.evaluate("activeAto"), "")
+        self.assertIsNone(other.evaluate("activeAto"))
         other.click("#toastNotification .toast-undo")
         other.wait_for_selector("#toastNotification:has-text('is back')")
         # Back on the server as it was: each report keeps its author.
@@ -1311,7 +1311,7 @@ class BrowserTests(unittest.TestCase):
             f"s => s.workspaces['{self.ato}'].some(r => r.size === '2x BTR' && r.deleted)"
             f" && s.workspaces['{self.ato}'].every(r => !(r.history || []).length)",
         )
-        page.wait_for_selector("#toastNotification:has-text('2 item(s) deleted.')")
+        page.wait_for_selector("#toastNotification:has-text('2 items deleted.')")
 
     def test_names_are_cut_on_whole_characters(self):
         # Regression: a name cut at a fixed length could end on half an emoji,
@@ -1525,7 +1525,7 @@ class BrowserTests(unittest.TestCase):
         other.click("#clearAllBtn")
         other.click("#clearAllBtn")
         page.wait_for_selector("#toastNotification:has-text('was unloaded by another operator')")
-        self.assertEqual(page.evaluate("activeAto"), "")
+        self.assertIsNone(page.evaluate("activeAto"))
         self.assertEqual(self.sizes(page), [])
         self.assertFalse(page.evaluate("el.config.ato.readOnly"), "the fields are open to set one")
         # Set again, it's back in use, and a sync doesn't move this editor out.
@@ -2703,7 +2703,7 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(page.is_checked(f"{sent} .row-selector"), "and still checked")
         page.unroute("**/api/save_reports")
         page.click("#sendToAtoBtn")
-        page.wait_for_selector(f"#toastNotification:has-text('Moved 1 report(s) to {dest}')")
+        page.wait_for_selector(f"#toastNotification:has-text('Moved 1 report to {dest}')")
         page.wait_for_selector(sent, state="detached")
         self.wait_for_server(
             page,
@@ -3129,7 +3129,7 @@ class BrowserTests(unittest.TestCase):
             "document.querySelectorAll('#mapSvg .map-ring-kept.map-measure-line').length === 2"
             " && !document.querySelector('#mapSvg .map-ring-now')"
         )
-        # Kept in this browser: a reload still shows them; x removes one, Clear all the rest.
+        # Kept in this browser: a reload still shows them; x removes one, Clear All the rest.
         self.reload(page)
         self.assert_in_workspace(page, self.ato)
         self.open_map(page)
@@ -5157,7 +5157,7 @@ class BrowserTests(unittest.TestCase):
         page.wait_for_selector("#mapGotoSaid.bad:has-text(\"isn't a grid\")")
         self.assertEqual(page.locator("#mapSvg .map-goto").count(), 0)
         self.assertTrue(page.locator("#mapGotoZoom").is_hidden())
-        # A good one: an X there, its grid beside it; Zoom to it zooms in on it.
+        # A good one: an X there, its grid beside it; Zoom to It zooms in on it.
         page.fill("#mapGotoInput", "38SMB4500082000")
         page.click("#mapGotoGo")
         page.wait_for_selector("#mapSvg .map-goto")
@@ -5946,7 +5946,7 @@ class BrowserTests(unittest.TestCase):
         # The team's own come first, the add button at the right of their heading.
         first = page.locator("#narrSettings .narr-label").first
         self.assertEqual(first.locator("span").text_content(), "Your own")
-        self.assertEqual(first.locator("[data-narr-add]").text_content(), "+ Add a rule")
+        self.assertEqual(first.locator("[data-narr-add]").text_content(), "+ Add a Rule")
         page.click("[data-narr-add]")
         page.fill("#narrRuleWhat", "are preparing a river crossing")
         page.fill("#narrRuleWords", "bridging, ferry")
