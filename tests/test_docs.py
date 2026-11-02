@@ -52,7 +52,7 @@ class DocsTests(unittest.TestCase):
                 self.assertIn(version, links)
                 self.assertRegex(
                     links[version],
-                    rf"^https://github\.com/MaymiPR/SaltReportWorkbench/"
+                    rf"^https://github\.com/MaymiPR/Salt-Report-Workbench/"
                     rf"(compare/v[\d.]+\.\.\.v{re.escape(version)}|releases/tag/v{re.escape(version)})$",
                 )
 

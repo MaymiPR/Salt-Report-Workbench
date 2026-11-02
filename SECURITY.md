@@ -5,7 +5,7 @@
 Please **do not** open a public issue for a security problem.
 
 Report it privately with GitHub's
-[private vulnerability reporting](https://github.com/MaymiPR/SaltReportWorkbench/security/advisories/new)
+[private vulnerability reporting](https://github.com/MaymiPR/Salt-Report-Workbench/security/advisories/new)
 (the repository's **Security** tab, then **Report a vulnerability**). Only the
 maintainer, [@MaymiPR](https://github.com/MaymiPR), can see the report. Include
 what you found, how to reproduce it, and what an attacker could do with it.
