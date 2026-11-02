@@ -765,14 +765,53 @@ const wireMapBox = () => {
         const [x, y] = at(e), w = m.box.clientWidth, h = m.box.clientHeight;
         return SaltCore.mercToLonLat(mapState.view.cx + (x - w / 2) * mapState.view.mpp, mapState.view.cy - (y - h / 2) * mapState.view.mpp);
     };
-    const zoomAt = (e, factor) => {
-        if (!mapState.view) return;
+    // The view zoomed by `factor`, the point under the pointer staying put.
+    const zoomViewAt = (e, factor) => {
         const [x, y] = at(e), w = m.box.clientWidth, h = m.box.clientHeight;
         const mx = mapState.view.cx + (x - w / 2) * mapState.view.mpp, my = mapState.view.cy - (y - h / 2) * mapState.view.mpp;
         mapState.view.mpp *= factor;
         mapState.view.cx = mx - (x - w / 2) * mapState.view.mpp;
         mapState.view.cy = my + (y - h / 2) * mapState.view.mpp;
+    };
+    const zoomAt = (e, factor) => {
+        if (!mapState.view) return;
+        zoomViewAt(e, factor);
         redrawMap();
+    };
+    // Ctrl + wheel, as a drag: each turn zooms the view at once, kept inside
+    // the area as a drawing keeps it (so it ends where drawing every turn
+    // would have put it), while the picture already drawn is scaled to match;
+    // it is drawn afresh once, WHEEL_DRAW_MS after the last turn. Until then
+    // the names and lines are scaled with it.
+    const WHEEL_DRAW_MS = 120;
+    let wheelTimer = 0;
+    const slideToView = () => {
+        const d = mapState.drawnView, v = mapState.view, s = d.mpp / v.mpp, hw = d.w / 2, hh = d.h / 2;
+        const tx = hw - hw * s + (d.cx - v.cx) / v.mpp, ty = hh - hh * s + (v.cy - d.cy) / v.mpp;
+        m.svg.style.transformOrigin = m.base.style.transformOrigin = '0 0';
+        m.svg.style.transform = m.base.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+    };
+    const endWheelZoom = () => {
+        clearTimeout(wheelTimer);
+        if (!mapState.wheeling) return;
+        mapState.wheeling = false;
+        // Drawn at the new view and the scaling undone in one go, so the
+        // picture doesn't jump back for a frame.
+        cancelAnimationFrame(mapState.frame);
+        drawMap();
+        m.svg.style.transform = m.base.style.transform = '';
+        m.svg.style.transformOrigin = m.base.style.transformOrigin = '';
+    };
+    const wheelZoom = (e, factor) => {
+        const d = mapState.lastDraw, ext = mapState.view && mapState.drawnView && d && d.view && !mapState.dragging && mapExtent(d.tracks);
+        // Nothing drawn yet, or the map held in a drag: drawn each turn.
+        if (!ext) { zoomAt(e, factor); return; }
+        mapState.wheeling = true;
+        zoomViewAt(e, factor);
+        clampMapView(ext, m.box.clientWidth, m.box.clientHeight);
+        slideToView();
+        clearTimeout(wheelTimer);
+        wheelTimer = setTimeout(endWheelZoom, WHEEL_DRAW_MS);
     };
     // A plain wheel scrolls the page on, past the map to its table; Ctrl (or
     // Cmd) with the wheel zooms, as does a trackpad pinch (sent as Ctrl). Full
@@ -789,7 +828,7 @@ const wireMapBox = () => {
         }
         e.preventDefault();
         m.hint.hidden = true;
-        zoomAt(e, e.deltaY < 0 ? 0.8 : 1.25);
+        wheelZoom(e, e.deltaY < 0 ? 0.8 : 1.25);
     }, { passive: false });
     // With the map itself focused: arrow keys pan, + and - zoom, 0 shows all.
     m.box.addEventListener('keydown', e => {
@@ -814,9 +853,14 @@ const wireMapBox = () => {
     let drag = null;
     m.box.addEventListener('pointerdown', e => {
         if (e.button !== 0 || e.target.closest('.map-zoom, .map-card, .map-bottom, .map-base-pop, .map-tools, .map-side-btn') || !mapState.view) return;
+        // A drag (or a click) right after the wheel starts from the picture
+        // drawn at its view, and from what is under the pointer in it.
+        const wheeled = mapState.wheeling;
+        endWheelZoom();
+        const under = wheeled ? document.elementFromPoint(e.clientX, e.clientY) : e.target;
         // A range ring is dragged out from its center rather than the map moved.
         const ring = mapState.measuring && mapState.measureTool === 'ring' && !e.shiftKey && (!mapState.measure.length || mapState.ringR > 0);
-        drag = { x: e.clientX, y: e.clientY, cx: mapState.view.cx, cy: mapState.view.cy, item: e.target.closest('[data-map-item]'), ring };
+        drag = { x: e.clientX, y: e.clientY, cx: mapState.view.cx, cy: mapState.view.cy, item: under && under.closest('[data-map-item]'), ring };
         m.box.setPointerCapture(e.pointerId);
         if (ring) addMeasurePoint(lonLatAt(e));
         else m.box.classList.add('dragging');

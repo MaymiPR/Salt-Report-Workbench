@@ -139,6 +139,10 @@ All notable changes to this project are documented here. The format follows
   map's key and a BDA's delete were below the 4.5:1 contrast WCAG asks for.
   Blue and red text are a little lighter, blue buttons a little darker, and
   the last two are dimmed less; all now reach 4.5:1.
+- **Ctrl + wheel zoom is smooth.** Each turn of the wheel drew the whole map
+  again (about 8 frames a second with 2,000 reports and 2,000 overlays). Now
+  the picture already drawn is scaled while the wheel turns, as a drag slides
+  it, and drawn once a moment after the last turn, at the same view as before.
 
 ## [2.41.0] - 2026-11-01
 

@@ -79,6 +79,11 @@ const mapState = {
     // pointer and nothing redraws (app/64-map-controls.js); it is drawn once,
     // at the new view, when the drag ends.
     dragging: false,
+    // So with Ctrl + wheel: the picture is scaled round the pointer while the
+    // wheel turns, and drawn once, a moment after the last turn. `drawnView`
+    // is the view the picture on screen was drawn at: { cx, cy, mpp, w, h }.
+    wheeling: false,
+    drawnView: null,
     // The measure tools (app/64-map-controls.js): on, which one, and the
     // points clicked ([{ lon, lat }]). Distance takes two (a third click
     // starts again from it); Path, Area and Time-distance take any number

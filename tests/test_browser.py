@@ -6553,6 +6553,46 @@ class KeyboardSavesAndZoomTests(BrowserTests):
         self.assertIsNone(page.evaluate(f"{first}.mark"))
         self.assertIn("dug in", page.inner_text("#mapTableBody"))
 
+    def test_a_burst_of_wheel_turns_ends_where_turning_slowly_does(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        self.log(page, "1x BTR", location="38SMB4700084000")
+        self.open_map(page)
+        page.click("[data-map-zoom='in']")
+        self.next_frames(page)
+        # Out past the whole area (held there), then back in, off the middle.
+        turns = [100, 100, 100, 100, -100, -100, -100]
+        wheel = """dys => { const b = document.getElementById('mapBox'), r = b.getBoundingClientRect();
+            dys.forEach(dy => b.dispatchEvent(new WheelEvent('wheel', { deltaY: dy, ctrlKey: true, bubbles: true,
+                cancelable: true, clientX: r.left + r.width * 0.3, clientY: r.top + r.height * 0.7 }))); }"""
+        view = "({ ...mapState.view })"
+        start = page.evaluate(view)
+        # Slowly: each turn drawn before the next, as every turn always was.
+        for dy in turns:
+            page.evaluate(wheel, [dy])
+            page.wait_for_function("!mapState.wheeling")
+        slowly = page.evaluate(view)
+        self.assertNotEqual(slowly, start)
+        # From the same view, the same turns at once: the picture is scaled,
+        # not drawn, until a moment after the last.
+        page.evaluate(
+            "v => { Object.assign(mapState.view, v); cancelAnimationFrame(mapState.frame); drawMap(); }",
+            start,
+        )
+        during = page.evaluate(
+            f"""turns => {{ const svg = document.getElementById('mapSvg'), drawn = svg.innerHTML;
+                ({wheel})(turns);
+                return {{ wheeling: mapState.wheeling, transform: svg.style.transform, same: svg.innerHTML === drawn }}; }}""",
+            turns,
+        )
+        self.assertTrue(during["wheeling"] and during["same"], during)
+        self.assertIn("scale(", during["transform"])
+        page.wait_for_function("!mapState.wheeling")
+        self.assertEqual(page.evaluate(view), slowly)
+        self.assertEqual(page.evaluate("document.getElementById('mapSvg').style.transform"), "")
+        self.assertEqual(page.evaluate("mapState.drawnView.mpp"), slowly["mpp"])
+
 
 for _name in [n for n in vars(BrowserTests) if n.startswith("test_")]:
     setattr(KeyboardSavesAndZoomTests, _name, None)
