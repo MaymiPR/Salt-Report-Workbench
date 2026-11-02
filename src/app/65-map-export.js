@@ -63,11 +63,11 @@ const mapScaleBar = (most = 130) => {
 // north is straight up).
 const mapMarksSvg = (w, h) => {
     const s = mapScaleBar();
-    const north = `<g transform="translate(${w - 28},34)"><path d="M0,-18 L8,6 L0,1 L-8,6 Z" fill="#fff" stroke="#000" stroke-width="1.2"/>`
-        + `<text y="20" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">N</text></g>`;
-    const bar = s ? `<g transform="translate(14,${h - 18})"><rect x="0" y="-5" width="${s.px.toFixed(1)}" height="6" fill="#fff" stroke="#000" stroke-width="1.2"/>`
-        + `<rect x="0" y="-5" width="${(s.px / 2).toFixed(1)}" height="6" fill="#000"/>`
-        + `<text x="${(s.px + 6).toFixed(1)}" y="1" font-family="system-ui, sans-serif" font-size="12" font-weight="600" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">${escapeHtml(s.text)}</text></g>` : '';
+    const north = `<g transform="translate(${w - 28},34)"><path d="M0,-18 L8,6 L0,1 L-8,6 Z" fill="${MAP_COLORS.core}" stroke="${MAP_COLORS.edge}" stroke-width="1.2"/>`
+        + `<text y="20" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="${MAP_COLORS.core}" stroke="${MAP_COLORS.edge}" stroke-width="3" paint-order="stroke">N</text></g>`;
+    const bar = s ? `<g transform="translate(14,${h - 18})"><rect x="0" y="-5" width="${s.px.toFixed(1)}" height="6" fill="${MAP_COLORS.core}" stroke="${MAP_COLORS.edge}" stroke-width="1.2"/>`
+        + `<rect x="0" y="-5" width="${(s.px / 2).toFixed(1)}" height="6" fill="${MAP_COLORS.edge}"/>`
+        + `<text x="${(s.px + 6).toFixed(1)}" y="1" font-family="system-ui, sans-serif" font-size="12" font-weight="600" fill="${MAP_COLORS.core}" stroke="${MAP_COLORS.edge}" stroke-width="3" paint-order="stroke">${escapeHtml(s.text)}</text></g>` : '';
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${north}${bar}</svg>`;
 };
 
@@ -98,7 +98,7 @@ const drawMapKey = async (ctx, keys, x0, y0, width) => {
         const ramp = k.querySelector('.map-ramp'), sw = k.querySelector('svg');
         if (ramp) {
             const g = ctx.createLinearGradient(x, 0, x + 40, 0);
-            HEAT_STOPS.forEach(([at, [r, gr, b, a]]) => g.addColorStop(at, `rgba(${r},${gr},${b},${Math.max(a, 90) / 255})`));
+            HEAT_KEY_STOPS.forEach(([at, c]) => g.addColorStop(at, c));
             ctx.fillStyle = g;
             ctx.fillRect(x, y - 5, 40, 9);
             x += 46;
@@ -107,7 +107,7 @@ const drawMapKey = async (ctx, keys, x0, y0, width) => {
             if (img) ctx.drawImage(img, x, y - 7, 18, 10);
             x += 24;
         }
-        ctx.fillStyle = '#1d1d1f';
+        ctx.fillStyle = MAP_COLORS.ink;
         ctx.fillText(text, x, y + 3);
         x += wText + 18;
     }
@@ -133,13 +133,13 @@ const drawMapCanvas = async (withBase) => {
     canvas.width = w * scale; canvas.height = (head + h + foot) * scale;
     const ctx = canvas.getContext('2d');
     ctx.scale(scale, scale);
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = MAP_COLORS.paper;
     ctx.fillRect(0, 0, w, head + h + foot);
-    ctx.fillStyle = '#1d1d1f';
+    ctx.fillStyle = MAP_COLORS.ink;
     ctx.font = '700 18px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
     ctx.fillText(t.head, 14, 26);
     ctx.font = '12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
-    ctx.fillStyle = '#48484a';
+    ctx.fillStyle = MAP_COLORS.inkSoft;
     ctx.fillText(t.sub, 14, 46);
     // The map: its background, the basemap, then the graphics and marks.
     ctx.save();
@@ -167,7 +167,7 @@ const drawMapCanvas = async (withBase) => {
     ctx.font = '12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
     const y = await drawMapKey(ctx, keys, 14, head + h + 20, w - 28);
     if (baseLeftOut || late) {
-        ctx.fillStyle = '#8e1a12';
+        ctx.fillStyle = MAP_COLORS.inkWarn;
         ctx.fillText(baseLeftOut ? "The basemap is left out: its service doesn't let the page copy its images. Print shows it."
             : `${plural(late, 'basemap image')} didn't come in time and ${late === 1 ? 'is' : 'are'} left out.`, 14, y + 10);
     }
@@ -236,8 +236,8 @@ const printMap = () => {
     doc.open();
     doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(t.head)}</title><style>
         @page { size: landscape; margin: 10mm; }
-        body { margin: 0; color: #1d1d1f; background: #fff; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-        h1 { font-size: 16pt; margin: 0 0 2mm; } p { font-size: 9pt; color: #48484a; margin: 0 0 4mm; }
+        body { margin: 0; color: ${MAP_COLORS.ink}; background: ${MAP_COLORS.paper}; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+        h1 { font-size: 16pt; margin: 0 0 2mm; } p { font-size: 9pt; color: ${MAP_COLORS.inkSoft}; margin: 0 0 4mm; }
         .map { position: relative; width: 100%; aspect-ratio: ${w} / ${h}; background: ${mapBackground()}; overflow: hidden; break-inside: avoid; }
         .map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
         .keys { display: flex; flex-wrap: wrap; gap: 3mm 6mm; margin-top: 4mm; font-size: 9pt; }

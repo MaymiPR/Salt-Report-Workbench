@@ -443,7 +443,7 @@ const measureSpeedUnit = () => {
 const measureKind = () => measureSpeedUnit().kind;
 const measureKmh = () => { const v = Number(mapState.measureSpeed); return mapState.measureSpeed !== '' && v > 0 ? v * measureSpeedUnit().kmh : 0; };
 try {
-    const kept = JSON.parse(storedText('salt_measure_speed') || 'null');
+    const kept = JSON.parse(readRaw('salt_measure_speed') || 'null');
     if (kept && typeof kept === 'object') {
         mapState.measureSpeed = typeof kept.v === 'string' ? kept.v.slice(0, 12) : '';
         mapState.measureUnit = typeof kept.unit === 'string' ? kept.unit : '';

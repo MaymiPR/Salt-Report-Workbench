@@ -101,7 +101,7 @@ const chartSvg = (chart, themeName, header) => {
 
 let isStatsViewActive = false;
 // The workspace on screen, or every loaded one ('all'). Per browser.
-let statsScope = storedText('salt_stats_scope') === 'all' ? 'all' : 'ato';
+let statsScope = readRaw('salt_stats_scope') === 'all' ? 'all' : 'ato';
 let statsCharts = [];       // what is on screen, for hover and export
 let statsKpis = [];         // the headline numbers on screen, for the workbook
 let statsBuilt = null;      // what the panel was last drawn from, so a sync that changes nothing leaves it be

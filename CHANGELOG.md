@@ -25,6 +25,28 @@ All notable changes to this project are documented here. The format follows
   on both ports, with HTTPS or without: the page and 50 map tiles over HTTPS
   from one client take about 0.6 s instead of 1.25 s here. A connection left
   idle for 30 seconds is closed, and the live updates stream as before.
+- **The map's colors no longer look alike.** A line of sight that sees was
+  nearly the green of an NAI's outline, and a report's direct-fire ring the
+  orange of a drone's range. A line that sees is now teal green and a
+  direct-fire ring pink; tracks and report dots take the red the rest of
+  the page uses, and the heat map's key, on screen, saved and printed, is
+  drawn from the heat map's own colors.
+- **A few reports no longer make the heat map red.** It was scaled to the
+  busiest place, so two lone reports showed as red as the busiest spot of a
+  busy day. Red now needs at least 4 reports in one place: a lone report is
+  blue going green, two or three stay short of red, and a map with 4 or more
+  in one place looks as it did.
+- **Red buttons are easier to read.** White on the red of Confirm, Delete
+  and Clear Workspace (pointed at) was 3.4:1; they now use the darker red
+  of the error bars, 5.9:1 (5.3:1 pointed at).
+- **Text comes in six sizes.** The page had about 50 sizes on screen, many
+  a fraction of a pixel apart, because each was a share of the one around
+  it. Every size is now one of six steps (10, 11.5, 13, 15, 20 and 24 px),
+  each set to the step nearest what it was, so the page looks the same:
+  nearly all text moved by less than a pixel. The welcome and manual
+  titles are now the size of the other titles, the sort arrows and a few
+  small BDA marks are a pixel or two larger, and a tag's remove button is
+  the size of the others.
 
 ### Fixed
 

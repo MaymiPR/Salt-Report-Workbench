@@ -3412,13 +3412,14 @@ class BrowserTests(unittest.TestCase):
             ctx.drawImage(img, 0, 0);
             return [ctx.getImageData(40, 50, 1, 1).data[3], ctx.getImageData(140, 50, 1, 1).data[3]];
         }"""
-        lone3, busy3 = page.evaluate(alpha, 3)
+        # Four in one place is the least the top of the ramp stands for (HEAT_TOP_MIN).
+        lone4, busy4 = page.evaluate(alpha, 4)
         lone10, busy10 = page.evaluate(alpha, 10)
-        self.assertGreater(busy3, 220)
+        self.assertGreater(busy4, 220)
         self.assertGreater(busy10, 220)
-        self.assertGreater(lone3, lone10 + 40, (lone3, lone10))
-        # A lone report on its own is the top of the ramp, as before.
-        self.assertEqual(page.evaluate(alpha, 0)[0], busy3)
+        self.assertGreater(lone4, lone10 + 40, (lone4, lone10))
+        # A lone report on its own is as light as beside four.
+        self.assertEqual(page.evaluate(alpha, 0)[0], lone4)
 
     @staticmethod
     def pick_basemap(page, value):
@@ -3857,9 +3858,9 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("In NAI 1; sees into NAI 2.", page.inner_text("#mapCard"))
         # The map is drawn a frame after the card: wait for the lines.
         strokes = "[...document.querySelectorAll('#mapSvg .map-sight path')].map(p => p.getAttribute('stroke'))"
-        page.wait_for_function(f"{strokes}.filter(s => s === '#30d158').length === 2")
+        page.wait_for_function(f"{strokes}.filter(s => s === '#00a67e').length === 2")
         strokes = page.evaluate(strokes)
-        self.assertEqual(strokes.count("#ff9f0a"), 1, "a ring, direct fire")
+        self.assertEqual(strokes.count("#ff2d8a"), 1, "a ring, direct fire")
         self.assertIn("Kornet 5.50 km", page.text_content("#mapSvg .map-sight"))
         # Closed: they go.
         page.click("[data-card-act='close']")
@@ -3875,7 +3876,7 @@ class BrowserTests(unittest.TestCase):
         page.mouse.click(x + 120, y - 60)
         page.wait_for_selector("#mapMeasureOut:has-text('Seen: 38S MB')")
         page.wait_for_function(
-            "document.querySelector('#mapSvg .map-measure path[stroke=\"#30d158\"]')"
+            "document.querySelector('#mapSvg .map-measure path[stroke=\"#00a67e\"]')"
         )
 
     def test_a_wms_found_through_the_server_in_latitude_longitude(self):
@@ -6250,7 +6251,7 @@ class LineOfSightAndSummaryTests(BrowserTests):
         # Drawn gray and dashed, as one not known; never green or red.
         strokes = "[...document.querySelectorAll('#mapSvg .map-sight path')].map(p => p.getAttribute('stroke'))"
         page.wait_for_function(f"{strokes}.filter(s => s === '#8e8e93').length === 2")
-        self.assertFalse({"#30d158", "#ff453a"} & set(page.evaluate(strokes)))
+        self.assertFalse({"#00a67e", "#ff453a"} & set(page.evaluate(strokes)))
         self.two_points(page)
         page.wait_for_selector(
             "#mapMeasureOut:has-text('No height here from the elevation source: line of sight from 38S MB')",
@@ -6828,6 +6829,78 @@ class KeyboardSavesAndZoomTests(BrowserTests):
 
 for _name in [n for n in vars(BrowserTests) if n.startswith("test_")]:
     setattr(KeyboardSavesAndZoomTests, _name, None)
+
+
+class MapPaletteAndHeatTests(BrowserTests):
+    """The heat map's least top and its key, drawn from the heat map's own
+    colors. A server of its own; BrowserTests' tests are taken off this class
+    below."""
+
+    # The heat layer of `pts` ({lon, lat, w}, drawn where lon, lat say) on a
+    # 200 x 100 map: the RGBA at each of `at` ([x, y] pairs).
+    HEAT_AT = """async ([pts, at]) => {
+        const svg = heatLayer(pts, (lon, lat) => [lon, lat], 200, 100);
+        const img = new Image();
+        img.src = svg.match(/href="([^"]+)"/)[1];
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = 200; c.height = 100;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        return at.map(([x, y]) => [...ctx.getImageData(x, y, 1, 1).data]);
+    }"""
+
+    def test_a_few_reports_stay_below_the_top_of_the_heat_ramp(self):
+        page = self.open_editor()
+        top = page.evaluate("[...HEAT_LUT.slice(255 * 4)]")
+        lone = {"lon": 40, "lat": 50, "w": 1}
+        # One report, then two apart, then three in one place: none reaches the top.
+        for pts in ([lone], [lone, {"lon": 140, "lat": 50, "w": 1}], [{**lone}] * 3):
+            got = page.evaluate(self.HEAT_AT, [pts, [[40, 50]]])[0]
+            self.assertLess(got[3], top[3] - 15, (len(pts), got))
+        # A lone report is blue going green: no red in it.
+        self.assertLess(page.evaluate(self.HEAT_AT, [[lone], [[40, 50]]])[0][0], 100)
+
+    def test_many_reports_are_scaled_to_the_busiest_as_before(self):
+        page = self.open_editor()
+        top = page.evaluate("[...HEAT_LUT.slice(255 * 4)]")
+        for n in (5, 8, 20):
+            pts = [{"lon": 40, "lat": 50, "w": 1}, *[{"lon": 140, "lat": 50, "w": 1}] * n]
+            lone, busy = page.evaluate(self.HEAT_AT, [pts, [[40, 50], [140, 50]]])
+            # The busiest place is the top of the ramp; the lone report is
+            # where it falls against the busiest, as it was without a floor.
+            self.assertTrue(
+                all(abs(a - b) <= 2 for a, b in zip(busy, top, strict=True)), (n, busy, top)
+            )
+            want = page.evaluate(
+                """n => { const v = 1 - Math.SQRT1_2 / HEAT_RADIUS, k = Math.min(255, Math.round(v / (n * v) * 255)) * 4;
+                    return [...HEAT_LUT.slice(k, k + 4)]; }""",
+                n,
+            )
+            # Its opacity (its color, so faint, is read back only roughly).
+            self.assertLessEqual(abs(lone[3] - want[3]), 2, (n, lone, want))
+
+    def test_the_heat_key_is_drawn_from_the_heat_maps_colors(self):
+        page = self.open_editor()
+        self.import_overlays(page)
+        self.log(page, "2x BMP", location="38SMB4500082000")
+        self.open_map(page)
+        page.wait_for_selector("#mapLegend .map-ramp")
+        same = page.evaluate(
+            """() => { const probe = document.createElement('span');
+                probe.style.backgroundImage = `linear-gradient(90deg, ${HEAT_KEY_STOPS.map(([at, c]) => `${c} ${at * 100}%`).join(', ')})`;
+                document.body.appendChild(probe);
+                const want = getComputedStyle(probe).backgroundImage;
+                probe.remove();
+                return [getComputedStyle(document.querySelector('#mapLegend .map-ramp')).backgroundImage, want]; }"""
+        )
+        self.assertEqual(same[0], same[1])
+        # Its top is the heat map's own top color.
+        self.assertIn("rgba(255, 69, 58, 0.92", same[0])
+
+
+for _name in [n for n in vars(BrowserTests) if n.startswith("test_")]:
+    setattr(MapPaletteAndHeatTests, _name, None)
 
 
 if __name__ == "__main__":
