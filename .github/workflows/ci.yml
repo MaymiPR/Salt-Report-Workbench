@@ -58,8 +58,8 @@ jobs:
       matrix:
         os: [ubuntu-24.04]
         # 3.11.8 exactly: the oldest Python the server takes, and what the
-        # operators' machines have.
-        python: ["3.11.8", "3.12", "3.13", "3.14", "3.15"]
+        # operators' machines have; 3.15, the newest; 3.13 between them.
+        python: ["3.11.8", "3.13", "3.15"]
         include:
           # Operators run this on Windows laptops; make sure it works there,
           # on the oldest Python the server takes too.
@@ -74,6 +74,11 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
+      # The dev tools install on the oldest Python too, so a tool that drops
+      # 3.11 shows here instead of on a contributor's machine.
+      - name: Dev tools install on 3.11.8
+        if: matrix.python == '3.11.8' && runner.os == 'Linux'
+        run: pip install --require-hashes -r requirements-dev.txt
       - name: Unit and integration tests
         run: python -m unittest discover -s tests -v
 
