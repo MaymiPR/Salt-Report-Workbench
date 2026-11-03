@@ -41,6 +41,9 @@ coverage.xml
 .env.*
 !.env.example
 
+# ---- Node (used only to run the core's tests; it installs nothing) -------
+node_modules/
+
 # ---- Editors / IDEs ------------------------------------------------------
 .vscode/
 .idea/
@@ -48,6 +51,8 @@ coverage.xml
 *.swo
 *~
 *.sublime-workspace
+# Claude Code's local settings and the worktrees its agents make.
+.claude/
 
 # ---- OS ------------------------------------------------------------------
 .DS_Store
