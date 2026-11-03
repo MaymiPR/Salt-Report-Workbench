@@ -13,8 +13,9 @@ get set up and what a change needs before it merges.
   operators' machines have, so it is the floor. On 3.11.8, CI runs the unit
   and integration tests on Linux and Windows, the browser tests on Linux, and
   builds a release, extracts it and starts its server on Windows, as
-  operators do. It also runs the unit and integration tests on 3.12 to 3.15,
-  and the browser tests on 3.15 on Linux and Windows. Don't use anything
+  operators do, and installs the dev tools from `requirements-dev.txt` on
+  Linux. It also runs the unit and integration tests on 3.13 and 3.15, and
+  the browser tests on 3.15, on Linux and Windows. Don't use anything
   newer than 3.11 in the server or scripts (`datetime.UTC` is fine on 3.11
   but not before the server's version check, so the code keeps
   `timezone.utc`).
