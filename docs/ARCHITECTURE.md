@@ -357,7 +357,7 @@ observer through an Edit or Update.
 
 ### The narrative
 
-The Narrative summary (`narrativeLines` in `core/80-narrative.js`) is rules, not a model:
+The Narrative summary (`narrativeLayout` in `core/80-narrative.js`) is rules, not a model:
 the same reports always give the same words, and nothing leaves the page.
 Each report's Size (after destroyed BDA, `sizeAfterBda`) is split into elements and looked up in
 `EQUIPMENT_CATALOGUE` (`lookupEquipment`: a name with a digit matches the

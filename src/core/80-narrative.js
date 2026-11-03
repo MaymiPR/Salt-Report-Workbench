@@ -1902,4 +1902,3 @@ const narrativeLayout = (cur, prev, { local, hrs, end, places, settings, overlay
         return { lines: out, judgments: shown, annex };
     };
 };
-const narrativeLines = (cur, prev, { width = 100, ...opts }) => narrativeLayout(cur, prev, opts)(width);
