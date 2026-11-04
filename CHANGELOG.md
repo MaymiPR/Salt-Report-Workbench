@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.44.3] - 2026-11-03
+
+### Changed
+
+- **The Narrative's code is in smaller pieces; what it writes is the same.**
+  Its rules run in one part per group of the settings (Maneuver, Defense,
+  Fires, Support), and each section of the text is written by a part of its
+  own. Old and new gave the same text for over 6,000 narratives, every rule
+  among them.
+- **Tidier repository.** Code nothing used is gone, the tests run on Linux
+  with Python 3.11.8, 3.13 and 3.15, and the development tools are checked to
+  install on 3.11.8.
+
 ## [2.44.2] - 2026-11-02
 
 ### Changed
@@ -2038,7 +2051,8 @@ Changes below are relative to the untracked build this release grew out of.
 - Server-stamped edit attribution no longer misses when initials arrive with
   surrounding whitespace.
 
-[Unreleased]: https://github.com/MaymiPR/Salt-Report-Workbench/compare/v2.44.2...HEAD
+[Unreleased]: https://github.com/MaymiPR/Salt-Report-Workbench/compare/v2.44.3...HEAD
+[2.44.3]: https://github.com/MaymiPR/Salt-Report-Workbench/compare/v2.44.2...v2.44.3
 [2.44.2]: https://github.com/MaymiPR/Salt-Report-Workbench/compare/v2.44.1...v2.44.2
 [2.44.1]: https://github.com/MaymiPR/Salt-Report-Workbench/compare/v2.44.0...v2.44.1
 [2.44.0]: https://github.com/MaymiPR/Salt-Report-Workbench/compare/v2.43.0...v2.44.0
