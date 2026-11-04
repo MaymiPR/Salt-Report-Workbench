@@ -641,56 +641,28 @@ const mostIn = (list) => {
     return [...n].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))[0]?.[0] || null;
 };
 
-// The judgments the reports support: each with its ICD 203 level, what is
-// judged (said of the enemy or a unit: "are preparing a defense in NAI 1";
-// some say it in the terms of the army whose equipment it is: { RU, CN, '' }),
-// the places it is about, the signs seen (and the reports behind them), and
-// the signs that would make it firmer. Every rule looks only at the reports
-// given; rules in `off` are skipped, and the team's `custom` rules run too.
-//
-// How strong a judgment is (its level, an index into ICD203): a rule that
-// fires is at least roughly even chance (EVEN), and `judge` caps it at very
-// likely (VERY_LIKELY). Each rule raises it one of three ways, tuned per rule:
-//   - EVEN + steps: one for each thing beyond the minimum that makes it
-//     firmer (antitank: two or more ATGM positions +1; obstacles or tanks in
-//     hides with them +1).
-//   - levelBy(n, likely, veryLikely): n is a count, of reports (deception),
-//     of places (axes, fortline) or of the kinds of signs seen (kindsOf:
-//     crossing, cp), sometimes plus one for a bonus (assembly: armor halted
-//     in five reports or more); at `likely` it is likely, at `veryLikely`
-//     very likely.
-//   - The same thresholds written out (defense, logistics, offense, firing,
-//     withdrawal).
-// The table of rules in tests/js/core.test.js fires each one from a minimal
-// set of reports and pins the level it gets, so a change to the tuning shows
-// there.
-//   - A sign seen only in hedged reports ("2x possible T-72") still lets a
-//     rule fire, but adds no strength: each such sign takes a step off the
-//     level, down to roughly even chance at least.
-// The way of march (wayOfMarchAt: an axis of advance near a report, else the
-// AO's direction in the settings) gives a moving report a sense (along it,
-// back along it, across it), and some rules a sign of their own, named with
-// the way of march ("moving along the way of march (W)"). With no way of
-// march anywhere, no report has a sense and no rule shows that sign, so the
-// narrative is word for word what it was before. With one:
-//   - Back along it is withdrawing, as the word is: such a report is not
-//     advancing (`advancing`), so the rules that look for forces advancing
-//     leave it out. Withdrawal fires on combat forces moving back along it,
-//     reported as withdrawing or not, and its level counts both kinds of
-//     report together (one even chance, two likely, three very likely);
-//     reconnaissance in force takes them moving back within 3 hrs of the
-//     probe as it takes pulling back.
-//   - Along it: a kind of sign for offense (kindsOf, so +1 step at most),
-//     and with it logistics pushing forward fires on supply vehicles
-//     moving along it with no armor massing or fuel and ammunition (+1 kind
-//     besides); +1 step for a forward detachment, several axes, an
-//     exploitation and a pursuit whose forces move along it.
-//   - Across it: +1 step for an envelopment whose forces move across it.
-// The tests' table of rules fires each one from the same minimal reports
-// with a way of march too, to pin those steps.
-// The judgments are sorted by level, then by how many reports are
-// behind them, then by NARRATIVE_RULES' order; the narrative shows ten.
-const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) => {
+// The signs the rules look for in a report, beyond its tags (`has`).
+// Moving along the way of march.
+const along = (f) => f.sense === 'along';
+// Fighting forces, as against supply, command or support vehicles.
+const combat = (f) => isManeuver(f) || (f.groups.infantry || 0) > 0 || f.roles.has('light');
+// Contact: firing words that aren't about fire support or a firing position.
+const shot = (f) => has(f, 'Firing') && FIRING_WORDS.test(String(f.r.activity || '').replace(NOT_CONTACT, ' '));
+// Moving, but not away: a withdrawal isn't an advance, nor is moving
+// back along the way of march.
+const advancing = (f) => has(f, 'Moving') && !WITHDRAW.test(f.r.activity || '') && f.sense !== 'back';
+const after = (list, f, span) => list.some(e => f.ms > e.ms && f.ms - e.ms <= span);
+const firing = (f) => (f.roles.has('fires') && shot(f)) || SHELLING.test(f.r.activity || '');
+const ewOf = (f) => f.roles.has('ew') || can(f, 'ew');
+// A small dismounted group: up to 12 people, on foot or in light vehicles, with antitank weapons at most.
+const smallGroup = (f) => f.roles.size > 0 && [...f.roles].every(r => r === 'infantry' || r === 'atgm' || r === 'light')
+    && (f.groups.infantry || 0) > 0 && (f.groups.infantry || 0) <= 12;
+
+// What every rule works with, for a set of reports: the reports, and the
+// same by place (an NAI, OBJ or grid square: `byArea`); whether a rule is
+// on (not in `off`); `judge`, which records a judgment in `out`; and
+// `marchSign`.
+const judgmentKit = (facts, cite, off) => {
     const out = [];
     const byArea = new Map();
     facts.forEach(f => f.areas.forEach(a => { if (!byArea.has(a)) byArea.set(a, []); byArea.get(a).push(f); }));
@@ -706,9 +678,6 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
         const dirs = [...n].sort((x, y) => y[1] - x[1] || HEADINGS_8.indexOf(x[0]) - HEADINGS_8.indexOf(y[0])).map(([d]) => d);
         return [[dirs.length ? `${what} (${dirs.join(', ')})` : what, list]];
     };
-    const along = (f) => f.sense === 'along';
-    // Fighting forces, as against supply, command or support vehicles.
-    const combat = (f) => isManeuver(f) || (f.groups.infantry || 0) > 0 || f.roles.has('light');
     // `guessed`: its level already allows for reports read from their
     // running gear alone, so only the hedged ones take a step off.
     const judge = (rule, level, what, signs, places = null, guessed = false) => {
@@ -723,410 +692,449 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             list, watch: signs.filter(([, l]) => !l.length).map(([s]) => s),
         });
     };
-    // Contact: firing words that aren't about fire support or a firing position.
-    const shot = (f) => has(f, 'Firing') && FIRING_WORDS.test(String(f.r.activity || '').replace(NOT_CONTACT, ' '));
-    // Moving, but not away: a withdrawal isn't an advance, nor is moving
-    // back along the way of march.
-    const advancing = (f) => has(f, 'Moving') && !WITHDRAW.test(f.r.activity || '') && f.sense !== 'back';
-    const after = (list, f, span) => list.some(e => f.ms > e.ms && f.ms - e.ms <= span);
-    const firing = (f) => (f.roles.has('fires') && shot(f)) || SHELLING.test(f.r.activity || '');
-    const ewOf = (f) => f.roles.has('ew') || can(f, 'ew');
-    // A small dismounted group: up to 12 people, on foot or in light vehicles, with antitank weapons at most.
-    const smallGroup = (f) => f.roles.size > 0 && [...f.roles].every(r => r === 'infantry' || r === 'atgm' || r === 'light')
-        && (f.groups.infantry || 0) > 0 && (f.groups.infantry || 0) <= 12;
+    return { facts, byArea, on, judge, marchSign, out };
+};
 
-    for (const [area, list] of byArea) {
-        const at = (test) => list.filter(test);
-        const smoke = at(f => can(f, 'smoke'));
-        const obst = at(f => OBSTACLE.test(f.r.activity || '') || can(f, 'minelaying'));
-        const atgm = at(f => (f.roles.has('atgm') && has(f, 'Stationary', 'Emplacing', 'Observing')) || can(f, 'atPosition'));
-        // Preparing a defense: digging in, obstacles, engineers, antitank weapons, vehicles holding.
-        const dig = at(f => has(f, 'Emplacing') && !OBSTACLE.test(f.r.activity || ''));
-        if (on('defense') && (dig.length || obst.length)) {
-            const signs = [
-                ['digging in or fortifying', dig], ['obstacles or mines', obst],
-                ['engineer equipment', at(f => f.roles.has('engineer'))], ['antitank weapons in position', atgm],
-                ['combat vehicles halted in position', at(f => has(f, 'Stationary') && (isManeuver(f) || f.roles.has('fires') || f.roles.has('ad')))],
-            ];
-            const kinds = kindsOf(signs), n = byTime(signs.flatMap(([, l]) => l)).length;
-            judge('defense', kinds >= 3 && n >= 4 ? VERY_LIKELY : kinds >= 2 || n >= 3 ? LIKELY : EVEN,
-                `are preparing a defense in ${area}`, signs, [area]);
-        }
-        // Antitank positions: ATGMs set up, covering obstacles, tanks in hides.
-        if (on('antitank') && atgm.length) {
-            const tanks = at(f => f.roles.has('armor') && has(f, 'Stationary'));
-            judge('antitank', EVEN + (atgm.length >= 2 ? 1 : 0) + (obst.length || tanks.length ? 1 : 0), `have antitank positions in ${area}`,
-                [['antitank weapons in position', atgm], ['obstacles or mines they cover', obst], ['tanks in hide positions', tanks]], [area]);
-        }
-        // Reconnaissance, then armor or mechanized forces within 6 hours.
-        const scouts = at(f => f.roles.has('recon') || has(f, 'Observing') || can(f, 'uav'));
-        const pairs = scouts.map(s => [s, list.filter(m => m !== s && isManeuver(m) && m.ms > s.ms && m.ms - s.ms <= 6 * HOUR)]).filter(([, l]) => l.length);
-        if (on('recon') && pairs.length) {
-            const lead = byTime(pairs.map(([s]) => s)), after = byTime(pairs.flatMap(([, l]) => l));
-            const support = at(f => f.roles.has('fires') || f.roles.has('ad') || f.roles.has('engineer'));
-            judge('recon', EVEN + (lead.length >= 2 || after.length >= 2 ? 1 : 0) + (support.length ? 1 : 0),
-                `are scouting a route through ${area} for armor or mechanized forces`,
-                [['reconnaissance', lead], ['armor or mechanized forces within 6 hrs after it', after],
-                    ['artillery, air defense or engineers in the same area', support]], [area]);
-        }
-        // UAVs, then artillery within the hour: a reconnaissance-fire (or -strike) link.
-        const uavs = at(f => can(f, 'uav'));
-        const fireAfter = at(f => (firing(f) || can(f, 'loitering')) && uavs.some(u => u !== f && f.ms >= u.ms && f.ms - u.ms <= HOUR));
-        if (on('reconfire') && uavs.length && fireAfter.length) {
-            const radar = at(f => can(f, 'cbRadar'));
-            judge('reconfire', EVEN + (uavs.length >= 2 ? 1 : 0) + (radar.length || fireAfter.length >= 2 ? 1 : 0), {
-                RU: `are spotting for artillery with UAVs over ${area} (a reconnaissance-fire complex)`,
-                CN: `are spotting for rockets and artillery with UAVs over ${area} (reconnaissance-strike)`,
-                '': `are spotting for artillery with UAVs over ${area}`,
-            }, [['UAVs overhead', uavs], ['artillery, shelling or loitering munitions within an hour after', fireAfter], ['counter-battery radar', radar]], [area]);
-        }
-        // An assembly area: armor halted with supply or command vehicles.
-        const still = densest(at(f => isManeuver(f) && has(f, 'Stationary')), 12 * HOUR);
-        const backing = at(f => f.roles.has('logistics') || f.roles.has('c2') || has(f, 'Resupplying'));
-        if (on('assembly') && still.length >= 2 && backing.length) {
-            const signs = [['armor or mechanized forces halted', still], ['supply or command vehicles, or resupply', backing],
-                ['artillery or air defense with them', at(f => (f.roles.has('fires') || f.roles.has('ad')) && has(f, 'Stationary'))]];
-            judge('assembly', levelBy(kindsOf(signs) + (still.length >= 5 ? 1 : 0), 3, 4), {
-                RU: `are in an assembly area in ${area}, preparing to attack (an assault detachment's assembly area)`,
-                CN: `are in an assembly area in ${area}, preparing to attack (combined-arms battalions forming assault groups)`,
-                '': `are in an assembly area in ${area}, preparing to attack`,
-            }, signs, [area]);
-        }
-        // A combined-arms group on the move: armor with artillery, air defense or engineers within 2 hours.
-        const movers = at(f => isManeuver(f) && advancing(f));
-        const escorts = at(f => (f.roles.has('fires') || f.roles.has('ad') || f.roles.has('engineer')) && advancing(f)
-            && movers.some(m => Math.abs(m.ms - f.ms) <= 2 * HOUR));
-        if (on('forward') && escorts.length) {
-            const alongside = movers.filter(m => escorts.some(e => Math.abs(m.ms - e.ms) <= 2 * HOUR));
-            const big = Math.max(...alongside.map(m => m.groups.maneuver || 0), 0) >= 10 || alongside.length >= 3;
-            const ahead = byTime([...alongside, ...escorts]).filter(along);
-            judge('forward', EVEN + (big ? 1 : 0) + (ahead.length ? 1 : 0), {
-                RU: `are moving a combined-arms group through ${area}, possibly a forward detachment or advance guard`,
-                CN: `are moving a combined-arms group through ${area}, possibly a vanguard ahead of the main body`,
-                '': `are moving a combined-arms group through ${area}`,
-            }, [['armor or mechanized forces moving', alongside], ['artillery, air defense or engineers moving with them', escorts],
-                ...marchSign('moving along the way of march', ahead)], [area]);
-        }
-        // High ground held: observers, air defense, radars or command posts
-        // halted (or observing) on high ground, overlooking an NAI or OBJ.
-        const watchers = at(f => f.high && observes(f));
-        const over = watchers.filter(f => f.overlooks);
-        if (on('highground') && over.length) {
-            const held = watchers.length >= 2 && watchers[watchers.length - 1].ms - watchers[0].ms >= 12 * HOUR ? watchers : [];
-            const key = over[over.length - 1].overlooks;
-            const signs = [['on high ground, halted or observing', watchers], [`overlooking ${key} within ${OVERLOOK_METERS / 1000} km`, over],
-                ['with line of sight into it', over.filter(f => (f.sight || []).some(s => s.key === f.overlooks && (s.state === 'seen' || s.state === 'in')))],
-                ['air defense or radars among them', watchers.filter(f => f.roles.has('ad'))], ['there 12 hrs or more', held]];
-            judge('highground', levelBy(kindsOf(signs), 3, 4),
-                key === area ? `are holding high ground in ${area}, likely for observation` : `are holding high ground at ${area}, likely for observation over ${key}`, signs, [area]);
-        }
-        // A road march: six or more vehicles moving, mostly wheeled (so on the
-        // roads) or at road-march speed for what they are.
-        const cols = at(f => has(f, 'Moving') && vehiclesIn(f.mob) >= 6);
-        const wheeledCols = cols.filter(f => (f.mob.wheeled || 0) >= 4 && gearMix(f.mob.tracked || 0, f.mob.wheeled) === 'wheeled');
-        const fastCols = cols.filter(roadSpeed);
-        if (on('column') && (wheeledCols.length || fastCols.length)) {
-            const again = densest(cols, 12 * HOUR);
-            const signs = [['six or more vehicles moving', cols], ['mostly wheeled', wheeledCols], ['at road-march speed', fastCols],
-                ['another column through it within 12 hrs', again.length >= 2 ? again : []]];
-            judge('column', levelBy(kindsOf(signs), 3, 4), `are moving a column on the roads through ${area}`, signs, [area]);
-        }
-        // A water obstacle or gap: bridging or ferries, smoke, cover, armor waiting.
-        const bridge = at(f => can(f, 'bridging'));
-        if (on('crossing') && bridge.length) {
-            const signs = [['bridging or ferry equipment, or a crossing reported', bridge], ['smoke', smoke],
-                ['air defense covering it', at(f => f.roles.has('ad'))], ['armor or mechanized forces waiting', at(f => isManeuver(f) && has(f, 'Stationary'))],
-                ['amphibious vehicles', at(f => can(f, 'amphibious'))]];
-            judge('crossing', levelBy(kindsOf(signs), 2, 3), `are preparing to cross a water obstacle or gap in ${area}`, signs, [area]);
-        }
-        // A breach: mine clearing, smoke, fire support, armor nearby.
-        const breach = at(f => can(f, 'breaching'));
-        if (on('breach') && breach.length) {
-            const signs = [['mine clearing or breaching equipment, or a breach reported', breach], ['smoke', smoke],
-                ['thermobaric weapons or artillery fire', at(f => can(f, 'thermobaric') || firing(f))], ['armor or mechanized forces nearby', at(isManeuver)]];
-            judge('breach', levelBy(kindsOf(signs), 2, 3), `are preparing to breach obstacles in ${area}`, signs, [area]);
-        }
-        // A command post: command vehicles or antennas, with air defense, EW or many vehicles halted.
-        const c2 = at(f => f.roles.has('c2') || can(f, 'c2'));
-        const adStill = at(f => f.roles.has('ad') && has(f, 'Stationary'));
-        if (on('cp') && c2.length) {
-            const halted = at(f => has(f, 'Stationary'));
-            const signs = [['command vehicles, antennas or a command post reported', c2], ['air defense in place', adStill],
-                ['electronic warfare', at(ewOf)], ['three or more vehicles halted there', halted.length >= 3 ? halted : []]];
-            judge('cp', levelBy(kindsOf(signs), 2, 3), `have a command post in ${area}`, signs, [area]);
-        }
-        // Air defense over a key site: in place with command, artillery or supply vehicles.
-        const sites = at(f => has(f, 'Stationary') && (f.roles.has('c2') || f.roles.has('fires') || f.roles.has('logistics')));
-        if (on('adsite') && adStill.length && sites.length) {
-            judge('adsite', EVEN + (adStill.length >= 2 ? 1 : 0) + (sites.length >= 2 ? 1 : 0), `are protecting a key site in ${area} with air defense`,
-                [['air defense in place', adStill], ['command, artillery or supply vehicles in place', sites]], [area]);
-        }
-        // Deception: decoys, dummies, camouflage.
-        const dec = at(f => can(f, 'deception'));
-        if (on('deception') && dec.length) {
-            judge('deception', levelBy(dec.length, 2, 3), {
-                RU: `are using camouflage and deception (maskirovka) in ${area}`, CN: `are using camouflage and deception in ${area}`,
-                '': `are using camouflage and deception in ${area}`,
-            }, [['decoys, dummies, camouflage or concealment reported', dec], ['the force the decoys stand in for, concealed nearby', []]], [area]);
-        }
-        // Amphibious: amphibious vehicles or landings, with smoke, ferries or cover.
-        const amph = at(f => can(f, 'amphibious'));
-        if (on('amphibious') && amph.length) {
-            const signs = [['amphibious vehicles or a landing reported', amph], ['smoke', smoke], ['bridging or ferries', bridge],
-                ['air defense or artillery covering', at(f => f.roles.has('ad') || f.roles.has('fires'))]];
-            judge('amphibious', levelBy(kindsOf(signs), 2, 3), `are preparing or conducting an amphibious landing or crossing near ${area}`, signs, [area]);
-        }
-        // Air assault: transport helicopters or landings, with airborne vehicles or escorts.
-        // Transport aircraft (Il-76, Y-20) alone are not one: they fly supplies too.
-        const lift = at(f => can(f, 'liftHelo')), landing = at(f => can(f, 'airlanding'));
-        if (on('airassault') && (lift.length || landing.length)) {
-            const signs = [['transport helicopters', lift], ['an air assault or landing reported', landing],
-                ['airborne (VDV) vehicles or paratroopers', at(f => can(f, 'vdv'))], ['attack helicopters escorting', at(f => can(f, 'attackHelo'))]];
-            judge('airassault', levelBy(kindsOf(signs), 2, 3), {
-                RU: `are conducting or preparing an air assault or airborne landing near ${area} (VDV or air-assault forces)`,
-                CN: `are conducting or preparing an air assault near ${area} (an air-assault brigade)`,
-                '': `are conducting or preparing an air assault near ${area}`,
-            }, signs, [area]);
-        }
-        // A force read from its vehicles: tracked and wheeled vehicles with
-        // no type given, by their mix (RUNNING_GEAR): mostly tracked, armor or
-        // mechanized forces; mostly wheeled, a supply or motorized column; else
-        // both. Never above likely: the running gear alone can't say more,
-        // and a sign seen only in hedged reports takes a step off, as ever.
-        const geared = at(f => f.guess);
-        if (on('vehicles') && geared.length) {
-            const tracked = geared.reduce((n, f) => n + f.gear.tracked, 0), wheeled = geared.reduce((n, f) => n + f.gear.wheeled, 0);
-            const mix = gearMix(tracked, wheeled);
-            const big = geared.filter(f => f.gear.tracked + f.gear.wheeled >= 10);
-            const again = geared.filter(f => geared.some(g => g !== f && g.gear.mix === f.gear.mix && Math.abs(g.ms - f.ms) <= 6 * HOUR));
-            const moving = geared.filter(advancing).length, halted = geared.filter(f => has(f, 'Stationary')).length;
-            const how = moving && moving >= halted ? ['are moving', 'through'] : halted ? ['have', 'halted in'] : ['have', 'in'];
-            const size = mix === 'wheeled' ? '' : ` of approximately ${echelonOf('maneuver', Math.max(...geared.map(f => f.gear.tracked)) || 1)} size`;
-            const force = {
-                tracked: `an armored or mechanized force${size}${wheeled ? ' with its support vehicles' : ''}`,
-                wheeled: `a supply or motorized column${tracked ? ' with an armored escort' : ''}`,
-                mixed: `a mechanized force${size} with its supply vehicles`,
-            }[mix];
-            judge('vehicles', Math.min(EVEN + (big.length || again.length ? 1 : 0), LIKELY), `${how[0]} ${force} ${how[1]} ${area}`,
-                [[`${andList([tracked && plural(tracked, 'tracked vehicle'), wheeled && plural(wheeled, 'wheeled vehicle')].filter(Boolean))}`
-                    + ` with no type given, ${mix === 'mixed' ? 'a mix' : `mostly ${mix}`}`, geared],
-                    ['10 vehicles or more in one report (about a company)', big], ['a second report like it within 6 hrs', again],
-                    ['the type of vehicle (tank, BMP, truck)', []]], [area], true);
-        }
-        // A logistics site: supply vehicles halted or resupplying, again and again.
-        const supply = densest(at(f => (f.roles.has('logistics') && has(f, 'Stationary')) || has(f, 'Resupplying')), 12 * HOUR);
-        if (on('logistics') && supply.length >= 2) {
-            judge('logistics', supply.length >= 5 ? VERY_LIKELY : supply.length >= 3 ? LIKELY : EVEN,
-                `have a logistics or resupply point in ${area}`,
-                [['supply vehicles halted or resupplying within 12 hrs', supply],
-                    ['fuel or ammunition vehicles', supply.filter(f => FUEL_AMMO.test(textOf(f)))]], [area]);
-        }
-        // Counter-battery: radar or counter-battery fire, or drones on guns, with artillery here.
-        const cb = at(f => can(f, 'cbRadar'));
-        const onGuns = at(f => can(f, 'loitering') && /\b(howitzers?|guns?|batter(y|ies)|artillery|mortars?|mlrs|mrl)\b/i.test(f.r.activity || ''));
-        const firesHere = at(firing);
-        if (on('counterbattery') && (cb.length || onGuns.length) && (firesHere.length || onGuns.length)) {
-            const signs = [['counter-battery radar or counter-battery fire', cb], ['artillery or rocket fire here', firesHere],
-                ['loitering munitions or drones striking guns', onGuns]];
-            judge('counterbattery', levelBy(kindsOf(signs) + (byTime(signs.flatMap(([, l]) => l)).length >= 4 ? 1 : 0), 3, 4),
-                `are conducting counter-battery fire around ${area}`, signs, [area]);
-        }
-        // Shoot and scoot: artillery firing, then the same type moving within the hour (or displacing as it fires).
-        const gunsFiring = at(f => f.roles.has('fires') && shot(f));
-        const sameGuns = (a, b) => a.els.some(x => x.kit && x.kit.role === 'fires' && b.els.some(y => y.kit && y.kit.name === x.kit.name));
-        const displaced = at(f => f.roles.has('fires') && ((has(f, 'Moving') && gunsFiring.some(g => sameGuns(g, f) && f.ms > g.ms && f.ms - g.ms <= HOUR))
-            || (shot(f) && SCOOT.test(f.r.activity || ''))));
-        if (on('shootscoot') && displaced.length) {
-            judge('shootscoot', levelBy(displaced.length, 2, 3), {
-                RU: `are firing and quickly displacing artillery around ${area} ("roving" guns)`,
-                CN: `are firing and quickly displacing artillery around ${area}`,
-                '': `are firing and quickly displacing artillery around ${area} (shoot and scoot)`,
-            }, [['artillery or rockets firing', gunsFiring], ['the same moving within the hour after, or displacing', displaced]], [area]);
-        }
-        // Mines laid remotely or quickly: minelayers or scatterable mines, with rockets or artillery.
-        const mines = at(f => can(f, 'minelaying'));
-        if (on('remotemine') && mines.length) {
-            const signs = [['minelaying systems or remote mining reported', mines], ['rocket or artillery fire here', firesHere],
-                ['armor or mechanized forces nearby', at(isManeuver)]];
-            judge('remotemine', levelBy(kindsOf(signs) + (mines.length >= 2 ? 1 : 0), 2, 3), `are laying minefields in ${area}`, signs, [area]);
-        }
-        // Chemical-defense troops: their vehicles, decontamination, smoke generators.
-        const chem = at(f => can(f, 'cbrn'));
-        if (on('cbrn') && chem.length) {
-            const signs = [['chemical-defense vehicles, decontamination or smoke generators', chem], ['smoke', smoke.filter(f => !chem.includes(f))],
-                ['thermobaric weapons', at(f => can(f, 'thermobaric'))]];
-            judge('cbrn', levelBy(kindsOf(signs) + (chem.length >= 2 ? 1 : 0), 2, 3), {
-                RU: `have chemical-defense (RKhBZ) troops in ${area}, screening with smoke or decontaminating`,
-                CN: `have chemical-defense troops in ${area}, screening with smoke or decontaminating`,
-                '': `have chemical-defense troops in ${area}, screening with smoke or decontaminating`,
-            }, signs, [area]);
-        }
-        // A counterattack: reported as one, or armor arriving after contact here.
-        const contactHere = at(shot);
-        const firstContact = at(f => shot(f) && !isManeuver(f)).map(f => f.ms);
-        const t0 = firstContact.length ? Math.min(...firstContact) : null;
-        const arrivals = t0 === null || at(f => isManeuver(f) && f.ms < t0).length ? []
-            : at(f => isManeuver(f) && (advancing(f) || shot(f)) && f.ms > t0 && f.ms - t0 <= 6 * HOUR);
-        const counter = at(f => COUNTER.test(f.r.activity || ''));
-        if (on('counterattack') && (counter.length || arrivals.length)) {
-            const signs = [['a counterattack reported', counter], ['armor or mechanized forces arriving within 6 hrs after contact here', arrivals],
-                ['artillery fire in support', firesHere]];
-            // The contact the armor arrived after is cited too, though, as in
-            // regroup, it adds no strength: the arrivals already count it.
-            const last = arrivals.length ? Math.max(...arrivals.map(f => f.ms)) : null;
-            const contactBefore = last === null ? [] : at(f => shot(f) && !isManeuver(f) && f.ms <= last);
-            judge('counterattack', levelBy(kindsOf(signs), 2, 3),
-                counter.length ? `are counterattacking in ${area}` : `are reinforcing or counterattacking in ${area}`,
-                [signs[0], ['contact here', contactBefore], ...signs.slice(1)], [area]);
-        }
-        // Casualty evacuation: ambulances or wounded, after fighting here.
-        const cas = at(f => can(f, 'medevac'));
-        if (on('casevac') && cas.length) {
-            const before = contactHere.filter(c => cas.some(f => f.ms >= c.ms && f.ms - c.ms <= 12 * HOUR));
-            judge('casevac', levelBy(cas.length + (before.length ? 1 : 0), 2, 3), `are evacuating casualties from ${area}, a sign of heavy fighting there`,
-                [['ambulances, MEDEVAC or wounded reported', cas], ['fighting here within 12 hrs before', before]], [area]);
-        }
-        // Assault groups in a town: small dismounted groups fighting among buildings, with support.
-        const inTown = URBAN.test(area) ? list : at(f => URBAN.test(f.r.activity || ''));
-        const stormers = inTown.filter(f => (f.groups.infantry || 0) > 0 && (shot(f) || advancing(f) || has(f, 'Dismounted')));
-        if (on('urban') && stormers.length) {
-            const signs = [['dismounted groups fighting or moving among buildings', stormers],
-                ['tanks, thermobaric weapons or artillery supporting', at(f => f.roles.has('armor') || can(f, 'thermobaric') || firing(f))],
-                ['drones overhead', uavs]];
-            judge('urban', levelBy(kindsOf(signs) + (stormers.length >= 3 ? 1 : 0), 2, 3), {
-                RU: `are assaulting built-up areas in ${area} with small assault groups (shturmovye gruppy)`,
-                CN: `are assaulting built-up areas in ${area} with small assault teams`,
-                '': `are assaulting built-up areas in ${area} with small assault groups`,
-            }, signs, [area]);
-        }
-        // Reconnaissance in force: a platoon or more firing, then pulling back.
-        const probes = at(f => shot(f) && ((f.groups.maneuver || 0) >= 3 || (f.groups.infantry || 0) >= 8));
-        const pulled = at(f => WITHDRAW.test(f.r.activity || '') && (probes.includes(f) || after(probes, f, 3 * HOUR)));
-        const pulledBack = at(f => f.sense === 'back' && combat(f) && (probes.includes(f) || after(probes, f, 3 * HOUR)));
-        if (on('reconforce') && probes.length && (pulled.length || pulledBack.length)) {
-            const struck = at(f => firing(f) && after([...pulled, ...pulledBack], f, 6 * HOUR));
-            judge('reconforce', EVEN + (struck.length ? 1 : 0) + (probes.length >= 2 ? 1 : 0), {
-                RU: `are conducting reconnaissance in force (razvedka boyem) in ${area}, to make friendly positions show themselves`,
-                CN: `are conducting reconnaissance in force in ${area}, to make friendly positions show themselves`,
-                '': `are conducting reconnaissance in force in ${area}`,
-            }, [['a platoon or more firing', probes], ['pulling back within 3 hrs', pulled],
-                ...marchSign('moving back along the way of march within 3 hrs', pulledBack), ['artillery on the place within 6 hrs after', struck]], [area]);
-        }
-        // Infantry building up: small groups halted or hidden here, again and again.
-        const lurk = densest(at(f => smallGroup(f) && (has(f, 'Stationary', 'Observing', 'Dismounted') || GATHER.test(f.r.activity || '')) && !advancing(f)), 48 * HOUR);
-        if (on('buildup') && lurk.length >= 3) {
-            judge('buildup', levelBy(lurk.length, 4, 6), {
-                RU: `are building up infantry in ${area}, gathering small groups near the line for an assault`,
-                CN: `are building up infantry in ${area}, concentrating small teams near a weak point`,
-                '': `are building up small infantry groups in ${area}`,
-            }, [['small dismounted groups halted or hidden within 48 hrs', lurk],
-                ['gathering in tree lines or buildings', lurk.filter(f => GATHER.test(f.r.activity || ''))],
-                ['drones resupplying them', at(f => DRONE_DROP.test(textOf(f)))]], [area]);
-        }
-        // Delivering an assault group: armor dropping infantry, the infantry going on.
-        const drops = at(f => isManeuver(f) && has(f, 'Dismounted'));
-        const foot = at(f => (f.groups.infantry || 0) > 0 && (advancing(f) || shot(f)) && drops.some(d => f.ms >= d.ms && f.ms - d.ms <= 2 * HOUR));
-        if (on('dismount') && drops.length && foot.length) {
-            const cover = at(f => isManeuver(f) && shot(f) && after(drops, f, 2 * HOUR));
-            judge('dismount', EVEN + (cover.length ? 1 : 0) + (foot.length >= 2 ? 1 : 0), {
-                RU: `are delivering assault infantry by armored group (bronegruppa) in ${area}`,
-                CN: `are delivering assault teams by infantry fighting vehicle in ${area}`,
-                '': `are delivering assault infantry by armored vehicle in ${area}`,
-            }, [['armored vehicles dropping infantry', drops], ['infantry moving or fighting within 2 hrs after', foot],
-                ['the vehicles staying to support by fire', cover]], [area]);
-        }
-        // A strongpoint: two of armor, infantry and antitank weapons holding here for 12 hrs or more.
-        const holding = at(f => has(f, 'Stationary', 'Emplacing') && !advancing(f));
-        const hArmor = holding.filter(isManeuver), hInf = holding.filter(f => (f.groups.infantry || 0) > 0), hAt = holding.filter(f => f.roles.has('atgm'));
-        const held = holding.length ? Math.max(...holding.map(f => f.ms)) - Math.min(...holding.map(f => f.ms)) : 0;
-        if (on('strongpoint') && [hArmor, hInf, hAt].filter(l => l.length).length >= 2 && held >= 12 * HOUR) {
-            const signs = [['armor or mechanized forces holding', hArmor], ['infantry holding', hInf], ['antitank weapons in position', hAt],
-                ['obstacles or mines', obst]];
-            judge('strongpoint', levelBy(kindsOf(signs), 3, 4), {
-                RU: `are holding a company strongpoint (opornyy punkt) in ${area}`, CN: `are holding a strongpoint in ${area}`,
-                '': `are holding a strongpoint in ${area}`,
-            }, signs, [area]);
-        }
-        // Tanks as fire support: firing from halted positions, with no armor advancing here.
-        const tankFire = at(f => f.roles.has('armor') && shot(f) && (has(f, 'Stationary') || INDIRECT.test(f.r.activity || ''))
-            && !list.some(m => m !== f && isManeuver(m) && advancing(m) && Math.abs(m.ms - f.ms) <= 2 * HOUR));
-        if (on('tankfire') && tankFire.length) {
-            const assault = at(f => (f.groups.infantry || 0) > 0 && (shot(f) || advancing(f)) && after(tankFire, f, 6 * HOUR));
-            judge('tankfire', levelBy(tankFire.length + (assault.length ? 1 : 0), 2, 3), {
-                RU: `are using tanks as fire support from halted positions in ${area}, rather than to break through`,
-                CN: `are supporting assault groups with tank fire from halted positions in ${area}`,
-                '': `are using tanks as fire support from halted positions in ${area}`,
-            }, [['tanks firing from halted positions', tankFire], ['infantry assaulting within 6 hrs after', assault]], [area]);
-        }
-        // Drones cutting the routes: strikes on vehicles or roads here.
-        const cuts = densest(at(f => (can(f, 'loitering') || can(f, 'uav')) && ROUTES.test(f.r.activity || '')
-            && (shot(f) || STRUCK.test(f.r.activity || ''))), 24 * HOUR);
-        if (on('interdict') && cuts.length) {
-            judge('interdict', levelBy(cuts.length, 2, 4), {
-                RU: `are cutting the routes through ${area} with drones and FPVs`, CN: `are striking the routes and vehicles in ${area} with drones to isolate it`,
-                '': `are striking vehicles on the routes through ${area} with drones`,
-            }, [['drones or FPVs striking vehicles or roads within 24 hrs', cuts]], [area]);
-        }
-        // Persistent surveillance: UAVs again and again, with no fire yet.
-        const watch = densest(uavs, 12 * HOUR);
-        const struckAfter = watch.length && at(f => (firing(f) || can(f, 'loitering')) && !watch.includes(f)
-            && f.ms >= watch[0].ms && f.ms <= watch[watch.length - 1].ms + HOUR).length;
-        if (on('isr') && watch.length >= 3 && !struckAfter) {
-            judge('isr', levelBy(watch.length, 4, 6), `are keeping ${area} under drone surveillance, building up a target for fires or an assault`,
-                [['UAVs over it within 12 hrs', watch], ['artillery or strikes following', []]], [area]);
-        }
-        // Resupply by drone.
-        const dropped = at(f => DRONE_DROP.test(textOf(f)) || (can(f, 'uav') && has(f, 'Resupplying')));
-        if (on('droneresupply') && dropped.length) {
-            judge('droneresupply', levelBy(dropped.length, 2, 3), `are resupplying forward groups in ${area} by drone`,
-                [['drones dropping or carrying supplies', dropped], ['small groups holding there', at(f => smallGroup(f) && !advancing(f))]], [area]);
-        }
-        // A railhead: armor, artillery or supplies on trains here.
-        const trains = at(f => RAIL.test(f.r.activity || '') && (isManeuver(f) || f.roles.has('fires') || f.roles.has('logistics') || f.roles.has('ad')));
-        if (on('railhead') && trains.length) {
-            const unloading = trains.filter(f => has(f, 'Resupplying'));
-            judge('railhead', levelBy(trains.length + (unloading.length ? 1 : 0), 2, 3), `are moving forces or supplies by rail through ${area}`,
-                [['armor, artillery or supplies on trains or at a railhead', trains], ['loading or unloading', unloading]], [area]);
-        }
-        // A helicopter refueling point: helicopters on the ground with fuel, or a FARP reported.
-        // Fixed-wing aircraft refueling (Su-25s at an airfield) are not one.
-        const helos = at(f => can(f, 'helo') && (has(f, 'Stationary', 'Resupplying') || /\b(landed|on the ground)\b/i.test(f.r.activity || '')));
-        const farpSaid = at(f => FARP.test(f.r.activity || ''));
-        const fuel = at(f => (f.roles.has('logistics') && FUEL_AMMO.test(textOf(f))) || has(f, 'Resupplying'));
-        if (on('farp') && ((helos.length && fuel.length) || farpSaid.length)) {
-            const signs = [['helicopters on the ground', helos], ['fuel or supply vehicles, or rearming', fuel], ['a FARP or landing site reported', farpSaid],
-                ['air defense in place', adStill]];
-            judge('farp', levelBy(kindsOf(signs), 3, 4), `have a forward arming and refueling point for helicopters in ${area}`, signs, [area]);
-        }
-        // Regrouping: halted, resupplying or recovering vehicles within 24 hrs after contact here.
-        const later = at(f => after(contactHere, f, 24 * HOUR));
-        const regroup = [['armor or infantry halted', later.filter(f => (isManeuver(f) || (f.groups.infantry || 0) > 0) && has(f, 'Stationary'))],
-            ['resupplying', later.filter(f => has(f, 'Resupplying'))], ['vehicles recovered or towed', later.filter(f => can(f, 'recovery'))]];
-        if (on('regroup') && kindsOf(regroup) >= 2) {
-            judge('regroup', levelBy(kindsOf(regroup) + (byTime(regroup.flatMap(([, l]) => l)).length >= 4 ? 1 : 0), 3, 4),
-                `are regrouping in ${area} after the fighting there`, [['contact here', contactHere], ...regroup], [area]);
-        }
-        // The team's own rules: their words, often enough, in one place.
-        custom.forEach(c => {
-            const re = ruleWords(c.words);
-            const hits = densest(at(f => re.test(textOf(f))), c.hours * HOUR);
-            if (hits.length < c.min) return;
-            judge('custom', EVEN + (hits.length >= c.min + 1 ? 1 : 0) + (hits.length >= c.min + 3 ? 1 : 0), `${c.what} in ${area}`,
-                [[`reports of ${c.words.split(',').map(w => w.trim()).filter(Boolean).join(', ')} within ${c.hours} hrs`, hits]], [area]);
-        });
+// The signs in one place (`area`, its reports `list`) that rules of more
+// than one group look for; `at` picks its reports that pass a test.
+const placeSigns = (area, list) => {
+    const at = (test) => list.filter(test);
+    const smoke = at(f => can(f, 'smoke'));
+    const uavs = at(f => can(f, 'uav'));
+    const bridge = at(f => can(f, 'bridging'));
+    const firesHere = at(firing);
+    return { area, list, at, smoke, uavs, bridge, firesHere };
+};
+
+// The maneuver rules for one place (forward, recon, reconforce, assembly, dismount, buildup, urban,
+// counterattack, airassault, amphibious, vehicles, column).
+const placeManeuver = (k, p) => {
+    const { on, judge, marchSign } = k;
+    const { area, list, at, smoke, uavs, bridge, firesHere } = p;
+    // A combined-arms group on the move: armor with artillery, air defense or engineers within 2 hours.
+    const movers = at(f => isManeuver(f) && advancing(f));
+    const escorts = at(f => (f.roles.has('fires') || f.roles.has('ad') || f.roles.has('engineer')) && advancing(f)
+        && movers.some(m => Math.abs(m.ms - f.ms) <= 2 * HOUR));
+    if (on('forward') && escorts.length) {
+        const alongside = movers.filter(m => escorts.some(e => Math.abs(m.ms - e.ms) <= 2 * HOUR));
+        const big = Math.max(...alongside.map(m => m.groups.maneuver || 0), 0) >= 10 || alongside.length >= 3;
+        const ahead = byTime([...alongside, ...escorts]).filter(along);
+        judge('forward', EVEN + (big ? 1 : 0) + (ahead.length ? 1 : 0), {
+            RU: `are moving a combined-arms group through ${area}, possibly a forward detachment or advance guard`,
+            CN: `are moving a combined-arms group through ${area}, possibly a vanguard ahead of the main body`,
+            '': `are moving a combined-arms group through ${area}`,
+        }, [['armor or mechanized forces moving', alongside], ['artillery, air defense or engineers moving with them', escorts],
+            ...marchSign('moving along the way of march', ahead)], [area]);
     }
+    // Reconnaissance, then armor or mechanized forces within 6 hours.
+    const scouts = at(f => f.roles.has('recon') || has(f, 'Observing') || can(f, 'uav'));
+    const pairs = scouts.map(s => [s, list.filter(m => m !== s && isManeuver(m) && m.ms > s.ms && m.ms - s.ms <= 6 * HOUR)]).filter(([, l]) => l.length);
+    if (on('recon') && pairs.length) {
+        const lead = byTime(pairs.map(([s]) => s)), after = byTime(pairs.flatMap(([, l]) => l));
+        const support = at(f => f.roles.has('fires') || f.roles.has('ad') || f.roles.has('engineer'));
+        judge('recon', EVEN + (lead.length >= 2 || after.length >= 2 ? 1 : 0) + (support.length ? 1 : 0),
+            `are scouting a route through ${area} for armor or mechanized forces`,
+            [['reconnaissance', lead], ['armor or mechanized forces within 6 hrs after it', after],
+                ['artillery, air defense or engineers in the same area', support]], [area]);
+    }
+    // Reconnaissance in force: a platoon or more firing, then pulling back.
+    const probes = at(f => shot(f) && ((f.groups.maneuver || 0) >= 3 || (f.groups.infantry || 0) >= 8));
+    const pulled = at(f => WITHDRAW.test(f.r.activity || '') && (probes.includes(f) || after(probes, f, 3 * HOUR)));
+    const pulledBack = at(f => f.sense === 'back' && combat(f) && (probes.includes(f) || after(probes, f, 3 * HOUR)));
+    if (on('reconforce') && probes.length && (pulled.length || pulledBack.length)) {
+        const struck = at(f => firing(f) && after([...pulled, ...pulledBack], f, 6 * HOUR));
+        judge('reconforce', EVEN + (struck.length ? 1 : 0) + (probes.length >= 2 ? 1 : 0), {
+            RU: `are conducting reconnaissance in force (razvedka boyem) in ${area}, to make friendly positions show themselves`,
+            CN: `are conducting reconnaissance in force in ${area}, to make friendly positions show themselves`,
+            '': `are conducting reconnaissance in force in ${area}`,
+        }, [['a platoon or more firing', probes], ['pulling back within 3 hrs', pulled],
+            ...marchSign('moving back along the way of march within 3 hrs', pulledBack), ['artillery on the place within 6 hrs after', struck]], [area]);
+    }
+    // An assembly area: armor halted with supply or command vehicles.
+    const still = densest(at(f => isManeuver(f) && has(f, 'Stationary')), 12 * HOUR);
+    const backing = at(f => f.roles.has('logistics') || f.roles.has('c2') || has(f, 'Resupplying'));
+    if (on('assembly') && still.length >= 2 && backing.length) {
+        const signs = [['armor or mechanized forces halted', still], ['supply or command vehicles, or resupply', backing],
+            ['artillery or air defense with them', at(f => (f.roles.has('fires') || f.roles.has('ad')) && has(f, 'Stationary'))]];
+        judge('assembly', levelBy(kindsOf(signs) + (still.length >= 5 ? 1 : 0), 3, 4), {
+            RU: `are in an assembly area in ${area}, preparing to attack (an assault detachment's assembly area)`,
+            CN: `are in an assembly area in ${area}, preparing to attack (combined-arms battalions forming assault groups)`,
+            '': `are in an assembly area in ${area}, preparing to attack`,
+        }, signs, [area]);
+    }
+    // Delivering an assault group: armor dropping infantry, the infantry going on.
+    const drops = at(f => isManeuver(f) && has(f, 'Dismounted'));
+    const foot = at(f => (f.groups.infantry || 0) > 0 && (advancing(f) || shot(f)) && drops.some(d => f.ms >= d.ms && f.ms - d.ms <= 2 * HOUR));
+    if (on('dismount') && drops.length && foot.length) {
+        const cover = at(f => isManeuver(f) && shot(f) && after(drops, f, 2 * HOUR));
+        judge('dismount', EVEN + (cover.length ? 1 : 0) + (foot.length >= 2 ? 1 : 0), {
+            RU: `are delivering assault infantry by armored group (bronegruppa) in ${area}`,
+            CN: `are delivering assault teams by infantry fighting vehicle in ${area}`,
+            '': `are delivering assault infantry by armored vehicle in ${area}`,
+        }, [['armored vehicles dropping infantry', drops], ['infantry moving or fighting within 2 hrs after', foot],
+            ['the vehicles staying to support by fire', cover]], [area]);
+    }
+    // Infantry building up: small groups halted or hidden here, again and again.
+    const lurk = densest(at(f => smallGroup(f) && (has(f, 'Stationary', 'Observing', 'Dismounted') || GATHER.test(f.r.activity || '')) && !advancing(f)), 48 * HOUR);
+    if (on('buildup') && lurk.length >= 3) {
+        judge('buildup', levelBy(lurk.length, 4, 6), {
+            RU: `are building up infantry in ${area}, gathering small groups near the line for an assault`,
+            CN: `are building up infantry in ${area}, concentrating small teams near a weak point`,
+            '': `are building up small infantry groups in ${area}`,
+        }, [['small dismounted groups halted or hidden within 48 hrs', lurk],
+            ['gathering in tree lines or buildings', lurk.filter(f => GATHER.test(f.r.activity || ''))],
+            ['drones resupplying them', at(f => DRONE_DROP.test(textOf(f)))]], [area]);
+    }
+    // Assault groups in a town: small dismounted groups fighting among buildings, with support.
+    const inTown = URBAN.test(area) ? list : at(f => URBAN.test(f.r.activity || ''));
+    const stormers = inTown.filter(f => (f.groups.infantry || 0) > 0 && (shot(f) || advancing(f) || has(f, 'Dismounted')));
+    if (on('urban') && stormers.length) {
+        const signs = [['dismounted groups fighting or moving among buildings', stormers],
+            ['tanks, thermobaric weapons or artillery supporting', at(f => f.roles.has('armor') || can(f, 'thermobaric') || firing(f))],
+            ['drones overhead', uavs]];
+        judge('urban', levelBy(kindsOf(signs) + (stormers.length >= 3 ? 1 : 0), 2, 3), {
+            RU: `are assaulting built-up areas in ${area} with small assault groups (shturmovye gruppy)`,
+            CN: `are assaulting built-up areas in ${area} with small assault teams`,
+            '': `are assaulting built-up areas in ${area} with small assault groups`,
+        }, signs, [area]);
+    }
+    // A counterattack: reported as one, or armor arriving after contact here.
+    const firstContact = at(f => shot(f) && !isManeuver(f)).map(f => f.ms);
+    const t0 = firstContact.length ? Math.min(...firstContact) : null;
+    const arrivals = t0 === null || at(f => isManeuver(f) && f.ms < t0).length ? []
+        : at(f => isManeuver(f) && (advancing(f) || shot(f)) && f.ms > t0 && f.ms - t0 <= 6 * HOUR);
+    const counter = at(f => COUNTER.test(f.r.activity || ''));
+    if (on('counterattack') && (counter.length || arrivals.length)) {
+        const signs = [['a counterattack reported', counter], ['armor or mechanized forces arriving within 6 hrs after contact here', arrivals],
+            ['artillery fire in support', firesHere]];
+        // The contact the armor arrived after is cited too, though, as in
+        // regroup, it adds no strength: the arrivals already count it.
+        const last = arrivals.length ? Math.max(...arrivals.map(f => f.ms)) : null;
+        const contactBefore = last === null ? [] : at(f => shot(f) && !isManeuver(f) && f.ms <= last);
+        judge('counterattack', levelBy(kindsOf(signs), 2, 3),
+            counter.length ? `are counterattacking in ${area}` : `are reinforcing or counterattacking in ${area}`,
+            [signs[0], ['contact here', contactBefore], ...signs.slice(1)], [area]);
+    }
+    // Air assault: transport helicopters or landings, with airborne vehicles or escorts.
+    // Transport aircraft (Il-76, Y-20) alone are not one: they fly supplies too.
+    const lift = at(f => can(f, 'liftHelo')), landing = at(f => can(f, 'airlanding'));
+    if (on('airassault') && (lift.length || landing.length)) {
+        const signs = [['transport helicopters', lift], ['an air assault or landing reported', landing],
+            ['airborne (VDV) vehicles or paratroopers', at(f => can(f, 'vdv'))], ['attack helicopters escorting', at(f => can(f, 'attackHelo'))]];
+        judge('airassault', levelBy(kindsOf(signs), 2, 3), {
+            RU: `are conducting or preparing an air assault or airborne landing near ${area} (VDV or air-assault forces)`,
+            CN: `are conducting or preparing an air assault near ${area} (an air-assault brigade)`,
+            '': `are conducting or preparing an air assault near ${area}`,
+        }, signs, [area]);
+    }
+    // Amphibious: amphibious vehicles or landings, with smoke, ferries or cover.
+    const amph = at(f => can(f, 'amphibious'));
+    if (on('amphibious') && amph.length) {
+        const signs = [['amphibious vehicles or a landing reported', amph], ['smoke', smoke], ['bridging or ferries', bridge],
+            ['air defense or artillery covering', at(f => f.roles.has('ad') || f.roles.has('fires'))]];
+        judge('amphibious', levelBy(kindsOf(signs), 2, 3), `are preparing or conducting an amphibious landing or crossing near ${area}`, signs, [area]);
+    }
+    // A force read from its vehicles: tracked and wheeled vehicles with
+    // no type given, by their mix (RUNNING_GEAR): mostly tracked, armor or
+    // mechanized forces; mostly wheeled, a supply or motorized column; else
+    // both. Never above likely: the running gear alone can't say more,
+    // and a sign seen only in hedged reports takes a step off, as ever.
+    const geared = at(f => f.guess);
+    if (on('vehicles') && geared.length) {
+        const tracked = geared.reduce((n, f) => n + f.gear.tracked, 0), wheeled = geared.reduce((n, f) => n + f.gear.wheeled, 0);
+        const mix = gearMix(tracked, wheeled);
+        const big = geared.filter(f => f.gear.tracked + f.gear.wheeled >= 10);
+        const again = geared.filter(f => geared.some(g => g !== f && g.gear.mix === f.gear.mix && Math.abs(g.ms - f.ms) <= 6 * HOUR));
+        const moving = geared.filter(advancing).length, halted = geared.filter(f => has(f, 'Stationary')).length;
+        const how = moving && moving >= halted ? ['are moving', 'through'] : halted ? ['have', 'halted in'] : ['have', 'in'];
+        const size = mix === 'wheeled' ? '' : ` of approximately ${echelonOf('maneuver', Math.max(...geared.map(f => f.gear.tracked)) || 1)} size`;
+        const force = {
+            tracked: `an armored or mechanized force${size}${wheeled ? ' with its support vehicles' : ''}`,
+            wheeled: `a supply or motorized column${tracked ? ' with an armored escort' : ''}`,
+            mixed: `a mechanized force${size} with its supply vehicles`,
+        }[mix];
+        judge('vehicles', Math.min(EVEN + (big.length || again.length ? 1 : 0), LIKELY), `${how[0]} ${force} ${how[1]} ${area}`,
+            [[`${andList([tracked && plural(tracked, 'tracked vehicle'), wheeled && plural(wheeled, 'wheeled vehicle')].filter(Boolean))}`
+                + ` with no type given, ${mix === 'mixed' ? 'a mix' : `mostly ${mix}`}`, geared],
+                ['10 vehicles or more in one report (about a company)', big], ['a second report like it within 6 hrs', again],
+                ['the type of vehicle (tank, BMP, truck)', []]], [area], true);
+    }
+    // A road march: six or more vehicles moving, mostly wheeled (so on the
+    // roads) or at road-march speed for what they are.
+    const cols = at(f => has(f, 'Moving') && vehiclesIn(f.mob) >= 6);
+    const wheeledCols = cols.filter(f => (f.mob.wheeled || 0) >= 4 && gearMix(f.mob.tracked || 0, f.mob.wheeled) === 'wheeled');
+    const fastCols = cols.filter(roadSpeed);
+    if (on('column') && (wheeledCols.length || fastCols.length)) {
+        const again = densest(cols, 12 * HOUR);
+        const signs = [['six or more vehicles moving', cols], ['mostly wheeled', wheeledCols], ['at road-march speed', fastCols],
+            ['another column through it within 12 hrs', again.length >= 2 ? again : []]];
+        judge('column', levelBy(kindsOf(signs), 3, 4), `are moving a column on the roads through ${area}`, signs, [area]);
+    }
+};
 
-    // Preparing an offensive: artillery, air defense moving, armor massing,
-    // engineers moving, EW, contact; at least two of them, one being
-    // artillery or the massing.
+// The defense rules for one place (defense, strongpoint, highground, antitank, remotemine,
+// deception).
+const placeDefense = (k, p) => {
+    const { on, judge } = k;
+    const { area, at, firesHere } = p;
+    const obst = at(f => OBSTACLE.test(f.r.activity || '') || can(f, 'minelaying'));
+    const atgm = at(f => (f.roles.has('atgm') && has(f, 'Stationary', 'Emplacing', 'Observing')) || can(f, 'atPosition'));
+    // Preparing a defense: digging in, obstacles, engineers, antitank weapons, vehicles holding.
+    const dig = at(f => has(f, 'Emplacing') && !OBSTACLE.test(f.r.activity || ''));
+    if (on('defense') && (dig.length || obst.length)) {
+        const signs = [
+            ['digging in or fortifying', dig], ['obstacles or mines', obst],
+            ['engineer equipment', at(f => f.roles.has('engineer'))], ['antitank weapons in position', atgm],
+            ['combat vehicles halted in position', at(f => has(f, 'Stationary') && (isManeuver(f) || f.roles.has('fires') || f.roles.has('ad')))],
+        ];
+        const kinds = kindsOf(signs), n = byTime(signs.flatMap(([, l]) => l)).length;
+        judge('defense', kinds >= 3 && n >= 4 ? VERY_LIKELY : kinds >= 2 || n >= 3 ? LIKELY : EVEN,
+            `are preparing a defense in ${area}`, signs, [area]);
+    }
+    // A strongpoint: two of armor, infantry and antitank weapons holding here for 12 hrs or more.
+    const holding = at(f => has(f, 'Stationary', 'Emplacing') && !advancing(f));
+    const hArmor = holding.filter(isManeuver), hInf = holding.filter(f => (f.groups.infantry || 0) > 0), hAt = holding.filter(f => f.roles.has('atgm'));
+    const held = holding.length ? Math.max(...holding.map(f => f.ms)) - Math.min(...holding.map(f => f.ms)) : 0;
+    if (on('strongpoint') && [hArmor, hInf, hAt].filter(l => l.length).length >= 2 && held >= 12 * HOUR) {
+        const signs = [['armor or mechanized forces holding', hArmor], ['infantry holding', hInf], ['antitank weapons in position', hAt],
+            ['obstacles or mines', obst]];
+        judge('strongpoint', levelBy(kindsOf(signs), 3, 4), {
+            RU: `are holding a company strongpoint (opornyy punkt) in ${area}`, CN: `are holding a strongpoint in ${area}`,
+            '': `are holding a strongpoint in ${area}`,
+        }, signs, [area]);
+    }
+    // High ground held: observers, air defense, radars or command posts
+    // halted (or observing) on high ground, overlooking an NAI or OBJ.
+    const watchers = at(f => f.high && observes(f));
+    const over = watchers.filter(f => f.overlooks);
+    if (on('highground') && over.length) {
+        const held = watchers.length >= 2 && watchers[watchers.length - 1].ms - watchers[0].ms >= 12 * HOUR ? watchers : [];
+        const key = over[over.length - 1].overlooks;
+        const signs = [['on high ground, halted or observing', watchers], [`overlooking ${key} within ${OVERLOOK_METERS / 1000} km`, over],
+            ['with line of sight into it', over.filter(f => (f.sight || []).some(s => s.key === f.overlooks && (s.state === 'seen' || s.state === 'in')))],
+            ['air defense or radars among them', watchers.filter(f => f.roles.has('ad'))], ['there 12 hrs or more', held]];
+        judge('highground', levelBy(kindsOf(signs), 3, 4),
+            key === area ? `are holding high ground in ${area}, likely for observation` : `are holding high ground at ${area}, likely for observation over ${key}`, signs, [area]);
+    }
+    // Antitank positions: ATGMs set up, covering obstacles, tanks in hides.
+    if (on('antitank') && atgm.length) {
+        const tanks = at(f => f.roles.has('armor') && has(f, 'Stationary'));
+        judge('antitank', EVEN + (atgm.length >= 2 ? 1 : 0) + (obst.length || tanks.length ? 1 : 0), `have antitank positions in ${area}`,
+            [['antitank weapons in position', atgm], ['obstacles or mines they cover', obst], ['tanks in hide positions', tanks]], [area]);
+    }
+    // Mines laid remotely or quickly: minelayers or scatterable mines, with rockets or artillery.
+    const mines = at(f => can(f, 'minelaying'));
+    if (on('remotemine') && mines.length) {
+        const signs = [['minelaying systems or remote mining reported', mines], ['rocket or artillery fire here', firesHere],
+            ['armor or mechanized forces nearby', at(isManeuver)]];
+        judge('remotemine', levelBy(kindsOf(signs) + (mines.length >= 2 ? 1 : 0), 2, 3), `are laying minefields in ${area}`, signs, [area]);
+    }
+    // Deception: decoys, dummies, camouflage.
+    const dec = at(f => can(f, 'deception'));
+    if (on('deception') && dec.length) {
+        judge('deception', levelBy(dec.length, 2, 3), {
+            RU: `are using camouflage and deception (maskirovka) in ${area}`, CN: `are using camouflage and deception in ${area}`,
+            '': `are using camouflage and deception in ${area}`,
+        }, [['decoys, dummies, camouflage or concealment reported', dec], ['the force the decoys stand in for, concealed nearby', []]], [area]);
+    }
+};
+
+// The fires rules for one place (reconfire, isr, counterbattery, shootscoot, tankfire, interdict).
+const placeFires = (k, p) => {
+    const { on, judge } = k;
+    const { area, list, at, uavs, firesHere } = p;
+    // UAVs, then artillery within the hour: a reconnaissance-fire (or -strike) link.
+    const fireAfter = at(f => (firing(f) || can(f, 'loitering')) && uavs.some(u => u !== f && f.ms >= u.ms && f.ms - u.ms <= HOUR));
+    if (on('reconfire') && uavs.length && fireAfter.length) {
+        const radar = at(f => can(f, 'cbRadar'));
+        judge('reconfire', EVEN + (uavs.length >= 2 ? 1 : 0) + (radar.length || fireAfter.length >= 2 ? 1 : 0), {
+            RU: `are spotting for artillery with UAVs over ${area} (a reconnaissance-fire complex)`,
+            CN: `are spotting for rockets and artillery with UAVs over ${area} (reconnaissance-strike)`,
+            '': `are spotting for artillery with UAVs over ${area}`,
+        }, [['UAVs overhead', uavs], ['artillery, shelling or loitering munitions within an hour after', fireAfter], ['counter-battery radar', radar]], [area]);
+    }
+    // Persistent surveillance: UAVs again and again, with no fire yet.
+    const watch = densest(uavs, 12 * HOUR);
+    const struckAfter = watch.length && at(f => (firing(f) || can(f, 'loitering')) && !watch.includes(f)
+        && f.ms >= watch[0].ms && f.ms <= watch[watch.length - 1].ms + HOUR).length;
+    if (on('isr') && watch.length >= 3 && !struckAfter) {
+        judge('isr', levelBy(watch.length, 4, 6), `are keeping ${area} under drone surveillance, building up a target for fires or an assault`,
+            [['UAVs over it within 12 hrs', watch], ['artillery or strikes following', []]], [area]);
+    }
+    // Counter-battery: radar or counter-battery fire, or drones on guns, with artillery here.
+    const cb = at(f => can(f, 'cbRadar'));
+    const onGuns = at(f => can(f, 'loitering') && /\b(howitzers?|guns?|batter(y|ies)|artillery|mortars?|mlrs|mrl)\b/i.test(f.r.activity || ''));
+    if (on('counterbattery') && (cb.length || onGuns.length) && (firesHere.length || onGuns.length)) {
+        const signs = [['counter-battery radar or counter-battery fire', cb], ['artillery or rocket fire here', firesHere],
+            ['loitering munitions or drones striking guns', onGuns]];
+        judge('counterbattery', levelBy(kindsOf(signs) + (byTime(signs.flatMap(([, l]) => l)).length >= 4 ? 1 : 0), 3, 4),
+            `are conducting counter-battery fire around ${area}`, signs, [area]);
+    }
+    // Shoot and scoot: artillery firing, then the same type moving within the hour (or displacing as it fires).
+    const gunsFiring = at(f => f.roles.has('fires') && shot(f));
+    const sameGuns = (a, b) => a.els.some(x => x.kit && x.kit.role === 'fires' && b.els.some(y => y.kit && y.kit.name === x.kit.name));
+    const displaced = at(f => f.roles.has('fires') && ((has(f, 'Moving') && gunsFiring.some(g => sameGuns(g, f) && f.ms > g.ms && f.ms - g.ms <= HOUR))
+        || (shot(f) && SCOOT.test(f.r.activity || ''))));
+    if (on('shootscoot') && displaced.length) {
+        judge('shootscoot', levelBy(displaced.length, 2, 3), {
+            RU: `are firing and quickly displacing artillery around ${area} ("roving" guns)`,
+            CN: `are firing and quickly displacing artillery around ${area}`,
+            '': `are firing and quickly displacing artillery around ${area} (shoot and scoot)`,
+        }, [['artillery or rockets firing', gunsFiring], ['the same moving within the hour after, or displacing', displaced]], [area]);
+    }
+    // Tanks as fire support: firing from halted positions, with no armor advancing here.
+    const tankFire = at(f => f.roles.has('armor') && shot(f) && (has(f, 'Stationary') || INDIRECT.test(f.r.activity || ''))
+        && !list.some(m => m !== f && isManeuver(m) && advancing(m) && Math.abs(m.ms - f.ms) <= 2 * HOUR));
+    if (on('tankfire') && tankFire.length) {
+        const assault = at(f => (f.groups.infantry || 0) > 0 && (shot(f) || advancing(f)) && after(tankFire, f, 6 * HOUR));
+        judge('tankfire', levelBy(tankFire.length + (assault.length ? 1 : 0), 2, 3), {
+            RU: `are using tanks as fire support from halted positions in ${area}, rather than to break through`,
+            CN: `are supporting assault groups with tank fire from halted positions in ${area}`,
+            '': `are using tanks as fire support from halted positions in ${area}`,
+        }, [['tanks firing from halted positions', tankFire], ['infantry assaulting within 6 hrs after', assault]], [area]);
+    }
+    // Drones cutting the routes: strikes on vehicles or roads here.
+    const cuts = densest(at(f => (can(f, 'loitering') || can(f, 'uav')) && ROUTES.test(f.r.activity || '')
+        && (shot(f) || STRUCK.test(f.r.activity || ''))), 24 * HOUR);
+    if (on('interdict') && cuts.length) {
+        judge('interdict', levelBy(cuts.length, 2, 4), {
+            RU: `are cutting the routes through ${area} with drones and FPVs`, CN: `are striking the routes and vehicles in ${area} with drones to isolate it`,
+            '': `are striking vehicles on the routes through ${area} with drones`,
+        }, [['drones or FPVs striking vehicles or roads within 24 hrs', cuts]], [area]);
+    }
+};
+
+// The support rules for one place (crossing, breach, cbrn, cp, adsite, logistics, railhead,
+// droneresupply, farp, casevac, regroup).
+const placeSupport = (k, p) => {
+    const { on, judge } = k;
+    const { area, at, smoke, bridge } = p;
+    const adStill = at(f => f.roles.has('ad') && has(f, 'Stationary'));
+    const contactHere = at(shot);
+    // A water obstacle or gap: bridging or ferries, smoke, cover, armor waiting.
+    if (on('crossing') && bridge.length) {
+        const signs = [['bridging or ferry equipment, or a crossing reported', bridge], ['smoke', smoke],
+            ['air defense covering it', at(f => f.roles.has('ad'))], ['armor or mechanized forces waiting', at(f => isManeuver(f) && has(f, 'Stationary'))],
+            ['amphibious vehicles', at(f => can(f, 'amphibious'))]];
+        judge('crossing', levelBy(kindsOf(signs), 2, 3), `are preparing to cross a water obstacle or gap in ${area}`, signs, [area]);
+    }
+    // A breach: mine clearing, smoke, fire support, armor nearby.
+    const breach = at(f => can(f, 'breaching'));
+    if (on('breach') && breach.length) {
+        const signs = [['mine clearing or breaching equipment, or a breach reported', breach], ['smoke', smoke],
+            ['thermobaric weapons or artillery fire', at(f => can(f, 'thermobaric') || firing(f))], ['armor or mechanized forces nearby', at(isManeuver)]];
+        judge('breach', levelBy(kindsOf(signs), 2, 3), `are preparing to breach obstacles in ${area}`, signs, [area]);
+    }
+    // Chemical-defense troops: their vehicles, decontamination, smoke generators.
+    const chem = at(f => can(f, 'cbrn'));
+    if (on('cbrn') && chem.length) {
+        const signs = [['chemical-defense vehicles, decontamination or smoke generators', chem], ['smoke', smoke.filter(f => !chem.includes(f))],
+            ['thermobaric weapons', at(f => can(f, 'thermobaric'))]];
+        judge('cbrn', levelBy(kindsOf(signs) + (chem.length >= 2 ? 1 : 0), 2, 3), {
+            RU: `have chemical-defense (RKhBZ) troops in ${area}, screening with smoke or decontaminating`,
+            CN: `have chemical-defense troops in ${area}, screening with smoke or decontaminating`,
+            '': `have chemical-defense troops in ${area}, screening with smoke or decontaminating`,
+        }, signs, [area]);
+    }
+    // A command post: command vehicles or antennas, with air defense, EW or many vehicles halted.
+    const c2 = at(f => f.roles.has('c2') || can(f, 'c2'));
+    if (on('cp') && c2.length) {
+        const halted = at(f => has(f, 'Stationary'));
+        const signs = [['command vehicles, antennas or a command post reported', c2], ['air defense in place', adStill],
+            ['electronic warfare', at(ewOf)], ['three or more vehicles halted there', halted.length >= 3 ? halted : []]];
+        judge('cp', levelBy(kindsOf(signs), 2, 3), `have a command post in ${area}`, signs, [area]);
+    }
+    // Air defense over a key site: in place with command, artillery or supply vehicles.
+    const sites = at(f => has(f, 'Stationary') && (f.roles.has('c2') || f.roles.has('fires') || f.roles.has('logistics')));
+    if (on('adsite') && adStill.length && sites.length) {
+        judge('adsite', EVEN + (adStill.length >= 2 ? 1 : 0) + (sites.length >= 2 ? 1 : 0), `are protecting a key site in ${area} with air defense`,
+            [['air defense in place', adStill], ['command, artillery or supply vehicles in place', sites]], [area]);
+    }
+    // A logistics site: supply vehicles halted or resupplying, again and again.
+    const supply = densest(at(f => (f.roles.has('logistics') && has(f, 'Stationary')) || has(f, 'Resupplying')), 12 * HOUR);
+    if (on('logistics') && supply.length >= 2) {
+        judge('logistics', supply.length >= 5 ? VERY_LIKELY : supply.length >= 3 ? LIKELY : EVEN,
+            `have a logistics or resupply point in ${area}`,
+            [['supply vehicles halted or resupplying within 12 hrs', supply],
+                ['fuel or ammunition vehicles', supply.filter(f => FUEL_AMMO.test(textOf(f)))]], [area]);
+    }
+    // A railhead: armor, artillery or supplies on trains here.
+    const trains = at(f => RAIL.test(f.r.activity || '') && (isManeuver(f) || f.roles.has('fires') || f.roles.has('logistics') || f.roles.has('ad')));
+    if (on('railhead') && trains.length) {
+        const unloading = trains.filter(f => has(f, 'Resupplying'));
+        judge('railhead', levelBy(trains.length + (unloading.length ? 1 : 0), 2, 3), `are moving forces or supplies by rail through ${area}`,
+            [['armor, artillery or supplies on trains or at a railhead', trains], ['loading or unloading', unloading]], [area]);
+    }
+    // Resupply by drone.
+    const dropped = at(f => DRONE_DROP.test(textOf(f)) || (can(f, 'uav') && has(f, 'Resupplying')));
+    if (on('droneresupply') && dropped.length) {
+        judge('droneresupply', levelBy(dropped.length, 2, 3), `are resupplying forward groups in ${area} by drone`,
+            [['drones dropping or carrying supplies', dropped], ['small groups holding there', at(f => smallGroup(f) && !advancing(f))]], [area]);
+    }
+    // A helicopter refueling point: helicopters on the ground with fuel, or a FARP reported.
+    // Fixed-wing aircraft refueling (Su-25s at an airfield) are not one.
+    const helos = at(f => can(f, 'helo') && (has(f, 'Stationary', 'Resupplying') || /\b(landed|on the ground)\b/i.test(f.r.activity || '')));
+    const farpSaid = at(f => FARP.test(f.r.activity || ''));
+    const fuel = at(f => (f.roles.has('logistics') && FUEL_AMMO.test(textOf(f))) || has(f, 'Resupplying'));
+    if (on('farp') && ((helos.length && fuel.length) || farpSaid.length)) {
+        const signs = [['helicopters on the ground', helos], ['fuel or supply vehicles, or rearming', fuel], ['a FARP or landing site reported', farpSaid],
+            ['air defense in place', adStill]];
+        judge('farp', levelBy(kindsOf(signs), 3, 4), `have a forward arming and refueling point for helicopters in ${area}`, signs, [area]);
+    }
+    // Casualty evacuation: ambulances or wounded, after fighting here.
+    const cas = at(f => can(f, 'medevac'));
+    if (on('casevac') && cas.length) {
+        const before = contactHere.filter(c => cas.some(f => f.ms >= c.ms && f.ms - c.ms <= 12 * HOUR));
+        judge('casevac', levelBy(cas.length + (before.length ? 1 : 0), 2, 3), `are evacuating casualties from ${area}, a sign of heavy fighting there`,
+            [['ambulances, MEDEVAC or wounded reported', cas], ['fighting here within 12 hrs before', before]], [area]);
+    }
+    // Regrouping: halted, resupplying or recovering vehicles within 24 hrs after contact here.
+    const later = at(f => after(contactHere, f, 24 * HOUR));
+    const regroup = [['armor or infantry halted', later.filter(f => (isManeuver(f) || (f.groups.infantry || 0) > 0) && has(f, 'Stationary'))],
+        ['resupplying', later.filter(f => has(f, 'Resupplying'))], ['vehicles recovered or towed', later.filter(f => can(f, 'recovery'))]];
+    if (on('regroup') && kindsOf(regroup) >= 2) {
+        judge('regroup', levelBy(kindsOf(regroup) + (byTime(regroup.flatMap(([, l]) => l)).length >= 4 ? 1 : 0), 3, 4),
+            `are regrouping in ${area} after the fighting there`, [['contact here', contactHere], ...regroup], [area]);
+    }
+};
+
+// The team's own rules: their words, often enough, in one place.
+const placeTeam = (k, p, custom) => {
+    const { judge } = k;
+    const { area, at } = p;
+    custom.forEach(c => {
+        const re = ruleWords(c.words);
+        const hits = densest(at(f => re.test(textOf(f))), c.hours * HOUR);
+        if (hits.length < c.min) return;
+        judge('custom', EVEN + (hits.length >= c.min + 1 ? 1 : 0) + (hits.length >= c.min + 3 ? 1 : 0), `${c.what} in ${area}`,
+            [[`reports of ${c.words.split(',').map(w => w.trim()).filter(Boolean).join(', ')} within ${c.hours} hrs`, hits]], [area]);
+    });
+};
+
+// The signs over the whole AO that rules of more than one group look for:
+// the armor massing most within 12 hrs (`mass`, three reports or more) and
+// the place it is in (`focus`), and every report of EW.
+const aoSigns = (k) => {
+    const { facts, byArea } = k;
     let focus = null, mass = [];
     for (const [area, list] of byArea) {
         const m = densest(list.filter(isManeuver), 12 * HOUR);
         if (m.length > mass.length) { mass = m; focus = area; }
     }
     if (mass.length < 3) { mass = []; focus = null; }
-    const fires = facts.filter(f => f.roles.has('fires'));
     const ewAll = facts.filter(ewOf);
+    return { focus, mass, ewAll };
+};
+
+// The maneuver rules over the whole AO (offense, axes, fixing, reserve, firing, infiltration,
+// lightassault, exploit, encircle, pursuit, withdrawal).
+const aoManeuver = (k, ao) => {
+    const { facts, byArea, on, judge, marchSign } = k;
+    const { focus, mass, ewAll } = ao;
+    // Preparing an offensive: artillery, air defense moving, armor massing,
+    // engineers moving, EW, contact; at least two of them, one being
+    // artillery or the massing.
+    const fires = facts.filter(f => f.roles.has('fires'));
     const offense = [
         ['artillery or rockets', fires],
         ['air defense moving', facts.filter(f => f.roles.has('ad') && has(f, 'Moving'))],
@@ -1158,15 +1166,23 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             '': `are advancing on more than one axis (${named})`,
         }, [['armor or mechanized forces moving in different places within 6 hrs', axes], ...marchSign('moving along the way of march', onward)], axisNames);
     }
-    // Small dismounted groups moving or observing, again and again.
-    const small = densest(facts.filter(f => smallGroup(f) && has(f, 'Moving', 'Observing', 'Dismounted')), 12 * HOUR);
-    if (on('infiltration') && small.length >= 2) {
-        const where = mostIn(small);
-        judge('infiltration', levelBy(small.length, 3, 5), {
-            RU: `are infiltrating small dismounted groups${where ? ` through ${where}` : ''} (assault groups seeping through gaps, or sabotage-reconnaissance groups, DRG)`,
-            CN: `are infiltrating small dismounted groups${where ? ` through ${where}` : ''} (special operations or reconnaissance teams)`,
-            '': `are infiltrating small dismounted groups${where ? ` through ${where}` : ''}`,
-        }, [['small dismounted groups moving or observing within 12 hrs', small]]);
+    // Fixing: contact in one place while armor moves in another within 3 hrs.
+    let fixAt = null, fixMovers = [], fixContact = [];
+    for (const [area, list] of byArea) {
+        const c = list.filter(shot);
+        const m = facts.filter(f => isManeuver(f) && advancing(f) && f.areas.length && !f.areas.includes(area)
+            && c.some(x => Math.abs(x.ms - f.ms) <= 3 * HOUR));
+        if (m.length > fixMovers.length) { fixMovers = m; fixAt = area; fixContact = c.filter(x => m.some(f => Math.abs(x.ms - f.ms) <= 3 * HOUR)); }
+    }
+    if (on('fixing') && fixMovers.length) {
+        const main = mostIn(fixMovers);
+        const signs = [[`contact in ${fixAt}`, fixContact], ['armor or mechanized forces moving elsewhere within 3 hrs', fixMovers],
+            [`artillery fire on ${fixAt}`, (byArea.get(fixAt) || []).filter(firing)]];
+        judge('fixing', levelBy(kindsOf(signs) + (fixMovers.reduce((n, f) => n + (f.groups.maneuver || 0), 0) >= 10 ? 1 : 0), 3, 4), {
+            RU: `are fixing friendly forces in ${fixAt}, with armor moving through ${main} at the same time`,
+            CN: `are fixing friendly forces in ${fixAt} ('one point, two sides'), with armor moving through ${main} at the same time`,
+            '': `are fixing friendly forces in ${fixAt}, with armor moving through ${main} at the same time`,
+        }, signs, [fixAt, main]);
     }
     // A second echelon or reserve: armor halted in one place during contact in another.
     // Elsewhere is a named place (NAI, OBJ, phase line) or a grid square other
@@ -1189,59 +1205,6 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             '': `are holding a reserve in ${reserveAt}`,
         }, [['contact elsewhere', fights], ['armor or mechanized forces halted away from it', reserve]], [reserveAt]);
     }
-    // Massed fires: artillery or rocket fire twice or more in 3 hours; an
-    // assault following makes it a preparation.
-    const salvo = densest(facts.filter(firing), 3 * HOUR);
-    if (on('artillery') && salvo.length >= 2) {
-        const last = salvo[salvo.length - 1].ms;
-        const follow = facts.filter(f => isManeuver(f) && has(f, 'Moving') && f.ms >= salvo[0].ms && f.ms - last <= 6 * HOUR);
-        const where = mostIn(salvo), centered = where ? `, centered on ${where}` : '';
-        judge('artillery', levelBy(salvo.length + (follow.length ? 1 : 0), 3, 4), follow.length ? {
-            RU: `are conducting an artillery preparation ahead of an assault${centered}`, CN: `are conducting a fire strike ahead of an assault${centered}`,
-            '': `are firing to prepare an assault${centered}`,
-        } : {
-            RU: `are conducting massed artillery fires${centered}`, CN: `are conducting a fire strike with artillery and rockets${centered}`,
-            '': `are conducting massed artillery fires${centered}`,
-        }, [['artillery or rocket fire within 3 hrs', salvo], ['rocket launchers among them', salvo.filter(f => can(f, 'mrl'))],
-            ['armor or mechanized forces moving after it', follow]]);
-    }
-    // Long-range strikes, loitering munitions, attack aviation, EW: how often they're reported.
-    const deep = facts.filter(f => can(f, 'deep'));
-    if (on('deep') && deep.length) {
-        judge('deep', levelBy(deep.length, 2, 3), {
-            RU: 'are preparing or conducting deep strikes with long-range rockets or missiles',
-            CN: 'are preparing or conducting long-range strikes as part of a joint fire strike',
-            '': 'are preparing or conducting long-range strikes',
-        }, [['long-range rockets or missiles', deep], ['UAVs finding targets in depth', facts.filter(f => can(f, 'uav'))]]);
-    }
-    const drones = facts.filter(f => can(f, 'loitering'));
-    if (on('drones') && drones.length) {
-        judge('drones', levelBy(drones.length, 2, 4), 'are striking with loitering munitions or drones',
-            [['loitering munitions, FPV or armed drones', drones], ['UAVs finding targets for them', facts.filter(f => can(f, 'uav'))]]);
-    }
-    const air = facts.filter(f => can(f, 'attackAir'));
-    if (on('aviation') && air.length) {
-        judge('aviation', levelBy(air.length, 2, 4), 'are supporting ground forces with attack aviation',
-            [['attack helicopters, ground-attack aircraft or armed UAVs', air], ['a ground attack at the same time', facts.filter(f => isManeuver(f) && shot(f))]]);
-    }
-    if (on('ew') && ewAll.length) {
-        const where = mostIn(ewAll), near = where ? ` near ${where}` : '';
-        judge('ew', levelBy(ewAll.length, 2, 4), {
-            RU: `are jamming communications, GPS and drones${near}`,
-            CN: `are attacking command, communications and sensors with electronic warfare${near}`,
-            '': `are conducting electronic warfare${near}`,
-        }, [['EW systems or jamming reported', ewAll],
-            ['an attack following it', facts.filter(f => isManeuver(f) && (advancing(f) || shot(f)) && ewAll.some(e => f.ms > e.ms && f.ms - e.ms <= 6 * HOUR))]]);
-    }
-    // Withdrawal, when reports say so, or forces move back along the way of march.
-    const back = facts.filter(f => WITHDRAW.test(f.r.activity || ''));
-    const backAlong = facts.filter(f => f.sense === 'back' && combat(f));
-    if (on('withdrawal') && (back.length || backAlong.length)) {
-        const n = byTime([...back, ...backAlong]).length;
-        judge('withdrawal', n >= 3 ? VERY_LIKELY : n === 2 ? LIKELY : EVEN, 'are withdrawing',
-            [['withdrawal or breaking contact reported', back], ...marchSign('moving back along the way of march', backAlong),
-                ['covering forces left behind', []], ['obstacles or demolitions behind them', []]]);
-    }
     // Firing: probing with small elements, or attacking with a company or more.
     const shots = facts.filter(f => shot(f));
     const bigShots = shots.filter(f => (f.groups.maneuver || 0) >= 10 || (f.groups.infantry || 0) >= 30);
@@ -1253,23 +1216,28 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             'are probing friendly positions with small elements',
             [['firing by elements smaller than a company', shots], ['larger elements following up', []], ['artillery fire in support', []]]);
     }
-    // Fixing: contact in one place while armor moves in another within 3 hrs.
-    let fixAt = null, fixMovers = [], fixContact = [];
-    for (const [area, list] of byArea) {
-        const c = list.filter(shot);
-        const m = facts.filter(f => isManeuver(f) && advancing(f) && f.areas.length && !f.areas.includes(area)
-            && c.some(x => Math.abs(x.ms - f.ms) <= 3 * HOUR));
-        if (m.length > fixMovers.length) { fixMovers = m; fixAt = area; fixContact = c.filter(x => m.some(f => Math.abs(x.ms - f.ms) <= 3 * HOUR)); }
+    // Small dismounted groups moving or observing, again and again.
+    const small = densest(facts.filter(f => smallGroup(f) && has(f, 'Moving', 'Observing', 'Dismounted')), 12 * HOUR);
+    if (on('infiltration') && small.length >= 2) {
+        const where = mostIn(small);
+        judge('infiltration', levelBy(small.length, 3, 5), {
+            RU: `are infiltrating small dismounted groups${where ? ` through ${where}` : ''} (assault groups seeping through gaps, or sabotage-reconnaissance groups, DRG)`,
+            CN: `are infiltrating small dismounted groups${where ? ` through ${where}` : ''} (special operations or reconnaissance teams)`,
+            '': `are infiltrating small dismounted groups${where ? ` through ${where}` : ''}`,
+        }, [['small dismounted groups moving or observing within 12 hrs', small]]);
     }
-    if (on('fixing') && fixMovers.length) {
-        const main = mostIn(fixMovers);
-        const signs = [[`contact in ${fixAt}`, fixContact], ['armor or mechanized forces moving elsewhere within 3 hrs', fixMovers],
-            [`artillery fire on ${fixAt}`, (byArea.get(fixAt) || []).filter(firing)]];
-        judge('fixing', levelBy(kindsOf(signs) + (fixMovers.reduce((n, f) => n + (f.groups.maneuver || 0), 0) >= 10 ? 1 : 0), 3, 4), {
-            RU: `are fixing friendly forces in ${fixAt}, with armor moving through ${main} at the same time`,
-            CN: `are fixing friendly forces in ${fixAt} ('one point, two sides'), with armor moving through ${main} at the same time`,
-            '': `are fixing friendly forces in ${fixAt}, with armor moving through ${main} at the same time`,
-        }, signs, [fixAt, main]);
+    // Light vehicles: motorcycles, buggies or cars moving or fighting, again and again.
+    const riders = densest(facts.filter(f => (f.roles.has('light') || LIGHT_WORDS.test(textOf(f))) && (advancing(f) || shot(f) || has(f, 'Dismounted'))), 12 * HOUR);
+    if (on('lightassault') && riders.length >= 2) {
+        const where = mostIn(riders), via = where ? ` through ${where}` : '';
+        const signs = [['motorcycles, buggies or light vehicles moving or fighting within 12 hrs', riders],
+            ['infantry with them', riders.filter(f => (f.groups.infantry || 0) > 0)],
+            ['drones overhead', facts.filter(f => can(f, 'uav') && riders.some(r => Math.abs(r.ms - f.ms) <= 2 * HOUR))]];
+        judge('lightassault', levelBy(riders.length + (kindsOf(signs) >= 3 ? 1 : 0), 3, 5), {
+            RU: `are moving assault groups fast on motorcycles, buggies and light vehicles${via}`,
+            CN: `are moving fast and dispersed on light vehicles${via}`,
+            '': `are moving fast in small groups on light vehicles${via}`,
+        }, signs);
     }
     // Exploitation: contact in one place, then armor through it and on into places quiet until then.
     let exp = null;
@@ -1340,6 +1308,20 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
         judge('pursuit', levelBy(chase.length + (onward.length ? 1 : 0), 2, 4), `are pursuing${where ? ` through ${where}` : ''}`,
             [['pursuit reported within 6 hrs', chase], ...marchSign('moving along the way of march', onward)]);
     }
+    // Withdrawal, when reports say so, or forces move back along the way of march.
+    const back = facts.filter(f => WITHDRAW.test(f.r.activity || ''));
+    const backAlong = facts.filter(f => f.sense === 'back' && combat(f));
+    if (on('withdrawal') && (back.length || backAlong.length)) {
+        const n = byTime([...back, ...backAlong]).length;
+        judge('withdrawal', n >= 3 ? VERY_LIKELY : n === 2 ? LIKELY : EVEN, 'are withdrawing',
+            [['withdrawal or breaking contact reported', back], ...marchSign('moving back along the way of march', backAlong),
+                ['covering forces left behind', []], ['obstacles or demolitions behind them', []]]);
+    }
+};
+
+// The defense rules over the whole AO (fortline, screen).
+const aoDefense = (k, ao) => {
+    const { facts, on, judge } = k;
     // A fortified line: digging in, obstacles or engineers in three or more places within 48 hrs.
     const works = densest(facts.filter(f => has(f, 'Emplacing') || OBSTACLE.test(f.r.activity || '') || (f.roles.has('engineer') && has(f, 'Stationary'))), 48 * HOUR);
     const workAreas = [...new Set(works.flatMap(f => f.areas))];
@@ -1370,18 +1352,28 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             '': `are holding a screen along ${along}`,
         }, [['reconnaissance or small groups halted or observing in different places within 6 hrs', scr], ['a defense being prepared behind them', behind]], scrAreas);
     }
-    // Light vehicles: motorcycles, buggies or cars moving or fighting, again and again.
-    const riders = densest(facts.filter(f => (f.roles.has('light') || LIGHT_WORDS.test(textOf(f))) && (advancing(f) || shot(f) || has(f, 'Dismounted'))), 12 * HOUR);
-    if (on('lightassault') && riders.length >= 2) {
-        const where = mostIn(riders), via = where ? ` through ${where}` : '';
-        const signs = [['motorcycles, buggies or light vehicles moving or fighting within 12 hrs', riders],
-            ['infantry with them', riders.filter(f => (f.groups.infantry || 0) > 0)],
-            ['drones overhead', facts.filter(f => can(f, 'uav') && riders.some(r => Math.abs(r.ms - f.ms) <= 2 * HOUR))]];
-        judge('lightassault', levelBy(riders.length + (kindsOf(signs) >= 3 ? 1 : 0), 3, 5), {
-            RU: `are moving assault groups fast on motorcycles, buggies and light vehicles${via}`,
-            CN: `are moving fast and dispersed on light vehicles${via}`,
-            '': `are moving fast in small groups on light vehicles${via}`,
-        }, signs);
+};
+
+// The fires rules over the whole AO (artillery, thermobaric, deep, c2strike, sead, drones,
+// glidebomb, aviation).
+const aoFires = (k, ao) => {
+    const { facts, on, judge } = k;
+    const { ewAll } = ao;
+    // Massed fires: artillery or rocket fire twice or more in 3 hours; an
+    // assault following makes it a preparation.
+    const salvo = densest(facts.filter(firing), 3 * HOUR);
+    if (on('artillery') && salvo.length >= 2) {
+        const last = salvo[salvo.length - 1].ms;
+        const follow = facts.filter(f => isManeuver(f) && has(f, 'Moving') && f.ms >= salvo[0].ms && f.ms - last <= 6 * HOUR);
+        const where = mostIn(salvo), centered = where ? `, centered on ${where}` : '';
+        judge('artillery', levelBy(salvo.length + (follow.length ? 1 : 0), 3, 4), follow.length ? {
+            RU: `are conducting an artillery preparation ahead of an assault${centered}`, CN: `are conducting a fire strike ahead of an assault${centered}`,
+            '': `are firing to prepare an assault${centered}`,
+        } : {
+            RU: `are conducting massed artillery fires${centered}`, CN: `are conducting a fire strike with artillery and rockets${centered}`,
+            '': `are conducting massed artillery fires${centered}`,
+        }, [['artillery or rocket fire within 3 hrs', salvo], ['rocket launchers among them', salvo.filter(f => can(f, 'mrl'))],
+            ['armor or mechanized forces moving after it', follow]]);
     }
     // Thermobaric fires, and an assault after them.
     const therm = facts.filter(f => can(f, 'thermobaric'));
@@ -1395,15 +1387,14 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             '': `are using thermobaric weapons${where ? ` on ${where}` : ''}`,
         }, [['thermobaric launchers or flamethrowers', therm], ['an assault there within 6 hrs after', assault]]);
     }
-    // Glide bombs, and an assault after them.
-    const bombs = densest(facts.filter(f => can(f, 'glideBomb')), 24 * HOUR);
-    if (on('glidebomb') && bombs.length) {
-        const where = mostIn(bombs);
-        const assault = facts.filter(f => (isManeuver(f) || (f.groups.infantry || 0) > 0) && (advancing(f) || shot(f)) && after(bombs, f, 12 * HOUR)
-            && (!where || f.areas.includes(where)));
-        judge('glidebomb', levelBy(bombs.length + (assault.length ? 1 : 0), 2, 4),
-            assault.length ? `are striking${where ? ` ${where}` : ''} with glide bombs ahead of an assault` : `are striking${where ? ` ${where}` : ''} with glide bombs`,
-            [['glide or guided bombs within 24 hrs', bombs], ['an assault there within 12 hrs after', assault]]);
+    // Long-range strikes: how often they're reported.
+    const deep = facts.filter(f => can(f, 'deep'));
+    if (on('deep') && deep.length) {
+        judge('deep', levelBy(deep.length, 2, 3), {
+            RU: 'are preparing or conducting deep strikes with long-range rockets or missiles',
+            CN: 'are preparing or conducting long-range strikes as part of a joint fire strike',
+            '': 'are preparing or conducting long-range strikes',
+        }, [['long-range rockets or missiles', deep], ['UAVs finding targets in depth', facts.filter(f => can(f, 'uav'))]]);
     }
     // Strikes on command posts, radars and communications.
     const striking = (f) => firing(f) || can(f, 'deep') || can(f, 'loitering') || can(f, 'attackAir') || can(f, 'glideBomb');
@@ -1424,6 +1415,44 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             [['anti-radiation weapons, or strikes on radars and air defense', suppress], ['EW at the same time', jam],
                 ['decoy drones', facts.filter(f => can(f, 'deception') && (can(f, 'uav') || can(f, 'loitering')))]]);
     }
+    // Loitering munitions and drones: how often they're reported.
+    const drones = facts.filter(f => can(f, 'loitering'));
+    if (on('drones') && drones.length) {
+        judge('drones', levelBy(drones.length, 2, 4), 'are striking with loitering munitions or drones',
+            [['loitering munitions, FPV or armed drones', drones], ['UAVs finding targets for them', facts.filter(f => can(f, 'uav'))]]);
+    }
+    // Glide bombs, and an assault after them.
+    const bombs = densest(facts.filter(f => can(f, 'glideBomb')), 24 * HOUR);
+    if (on('glidebomb') && bombs.length) {
+        const where = mostIn(bombs);
+        const assault = facts.filter(f => (isManeuver(f) || (f.groups.infantry || 0) > 0) && (advancing(f) || shot(f)) && after(bombs, f, 12 * HOUR)
+            && (!where || f.areas.includes(where)));
+        judge('glidebomb', levelBy(bombs.length + (assault.length ? 1 : 0), 2, 4),
+            assault.length ? `are striking${where ? ` ${where}` : ''} with glide bombs ahead of an assault` : `are striking${where ? ` ${where}` : ''} with glide bombs`,
+            [['glide or guided bombs within 24 hrs', bombs], ['an assault there within 12 hrs after', assault]]);
+    }
+    // Attack aviation: how often it's reported.
+    const air = facts.filter(f => can(f, 'attackAir'));
+    if (on('aviation') && air.length) {
+        judge('aviation', levelBy(air.length, 2, 4), 'are supporting ground forces with attack aviation',
+            [['attack helicopters, ground-attack aircraft or armed UAVs', air], ['a ground attack at the same time', facts.filter(f => isManeuver(f) && shot(f))]]);
+    }
+};
+
+// The support rules over the whole AO (ew, logforward).
+const aoSupport = (k, ao) => {
+    const { facts, on, judge, marchSign } = k;
+    const { focus, mass, ewAll } = ao;
+    // Electronic warfare: how often it's reported.
+    if (on('ew') && ewAll.length) {
+        const where = mostIn(ewAll), near = where ? ` near ${where}` : '';
+        judge('ew', levelBy(ewAll.length, 2, 4), {
+            RU: `are jamming communications, GPS and drones${near}`,
+            CN: `are attacking command, communications and sensors with electronic warfare${near}`,
+            '': `are conducting electronic warfare${near}`,
+        }, [['EW systems or jamming reported', ewAll],
+            ['an attack following it', facts.filter(f => isManeuver(f) && (advancing(f) || shot(f)) && ewAll.some(e => f.ms > e.ms && f.ms - e.ms <= 6 * HOUR))]]);
+    }
     // Logistics moving forward, with armor massing or with fuel and ammunition.
     const convoys = densest(facts.filter(f => f.roles.has('logistics') && advancing(f)), 12 * HOUR);
     const fuelAmmo = convoys.filter(f => FUEL_AMMO.test(textOf(f)));
@@ -1441,7 +1470,75 @@ const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) 
             '': `are pushing supplies forward${focus ? ` toward ${focus}` : ''}`,
         }, signs);
     }
-    return out.sort((x, y) => y.level - x.level || y.list.length - x.list.length || x.order - y.order || x.key.localeCompare(y.key));
+};
+
+const PLACE_RULES = [placeManeuver, placeDefense, placeFires, placeSupport];
+const AO_RULES = [aoManeuver, aoDefense, aoFires, aoSupport];
+
+// The judgments the reports support: each with its ICD 203 level, what is
+// judged (said of the enemy or a unit: "are preparing a defense in NAI 1";
+// some say it in the terms of the army whose equipment it is: { RU, CN, '' }),
+// the places it is about, the signs seen (and the reports behind them), and
+// the signs that would make it firmer. Every rule looks only at the reports
+// given; rules in `off` are skipped, and the team's `custom` rules run too.
+//
+// How strong a judgment is (its level, an index into ICD203): a rule that
+// fires is at least roughly even chance (EVEN), and `judge` caps it at very
+// likely (VERY_LIKELY). Each rule raises it one of three ways, tuned per rule:
+//   - EVEN + steps: one for each thing beyond the minimum that makes it
+//     firmer (antitank: two or more ATGM positions +1; obstacles or tanks in
+//     hides with them +1).
+//   - levelBy(n, likely, veryLikely): n is a count, of reports (deception),
+//     of places (axes, fortline) or of the kinds of signs seen (kindsOf:
+//     crossing, cp), sometimes plus one for a bonus (assembly: armor halted
+//     in five reports or more); at `likely` it is likely, at `veryLikely`
+//     very likely.
+//   - The same thresholds written out (defense, logistics, offense, firing,
+//     withdrawal).
+// The table of rules in tests/js/core.test.js fires each one from a minimal
+// set of reports and pins the level it gets, so a change to the tuning shows
+// there.
+//   - A sign seen only in hedged reports ("2x possible T-72") still lets a
+//     rule fire, but adds no strength: each such sign takes a step off the
+//     level, down to roughly even chance at least.
+// The way of march (wayOfMarchAt: an axis of advance near a report, else the
+// AO's direction in the settings) gives a moving report a sense (along it,
+// back along it, across it), and some rules a sign of their own, named with
+// the way of march ("moving along the way of march (W)"). With no way of
+// march anywhere, no report has a sense and no rule shows that sign, so the
+// narrative is word for word what it was before. With one:
+//   - Back along it is withdrawing, as the word is: such a report is not
+//     advancing (`advancing`), so the rules that look for forces advancing
+//     leave it out. Withdrawal fires on combat forces moving back along it,
+//     reported as withdrawing or not, and its level counts both kinds of
+//     report together (one even chance, two likely, three very likely);
+//     reconnaissance in force takes them moving back within 3 hrs of the
+//     probe as it takes pulling back.
+//   - Along it: a kind of sign for offense (kindsOf, so +1 step at most),
+//     and with it logistics pushing forward fires on supply vehicles
+//     moving along it with no armor massing or fuel and ammunition (+1 kind
+//     besides); +1 step for a forward detachment, several axes, an
+//     exploitation and a pursuit whose forces move along it.
+//   - Across it: +1 step for an envelopment whose forces move across it.
+// The tests' table of rules fires each one from the same minimal reports
+// with a way of march too, to pin those steps.
+// The rules run by the settings' groups (Maneuver, Defense, Fires,
+// Support): first in each place (PLACE_RULES, with the signs several of
+// them look for: placeSigns), the team's own rules last; then over the
+// whole AO (AO_RULES, aoSigns). Each looks only at the reports and the
+// signs, so the order they run in doesn't change what they judge.
+// The judgments are sorted by level, then by how many reports are
+// behind them, then by NARRATIVE_RULES' order; the narrative shows ten.
+const narrativeJudgments = (facts, cite, { off = new Set(), custom = [] } = {}) => {
+    const k = judgmentKit(facts, cite, off);
+    for (const [area, list] of k.byArea) {
+        const p = placeSigns(area, list);
+        PLACE_RULES.forEach(rules => rules(k, p));
+        placeTeam(k, p, custom);
+    }
+    const ao = aoSigns(k);
+    AO_RULES.forEach(rules => rules(k, ao));
+    return k.out.sort((x, y) => y.level - x.level || y.list.length - x.list.length || x.order - y.order || x.key.localeCompare(y.key));
 };
 
 // Which army's equipment some reports hold: vehicles of Russian and of
@@ -1505,32 +1602,19 @@ const LETTER = (i) => String.fromCharCode(97 + i);
 // The combat support the bottom line names beside the force, in short words.
 const SUPPORT_WORD = { recon: 'recon', fires: 'artillery', ad: 'air defense', atgm: 'antitank weapons', engineer: 'engineers', c2: 'command vehicles', ew: 'EW', air: 'aviation' };
 
-// The narrative's sections, for the reports in the period (`cur`, in time
-// order) and the period before (`prev`, or null). `settings` are the team's
-// (what the enemy is called, units, equipment, rules: narrativeSettings).
-// `overlays` give the axes of advance. Gives { lines, judgments, annex }:
-// the lines; for each judgment shown its rule, the index of the last line
-// of its one-line entry in the assessment, the lines of its detail in the
-// annex ([from, to), after its first sentence) and the reports behind it
-// (summaryDetail); and the annex's lines ([from, to), its heading first),
-// or null.
-//
-// The order is the reader's: a bottom line up front (the strongest
-// judgment, and the strongest of another kind in other places, so a
-// defense here and an attack there read as one picture; the force's size,
-// the activity and its trend, the latest report, what to watch for, the
-// first gap), then the situation (what the reports say), the enemy forces
-// (what was seen, by kind), the assessment (one line a judgment, grouped),
-// what to watch for, the gaps and the collection they call for, and an
-// annex with each judgment's basis, doctrine, unit and confidence.
-const narrativeLayout = (cur, prev, { local, hrs, end, places, settings, overlays = [], terrain = null }) => {
-    const set = narrativeSettings(settings);
-    const axes = axesOf(overlays);
-    const march = set.toward || axes.length ? { axes, toward: set.toward } : null;
-    const facts = cur.map(f => narrativeFacts(f, set.team, march));
-    // The ground (terrain: { on, heights, note }, from the page): each
-    // report's, whether it is on high ground, and the NAI or OBJ it overlooks.
-    // Without heights none of it is said, and the narrative is as it was.
+// The page the lines go on, at a width: the lines, and how text is
+// written on it (said, as an item, in the bottom line).
+const narrativeSheet = (width) => {
+    const out = [];
+    const say = (text, first = '   ', rest = first) => out.push(...wrapText(text, first, rest, width));
+    return { out, say, item: (text) => say(text, '   - ', '     '), bluf: (text) => say(text, '      ', '      ') };
+};
+
+// The ground (terrain: { on, heights, note }, from the page): each
+// report's, whether it is on high ground, and the NAI or OBJ it overlooks.
+// Without heights none of it is said, and the narrative is as it was.
+// Gives the heights, and the NAIs and OBJs.
+const narrativeGround = (facts, overlays, terrain) => {
     const heights = terrain && terrain.on ? terrain.heights : null;
     const areasNear = overlays.filter(o => overlayOk(o) && (o.type === 'NAI' || o.type === 'OBJ'));
     facts.forEach(f => { f.ground = groundAt(f.a.points[0] || null, f.way, heights); });
@@ -1545,37 +1629,13 @@ const narrativeLayout = (cur, prev, { local, hrs, end, places, settings, overlay
     });
     facts.forEach(f => { f.sight = f.ground && observes(f) ? sightOf(f.a.points[0], overlays, heights) : null; });
     facts.forEach(f => { f.reach = reachRead(f, overlays, heights); });
-    const reaching = facts.filter(f => f.reach), threats = threatsOf(facts);
-    const observers = facts.filter(f => f.sight && f.sight.length);
-    const seeing = observers.filter(f => f.sight.some(s => s.state === 'seen' || s.state === 'in'));
-    // The page the lines go on, at a width: the lines, and how text is
-    // written on it (said, as an item, in the bottom line).
-    const sheet = (width) => {
-        const out = [];
-        const say = (text, first = '   ', rest = first) => out.push(...wrapText(text, first, rest, width));
-        return { out, say, item: (text) => say(text, '   - ', '     '), bluf: (text) => say(text, '      ', '      ') };
-    };
-    const cite = (list, max = 4) => {
-        const l = byTime(list);
-        return l.slice(0, max).map(f => `${f.hedged ? `${f.hedged} ` : ''}${f.id} ${dayTime(f.ms, local)}`).join(', ') + (l.length > max ? ` and ${l.length - max} more` : '');
-    };
-    const prevNote = prev ? ` (previous ${hrs} hrs: ${prev.length})` : '';
+    return { heights, areasNear };
+};
 
-    if (!facts.length) {
-        return (width) => {
-            const { out, say } = sheet(width), shown = [];
-            say(`No reports in this period${prevNote}.`, 'BLUF: ', '      ');
-            out.push('', '1. SITUATION');
-            say(`No reports in this period${prevNote}.`);
-            out.push('', '2. ENEMY FORCES', '   None reported.', '', '3. ASSESSMENT', '   None: no reports to assess.', '');
-            return { lines: out, judgments: shown, annex: null };
-        };
-    }
-
-    // --- What the reports say, worked out first: the bottom line needs it ---
-    const who = new Set(facts.map(f => f.who).filter(Boolean)).size;
-    const placed = facts.filter(f => f.places.length).length;
-    // The equipment, by role, with the types reported and how many.
+// The equipment, by role, with the types reported and how many; the
+// types the catalogue does not know; which army designed it; and the
+// largest single sighting of each kind, and the unit size it suggests.
+const narrativeEquipment = (facts, local) => {
     const roles = new Map(), unknown = new Map(), kitOf = new Map();
     facts.forEach(f => f.els.forEach(e => {
         if (!e.kit) { unknown.set(e.type, (unknown.get(e.type) || 0) + 1); return; }
@@ -1589,30 +1649,18 @@ const narrativeLayout = (cur, prev, { local, hrs, end, places, settings, overlay
     const label = Object.fromEntries(EQUIPMENT_ROLES);
     const roleList = EQUIPMENT_ROLES.map(([r]) => r).filter(r => roles.has(r));
     const origins = originCounts(facts), army = originOf(origins);
-    // The largest single sighting of each kind, and the unit size it suggests.
     const largest = Object.keys(ECHELONS).map(kind => {
         const top = facts.filter(f => f.groups[kind]).sort((x, y) => y.groups[kind] - x.groups[kind] || y.ms - x.ms)[0];
         return top && { kind, text: `${ECHELON_LABEL[kind]} approximately ${echelonOf(kind, top.groups[kind])} size (${top.shown}; ${top.id} ${dayTime(top.ms, local)}${top.places.length ? `, ${top.places.join(', ')}` : ''})` };
     }).filter(Boolean);
-    const at = (p) => facts.filter(f => f.places.includes(p));
-    // How it all moves; the objectives and phase lines; the tempo; and, with
-    // a period before, what is new in this one.
-    const moving = addCounts(facts), mobility = mobilityRead(moving);
-    const objectives = objectivesOf(facts, overlays), crossings = crossingsOf(facts, overlays);
-    const tempo = tempoOf(facts, end);
-    const objText = (o) => (o.d === 0 ? `${o.key}, in it: ${o.f.id} ${dayTime(o.f.ms, local)}`
-        : `${o.key}, ${distText(o.d)} from ${o.f.id} ${dayTime(o.f.ms, local)}${o.closing ? `, closing about ${kmhText(o.closing)}` : o.away ? ', moving away' : ''}`);
-    // New: identified Russian or Chinese types, and places, that the period
-    // before (with reports in it) didn't have.
-    const before = prev && prev.length ? prev.map(f => narrativeFacts(f, set.team, null)) : null;
-    const seenBefore = before && new Set(before.flatMap(f => f.els.filter(e => e.kit).map(e => e.kit.name)));
-    const newKit = before ? [...new Set(facts.flatMap(f => f.els.filter(e => e.kit && e.kit.origin && !seenBefore.has(e.kit.name)).map(e => e.kit.name)))] : [];
-    const placesBefore = before && new Set(before.flatMap(f => f.places));
-    const newPlaces = before ? places.map(p => p.label).filter(p => !placesBefore.has(p)) : [];
+    return { roles, unknown, kitOf, label, roleList, origins, army, largest };
+};
 
-    // The ten strongest judgments, grouped as the settings list the rules;
-    // a group comes where its strongest judgment does, so the first is the
-    // strongest of all. Each is lettered in the order shown.
+// The ten strongest judgments, grouped as the settings list the rules;
+// a group comes where its strongest judgment does, so the first is the
+// strongest of all. Each is lettered in the order shown. With them, what
+// to watch for.
+const narrativeJudged = (facts, cite, set, army) => {
     const all = narrativeJudgments(facts, cite, set), top = all.slice(0, 10);
     const groups = [...new Set(top.map(j => groupOf(j.rule)))];
     const judged = groups.flatMap(g => top.filter(j => groupOf(j.rule) === g)).map((j, i) => {
@@ -1629,12 +1677,16 @@ const narrativeLayout = (cur, prev, { local, hrs, end, places, settings, overlay
     const watch = new Map();
     judged.forEach(x => x.j.watch.forEach(w => { if (!watch.has(w)) watch.set(w, []); watch.get(w).push(x.letter); }));
     const watchList = [...watch].map(([w, ls]) => `${w} (${ls.join(', ')})`);
+    return { all, top, groups, judged, watchList };
+};
 
-    // What the reports leave open, and the collection it calls for: places
-    // gone quiet (in a period of 12 hours or more), judgments resting on
-    // too little, reports without a grid, types the catalogue doesn't know.
-    // The places gone quiet are one gap, the quietest first; the bottom line
-    // names three of them.
+// What the reports leave open, and the collection it calls for: places
+// gone quiet (in a period of 12 hours or more), judgments resting on
+// too little, reports without a grid, types the catalogue doesn't know.
+// The places gone quiet are one gap, the quietest first; the bottom line
+// names three of them. Gives the gaps, and the bottom line's.
+const narrativeGaps = (read) => {
+    const { local, hrs, end, places, terrain, set, facts, heights, areasNear, cite, unknown, at, judged } = read;
     const gaps = [];
     let quietBrief = '';
     const span = hrs !== null && hrs !== undefined ? hrs : (end - facts[0].ms) / HOUR;
@@ -1689,216 +1741,350 @@ const narrativeLayout = (cur, prev, { local, hrs, end, places, settings, overlay
         gaps.push(`Terrain: no height yet for ${plural(withGrid.filter(f => !f.ground).length, 'report')}`
             + `${terrain.note ? ` (the source: ${terrain.note.replace(/[.]$/, '')})` : ' (still being asked, or the source has none there)'}.`);
     }
+    return { gaps, quietBrief, blufGap };
+};
+
+// What the narrative says, worked out once for every width: the reports
+// as the rules read them, with their ground; what was seen; the
+// judgments; the gaps. With no reports, only `facts` and `prevNote`.
+const narrativeRead = (cur, prev, { local, hrs, end, places, settings, overlays = [], terrain = null }) => {
+    const set = narrativeSettings(settings);
+    const axes = axesOf(overlays);
+    const march = set.toward || axes.length ? { axes, toward: set.toward } : null;
+    const facts = cur.map(f => narrativeFacts(f, set.team, march));
+    const { heights, areasNear } = narrativeGround(facts, overlays, terrain);
+    const reaching = facts.filter(f => f.reach), threats = threatsOf(facts);
+    const observers = facts.filter(f => f.sight && f.sight.length);
+    const seeing = observers.filter(f => f.sight.some(s => s.state === 'seen' || s.state === 'in'));
+    const cite = (list, max = 4) => {
+        const l = byTime(list);
+        return l.slice(0, max).map(f => `${f.hedged ? `${f.hedged} ` : ''}${f.id} ${dayTime(f.ms, local)}`).join(', ') + (l.length > max ? ` and ${l.length - max} more` : '');
+    };
+    const prevNote = prev ? ` (previous ${hrs} hrs: ${prev.length})` : '';
+    if (!facts.length) return { facts, prevNote };
+
+    // What the reports say.
+    const who = new Set(facts.map(f => f.who).filter(Boolean)).size;
+    const placed = facts.filter(f => f.places.length).length;
+    const { roles, unknown, kitOf, label, roleList, origins, army, largest } = narrativeEquipment(facts, local);
+    const at = (p) => facts.filter(f => f.places.includes(p));
+    // How it all moves; the objectives and phase lines; the tempo; and, with
+    // a period before, what is new in this one.
+    const moving = addCounts(facts), mobility = mobilityRead(moving);
+    const objectives = objectivesOf(facts, overlays), crossings = crossingsOf(facts, overlays);
+    const tempo = tempoOf(facts, end);
+    const objText = (o) => (o.d === 0 ? `${o.key}, in it: ${o.f.id} ${dayTime(o.f.ms, local)}`
+        : `${o.key}, ${distText(o.d)} from ${o.f.id} ${dayTime(o.f.ms, local)}${o.closing ? `, closing about ${kmhText(o.closing)}` : o.away ? ', moving away' : ''}`);
+    // New: identified Russian or Chinese types, and places, that the period
+    // before (with reports in it) didn't have.
+    const before = prev && prev.length ? prev.map(f => narrativeFacts(f, set.team, null)) : null;
+    const seenBefore = before && new Set(before.flatMap(f => f.els.filter(e => e.kit).map(e => e.kit.name)));
+    const newKit = before ? [...new Set(facts.flatMap(f => f.els.filter(e => e.kit && e.kit.origin && !seenBefore.has(e.kit.name)).map(e => e.kit.name)))] : [];
+    const placesBefore = before && new Set(before.flatMap(f => f.places));
+    const newPlaces = before ? places.map(p => p.label).filter(p => !placesBefore.has(p)) : [];
+    const { all, top, groups, judged, watchList } = narrativeJudged(facts, cite, set, army);
+    // The ground the bottom line and the enemy forces both tell of, and the latest report.
+    const grounded = facts.filter(f => f.ground), highUp = grounded.filter(f => f.high);
+    const steep = facts.filter(f => has(f, 'Moving') && vehiclesIn(f.mob) >= 4 && slopeRead(f));
+    const covered = facts.filter(f => f.ground && f.ground.rise !== null && f.ground.rise >= CREST_METERS && f.roles.has('fires') && has(f, 'Stationary', 'Emplacing', 'Firing'));
+    const last = facts[facts.length - 1];
+    const read = {
+        prev, local, hrs, end, places, overlays, terrain, set, axes, march, facts, heights, areasNear,
+        reaching, threats, observers, seeing, cite, prevNote, who, placed, roles, unknown, kitOf, label,
+        roleList, origins, army, largest, at, moving, mobility, objectives, crossings, tempo, objText, newKit,
+        newPlaces, all, top, groups, judged, watchList, grounded, highUp, steep, covered, last,
+    };
+    return { ...read, ...narrativeGaps(read) };
+};
+
+// BLUF: the strongest judgment, the force, and what else the reader needs first.
+const blufSection = (page, read) => {
+    const { say, bluf } = page;
+    const {
+        prev, local, hrs, places, facts, threats, seeing, who, label, roleList, largest, moving, mobility,
+        objectives, tempo, objText, judged, watchList, grounded, highUp, steep, covered, last, quietBrief,
+        blufGap,
+    } = read;
+    // The strongest judgment, and the strongest of another group (a defense
+    // beside an attack), no more than a step weaker and at least likely.
+    const lead = judged[0];
+    if (lead) {
+        const also = judged.slice(1).find(x => x.group !== lead.group && x.j.level >= Math.max(LIKELY, lead.j.level - 1));
+        say(`${lead.term.toUpperCase()} that ${lead.whom} ${lead.what} (${lead.letter}). Confidence: ${lead.sure}.`
+            + (also ? ` At the same time, ${also.term.toUpperCase()} that ${also.whom === lead.whom ? 'they' : also.whom} ${also.what} (${also.letter}). Confidence: ${also.sure}.` : ''),
+        'BLUF: ', '      ');
+    } else {
+        say(`No pattern this tool looks for in ${plural(facts.length, 'report')}; the situation is below.`, 'BLUF: ', '      ');
+    }
+    // The force: its largest sighting (armor first), and the combat support seen with it.
+    const main = largest.find(l => l.kind === 'maneuver') || largest[0];
+    const support = roleList.filter(r => r in SUPPORT_WORD).map(r => SUPPORT_WORD[r]);
+    if (main) bluf(`Strength: largest single sighting ${main.text}${support.length ? `; with ${andList(support)}` : ''}.`);
+    else if (roleList.length) bluf(`Strength: no unit size from the reports; ${andList(roleList.map(r => label[r]))} reported.`);
+    if (mobility) bluf(`Mobility: ${mobility} (${moving.tracked || 0} tracked, ${moving.wheeled || 0} wheeled).`);
+    if (objectives.length) bluf(`Closest: ${objText(objectives[0])}.`);
+    if (threats.length) {
+        bluf(`Threat: ${threats.slice(0, 3).map(t => `${t.key}: ${['direct', 'indirect', 'ad'].filter(k => t[k]).map(k => `${REACH_WORD[k]} (${t[k]})`).join(', ')}`).join('; ')}`
+            + `${threats.length > 3 ? `; and ${plural(threats.length - 3, 'more area')}` : ''}.`);
+    }
+    if (grounded.length) {
+        const hs = grounded.map(f => f.ground.h);
+        bluf(`Terrain: reports at ${Math.round(Math.min(...hs))} to ${Math.round(Math.max(...hs))} m`
+            + `${highUp.length ? `; ${highUp.length} on high ground${highUp.some(f => f.places.length) ? ` (${andList([...new Set(highUp.flatMap(f => f.places))].slice(0, 3))})` : ''}` : ''}`
+            + `${steep.length ? `; ${plural(steep.length, 'column')} on slopes too steep for ${steep.length === 1 ? 'it' : 'them'}` : ''}`
+            + `${covered.length ? `; ${covered.length} artillery behind a crest` : ''}`
+            + `${seeing.length ? `; ${plural(seeing.length, 'observer')} can see into ${andList([...new Set(seeing.flatMap(f => f.sight.filter(s => s.state === 'seen' || s.state === 'in').map(s => s.key)))].slice(0, 3))}` : ''}.`);
+    }
+    const trend = prev ? `, ${facts.length > prev.length ? 'up from' : facts.length < prev.length ? 'down from' : 'the same as'} ${prev.length} in the previous ${hrs} hrs` : '';
+    bluf(`Activity: ${plural(facts.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''}${trend}`
+        + `${places.length ? `; busiest ${places.slice(0, 2).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}${tempo ? `; tempo ${tempo.word}` : ''}.`);
+    const where = last.places.length ? last.places.join(', ') : last.a.points.length ? last.a.points[0].mgrs : (last.r.location || 'no location');
+    bluf(`Latest: ${last.id} ${dayTime(last.ms, local)}, ${where}: ${last.shown || '-'}, ${last.r.activity || '-'}.`);
+    if (watchList.length) bluf(`Watch for: ${watchList.slice(0, 3).join('; ')}.`);
+    if (blufGap) bluf(`Gap: ${quietBrief || blufGap}`);
+};
+
+// 1. SITUATION: what the reports say.
+const situationSection = (page, read) => {
+    const { out, say, item } = page;
+    const {
+        local, places, set, axes, march, facts, prevNote, who, placed, at, objectives, crossings, tempo,
+        objText, newKit, newPlaces, last,
+    } = read;
+    out.push('', '1. SITUATION');
+    item(`${plural(facts.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''}, ${dayTime(facts[0].ms, local)} to ${dayTime(last.ms, local)}`
+        + `${prevNote}; ${placed} in an NAI or OBJ`
+        + `${places.length ? `, most in ${places.slice(0, 3).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}.`);
+    if (tempo) {
+        const avg = tempo.avg < 10 ? Math.round(tempo.avg * 10) / 10 : Math.round(tempo.avg);
+        item(`Tempo: ${tempo.last ? plural(tempo.last, 'report') : 'none'} in the last ${TEMPO_HOURS} hrs, against about ${avg} per ${TEMPO_HOURS} hrs before: `
+            + `${tempo.word}${!tempo.last ? ', or a gap in coverage' : ''}.`);
+    }
+    // Where they headed.
+    const heads = new Map();
+    facts.forEach(f => { if (f.act.heading) { const h = HEADINGS_8[Math.round(f.act.headingDeg / 45) % 8]; heads.set(h, (heads.get(h) || 0) + 1); } });
+    if (heads.size) item(`Movement: headed ${[...heads].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).slice(0, 3).map(([h, n]) => `${h} (${n})`).join(', ')}.`);
+    // The way of march, when there is one, and how the reports moving moved against it.
+    if (march) {
+        const ways = [set.toward && `toward ${set.toward} in the AO`,
+            axes.length && `along ${andList(axes.map(a => a.key))} within ${AXIS_NEAR_METERS / 1000} km of ${axes.length === 1 ? 'it' : 'them'}`].filter(Boolean);
+        const moved = facts.filter(f => f.sense);
+        const n = (s) => moved.filter(f => f.sense === s).length;
+        item(`Way of march: ${ways.join('; ')}.${moved.length ? ` Of ${plural(moved.length, 'report')} moving there: ${n('along')} along it, ${n('back')} back along it, ${n('across')} across it.` : ''}`);
+    }
+    // Phase lines crossed (from tracks) and reported at; the objectives, nearest first.
+    const atPl = new Map();
+    facts.forEach(f => f.pls.forEach(p => { if (!atPl.has(p)) atPl.set(p, []); atPl.get(p).push(f); }));
+    if (crossings.length || atPl.size) {
+        const crossed = crossings.slice(0, 4).map(c => `${c.f.id} crossed ${c.key} by ${dayTime(Date.parse(c.time), local)}, moving ${c.dir}`);
+        const near = [...atPl].sort((x, y) => y[1].length - x[1].length || x[0].localeCompare(y[0])).slice(0, 3)
+            .map(([p, l]) => `at ${p}: ${plural(l.length, 'report')}, the last ${l[l.length - 1].id} ${dayTime(l[l.length - 1].ms, local)}`);
+        item(`Phase lines: ${[...crossed, ...near].join('; ')}${crossings.length > 4 ? `; and ${crossings.length - 4} earlier crossings` : ''}.`);
+    }
+    if (objectives.length) item(`Objectives: ${objectives.slice(0, 4).map(objText).join('; ')}.`);
+    if (newKit.length || newPlaces.length) {
+        item(`New this period: ${[newKit.length && `first sightings of ${andList(newKit.slice(0, 6))}${newKit.length > 6 ? ` and ${newKit.length - 6} more` : ''}`,
+            newPlaces.length && `activity in ${andList(newPlaces.slice(0, 4))} for the first time`].filter(Boolean).join('; ')}.`);
+    }
+    // Any firing, the latest three.
+    const shots = facts.filter(f => f.act.tags.includes('Firing'));
+    if (shots.length) {
+        item(`Firing: ${plural(shots.length, 'report')}: ${shots.slice(-3).reverse().map(f => `${f.id} ${dayTime(f.ms, local)} ${f.shown || '-'}, ${f.r.activity || '-'}`).join('; ')}`
+            + `${shots.length > 3 ? `; and ${shots.length - 3} earlier` : ''}.`);
+    }
+    // Each busy place as last seen: when, what, doing what, and how what
+    // was there moves.
+    if (places.length) {
+        item('Latest by place:');
+        places.slice(0, 6).forEach(p => {
+            const list = at(p.label), last = list[list.length - 1], mix = mixText(addCounts(list));
+            const ground = list.filter(f => f.ground), hs = ground.map(f => f.ground.h), slopes = ground.map(f => f.ground.slope).filter(v => v !== null);
+            const lie = hs.length ? `; ground ${Math.round(Math.min(...hs))}${Math.max(...hs) - Math.min(...hs) >= 1 ? ` to ${Math.round(Math.max(...hs))}` : ''} m`
+                + `${slopes.length ? `, steepest ${Math.round(Math.max(...slopes))}%` : ''}` : '';
+            // Whose area it is, from the unit list (not from the reports).
+            const whose = set.units.filter(u => u.places.some(q => q.toUpperCase() === p.label.toUpperCase())).map(u => u.name);
+            say(`${p.label}${whose.length ? ` (area of ${andList(whose)})` : ''}: ${plural(list.length, 'report')}, the last ${last.id} ${dayTime(last.ms, local)}: `
+                + `${last.shown || '-'}, ${last.r.activity || '-'}${mix ? `; in all ${mix}` : ''}${lie}.`, '       ', '         ');
+        });
+    }
+};
+
+// 2. ENEMY FORCES: what was seen, by kind.
+const forcesSection = (page, read) => {
+    const { out, item } = page;
+    const {
+        local, facts, reaching, observers, roles, kitOf, label, roleList, origins, army, largest, moving,
+        mobility, highUp, covered,
+    } = read;
+    out.push('', '2. ENEMY FORCES');
+    if (roleList.length) {
+        item(`Equipment reported: ${roleList.map(r => `${label[r]} (${[...roles.get(r)].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
+            .map(([t, n]) => typeCount(t, n, kitOf.get(t))).join(', ')})`).join('; ')}.`);
+    } else item('Equipment reported: none the catalogue knows.');
+    // Vehicles given only as tracked or wheeled, and how the rules read them.
+    const geared = facts.filter(f => f.gear);
+    if (geared.length) {
+        const tracked = geared.reduce((n, f) => n + f.gear.tracked, 0), wheeled = geared.reduce((n, f) => n + f.gear.wheeled, 0);
+        const read = !wheeled ? 'all tracked: read as armor or mechanized forces'
+            : !tracked ? 'all wheeled: read as supply vehicles or motorized columns'
+                : { tracked: 'mostly tracked: read as armor or mechanized forces, the wheeled as their support',
+                    wheeled: 'mostly wheeled: read as supply or motorized columns, the tracked as their escort',
+                    mixed: 'a mix: read as mechanized forces with their supply vehicles' }[gearMix(tracked, wheeled)];
+        item(`Tracked and wheeled (type not given): ${tracked} tracked, ${wheeled} wheeled in ${plural(geared.length, 'report')}; ${read}.`);
+    }
+    // How it all moves, and the columns seen moving with their rates of march.
+    if (mixText(moving)) {
+        item(`Mobility: ${mixText(moving)}${mobility ? `; ${mobility}` : ''}${moving.towed ? '; towed guns are slow to move and to set up' : ''}.`);
+    }
+    const columns = facts.filter(f => has(f, 'Moving') && vehiclesIn(f.mob) >= 4);
+    if (columns.length) {
+        item(`Columns (4 or more vehicles moving): ${columns.slice(-4).reverse().map(f => {
+            const where = f.places.length ? `, ${f.places.join(', ')}` : '', speed = speedRead(f.rate, f.mob), mix = mixText(f.mob), slope = slopeRead(f);
+            return `${f.id} ${dayTime(f.ms, local)}${where}: ${vehiclesIn(f.mob)} vehicles${mix ? ` (${mix})` : ''}${f.act.heading ? `, heading ${f.act.heading}` : ''}`
+                + `${f.rate ? `, ${kmhText(f.rate.kmh)}` : ''}${speed ? ` (${speed})` : ''}${slope ? `, ${slope}` : ''}`;
+        }).join('; ')}${columns.length > 4 ? `; and ${columns.length - 4} earlier` : ''}.`);
+    }
+    if (covered.length) {
+        item(`Behind a crest: ${covered.slice(-4).reverse().map(f => `${f.id} ${dayTime(f.ms, local)}${f.places.length ? `, ${f.places.join(', ')}` : ''}: ${f.shown}, `
+            + `the ground ${Math.round(f.ground.rise)} m higher ${TERRAIN_AHEAD_METERS} m ahead (${f.way.dir}), a covered firing position`).join('; ')}`
+            + `${covered.length > 4 ? `; and ${covered.length - 4} earlier` : ''}.`);
+    }
+    // Line of sight from each observer, the latest four.
+    observers.slice(-4).reverse().forEach(f => item(`Line of sight, ${f.id} ${dayTime(f.ms, local)} (${f.shown || '-'}, ${Math.round(f.ground.h)} m): ${sightText(f.sight)}.`));
+    if (observers.length > 4) item(`Line of sight: ${plural(observers.length - 4, 'more observer')} not shown.`);
+    // What each report's weapons reach, the latest four.
+    reaching.slice(-4).reverse().forEach(f => item(`Reach, ${f.id} ${dayTime(f.ms, local)} (${f.shown || '-'}): ${reachText(f.reach)}.`));
+    if (reaching.length > 4) item(`Reach: ${plural(reaching.length - 4, 'more report')} not shown.`);
+    if (highUp.length) {
+        item(`High ground: ${highUp.slice(-4).reverse().map(f => `${f.id} ${dayTime(f.ms, local)}${f.places.length ? `, ${f.places.join(', ')}` : ''}: ${f.shown || '-'}, `
+            + `${Math.round(f.ground.h)} m${f.overlooks ? `, overlooking ${f.overlooks}` : ''}`).join('; ')}${highUp.length > 4 ? `; and ${highUp.length - 4} earlier` : ''}.`);
+    }
+    if (army) {
+        item(origins.RU && origins.CN
+            ? `Equipment by design: Russian ${origins.RU}, Chinese ${origins.CN}; each judgment uses the doctrine of the equipment in its reports.`
+            : `Identified equipment is of ${ARMIES[army]} design (${origins[army]} ${origins[army] === 1 ? 'vehicle or system' : 'vehicles and systems'}), so the assessment uses ${army === 'RU' ? 'Russian' : 'PLA'} doctrine.`);
+    }
+    if (largest.length) item(`Largest single sightings: ${largest.map(l => l.text).join('; ')}.`);
+};
+
+// 3. ASSESSMENT: one line a judgment, each put in `shown`.
+const assessmentSection = (page, read, shown) => {
+    const { out, say } = page;
+    const { all, top, groups, judged } = read;
+    out.push('', '3. ASSESSMENT');
+    if (!judged.length) say("No assessment: the reports in this period don't match any of the patterns this tool looks for.");
+    groups.forEach(g => {
+        out.push(`   ${g.toUpperCase()}`);
+        judged.filter(x => x.group === g).forEach(x => {
+            say(`${x.term.toUpperCase()} that ${x.whom} ${x.what}. Confidence: ${x.sure}.`, `   ${x.letter}. `, '      ');
+            shown.push({ rule: x.j.rule, level: x.j.level, line: out.length - 1, detail: null, sources: [...new Set(x.j.list.map(f => reportKey(f.r)))] });
+        });
+    });
+    // How many more there were is said, not hidden.
+    if (all.length > top.length) {
+        say(`${plural(all.length - top.length, 'more judgment')} at ${ICD203[all[top.length].level][0]} or less not shown; a shorter window, or rules switched off in the settings, narrows them.`);
+    }
+};
+
+// 4. WATCH FOR, 5. GAPS AND COLLECTION.
+const followUpSection = (page, read) => {
+    const { out, item } = page;
+    const { watchList, gaps } = read;
+    out.push('', '4. WATCH FOR');
+    if (watchList.length) watchList.forEach(item);
+    else out.push('   Nothing more than the judgments already show.');
+    out.push('', '5. GAPS AND COLLECTION');
+    if (gaps.length) gaps.forEach(item);
+    else out.push('   None.');
+};
+
+// ANNEX A: each judgment in full, its lines in `shown`. Gives the annex's
+// lines ([from, to), its heading first), or null.
+const annexSection = (page, read, shown) => {
+    const { out, say } = page;
+    const { set, label, judged } = read;
+    let annex = null;
+    if (judged.length) {
+        out.push('', 'ANNEX A. JUDGMENT DETAIL');
+        annex = [out.length - 1, 0];
+        judged.forEach((x, i) => {
+            say(`${x.term.toUpperCase()} (${x.pct}) that ${x.whom} ${x.what}.`, `   ${x.letter}. `, '      ');
+            const from = out.length;
+            say(`Basis: ${x.j.basis}.`, '      ', '      ');
+            const doctrine = DOCTRINE[x.j.rule] && DOCTRINE[x.j.rule][x.o];
+            if (doctrine) {
+                const whose = x.mine ? `${ARMIES[x.o]} equipment in these reports${x.own.RU && x.own.CN ? `, ${x.own[x.o]} of ${x.own.RU + x.own.CN}` : ''}` : `${ARMIES[x.o]} equipment in the period`;
+                say(`Doctrine (${whose}): ${doctrine}`, '      ', '      ');
+            }
+            if (x.whom !== set.enemy) {
+                say(`Unit: from the unit list, ${x.units.map(u => `${u.name} (${[u.places.join(', ') || 'anywhere', u.kinds.map(k => label[k]).join(', ')].filter(Boolean).join('; ')})`).join('; ')}.`, '      ', '      ');
+            }
+            say(`Confidence: ${x.confidence}.`, '      ', '      ');
+            if (x.j.watch.length) say(`Watch for: ${x.j.watch.join('; ')}.`, '      ', '      ');
+            shown[i].detail = [from, out.length];
+        });
+        annex[1] = out.length;
+    }
+    return annex;
+};
+
+// The note on how to read it all.
+const noteSection = (page, read) => {
+    const { out, say } = page;
+    const { set } = read;
+    out.push('');
+    say('NOTE: SITUATION and ENEMY FORCES are what the reports say; counts are as reported, and the same vehicles may be in more than one report.'
+        + ' ASSESSMENT comes from fixed rules over the cited reports, in full in Annex A. Likelihood terms follow ICD 203: '
+        + `${ICD203.map(([t, p]) => `${t} ${p}`).join(', ')}. Confidence (high, moderate, low) rests on how many reports and observers support a judgment.`
+        + ' Doctrine follows the design of the equipment in each judgment\'s reports (Russian or Chinese), else the period\'s.'
+        + `${set.units.length ? ' Units are named from the unit list, not from the reports.' : ''}`, '', '');
+};
+
+// The narrative's sections, for the reports in the period (`cur`, in time
+// order) and the period before (`prev`, or null). `settings` are the team's
+// (what the enemy is called, units, equipment, rules: narrativeSettings).
+// `overlays` give the axes of advance. Gives { lines, judgments, annex }:
+// the lines; for each judgment shown its rule, the index of the last line
+// of its one-line entry in the assessment, the lines of its detail in the
+// annex ([from, to), after its first sentence) and the reports behind it
+// (summaryDetail); and the annex's lines ([from, to), its heading first),
+// or null.
+//
+// The order is the reader's: a bottom line up front (the strongest
+// judgment, and the strongest of another kind in other places, so a
+// defense here and an attack there read as one picture; the force's size,
+// the activity and its trend, the latest report, what to watch for, the
+// first gap), then the situation (what the reports say), the enemy forces
+// (what was seen, by kind), the assessment (one line a judgment, grouped),
+// what to watch for, the gaps and the collection they call for, and an
+// annex with each judgment's basis, doctrine, unit and confidence.
+//
+// What it says is worked out once (narrativeRead); each width only writes
+// the sections, one function each, in that order.
+const narrativeLayout = (cur, prev, opts) => {
+    const read = narrativeRead(cur, prev, opts);
+    if (!read.facts.length) {
+        return (width) => {
+            const { out, say } = narrativeSheet(width), shown = [];
+            const { prevNote } = read;
+            say(`No reports in this period${prevNote}.`, 'BLUF: ', '      ');
+            out.push('', '1. SITUATION');
+            say(`No reports in this period${prevNote}.`);
+            out.push('', '2. ENEMY FORCES', '   None reported.', '', '3. ASSESSMENT', '   None: no reports to assess.', '');
+            return { lines: out, judgments: shown, annex: null };
+        };
+    }
 
     // The layout, at any width: the same reading each time.
     return (width) => {
-        const { out, say, item, bluf } = sheet(width), shown = [];
-
-        // --- BLUF ---
-        // The strongest judgment, and the strongest of another group (a defense
-        // beside an attack), no more than a step weaker and at least likely.
-        const lead = judged[0];
-        if (lead) {
-            const also = judged.slice(1).find(x => x.group !== lead.group && x.j.level >= Math.max(LIKELY, lead.j.level - 1));
-            say(`${lead.term.toUpperCase()} that ${lead.whom} ${lead.what} (${lead.letter}). Confidence: ${lead.sure}.`
-                + (also ? ` At the same time, ${also.term.toUpperCase()} that ${also.whom === lead.whom ? 'they' : also.whom} ${also.what} (${also.letter}). Confidence: ${also.sure}.` : ''),
-            'BLUF: ', '      ');
-        } else {
-            say(`No pattern this tool looks for in ${plural(facts.length, 'report')}; the situation is below.`, 'BLUF: ', '      ');
-        }
-        // The force: its largest sighting (armor first), and the combat support seen with it.
-        const main = largest.find(l => l.kind === 'maneuver') || largest[0];
-        const support = roleList.filter(r => r in SUPPORT_WORD).map(r => SUPPORT_WORD[r]);
-        if (main) bluf(`Strength: largest single sighting ${main.text}${support.length ? `; with ${andList(support)}` : ''}.`);
-        else if (roleList.length) bluf(`Strength: no unit size from the reports; ${andList(roleList.map(r => label[r]))} reported.`);
-        if (mobility) bluf(`Mobility: ${mobility} (${moving.tracked || 0} tracked, ${moving.wheeled || 0} wheeled).`);
-        if (objectives.length) bluf(`Closest: ${objText(objectives[0])}.`);
-        if (threats.length) {
-            bluf(`Threat: ${threats.slice(0, 3).map(t => `${t.key}: ${['direct', 'indirect', 'ad'].filter(k => t[k]).map(k => `${REACH_WORD[k]} (${t[k]})`).join(', ')}`).join('; ')}`
-                + `${threats.length > 3 ? `; and ${plural(threats.length - 3, 'more area')}` : ''}.`);
-        }
-        const grounded = facts.filter(f => f.ground), highUp = grounded.filter(f => f.high);
-        const steep = facts.filter(f => has(f, 'Moving') && vehiclesIn(f.mob) >= 4 && slopeRead(f));
-        const covered = facts.filter(f => f.ground && f.ground.rise !== null && f.ground.rise >= CREST_METERS && f.roles.has('fires') && has(f, 'Stationary', 'Emplacing', 'Firing'));
-        if (grounded.length) {
-            const hs = grounded.map(f => f.ground.h);
-            bluf(`Terrain: reports at ${Math.round(Math.min(...hs))} to ${Math.round(Math.max(...hs))} m`
-                + `${highUp.length ? `; ${highUp.length} on high ground${highUp.some(f => f.places.length) ? ` (${andList([...new Set(highUp.flatMap(f => f.places))].slice(0, 3))})` : ''}` : ''}`
-                + `${steep.length ? `; ${plural(steep.length, 'column')} on slopes too steep for ${steep.length === 1 ? 'it' : 'them'}` : ''}`
-                + `${covered.length ? `; ${covered.length} artillery behind a crest` : ''}`
-                + `${seeing.length ? `; ${plural(seeing.length, 'observer')} can see into ${andList([...new Set(seeing.flatMap(f => f.sight.filter(s => s.state === 'seen' || s.state === 'in').map(s => s.key)))].slice(0, 3))}` : ''}.`);
-        }
-        const trend = prev ? `, ${facts.length > prev.length ? 'up from' : facts.length < prev.length ? 'down from' : 'the same as'} ${prev.length} in the previous ${hrs} hrs` : '';
-        bluf(`Activity: ${plural(facts.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''}${trend}`
-            + `${places.length ? `; busiest ${places.slice(0, 2).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}${tempo ? `; tempo ${tempo.word}` : ''}.`);
-        const last = facts[facts.length - 1];
-        const where = last.places.length ? last.places.join(', ') : last.a.points.length ? last.a.points[0].mgrs : (last.r.location || 'no location');
-        bluf(`Latest: ${last.id} ${dayTime(last.ms, local)}, ${where}: ${last.shown || '-'}, ${last.r.activity || '-'}.`);
-        if (watchList.length) bluf(`Watch for: ${watchList.slice(0, 3).join('; ')}.`);
-        if (blufGap) bluf(`Gap: ${quietBrief || blufGap}`);
-
-        // --- 1. SITUATION: what the reports say ---
-        out.push('', '1. SITUATION');
-        item(`${plural(facts.length, 'report')}${who ? ` from ${plural(who, 'observer')}` : ''}, ${dayTime(facts[0].ms, local)} to ${dayTime(last.ms, local)}`
-            + `${prevNote}; ${placed} in an NAI or OBJ`
-            + `${places.length ? `, most in ${places.slice(0, 3).map(p => `${p.label} (${p.value})`).join(', ')}` : ''}.`);
-        if (tempo) {
-            const avg = tempo.avg < 10 ? Math.round(tempo.avg * 10) / 10 : Math.round(tempo.avg);
-            item(`Tempo: ${tempo.last ? plural(tempo.last, 'report') : 'none'} in the last ${TEMPO_HOURS} hrs, against about ${avg} per ${TEMPO_HOURS} hrs before: `
-                + `${tempo.word}${!tempo.last ? ', or a gap in coverage' : ''}.`);
-        }
-        // Where they headed.
-        const heads = new Map();
-        facts.forEach(f => { if (f.act.heading) { const h = HEADINGS_8[Math.round(f.act.headingDeg / 45) % 8]; heads.set(h, (heads.get(h) || 0) + 1); } });
-        if (heads.size) item(`Movement: headed ${[...heads].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).slice(0, 3).map(([h, n]) => `${h} (${n})`).join(', ')}.`);
-        // The way of march, when there is one, and how the reports moving moved against it.
-        if (march) {
-            const ways = [set.toward && `toward ${set.toward} in the AO`,
-                axes.length && `along ${andList(axes.map(a => a.key))} within ${AXIS_NEAR_METERS / 1000} km of ${axes.length === 1 ? 'it' : 'them'}`].filter(Boolean);
-            const moved = facts.filter(f => f.sense);
-            const n = (s) => moved.filter(f => f.sense === s).length;
-            item(`Way of march: ${ways.join('; ')}.${moved.length ? ` Of ${plural(moved.length, 'report')} moving there: ${n('along')} along it, ${n('back')} back along it, ${n('across')} across it.` : ''}`);
-        }
-        // Phase lines crossed (from tracks) and reported at; the objectives, nearest first.
-        const atPl = new Map();
-        facts.forEach(f => f.pls.forEach(p => { if (!atPl.has(p)) atPl.set(p, []); atPl.get(p).push(f); }));
-        if (crossings.length || atPl.size) {
-            const crossed = crossings.slice(0, 4).map(c => `${c.f.id} crossed ${c.key} by ${dayTime(Date.parse(c.time), local)}, moving ${c.dir}`);
-            const near = [...atPl].sort((x, y) => y[1].length - x[1].length || x[0].localeCompare(y[0])).slice(0, 3)
-                .map(([p, l]) => `at ${p}: ${plural(l.length, 'report')}, the last ${l[l.length - 1].id} ${dayTime(l[l.length - 1].ms, local)}`);
-            item(`Phase lines: ${[...crossed, ...near].join('; ')}${crossings.length > 4 ? `; and ${crossings.length - 4} earlier crossings` : ''}.`);
-        }
-        if (objectives.length) item(`Objectives: ${objectives.slice(0, 4).map(objText).join('; ')}.`);
-        if (newKit.length || newPlaces.length) {
-            item(`New this period: ${[newKit.length && `first sightings of ${andList(newKit.slice(0, 6))}${newKit.length > 6 ? ` and ${newKit.length - 6} more` : ''}`,
-                newPlaces.length && `activity in ${andList(newPlaces.slice(0, 4))} for the first time`].filter(Boolean).join('; ')}.`);
-        }
-        // Any firing, the latest three.
-        const shots = facts.filter(f => f.act.tags.includes('Firing'));
-        if (shots.length) {
-            item(`Firing: ${plural(shots.length, 'report')}: ${shots.slice(-3).reverse().map(f => `${f.id} ${dayTime(f.ms, local)} ${f.shown || '-'}, ${f.r.activity || '-'}`).join('; ')}`
-                + `${shots.length > 3 ? `; and ${shots.length - 3} earlier` : ''}.`);
-        }
-        // Each busy place as last seen: when, what, doing what, and how what
-        // was there moves.
-        if (places.length) {
-            item('Latest by place:');
-            places.slice(0, 6).forEach(p => {
-                const list = at(p.label), last = list[list.length - 1], mix = mixText(addCounts(list));
-                const ground = list.filter(f => f.ground), hs = ground.map(f => f.ground.h), slopes = ground.map(f => f.ground.slope).filter(v => v !== null);
-                const lie = hs.length ? `; ground ${Math.round(Math.min(...hs))}${Math.max(...hs) - Math.min(...hs) >= 1 ? ` to ${Math.round(Math.max(...hs))}` : ''} m`
-                    + `${slopes.length ? `, steepest ${Math.round(Math.max(...slopes))}%` : ''}` : '';
-                // Whose area it is, from the unit list (not from the reports).
-                const whose = set.units.filter(u => u.places.some(q => q.toUpperCase() === p.label.toUpperCase())).map(u => u.name);
-                say(`${p.label}${whose.length ? ` (area of ${andList(whose)})` : ''}: ${plural(list.length, 'report')}, the last ${last.id} ${dayTime(last.ms, local)}: `
-                    + `${last.shown || '-'}, ${last.r.activity || '-'}${mix ? `; in all ${mix}` : ''}${lie}.`, '       ', '         ');
-            });
-        }
-
-        // --- 2. ENEMY FORCES: what was seen, by kind ---
-        out.push('', '2. ENEMY FORCES');
-        if (roleList.length) {
-            item(`Equipment reported: ${roleList.map(r => `${label[r]} (${[...roles.get(r)].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
-                .map(([t, n]) => typeCount(t, n, kitOf.get(t))).join(', ')})`).join('; ')}.`);
-        } else item('Equipment reported: none the catalogue knows.');
-        // Vehicles given only as tracked or wheeled, and how the rules read them.
-        const geared = facts.filter(f => f.gear);
-        if (geared.length) {
-            const tracked = geared.reduce((n, f) => n + f.gear.tracked, 0), wheeled = geared.reduce((n, f) => n + f.gear.wheeled, 0);
-            const read = !wheeled ? 'all tracked: read as armor or mechanized forces'
-                : !tracked ? 'all wheeled: read as supply vehicles or motorized columns'
-                    : { tracked: 'mostly tracked: read as armor or mechanized forces, the wheeled as their support',
-                        wheeled: 'mostly wheeled: read as supply or motorized columns, the tracked as their escort',
-                        mixed: 'a mix: read as mechanized forces with their supply vehicles' }[gearMix(tracked, wheeled)];
-            item(`Tracked and wheeled (type not given): ${tracked} tracked, ${wheeled} wheeled in ${plural(geared.length, 'report')}; ${read}.`);
-        }
-        // How it all moves, and the columns seen moving with their rates of march.
-        if (mixText(moving)) {
-            item(`Mobility: ${mixText(moving)}${mobility ? `; ${mobility}` : ''}${moving.towed ? '; towed guns are slow to move and to set up' : ''}.`);
-        }
-        const columns = facts.filter(f => has(f, 'Moving') && vehiclesIn(f.mob) >= 4);
-        if (columns.length) {
-            item(`Columns (4 or more vehicles moving): ${columns.slice(-4).reverse().map(f => {
-                const where = f.places.length ? `, ${f.places.join(', ')}` : '', speed = speedRead(f.rate, f.mob), mix = mixText(f.mob), slope = slopeRead(f);
-                return `${f.id} ${dayTime(f.ms, local)}${where}: ${vehiclesIn(f.mob)} vehicles${mix ? ` (${mix})` : ''}${f.act.heading ? `, heading ${f.act.heading}` : ''}`
-                    + `${f.rate ? `, ${kmhText(f.rate.kmh)}` : ''}${speed ? ` (${speed})` : ''}${slope ? `, ${slope}` : ''}`;
-            }).join('; ')}${columns.length > 4 ? `; and ${columns.length - 4} earlier` : ''}.`);
-        }
-        if (covered.length) {
-            item(`Behind a crest: ${covered.slice(-4).reverse().map(f => `${f.id} ${dayTime(f.ms, local)}${f.places.length ? `, ${f.places.join(', ')}` : ''}: ${f.shown}, `
-                + `the ground ${Math.round(f.ground.rise)} m higher ${TERRAIN_AHEAD_METERS} m ahead (${f.way.dir}), a covered firing position`).join('; ')}`
-                + `${covered.length > 4 ? `; and ${covered.length - 4} earlier` : ''}.`);
-        }
-        // Line of sight from each observer, the latest four.
-        observers.slice(-4).reverse().forEach(f => item(`Line of sight, ${f.id} ${dayTime(f.ms, local)} (${f.shown || '-'}, ${Math.round(f.ground.h)} m): ${sightText(f.sight)}.`));
-        if (observers.length > 4) item(`Line of sight: ${plural(observers.length - 4, 'more observer')} not shown.`);
-        // What each report's weapons reach, the latest four.
-        reaching.slice(-4).reverse().forEach(f => item(`Reach, ${f.id} ${dayTime(f.ms, local)} (${f.shown || '-'}): ${reachText(f.reach)}.`));
-        if (reaching.length > 4) item(`Reach: ${plural(reaching.length - 4, 'more report')} not shown.`);
-        if (highUp.length) {
-            item(`High ground: ${highUp.slice(-4).reverse().map(f => `${f.id} ${dayTime(f.ms, local)}${f.places.length ? `, ${f.places.join(', ')}` : ''}: ${f.shown || '-'}, `
-                + `${Math.round(f.ground.h)} m${f.overlooks ? `, overlooking ${f.overlooks}` : ''}`).join('; ')}${highUp.length > 4 ? `; and ${highUp.length - 4} earlier` : ''}.`);
-        }
-        if (army) {
-            item(origins.RU && origins.CN
-                ? `Equipment by design: Russian ${origins.RU}, Chinese ${origins.CN}; each judgment uses the doctrine of the equipment in its reports.`
-                : `Identified equipment is of ${ARMIES[army]} design (${origins[army]} ${origins[army] === 1 ? 'vehicle or system' : 'vehicles and systems'}), so the assessment uses ${army === 'RU' ? 'Russian' : 'PLA'} doctrine.`);
-        }
-        if (largest.length) item(`Largest single sightings: ${largest.map(l => l.text).join('; ')}.`);
-
-        // --- 3. ASSESSMENT: one line a judgment ---
-        out.push('', '3. ASSESSMENT');
-        if (!judged.length) say("No assessment: the reports in this period don't match any of the patterns this tool looks for.");
-        groups.forEach(g => {
-            out.push(`   ${g.toUpperCase()}`);
-            judged.filter(x => x.group === g).forEach(x => {
-                say(`${x.term.toUpperCase()} that ${x.whom} ${x.what}. Confidence: ${x.sure}.`, `   ${x.letter}. `, '      ');
-                shown.push({ rule: x.j.rule, level: x.j.level, line: out.length - 1, detail: null, sources: [...new Set(x.j.list.map(f => reportKey(f.r)))] });
-            });
-        });
-        // How many more there were is said, not hidden.
-        if (all.length > top.length) {
-            say(`${plural(all.length - top.length, 'more judgment')} at ${ICD203[all[top.length].level][0]} or less not shown; a shorter window, or rules switched off in the settings, narrows them.`);
-        }
-
-        // --- 4. WATCH FOR, 5. GAPS AND COLLECTION ---
-        out.push('', '4. WATCH FOR');
-        if (watchList.length) watchList.forEach(item);
-        else out.push('   Nothing more than the judgments already show.');
-        out.push('', '5. GAPS AND COLLECTION');
-        if (gaps.length) gaps.forEach(item);
-        else out.push('   None.');
-
-        // --- ANNEX A: each judgment in full ---
-        let annex = null;
-        if (judged.length) {
-            out.push('', 'ANNEX A. JUDGMENT DETAIL');
-            annex = [out.length - 1, 0];
-            judged.forEach((x, i) => {
-                say(`${x.term.toUpperCase()} (${x.pct}) that ${x.whom} ${x.what}.`, `   ${x.letter}. `, '      ');
-                const from = out.length;
-                say(`Basis: ${x.j.basis}.`, '      ', '      ');
-                const doctrine = DOCTRINE[x.j.rule] && DOCTRINE[x.j.rule][x.o];
-                if (doctrine) {
-                    const whose = x.mine ? `${ARMIES[x.o]} equipment in these reports${x.own.RU && x.own.CN ? `, ${x.own[x.o]} of ${x.own.RU + x.own.CN}` : ''}` : `${ARMIES[x.o]} equipment in the period`;
-                    say(`Doctrine (${whose}): ${doctrine}`, '      ', '      ');
-                }
-                if (x.whom !== set.enemy) {
-                    say(`Unit: from the unit list, ${x.units.map(u => `${u.name} (${[u.places.join(', ') || 'anywhere', u.kinds.map(k => label[k]).join(', ')].filter(Boolean).join('; ')})`).join('; ')}.`, '      ', '      ');
-                }
-                say(`Confidence: ${x.confidence}.`, '      ', '      ');
-                if (x.j.watch.length) say(`Watch for: ${x.j.watch.join('; ')}.`, '      ', '      ');
-                shown[i].detail = [from, out.length];
-            });
-            annex[1] = out.length;
-        }
-
-        out.push('');
-        say('NOTE: SITUATION and ENEMY FORCES are what the reports say; counts are as reported, and the same vehicles may be in more than one report.'
-            + ' ASSESSMENT comes from fixed rules over the cited reports, in full in Annex A. Likelihood terms follow ICD 203: '
-            + `${ICD203.map(([t, p]) => `${t} ${p}`).join(', ')}. Confidence (high, moderate, low) rests on how many reports and observers support a judgment.`
-            + ' Doctrine follows the design of the equipment in each judgment\'s reports (Russian or Chinese), else the period\'s.'
-            + `${set.units.length ? ' Units are named from the unit list, not from the reports.' : ''}`, '', '');
-        return { lines: out, judgments: shown, annex };
+        const page = narrativeSheet(width), shown = [];
+        blufSection(page, read);
+        situationSection(page, read);
+        forcesSection(page, read);
+        assessmentSection(page, read, shown);
+        followUpSection(page, read);
+        const annex = annexSection(page, read, shown);
+        noteSection(page, read);
+        return { lines: page.out, judgments: shown, annex };
     };
 };

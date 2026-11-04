@@ -370,7 +370,10 @@ first name: tracked, wheeled, towed, portable, foot, air or static; aviation
 and people go by their role, and a type made both ways has none).
 `ECHELONS` turns a count into an approximate unit size.
 `narrativeJudgments` runs the fixed rules (`NARRATIVE_RULES`) over those facts
-per place and across the period; each judgment carries an ICD 203 likelihood
+per place and across the period, one function for each of the rules' groups
+in each (`placeManeuver` to `placeSupport`, then `aoManeuver` to
+`aoSupport`), with the signs more than one group looks for worked out once
+(`placeSigns`, `aoSigns`); each judgment carries an ICD 203 likelihood
 (never past *very likely*), the reports behind it, and what would make it
 firmer. Where a judgment's reports hold Russian or Chinese equipment, its
 wording and the `DOCTRINE` line under it come from that army's doctrine.
@@ -403,7 +406,10 @@ what to watch for, the first gap), then 1. SITUATION and 2. ENEMY FORCES
 is), 4. WATCH FOR, 5. GAPS AND COLLECTION, and ANNEX A. JUDGMENT DETAIL
 (each judgment's basis, doctrine, unit and confidence). The layout only
 arranges what `narrativeJudgments` gives: the judgments, their levels and
-the reports behind them are the same.
+the reports behind them are the same. What the narrative says is worked
+out once (`narrativeRead`, with `narrativeGround`, `narrativeEquipment`,
+`narrativeJudged` and `narrativeGaps`), and one function a section
+(`blufSection` to `noteSection`) writes it at each width.
 
 What is happening now comes from the reports' running gear and tracks:
 `gearCounts` (how each report's equipment moves, from `CATALOGUE_GEAR`),
